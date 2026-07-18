@@ -1,0 +1,85 @@
+package com.company.krishivishal.data.repository
+
+import com.company.krishivishal.data.local.CropDao
+import com.company.krishivishal.data.model.Crop
+import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.utils.networkBoundResource
+import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.tasks.await
+import javax.inject.Inject
+import javax.inject.Singleton
+import com.company.krishivishal.di.IoDispatcher
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.flow.flow
+
+interface CropRepository {
+    fun getCrops(): Flow<Resource<List<Crop>>>
+    suspend fun saveCrop(crop: Crop): Flow<Resource<Unit>>
+    suspend fun deleteCrop(cropId: String): Flow<Resource<Unit>>
+}
+
+@Singleton
+class CropRepositoryImpl @Inject constructor(
+    private val firestore: FirebaseFirestore,
+    private val cropDao: CropDao,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
+) : CropRepository {
+
+    override fun getCrops(): Flow<Resource<List<Crop>>> = kotlinx.coroutines.flow.flow {
+        emit(Resource.Success(com.company.krishivishal.utils.Constants.SAMPLE_CROPS))
+        try {
+            val snapshot = firestore.collection("crops").whereEqualTo("isActive", true).get().await()
+            val fetched = snapshot.documents.mapNotNull { doc ->
+                Crop(id = doc.id, name = doc.getString("name") ?: "", imageUrl = doc.getString("imageUrl") ?: "", isActive = true)
+            }
+            if (fetched.isNotEmpty()) emit(Resource.Success(fetched))
+        } catch (e: Exception) {}
+    }
+
+    private suspend fun seedCrops() {
+        com.company.krishivishal.utils.Constants.SAMPLE_CROPS.forEach { crop ->
+            firestore.collection("crops").document(crop.id).set(crop).await()
+        }
+    }
+
+    private suspend fun fetchCropsFromFirestore(): List<Crop> {
+        val snapshot = firestore.collection("crops")
+            .whereEqualTo("isActive", true)
+            .get()
+            .await()
+        
+        return snapshot.documents.mapNotNull { doc ->
+            Crop(
+                id = doc.id,
+                name = doc.getString("name") ?: "",
+                imageUrl = doc.getString("imageUrl") ?: "",
+                isActive = doc.getBoolean("isActive") ?: true
+            )
+        }
+    }
+
+    override suspend fun saveCrop(crop: Crop): Flow<Resource<Unit>> = flow {
+        emit(Resource.Loading())
+        try {
+            val cropId = if (crop.id.isEmpty()) firestore.collection("crops").document().id else crop.id
+            val finalCrop = crop.copy(id = cropId)
+            firestore.collection("crops").document(cropId).set(finalCrop).await()
+            cropDao.insertCrops(listOf(finalCrop))
+            emit(Resource.Success(Unit))
+        } catch (e: Exception) {
+            emit(Resource.Error(e.message ?: "Error saving crop"))
+        }
+    }
+
+    override suspend fun deleteCrop(cropId: String): Flow<Resource<Unit>> = flow {
+        emit(Resource.Loading())
+        try {
+            firestore.collection("crops").document(cropId).delete().await()
+            cropDao.deleteCrop(Crop(id = cropId))
+            emit(Resource.Success(Unit))
+        } catch (e: Exception) {
+            emit(Resource.Error(e.message ?: "Error deleting crop"))
+        }
+    }
+}

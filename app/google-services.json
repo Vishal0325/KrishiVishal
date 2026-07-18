@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "409780110248",
+    "project_id": "krishivishal-a9ed7",
+    "storage_bucket": "krishivishal-a9ed7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:409780110248:android:f3a977b43ca7b22631139d",
+        "android_client_info": {
+          "package_name": "com.company.krishivishal"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDVCaQ1Q2LQ8SZk3pxDjFkjTOwrQzqGBBg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

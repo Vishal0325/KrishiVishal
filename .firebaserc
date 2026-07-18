@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "firebase deploy --only \"functions,firestore:rules\"": "krishivishal-a9ed7"
+  },
+  "targets": {},
+  "etags": {}
+}

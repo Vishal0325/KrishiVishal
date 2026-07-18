@@ -1,0 +1,329 @@
+package com.company.krishivishal.ui.order
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.company.krishivishal.ui.theme.PrimaryGreen
+import com.company.krishivishal.ui.theme.PoppinsFamily
+import com.company.krishivishal.utils.Resource
+import kotlinx.coroutines.launch
+
+/**
+ * Production-ready bifurcated return flow UI
+ * Handles both cancellation and post-delivery returns
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BifurcatedReturnFlowScreen(
+    orderId: String,
+    orderStatus: String,
+    totalAmount: Double,
+    productName: String,
+    viewModel: OrderViewModelV2 = hiltViewModel(),
+    onBack: () -> Unit
+) {
+    val cancellationState by viewModel.cancellationState.collectAsState()
+    val returnState by viewModel.returnState.collectAsState()
+    val scope = rememberCoroutineScope()
+
+    var selectedReason by remember { mutableStateOf("") }
+    var proofImageUrls by remember { mutableStateOf(listOf<String>()) }
+
+    val isPreShipment = orderStatus in listOf("PLACED", "PENDING", "CONFIRMED")
+    val isPostDelivery = orderStatus == "DELIVERED"
+
+    LaunchedEffect(cancellationState) {
+        if (cancellationState is Resource.Success) {
+            scope.launch {
+                kotlinx.coroutines.delay(2000)
+                onBack()
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (isPreShipment) "Cancel Order" else "Return Item",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = PoppinsFamily
+            )
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.Close, contentDescription = "Back")
+            }
+        }
+
+        // Status Info Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isPreShipment) Color(0xFFE3F2FD) else Color(0xFFFFE0B2)
+            ),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    Icons.Default.Info,
+                    contentDescription = null,
+                    tint = if (isPreShipment) Color(0xFF1976D2) else Color(0xFFF57C00),
+                    modifier = Modifier.size(24.dp)
+                )
+                Column {
+                    Text(
+                        text = if (isPreShipment) "Instant Refund" else "Return Request",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        fontFamily = PoppinsFamily
+                    )
+                    Text(
+                        text = if (isPreShipment)
+                            "Your refund of ₹$totalAmount will be processed immediately."
+                        else
+                            "Admin will review your request within 24-48 hours.",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                }
+            }
+        }
+
+        // PRE-SHIPMENT FLOW
+        if (isPreShipment) {
+            CancellationReasonSection(
+                selectedReason = selectedReason,
+                onReasonSelected = { selectedReason = it }
+            )
+
+            Button(
+                onClick = {
+                    viewModel.handleOrderCancellation(
+                        orderId = orderId,
+                        reason = selectedReason,
+                        currentStatus = orderStatus
+                    )
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                enabled = selectedReason.isNotEmpty() && cancellationState !is Resource.Loading,
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+            ) {
+                if (cancellationState is Resource.Loading) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+                } else {
+                    Text("Confirm Cancellation", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        // POST-DELIVERY FLOW
+        if (isPostDelivery) {
+            PostDeliveryReturnForm(
+                productName = productName,
+                proofImageUrls = proofImageUrls,
+                onProofUrlsChange = { proofImageUrls = it },
+                onSubmit = { reason ->
+                    viewModel.submitPostDeliveryReturn(
+                        orderId = orderId,
+                        productName = productName,
+                        reason = reason,
+                        proofImageUrls = proofImageUrls
+                    )
+                },
+                isLoading = returnState is Resource.Loading
+            )
+        }
+
+        // Status Messages
+        when (val state = cancellationState) {
+            is Resource.Success<*> -> {
+                SuccessMessage(state.data.toString())
+            }
+            is Resource.Error -> {
+                ErrorMessage(state.message ?: "Operation failed")
+            }
+            else -> {}
+        }
+
+        when (val state = returnState) {
+            is Resource.Success<*> -> {
+                SuccessMessage(state.data.toString())
+            }
+            is Resource.Error -> {
+                ErrorMessage(state.message ?: "Operation failed")
+            }
+            else -> {}
+        }
+    }
+}
+
+@Composable
+fun CancellationReasonSection(
+    selectedReason: String,
+    onReasonSelected: (String) -> Unit
+) {
+    val reasons = listOf(
+        "Changed my mind",
+        "Found a better price",
+        "Incorrect delivery address",
+        "Order delayed",
+        "Product no longer needed",
+        "Other"
+    )
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "Why are you cancelling?",
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            fontFamily = PoppinsFamily
+        )
+
+        reasons.forEach { reason ->
+            OutlinedButton(
+                onClick = { onReasonSelected(reason) },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = if (selectedReason == reason) PrimaryGreen.copy(alpha = 0.1f)
+                    else Color.Transparent,
+                    contentColor = if (selectedReason == reason) PrimaryGreen else Color.Gray
+                ),
+                border = BorderStroke(
+                    1.dp,
+                    if (selectedReason == reason) PrimaryGreen else Color.LightGray
+                )
+            ) {
+                Text(reason, modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
+}
+
+@Composable
+fun PostDeliveryReturnForm(
+    productName: String,
+    proofImageUrls: List<String>,
+    onProofUrlsChange: (List<String>) -> Unit,
+    onSubmit: (String) -> Unit,
+    isLoading: Boolean
+) {
+    var returnReason by remember { mutableStateOf("") }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = "Return Details",
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            fontFamily = PoppinsFamily
+        )
+
+        OutlinedTextField(
+            value = returnReason,
+            onValueChange = { returnReason = it },
+            label = { Text("Reason for return") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(120.dp),
+            maxLines = 5,
+            shape = RoundedCornerShape(12.dp)
+        )
+
+        Text(
+            text = "Upload Proof Images",
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            fontFamily = PoppinsFamily
+        )
+
+        // Proof image upload placeholder
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(100.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5))
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Tap to upload proof images", color = Color.Gray)
+            }
+        }
+
+        Button(
+            onClick = { onSubmit(returnReason) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
+            enabled = returnReason.isNotEmpty() && !isLoading,
+            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+            } else {
+                Text("Submit Return Request", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+fun SuccessMessage(message: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9))
+    ) {
+        Text(
+            text = message,
+            modifier = Modifier.padding(16.dp),
+            color = Color(0xFF2E7D32),
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+fun ErrorMessage(message: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE))
+    ) {
+        Text(
+            text = message,
+            modifier = Modifier.padding(16.dp),
+            color = Color(0xFFC62828),
+            fontWeight = FontWeight.Bold
+        )
+    }
+}

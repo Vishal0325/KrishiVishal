@@ -1,0 +1,51 @@
+package com.company.krishivishal.data.repository
+
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.tasks.await
+import javax.inject.Inject
+import javax.inject.Singleton
+import com.company.krishivishal.di.IoDispatcher
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
+
+@Singleton
+class NotificationRepositoryImpl @Inject constructor(
+    private val firestore: FirebaseFirestore,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher
+) : NotificationRepository {
+
+    override suspend fun updateFcmToken(userId: String, token: String): Result<Unit> = withContext(ioDispatcher) {
+        try {
+            val userRef = firestore.collection("users").document(userId)
+            val data = mapOf("fcmToken" to token)
+            userRef.set(data, SetOptions.merge()).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun getSavedToken(): Flow<String?> = flow {
+        emit(null) 
+    }
+
+    override suspend fun sendNotification(userId: String, title: String, message: String, type: String): Result<Unit> = withContext(ioDispatcher) {
+        try {
+            val notification = mapOf(
+                "title" to title,
+                "message" to message,
+                "type" to type,
+                "timestamp" to com.google.firebase.Timestamp.now(),
+                "read" to false
+            )
+            firestore.collection("users").document(userId)
+                .collection("notifications").add(notification).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+}
