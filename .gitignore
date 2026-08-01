@@ -10,4 +10,7 @@ captures/
 .externalNativeBuild/
 .cxx/
 *.log
+node_modules/
+dist/
+.env
 scripts/service-account-key.json
