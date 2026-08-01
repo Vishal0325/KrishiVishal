@@ -139,8 +139,12 @@ fun RiderTrackingScreen(
                                 Text("Rider: Suresh Kumar", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                 Text("On the way - Arriving in 12 mins", color = Color.Gray, fontSize = 13.sp)
                             }
+                            val context = androidx.compose.ui.platform.LocalContext.current
                             IconButton(
-                                onClick = { /* Call logic */ },
+                                onClick = { 
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:9876543210"))
+                                    context.startActivity(intent)
+                                },
                                 colors = IconButtonDefaults.iconButtonColors(containerColor = PrimaryGreen.copy(alpha = 0.1f))
                             ) {
                                 Icon(Icons.Default.Call, contentDescription = "Call Rider", tint = PrimaryGreen)

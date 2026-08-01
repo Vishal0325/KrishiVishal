@@ -21,12 +21,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
-import com.company.krishivishal.data.model.Product
-import com.company.krishivishal.data.model.Variant
+import com.company.krishivishal.core.model.Product
+import com.company.krishivishal.core.model.Variant
 import com.company.krishivishal.ui.theme.PrimaryGreen
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.ShareUtils
 import kotlinx.coroutines.flow.collectLatest
 import java.util.UUID
@@ -51,11 +53,12 @@ fun AdminProductScreen(
         viewModel.csvEvent.collectLatest { res ->
             when(res) {
                 is Resource.Success -> {
-                    if (res.data is String) {
-                        val uri = ShareUtils.saveTextToFile(context, "products_export.csv", res.data)
+                    val data = res.data
+                    if (data is String) {
+                        val uri = ShareUtils.saveTextToFile(context, "products_export.csv", data)
                         uri?.let { ShareUtils.shareFile(context, it, "text/csv") }
                     } else {
-                        snackbarHostState.showSnackbar("Successfully imported ${res.data} products")
+                        snackbarHostState.showSnackbar("Successfully imported $data products")
                     }
                 }
                 is Resource.Error -> snackbarHostState.showSnackbar("Error: ${res.message}")
@@ -217,7 +220,21 @@ fun ProductList(products: List<Product>, onSelect: (Product) -> Unit, onDelete: 
                                 Text("LOW STOCK", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Black)
                             }
                             Spacer(modifier = Modifier.width(16.dp))
-                            Text("Price: ₹${product.basePrice}", fontWeight = FontWeight.Bold, color = PrimaryGreen, fontSize = 13.sp)
+                            Column {
+                                if (product.mrp > product.discountedPrice && product.discountedPrice > 0) {
+                                    Text(
+                                        text = "MRP: ₹${product.mrp}",
+                                        style = androidx.compose.ui.text.TextStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough),
+                                        color = Color.Gray,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                                val displayPrice = if (product.discountedPrice > 0) product.discountedPrice else product.basePrice
+                                Text("Price: ₹$displayPrice", fontWeight = FontWeight.Bold, color = PrimaryGreen, fontSize = 13.sp)
+                                if (product.weight.isNotBlank()) {
+                                    Text("${product.weight} ${product.unit}", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                 },
@@ -245,9 +262,9 @@ fun ProductList(products: List<Product>, onSelect: (Product) -> Unit, onDelete: 
 @Composable
 fun EditProductContent(
     product: Product,
-    categories: List<com.company.krishivishal.data.model.Category>,
-    brands: List<com.company.krishivishal.data.model.Brand>,
-    crops: List<com.company.krishivishal.data.model.Crop>,
+    categories: List<com.company.krishivishal.core.model.Category>,
+    brands: List<com.company.krishivishal.core.model.Brand>,
+    crops: List<com.company.krishivishal.core.model.Crop>,
     onSave: (Product) -> Unit,
     onDelete: (() -> Unit)? = null
 ) {
@@ -255,6 +272,7 @@ fun EditProductContent(
     var composition by remember { mutableStateOf(product.composition) }
     var classification by remember { mutableStateOf(product.classification) }
     var basePrice by remember { mutableStateOf(product.basePrice.toString()) }
+    var mrp by remember { mutableStateOf(product.mrp.toString()) }
     var discountedPrice by remember { mutableStateOf(product.discountedPrice.toString()) }
     var stock by remember { mutableStateOf(product.stockQuantity.toString()) }
     var description by remember { mutableStateOf(product.description) }
@@ -472,20 +490,30 @@ fun EditProductContent(
         
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
-                value = basePrice, 
-                onValueChange = { basePrice = it }, 
-                label = { Text("MRP") }, 
+                value = mrp, 
+                onValueChange = { mrp = it }, 
+                label = { Text("MRP (Strike-through)") }, 
                 modifier = Modifier.weight(1f),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
             )
             OutlinedTextField(
-                value = discountedPrice, 
-                onValueChange = { discountedPrice = it }, 
-                label = { Text("Selling Price") }, 
+                value = basePrice, 
+                onValueChange = { basePrice = it }, 
+                label = { Text("Base Price") }, 
                 modifier = Modifier.weight(1f),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
             )
         }
+        
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = discountedPrice, 
+            onValueChange = { discountedPrice = it }, 
+            label = { Text("Final Selling Price") }, 
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+        )
         
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -527,6 +555,7 @@ fun EditProductContent(
         Spacer(modifier = Modifier.height(24.dp))
         Button(
             onClick = {
+                val parsedMrp = mrp.toDoubleOrNull() ?: 0.0
                 val parsedBasePrice = basePrice.toDoubleOrNull() ?: 0.0
                 val parsedDiscountedPrice = discountedPrice.toDoubleOrNull() ?: 0.0
                 val finalImages = imageUrls.filter { it.isNotBlank() }
@@ -547,6 +576,7 @@ fun EditProductContent(
                         imageUrl = finalImages.firstOrNull() ?: "",
                         images = finalImages,
                         isReturnable = isReturnable,
+                        mrp = parsedMrp,
                         basePrice = parsedBasePrice,
                         discountedPrice = parsedDiscountedPrice,
                         stockQuantity = stock.toIntOrNull() ?: 0,
@@ -599,9 +629,16 @@ fun VariantEditItem(variant: Variant, onUpdate: (Variant) -> Unit, onDelete: () 
             
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
+                    value = variant.basePrice.toString(),
+                    onValueChange = { onUpdate(variant.copy(basePrice = it.toDoubleOrNull() ?: 0.0)) },
+                    label = { Text("MRP") },
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                )
+                OutlinedTextField(
                     value = variant.price.toString(),
                     onValueChange = { onUpdate(variant.copy(price = it.toDoubleOrNull() ?: 0.0)) },
-                    label = { Text("Price") },
+                    label = { Text("Selling Price") },
                     modifier = Modifier.weight(1f),
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
                 )

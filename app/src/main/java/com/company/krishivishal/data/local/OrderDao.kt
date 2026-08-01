@@ -1,7 +1,7 @@
 package com.company.krishivishal.data.local
 
 import androidx.room.*
-import com.company.krishivishal.data.model.Order
+import com.company.krishivishal.core.model.Order
 import kotlinx.coroutines.flow.Flow
 
 @Dao

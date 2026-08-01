@@ -26,10 +26,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
-import com.company.krishivishal.data.model.Category
+import com.company.krishivishal.core.model.Category
 import com.company.krishivishal.ui.theme.Background
 import com.company.krishivishal.ui.theme.PrimaryGreen
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -2,11 +2,11 @@ package com.company.krishivishal.ui.admin
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.company.krishivishal.data.model.AdminLog
+import com.company.krishivishal.core.model.AdminLog
 import com.company.krishivishal.domain.usecase.admin.AdminStats
 import com.company.krishivishal.domain.usecase.admin.GetAdminRecentLogsUseCase
 import com.company.krishivishal.domain.usecase.admin.GetAdminStatsUseCase
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch

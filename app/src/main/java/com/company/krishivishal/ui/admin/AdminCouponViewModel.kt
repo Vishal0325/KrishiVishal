@@ -2,9 +2,9 @@ package com.company.krishivishal.ui.admin
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.company.krishivishal.data.model.Coupon
+import com.company.krishivishal.core.model.Coupon
 import com.company.krishivishal.domain.usecase.admin.ManageCouponsUseCase
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch

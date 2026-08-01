@@ -1,7 +1,7 @@
 package com.company.krishivishal.data.local
 
 import androidx.room.*
-import com.company.krishivishal.data.model.Crop
+import com.company.krishivishal.core.model.Crop
 import kotlinx.coroutines.flow.Flow
 
 @Dao

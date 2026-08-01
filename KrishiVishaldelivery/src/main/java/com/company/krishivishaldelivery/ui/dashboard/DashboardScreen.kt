@@ -26,10 +26,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.company.krishivishaldelivery.data.model.DeliveryOrder
+import com.company.krishivishal.core.model.Order
 import com.company.krishivishaldelivery.data.model.IncentiveProgress
 import com.company.krishivishaldelivery.service.RiderLocationService
-import com.company.krishivishaldelivery.utils.Resource
+import com.company.krishivishal.core.util.Resource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -115,8 +115,8 @@ fun DashboardScreen(
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             when (val res = ordersResource) {
-                is Resource.Loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color(0xFF2E7D32))
-                is Resource.Success -> {
+                is Resource.Loading<*> -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color(0xFF2E7D32))
+                is Resource.Success<List<Order>> -> {
                     val orders = res.data ?: emptyList()
                     val trip = currentTrip
                     
@@ -153,7 +153,8 @@ fun DashboardScreen(
                         }
                     }
                 }
-                is Resource.Error -> Text("Error: ${res.message}", modifier = Modifier.align(Alignment.Center), color = Color.Red)
+                is Resource.Error<*> -> Text("Error: ${res.message}", modifier = Modifier.align(Alignment.Center), color = Color.Red)
+                else -> {}
             }
         }
     }
@@ -200,7 +201,7 @@ fun IncentiveProgressCard(progress: IncentiveProgress) {
 }
 
 @Composable
-fun TripSummaryCard(trip: List<DeliveryOrder>) {
+fun TripSummaryCard(trip: List<Order>) {
     Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9))) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Route, contentDescription = null, tint = Color(0xFF2E7D32))
@@ -214,7 +215,7 @@ fun TripSummaryCard(trip: List<DeliveryOrder>) {
 }
 
 @Composable
-fun OrderCard(order: DeliveryOrder, onStatusClick: (String) -> Unit, onNavigateClick: () -> Unit, onClick: () -> Unit) {
+fun OrderCard(order: Order, onStatusClick: (String) -> Unit, onNavigateClick: () -> Unit, onClick: () -> Unit) {
     Card(onClick = onClick, shape = RoundedCornerShape(12.dp), elevation = CardDefaults.cardElevation(4.dp)) {
         Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {

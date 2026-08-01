@@ -169,6 +169,12 @@
     <string name="email_address">ईमेल पता</string>
     <string name="cancel">रद्द करें</string>
     <string name="update_profile">प्रोफाइल अपडेट करें</string>
+    <string name="delete_account_data">अपना खाता और डेटा डिलीट करें</string>
+    <string name="delete_account_confirm_title">अकाउंट डिलीट करें?</string>
+    <string name="delete_account_confirm_msg">क्या आप वाकई अपना अकाउंट डिलीट करना चाहते हैं? यह कार्रवाई स्थायी है और आपका सारा डेटा (ऑर्डर, वॉलेट, प्रोफाइल) खो जाएगा।</string>
+    <string name="account_deleted_success">अकाउंट सफलतापूर्वक डिलीट हो गया</string>
+    <string name="delete_account_reauth_error">अकाउंट डिलीट करने में विफल। सुरक्षा कारणों से, कृपया लॉगआउट करें और फिर से लॉगिन करें, फिर डिलीट करने का प्रयास करें।</string>
+    <string name="delete_account">अकाउंट डिलीट करें</string>
     <string name="refer_earn">रेफर करें और कमाएं</string>
     <string name="refer_desc">किसी किसान मित्र को आमंत्रित करें और अपने अगले ऑर्डर पर ₹50 की छूट पाएं!</string>
     <string name="refer_code_label">आपका रेफरल कोड</string>
@@ -177,4 +183,9 @@
     <string name="referral_msg">मेरे कोड %1$s का उपयोग करके कृषि विशाल ऐप से जुड़ें और अपने पहले ऑर्डर पर ₹50 की छूट पाएं! यहाँ से डाउनलोड करें: https://krishivishal.com/download</string>
     <string name="continue_with_google">Google के साथ जारी रखें</string>
     <string name="or_divider">या</string>
+    <string name="download_invoice">जीएसटी बिल डाउनलोड करें</string>
+    <string name="view_print_invoice">बिल देखें या प्रिंट करें</string>
+    <string name="download_print_invoice">डाउनलोड / प्रिंट बिल</string>
+    <string name="expert_help">विशेषज्ञ सहायता</string>
+    <string name="whatsapp_msg">नमस्ते कृषि विशाल, मुझे अपनी फसल के लिए विशेषज्ञ की सलाह चाहिए।</string>
 </resources>

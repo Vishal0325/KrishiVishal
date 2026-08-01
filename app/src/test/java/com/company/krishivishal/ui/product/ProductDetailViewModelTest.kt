@@ -1,10 +1,11 @@
 package com.company.krishivishal.ui.product
 
-import com.company.krishivishal.data.model.Product
-import com.company.krishivishal.data.model.Review
-import com.company.krishivishal.data.model.User
-import com.company.krishivishal.data.model.Variant
+import com.company.krishivishal.core.model.Product
+import com.company.krishivishal.core.model.Review
+import com.company.krishivishal.core.model.User
+import com.company.krishivishal.core.model.Variant
 import com.company.krishivishal.data.repository.CartRepository
+import com.company.krishivishal.data.repository.CheckoutSessionRepository
 import com.company.krishivishal.data.repository.WishlistRepository
 import com.company.krishivishal.domain.usecase.auth.GetCurrentUserUseCase
 import com.company.krishivishal.domain.usecase.product.GetProductDetailsUseCase
@@ -12,7 +13,7 @@ import com.company.krishivishal.domain.usecase.product.GetProductReviewsUseCase
 import com.company.krishivishal.domain.usecase.product.GetProductVariantsUseCase
 import com.company.krishivishal.domain.usecase.product.ToggleProductWishlistUseCase
 import com.company.krishivishal.utils.MainDispatcherRule
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -37,6 +38,7 @@ class ProductDetailViewModelTest {
     private val toggleProductWishlistUseCase = mockk<ToggleProductWishlistUseCase>()
     private val getCurrentUserUseCase = mockk<GetCurrentUserUseCase>()
     private val cartRepository = mockk<CartRepository>()
+    private val checkoutSessionRepository = mockk<CheckoutSessionRepository>()
     private val wishlistRepository = mockk<com.company.krishivishal.data.repository.WishlistRepository>()
     private val analyticsTracker = mockk<com.company.krishivishal.analytics.AnalyticsTracker>(relaxed = true)
 
@@ -56,6 +58,7 @@ class ProductDetailViewModelTest {
             toggleProductWishlistUseCase,
             getCurrentUserUseCase,
             cartRepository,
+            checkoutSessionRepository,
             wishlistRepository,
             analyticsTracker
         )

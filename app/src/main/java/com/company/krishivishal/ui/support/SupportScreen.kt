@@ -22,9 +22,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.company.krishivishal.R
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.company.krishivishal.ui.theme.PrimaryGreen
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
+import com.company.krishivishal.utils.SupportUtils
 import java.net.URLEncoder
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -81,7 +83,7 @@ fun SupportScreen(
                         color = Color(0xFF25D366),
                         onClick = { 
                             if (config != null && config.whatsappNumber.isNotEmpty()) {
-                                openWhatsApp(context, config.whatsappNumber)
+                                SupportUtils.openWhatsApp(context, config.whatsappNumber, context.getString(R.string.whatsapp_msg))
                             } else {
                                 Toast.makeText(context, "WhatsApp support not available", Toast.LENGTH_SHORT).show()
                             }
@@ -94,7 +96,7 @@ fun SupportScreen(
                         color = Color(0xFFEA4335),
                         onClick = { 
                             if (config != null && config.supportEmail.isNotEmpty()) {
-                                openEmail(context, config.supportEmail)
+                                SupportUtils.openEmail(context, config.supportEmail)
                             } else {
                                 Toast.makeText(context, "Email support not available", Toast.LENGTH_SHORT).show()
                             }
@@ -107,7 +109,7 @@ fun SupportScreen(
                         color = PrimaryGreen,
                         onClick = { 
                             if (config != null && config.supportCallNumber.isNotEmpty()) {
-                                makeCall(context, config.supportCallNumber)
+                                SupportUtils.makeCall(context, config.supportCallNumber)
                             } else {
                                 Toast.makeText(context, "Call support not available", Toast.LENGTH_SHORT).show()
                             }
@@ -144,35 +146,6 @@ fun SupportScreen(
             }
         }
     }
-}
-
-private fun openWhatsApp(context: Context, number: String) {
-    try {
-        val msg = "Hello Krishi Vishal Support,"
-        val url = "https://api.whatsapp.com/send?phone=$number&text=" + URLEncoder.encode(msg, "UTF-8")
-        val intent = Intent(Intent.ACTION_VIEW)
-        intent.data = Uri.parse(url)
-        context.startActivity(intent)
-    } catch (e: Exception) {
-        Toast.makeText(context, "WhatsApp not installed", Toast.LENGTH_SHORT).show()
-    }
-}
-
-private fun openEmail(context: Context, email: String) {
-    val intent = Intent(Intent.ACTION_SENDTO)
-    intent.data = Uri.parse("mailto:$email")
-    intent.putExtra(Intent.EXTRA_SUBJECT, "Support Request - Krishi Vishal")
-    try {
-        context.startActivity(intent)
-    } catch (e: Exception) {
-        Toast.makeText(context, "No email app found", Toast.LENGTH_SHORT).show()
-    }
-}
-
-private fun makeCall(context: Context, number: String) {
-    val intent = Intent(Intent.ACTION_DIAL)
-    intent.data = Uri.parse("tel:$number")
-    context.startActivity(intent)
 }
 
 @Composable

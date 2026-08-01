@@ -18,13 +18,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.company.krishivishal.data.model.Product
+import com.company.krishivishal.core.model.Product
 import com.company.krishivishal.ui.home.HomeViewModel
 import com.company.krishivishal.ui.home.components.HomeProductItem
 import com.company.krishivishal.ui.theme.Background
 import com.company.krishivishal.ui.theme.PrimaryGreen
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.ShareUtils
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
+import androidx.paging.LoadState
+import com.company.krishivishal.ui.components.EmptyState
+import androidx.compose.material.icons.filled.SearchOff
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,7 +39,7 @@ fun AllProductsScreen(
     onBack: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
-    val productsResource by viewModel.filteredProducts.collectAsState()
+    val pagedProducts = viewModel.pagedProducts.collectAsLazyPagingItems()
     val wishlistItems by viewModel.wishlistItems.collectAsState()
     val context = LocalContext.current
 
@@ -53,46 +58,80 @@ fun AllProductsScreen(
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
         )
 
-        when (val res = productsResource) {
-            is Resource.Loading -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = PrimaryGreen)
-                }
-            }
-            is Resource.Success -> {
-                val products = res.data ?: emptyList()
-                if (products.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No products found.")
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                contentPadding = PaddingValues(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(
+                    count = pagedProducts.itemCount,
+                    key = pagedProducts.itemKey { it.id }
+                ) { index ->
+                    val product = pagedProducts[index]
+                    if (product != null) {
+                        HomeProductItem(
+                            product = product,
+                            isWishlisted = wishlistItems.any { it.id == product.id },
+                            onClick = { onProductClick(product) },
+                            onAddToCart = { viewModel.addToCart(product) },
+                            onBuyNow = { onBuyNowClick(product) },
+                            onWishlistToggle = { viewModel.toggleWishlist(product) },
+                            onShare = { ShareUtils.shareProduct(context, product) }
+                        )
                     }
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        contentPadding = PaddingValues(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(products) { product ->
-                            HomeProductItem(
-                                product = product,
-                                isWishlisted = wishlistItems.any { it.id == product.id },
-                                onClick = { onProductClick(product) },
-                                onAddToCart = { viewModel.addToCart(product) },
-                                onBuyNow = { onBuyNowClick(product) },
-                                onWishlistToggle = { viewModel.toggleWishlist(product) },
-                                onShare = { ShareUtils.shareProduct(context, product) }
-                            )
+                }
+
+                // Loading more state
+                if (pagedProducts.loadState.append is LoadState.Loading) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = PrimaryGreen, modifier = Modifier.size(32.dp))
                         }
                     }
                 }
             }
-            is Resource.Error -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(text = res.message ?: "Error loading products")
+
+            // Initial Loading
+            if (pagedProducts.loadState.refresh is LoadState.Loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = PrimaryGreen
+                )
+            }
+
+            // Empty State
+            if (pagedProducts.loadState.refresh is LoadState.NotLoading && pagedProducts.itemCount == 0) {
+                EmptyState(
+                    icon = Icons.Default.SearchOff,
+                    title = "No products found",
+                    description = "We couldn't find any products at the moment. Please check back later.",
+                    actionText = "Go Back",
+                    onActionClick = onBack
+                )
+            }
+
+            // Error State
+            if (pagedProducts.loadState.refresh is LoadState.Error) {
+                val e = pagedProducts.loadState.refresh as LoadState.Error
+                Column(
+                    modifier = Modifier.align(Alignment.Center).padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(text = e.error.localizedMessage ?: "Error loading products", color = Color.Red)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = { pagedProducts.retry() }, colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)) {
+                        Text("Retry")
+                    }
                 }
             }
-            else -> {}
         }
     }
 }

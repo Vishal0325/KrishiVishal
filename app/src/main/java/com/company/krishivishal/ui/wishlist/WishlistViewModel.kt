@@ -2,12 +2,12 @@ package com.company.krishivishal.ui.wishlist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.company.krishivishal.data.model.Product
-import com.company.krishivishal.data.model.WishlistItem
+import com.company.krishivishal.core.model.Product
+import com.company.krishivishal.core.model.WishlistItem
 import com.company.krishivishal.data.repository.AuthRepository
 import com.company.krishivishal.data.repository.WishlistRepository
-import com.company.krishivishal.utils.Resource
-import com.company.krishivishal.ui.home.HomeViewModel
+import com.company.krishivishal.core.util.Constants
+import com.company.krishivishal.core.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,7 +32,7 @@ class WishlistViewModel @Inject constructor(
     private fun loadWishlist() {
         viewModelScope.launch {
             authRepository.getCurrentUser().collectLatest { user ->
-                val userId = user?.id ?: HomeViewModel.GUEST_USER_ID
+                val userId = user?.id ?: Constants.GUEST_USER_ID
                 wishlistRepository.getWishlist(userId).collectLatest { resource ->
                     _wishlistItems.value = resource
                 }
@@ -43,7 +43,7 @@ class WishlistViewModel @Inject constructor(
     fun removeFromWishlist(product: Product) {
         viewModelScope.launch {
             authRepository.getCurrentUser().collectLatest { user ->
-                val userId = user?.id ?: HomeViewModel.GUEST_USER_ID
+                val userId = user?.id ?: Constants.GUEST_USER_ID
                 val wishlistItem = WishlistItem(
                     productId = product.id,
                     productName = product.name,

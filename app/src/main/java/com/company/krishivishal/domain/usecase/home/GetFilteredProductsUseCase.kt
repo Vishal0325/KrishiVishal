@@ -1,9 +1,9 @@
 package com.company.krishivishal.domain.usecase.home
 
-import com.company.krishivishal.data.model.Product
+import com.company.krishivishal.core.model.Product
 import com.company.krishivishal.data.repository.ProductRepository
 import com.company.krishivishal.ui.home.ProductSortOrder
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject

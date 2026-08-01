@@ -29,8 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
-import com.company.krishivishal.data.model.RecentSearch
-import com.company.krishivishal.data.model.SearchResult
+import com.company.krishivishal.core.model.RecentSearch
+import com.company.krishivishal.core.model.SearchResult
 import com.company.krishivishal.ui.theme.PrimaryGreen
 import com.company.krishivishal.ui.theme.PoppinsFamily
 

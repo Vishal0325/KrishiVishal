@@ -2,6 +2,7 @@ package com.company.krishivishal.ui.profile
 
 import android.content.ClipboardManager
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,7 +32,7 @@ import androidx.compose.ui.res.stringResource
 import com.company.krishivishal.R
 import com.company.krishivishal.ui.theme.PrimaryGreen
 import com.company.krishivishal.utils.ShareUtils
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import androidx.compose.ui.graphics.Brush
 import com.company.krishivishal.ui.theme.SecondaryOrange
 
@@ -54,6 +55,32 @@ fun ProfileScreen(
     val walletBalanceRes by viewModel.walletBalance.collectAsState()
     val context = LocalContext.current
     var showEditDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        viewModel.deleteAccountResult.collect { resource ->
+            when (resource) {
+                is Resource.Success -> {
+                    Toast.makeText(context, context.getString(R.string.account_deleted_success), Toast.LENGTH_LONG).show()
+                    onLogoutClick()
+                }
+                is Resource.Error -> {
+                    val message = if (resource.message?.contains("recent login", ignoreCase = true) == true) {
+                        context.getString(R.string.delete_account_reauth_error)
+                    } else {
+                        resource.message ?: context.getString(R.string.something_went_wrong)
+                    }
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                is Resource.Loading -> {
+                    // Show progress if needed
+                }
+                is Resource.Idle -> {
+                    // Nothing to do
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -148,6 +175,14 @@ fun ProfileScreen(
                     }
                     Divider(modifier = Modifier.padding(horizontal = 16.dp), thickness = 0.5.dp)
                     ProfileOptionItem(Icons.Default.Settings, stringResource(R.string.app_preferences), onSettingsClick)
+                    if (user != null) {
+                        Divider(modifier = Modifier.padding(horizontal = 16.dp), thickness = 0.5.dp)
+                        ProfileOptionItem(
+                            icon = Icons.Default.DeleteForever,
+                            title = stringResource(R.string.delete_account_data),
+                            onClick = { showDeleteConfirm = true }
+                        )
+                    }
                 }
             }
 
@@ -200,11 +235,35 @@ fun ProfileScreen(
                 }
             )
         }
+
+        if (showDeleteConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirm = false },
+                title = { Text(stringResource(R.string.delete_account_confirm_title)) },
+                text = { Text(stringResource(R.string.delete_account_confirm_msg)) },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.deleteAccount()
+                            showDeleteConfirm = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                    ) {
+                        Text(stringResource(R.string.delete_account))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirm = false }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                }
+            )
+        }
     }
 }
 
 @Composable
-fun ProfileHeader(user: com.company.krishivishal.data.model.User?) {
+fun ProfileHeader(user: com.company.krishivishal.core.model.User?) {
     Box(
         modifier = Modifier
             .size(110.dp)
@@ -370,7 +429,7 @@ fun ReferralCard(referralCode: String) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditProfileDialog(
-    user: com.company.krishivishal.data.model.User,
+    user: com.company.krishivishal.core.model.User,
     onDismiss: () -> Unit,
     onSave: (String, String, String) -> Unit
 ) {

@@ -1,11 +1,11 @@
 package com.company.krishivishal.ui.home
 
-import com.company.krishivishal.data.model.BannerItem
-import com.company.krishivishal.data.model.Brand
-import com.company.krishivishal.data.model.Category
-import com.company.krishivishal.data.model.Crop
-import com.company.krishivishal.data.model.Product
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.model.BannerItem
+import com.company.krishivishal.core.model.Brand
+import com.company.krishivishal.core.model.Category
+import com.company.krishivishal.core.model.Crop
+import com.company.krishivishal.core.model.Product
+import com.company.krishivishal.core.util.Resource
 
 /**
  * Atomic UI State for the Home Screen.

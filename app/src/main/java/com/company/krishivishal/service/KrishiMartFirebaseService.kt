@@ -38,15 +38,25 @@ class KrishiMartFirebaseService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
-        message.notification?.let {
-            notificationHelper.showNotification(it.title, it.body)
-        } ?: run {
-            // Handle data payload if needed
-            val title = message.data["title"]
-            val body = message.data["body"]
-            if (title != null || body != null) {
-                notificationHelper.showNotification(title, body)
+        
+        val title = message.notification?.title ?: message.data["title"]
+        val body = message.notification?.body ?: message.data["body"]
+        val type = message.data["type"] ?: "GENERAL"
+        val data = message.data["data"]
+
+        if (title != null || body != null) {
+            val notification = com.company.krishivishal.core.model.Notification(
+                title = title ?: "New Notification",
+                body = body ?: "",
+                type = type,
+                data = data
+            )
+
+            serviceScope.launch {
+                repository.saveNotification(notification)
             }
+
+            notificationHelper.showNotification(title, body)
         }
     }
 }

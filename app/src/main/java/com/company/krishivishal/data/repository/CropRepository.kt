@@ -1,8 +1,8 @@
 package com.company.krishivishal.data.repository
 
 import com.company.krishivishal.data.local.CropDao
-import com.company.krishivishal.data.model.Crop
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.model.Crop
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.networkBoundResource
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.Flow
@@ -12,6 +12,7 @@ import javax.inject.Singleton
 import com.company.krishivishal.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.flow
+import timber.log.Timber
 
 interface CropRepository {
     fun getCrops(): Flow<Resource<List<Crop>>>
@@ -27,18 +28,20 @@ class CropRepositoryImpl @Inject constructor(
 ) : CropRepository {
 
     override fun getCrops(): Flow<Resource<List<Crop>>> = kotlinx.coroutines.flow.flow {
-        emit(Resource.Success(com.company.krishivishal.utils.Constants.SAMPLE_CROPS))
+        emit(Resource.Success(com.company.krishivishal.core.util.Constants.SAMPLE_CROPS))
         try {
             val snapshot = firestore.collection("crops").whereEqualTo("isActive", true).get().await()
             val fetched = snapshot.documents.mapNotNull { doc ->
                 Crop(id = doc.id, name = doc.getString("name") ?: "", imageUrl = doc.getString("imageUrl") ?: "", isActive = true)
             }
             if (fetched.isNotEmpty()) emit(Resource.Success(fetched))
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to fetch crops from Firestore, using fallback data")
+        }
     }
 
     private suspend fun seedCrops() {
-        com.company.krishivishal.utils.Constants.SAMPLE_CROPS.forEach { crop ->
+        com.company.krishivishal.core.util.Constants.SAMPLE_CROPS.forEach { crop ->
             firestore.collection("crops").document(crop.id).set(crop).await()
         }
     }

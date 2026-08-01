@@ -25,12 +25,13 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.company.krishivishal.R
-import com.company.krishivishal.data.model.Product
+import com.company.krishivishal.core.model.Product
 import com.company.krishivishal.ui.components.EmptyState
 import com.company.krishivishal.ui.components.ErrorState
+import com.company.krishivishal.ui.components.LoginRequiredDialog
 import com.company.krishivishal.ui.home.components.*
 import com.company.krishivishal.ui.theme.PrimaryGreen
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.ShareUtils
 import kotlinx.coroutines.flow.collectLatest
 
@@ -38,12 +39,13 @@ import kotlinx.coroutines.flow.collectLatest
 @Composable
 fun HomeScreen(
     onBrandClick: (String) -> Unit,
-    onCategoryClick: (com.company.krishivishal.data.model.Category) -> Unit,
-    onCropClick: (com.company.krishivishal.data.model.Crop) -> Unit,
+    onCategoryClick: (com.company.krishivishal.core.model.Category) -> Unit,
+    onCropClick: (com.company.krishivishal.core.model.Crop) -> Unit,
     onProductClick: (Product) -> Unit,
     onBuyNowClick: (Product) -> Unit,
     onCartClick: () -> Unit,
     onWishlistClick: () -> Unit,
+    onNotificationClick: () -> Unit,
     onViewAllCategories: () -> Unit = {},
     onViewAllCrops: () -> Unit = {},
     onViewAllBrands: () -> Unit = {},
@@ -53,6 +55,7 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    var showLoginDialog by remember { mutableStateOf(false) }
     
     val pullToRefreshState = rememberPullToRefreshState()
 
@@ -61,6 +64,9 @@ fun HomeScreen(
             when (event) {
                 is HomeUiEvent.ShowSnackbar -> {
                     snackbarHostState.showSnackbar(event.message)
+                }
+                is HomeUiEvent.LoginRequired -> {
+                    showLoginDialog = true
                 }
                 else -> {}
             }
@@ -94,10 +100,15 @@ fun HomeScreen(
             ) {
                 // Header
                 item {
+                    val notificationViewModel: com.company.krishivishal.ui.notification.NotificationViewModel = hiltViewModel()
+                    val unreadCount by notificationViewModel.unreadCount.collectAsState(initial = 0)
+                    
                     HomeHeader(
                         cartCount = uiState.cartCount,
+                        unreadNotifications = unreadCount,
                         onWishlistClick = onWishlistClick,
-                        onCartClick = onCartClick
+                        onCartClick = onCartClick,
+                        onNotificationClick = onNotificationClick
                     )
                 }
 
@@ -109,6 +120,19 @@ fun HomeScreen(
                     )
                 }
 
+                // Horizontal Search Suggestions
+                if (uiState.searchQuery.isNotEmpty()) {
+                    val searchResults = (uiState.products as? Resource.Success)?.data ?: emptyList()
+                    if (searchResults.isNotEmpty()) {
+                        item {
+                            SearchSuggestionsRow(
+                                products = searchResults,
+                                onProductClick = onProductClick
+                            )
+                        }
+                    }
+                }
+
                 // Sorting Options
                 item {
                     SortingSection(
@@ -117,61 +141,74 @@ fun HomeScreen(
                     )
                 }
 
-                // Banners
-                item {
-                    if (uiState.isLoadingFeed) {
-                        BannerShimmer()
-                    } else {
-                        BannerSection(Resource.Success(uiState.banners))
+                if (uiState.searchQuery.isEmpty()) {
+                    // Banners
+                    item {
+                        if (uiState.isLoadingFeed) {
+                            BannerShimmer()
+                        } else {
+                            BannerSection(Resource.Success(uiState.banners))
+                        }
                     }
-                }
 
-                // Categories
-                item {
-                    SectionHeader(title = stringResource(R.string.top_categories), onViewAll = onViewAllCategories)
-                    if (uiState.isLoadingFeed) {
-                        CategoryRowShimmer()
-                    } else {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            items(uiState.categories, key = { it.id }) { category ->
-                                HomeCategoryItem(category = category, onClick = { onCategoryClick(category) })
+                    // Categories
+                    item {
+                        SectionHeader(
+                            title = stringResource(R.string.top_categories),
+                            onViewAll = onViewAllCategories
+                        )
+                        if (uiState.isLoadingFeed) {
+                            CategoryRowShimmer()
+                        } else {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                items(uiState.categories, key = { it.id }) { category ->
+                                    HomeCategoryItem(
+                                        category = category,
+                                        onClick = { onCategoryClick(category) })
+                                }
                             }
                         }
                     }
-                }
 
-                // Crops
-                item {
-                    SectionHeader(title = stringResource(R.string.crops_label), onViewAll = onViewAllCrops)
-                    if (uiState.isLoadingFeed) {
-                        CategoryRowShimmer()
-                    } else {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            items(uiState.crops, key = { it.id }) { crop ->
-                                HomeCropItem(crop = crop, onClick = { onCropClick(crop) })
+                    // Crops
+                    item {
+                        SectionHeader(
+                            title = stringResource(R.string.crops_label),
+                            onViewAll = onViewAllCrops
+                        )
+                        if (uiState.isLoadingFeed) {
+                            CategoryRowShimmer()
+                        } else {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                items(uiState.crops, key = { it.id }) { crop ->
+                                    HomeCropItem(crop = crop, onClick = { onCropClick(crop) })
+                                }
                             }
                         }
                     }
-                }
 
-                // Brands
-                item {
-                    SectionHeader(title = stringResource(R.string.popular_brands), onViewAll = onViewAllBrands)
-                    if (uiState.isLoadingFeed) {
-                        CategoryRowShimmer() // Reusing category shimmer for brands
-                    } else {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            items(uiState.brands, key = { it.id }) { brand ->
-                                BrandItem(brand = brand, onClick = { onBrandClick(brand.name) })
+                    // Brands
+                    item {
+                        SectionHeader(
+                            title = stringResource(R.string.popular_brands),
+                            onViewAll = onViewAllBrands
+                        )
+                        if (uiState.isLoadingFeed) {
+                            CategoryRowShimmer() // Reusing category shimmer for brands
+                        } else {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                items(uiState.brands, key = { it.id }) { brand ->
+                                    BrandItem(brand = brand, onClick = { onBrandClick(brand.name) })
+                                }
                             }
                         }
                     }
@@ -179,7 +216,12 @@ fun HomeScreen(
 
                 // Products Section
                 item {
-                    SectionHeader(title = stringResource(R.string.recommended_products), onViewAll = onViewAllProducts)
+                    val title = if (uiState.searchQuery.isEmpty()) {
+                        stringResource(R.string.recommended_products)
+                    } else {
+                        "Search Results"
+                    }
+                    SectionHeader(title = title, onViewAll = onViewAllProducts)
                 }
 
                 when (val res = uiState.products) {
@@ -233,14 +275,28 @@ fun HomeScreen(
                 item { Spacer(modifier = Modifier.height(20.dp)) }
             }
         }
+
+        if (showLoginDialog) {
+            LoginRequiredDialog(
+                onDismiss = { showLoginDialog = false },
+                onLoginClick = { 
+                    // Set state in main screen to show login
+                    // For now we'll just navigate if we had the callback, 
+                    // but HomeScreen usually doesn't have onLoginClick.
+                    // Assuming we'll add it or use a shared state.
+                }
+            )
+        }
     }
 }
 
 @Composable
 fun HomeHeader(
     cartCount: Int,
+    unreadNotifications: Int,
     onWishlistClick: () -> Unit,
-    onCartClick: () -> Unit
+    onCartClick: () -> Unit,
+    onNotificationClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -263,12 +319,25 @@ fun HomeHeader(
                     contentDescription = stringResource(R.string.my_wishlist)
                 )
             }
-            IconButton(onClick = { /* Notification click */ }) {
-                Icon(
-                    imageVector = Icons.Default.NotificationsNone,
-                    contentDescription = "Notifications"
-                )
+            
+            BadgedBox(
+                badge = {
+                    if (unreadNotifications > 0) {
+                        Badge(containerColor = MaterialTheme.colorScheme.error) {
+                            val count = if (unreadNotifications > 9) "9+" else unreadNotifications.toString()
+                            Text(text = count, color = Color.White)
+                        }
+                    }
+                }
+            ) {
+                IconButton(onClick = onNotificationClick) {
+                    Icon(
+                        imageVector = Icons.Default.NotificationsNone,
+                        contentDescription = "Notifications"
+                    )
+                }
             }
+            
             BadgedBox(
                 badge = {
                     if (cartCount > 0) {

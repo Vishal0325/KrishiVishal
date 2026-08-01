@@ -53,5 +53,11 @@ object DatabaseModule {
     fun provideCropDao(database: AppDatabase): CropDao = database.cropDao()
 
     @Provides
-    fun provideGuestWishlistDao(database: AppDatabase): GuestWishlistDao = database.guestWishlistDao()
+    fun provideWishlistDao(database: AppDatabase): WishlistDao = database.wishlistDao()
+
+    @Provides
+    fun provideNotificationDao(database: AppDatabase): NotificationDao = database.notificationDao()
+
+    @Provides
+    fun provideSyncOperationDao(database: AppDatabase): SyncOperationDao = database.syncOperationDao()
 }

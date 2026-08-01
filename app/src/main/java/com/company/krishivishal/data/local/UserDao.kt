@@ -1,8 +1,8 @@
 package com.company.krishivishal.data.local
 
 import androidx.room.*
-import com.company.krishivishal.data.model.User
-import com.company.krishivishal.data.model.Address
+import com.company.krishivishal.core.model.User
+import com.company.krishivishal.core.model.Address
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -18,6 +18,9 @@ interface UserDao {
 
     @Query("SELECT * FROM addresses WHERE userId = :userId")
     fun getAddressesByUserId(userId: String): Flow<List<Address>>
+
+    @Query("DELETE FROM users WHERE id = :userId")
+    suspend fun deleteUserById(userId: String)
 
     @Delete
     suspend fun deleteAddress(address: Address)

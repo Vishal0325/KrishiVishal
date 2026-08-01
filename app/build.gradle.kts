@@ -21,10 +21,12 @@ android {
         applicationId = "com.company.krishivishal"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "com.company.krishivishal.HiltTestRunner"
+        
+        buildConfigField("boolean", "IS_ONLINE_PAYMENT_ENABLED", "true")
     }
 
     signingConfigs {
@@ -77,6 +79,9 @@ android {
 }
 
 dependencies {
+    // Core Module
+    implementation(project(":core"))
+
     // Core
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.fragment.ktx)

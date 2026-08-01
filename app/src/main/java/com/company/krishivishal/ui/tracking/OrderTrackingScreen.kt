@@ -220,8 +220,11 @@ fun OrderInfoCard(modifier: Modifier, status: String, estimatedTime: Date?) {
                     Text("Expected by ${sdf.format(it)}", color = Color.Gray, fontSize = 13.sp)
                 } ?: Text("Updating location...", color = Color.Gray, fontSize = 13.sp)
             }
-            Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = { /* Call Rider */ }) {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            IconButton(onClick = { 
+                val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:9876543210"))
+                context.startActivity(intent)
+            }) {
                 Icon(Icons.Default.Call, null, tint = PrimaryGreen)
             }
         }

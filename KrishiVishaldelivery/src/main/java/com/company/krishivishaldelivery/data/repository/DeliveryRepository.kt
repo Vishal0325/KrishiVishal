@@ -1,10 +1,11 @@
 package com.company.krishivishaldelivery.data.repository
 
 import android.util.Log
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishaldelivery.data.local.DeliveryDao
 import com.company.krishivishaldelivery.data.local.DeliveryOrderEntity
-import com.company.krishivishaldelivery.data.model.DeliveryItem
-import com.company.krishivishaldelivery.data.model.DeliveryOrder
+import com.company.krishivishal.core.model.OrderItem
+import com.company.krishivishal.core.model.Order
 import com.company.krishivishaldelivery.data.model.IncentiveSlab
 import com.company.krishivishaldelivery.data.model.Rider
 import com.google.firebase.firestore.FirebaseFirestore
@@ -84,7 +85,25 @@ class DeliveryRepository @Inject constructor(
         firestore.collection("riders").document(riderId).update(updates).await()
     }
 
-    fun getAssignedOrders(riderId: String): Flow<List<DeliveryOrder>> {
+    suspend fun deleteRiderAccount(riderId: String) {
+        firestore.collection("riders").document(riderId).delete().await()
+    }
+
+    fun getRiderPayouts(riderId: String): Flow<Resource<List<Map<String, Any>>>> = callbackFlow {
+        val listener = firestore.collection("payout_logs")
+            .whereEqualTo("riderId", riderId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(Resource.Error(error.message ?: "Failed to fetch payouts"))
+                    return@addSnapshotListener
+                }
+                val logs = snapshot?.documents?.map { it.data ?: emptyMap() } ?: emptyList()
+                trySend(Resource.Success(logs))
+            }
+        awaitClose { listener.remove() }
+    }
+
+    fun getAssignedOrders(riderId: String): Flow<List<Order>> {
         return deliveryDao.getAllOrders().map { entities ->
             entities.map { it.toDomainModel() }
         }
@@ -97,7 +116,7 @@ class DeliveryRepository @Inject constructor(
                 .whereIn("status", listOf("ASSIGNED", "PICKED_UP", "OUT_FOR_DELIVERY"))
                 .get().await()
             
-            val orders = snapshot.toObjects(DeliveryOrder::class.java)
+            val orders = snapshot.toObjects(Order::class.java)
             val entities = orders.map { it.toEntity() }
             deliveryDao.clearOrders()
             deliveryDao.insertOrders(entities)
@@ -140,10 +159,10 @@ class DeliveryRepository @Inject constructor(
         firestore.collection("users").document(userId).collection("notifications").add(notification).await()
     }
 
-    suspend fun pickupOrderByScan(orderId: String, riderId: String): DeliveryOrder? {
+    suspend fun pickupOrderByScan(orderId: String, riderId: String): Order? {
         val doc = firestore.collection("orders").document(orderId).get().await()
         if (!doc.exists()) return null
-        val order = doc.toObject(DeliveryOrder::class.java) ?: return null
+        val order = doc.toObject(Order::class.java) ?: return null
         
         firestore.collection("orders").document(orderId).update(mapOf("riderId" to riderId, "status" to "PICKED_UP")).await()
         val updatedOrder = order.copy(riderId = riderId, status = "PICKED_UP")
@@ -172,22 +191,22 @@ class DeliveryRepository @Inject constructor(
     }
 
     // --- Mapper Extensions ---
-    private fun DeliveryOrder.toEntity(): DeliveryOrderEntity {
+    private fun Order.toEntity(): DeliveryOrderEntity {
         val itemsJson = JSONArray().apply {
             items.forEach { put(JSONObject().apply { put("productId", it.productId); put("productName", it.productName); put("quantity", it.quantity); put("price", it.price) }) }
         }.toString()
         return DeliveryOrderEntity(id = id, userId = userId, userName = userName, userPhone = userPhone, itemsJson = itemsJson, totalAmount = totalAmount, address = address, status = status, riderId = riderId, createdAtMillis = createdAt.time, customerOTP = customerOTP, isCOD = isCOD, codAmount = codAmount, collectedCash = collectedCash, isCashDeposited = isCashDeposited, targetLat = targetLat, targetLng = targetLng, isPendingSync = false)
     }
 
-    private fun DeliveryOrderEntity.toDomainModel(): DeliveryOrder {
-        val itemsList = mutableListOf<DeliveryItem>()
+    private fun DeliveryOrderEntity.toDomainModel(): Order {
+        val itemsList = mutableListOf<OrderItem>()
         if (itemsJson.isNotEmpty()) {
             val arr = JSONArray(itemsJson)
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
-                itemsList.add(DeliveryItem(productId = obj.optString("productId", ""), productName = obj.optString("productName", ""), quantity = obj.optInt("quantity", 0), price = obj.optDouble("price", 0.0)))
+                itemsList.add(OrderItem(productId = obj.optString("productId", ""), productName = obj.optString("productName", ""), quantity = obj.optInt("quantity", 0), price = obj.optDouble("price", 0.0)))
             }
         }
-        return DeliveryOrder(id = id, userId = userId, userName = userName, userPhone = userPhone, items = itemsList, totalAmount = totalAmount, address = address, status = status, riderId = riderId, createdAt = Date(createdAtMillis), customerOTP = customerOTP, isCOD = isCOD, codAmount = codAmount, collectedCash = collectedCash, isCashDeposited = isCashDeposited, targetLat = targetLat, targetLng = targetLng)
+        return Order(id = id, userId = userId, userName = userName, userPhone = userPhone, items = itemsList, totalAmount = totalAmount, address = address, status = status, riderId = riderId, createdAt = Date(createdAtMillis), customerOTP = customerOTP, isCOD = isCOD, codAmount = codAmount, collectedCash = collectedCash, isCashDeposited = isCashDeposited, targetLat = targetLat, targetLng = targetLng)
     }
 }

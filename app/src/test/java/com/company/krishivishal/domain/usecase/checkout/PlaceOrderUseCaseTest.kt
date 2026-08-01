@@ -1,9 +1,9 @@
 package com.company.krishivishal.domain.usecase.checkout
 
-import com.company.krishivishal.data.model.*
+import com.company.krishivishal.core.model.*
 import com.company.krishivishal.data.repository.OrderRepository
 import com.company.krishivishal.domain.usecase.cart.CalculateCartTotalsUseCase
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify

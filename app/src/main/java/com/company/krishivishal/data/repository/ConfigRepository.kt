@@ -1,7 +1,7 @@
 package com.company.krishivishal.data.repository
 
-import com.company.krishivishal.data.model.AppConfig
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.model.AppConfig
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.safeCall
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.Flow
@@ -23,11 +23,11 @@ class ConfigRepositoryImpl @Inject constructor(
 ) : ConfigRepository {
 
     override fun getConfig(): Flow<Resource<AppConfig>> = safeCall(ioDispatcher) {
-        val snapshot = firestore.collection("config").document("app_settings").get().await()
+        val snapshot = firestore.collection("settings").document("config").get().await()
         snapshot.toObject(AppConfig::class.java) ?: AppConfig()
     }
 
     override fun updateConfig(config: AppConfig): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
-        firestore.collection("config").document("app_settings").set(config).await()
+        firestore.collection("settings").document("config").set(config).await()
     }
 }

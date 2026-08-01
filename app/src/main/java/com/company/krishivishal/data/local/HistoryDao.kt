@@ -1,7 +1,7 @@
 package com.company.krishivishal.data.local
 
 import androidx.room.*
-import com.company.krishivishal.data.model.SearchHistory
+import com.company.krishivishal.core.model.SearchHistory
 import kotlinx.coroutines.flow.Flow
 
 @Dao

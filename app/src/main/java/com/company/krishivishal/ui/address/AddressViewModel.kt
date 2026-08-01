@@ -2,11 +2,11 @@ package com.company.krishivishal.ui.address
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.company.krishivishal.data.model.Address
+import com.company.krishivishal.core.model.Address
 import com.company.krishivishal.data.repository.AddressRepository
 import com.company.krishivishal.data.repository.AuthRepository
-import com.company.krishivishal.utils.Resource
-import com.company.krishivishal.ui.home.HomeViewModel
+import com.company.krishivishal.core.util.Constants
+import com.company.krishivishal.core.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -37,7 +37,7 @@ class AddressViewModel @Inject constructor(
     fun loadAddresses() {
         viewModelScope.launch {
             authRepository.getCurrentUser().collectLatest { user ->
-                val userId = user?.id ?: HomeViewModel.GUEST_USER_ID
+                val userId = user?.id ?: Constants.GUEST_USER_ID
                 addressRepository.getAddresses(userId).collectLatest { resource ->
                     _addresses.value = resource
                 }
@@ -60,12 +60,15 @@ class AddressViewModel @Inject constructor(
         addressType: String = "Farm"
     ) {
         viewModelScope.launch {
-            val user = authRepository.getCurrentUser().firstOrNull()
-            val userId = user?.id ?: HomeViewModel.GUEST_USER_ID
+            val user = authRepository.getCurrentUser().first()
+            if (user == null) {
+                _uiEvent.emit(AddressUiEvent.ShowSnackbar("Error: Session expired. Please restart app."))
+                return@launch
+            }
             
             val newAddress = Address(
                 id = UUID.randomUUID().toString(),
-                userId = userId,
+                userId = user.id,
                 fullName = fullName,
                 mobileNumber = mobileNumber,
                 houseNo = houseNo,

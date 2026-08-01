@@ -35,9 +35,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.company.krishivishaldelivery.data.model.DeliveryOrder
+import com.company.krishivishal.core.model.Order
 import com.company.krishivishaldelivery.ui.dashboard.DeliveryViewModel
-import com.company.krishivishaldelivery.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 
@@ -60,7 +60,7 @@ fun ProofOfDeliveryScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     
     val ordersResource by viewModel.orders.collectAsState()
-    val order = (ordersResource as? Resource.Success)?.data?.find { it.id == orderId }
+    val order = (ordersResource as? Resource.Success<List<Order>>)?.data?.find { it.id == orderId }
     
     val coroutineScope = rememberCoroutineScope()
 
@@ -216,7 +216,8 @@ fun ProofOfDeliveryScreen(
 
             Button(
                 onClick = { 
-                    if (order != null && order.customerOTP != otpEntered) {
+                    val isOtpValid = order?.customerOTP?.trim()?.toIntOrNull() == otpEntered.trim().toIntOrNull()
+                    if (order != null && !isOtpValid) {
                         errorMessage = "Invalid OTP. Please ask customer for correct OTP."
                         return@Button
                     }

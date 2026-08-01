@@ -68,6 +68,50 @@ export const onUserRoleUpdate = functions.firestore
     });
 
 /**
+ * Automated Stock Watcher
+ * Triggered when a product is updated.
+ * Sends a notification/alert if stock falls below the threshold.
+ */
+export const onProductUpdate = functions.firestore
+    .document("products/{productId}")
+    .onUpdate(async (change, context) => {
+        const before = change.before.data();
+        const after = change.after.data();
+
+        if (!before || !after) return null;
+
+        // Fetch global settings for threshold and WhatsApp number
+        const settingsSnap = await db.collection("settings").doc("config").get();
+        const settings = settingsSnap.data();
+        const threshold = settings?.lowStockThreshold || 10;
+        const alertNumber = settings?.adminAlertWhatsApp;
+
+        // Check if stock just fell below threshold
+        const oldStock = before.stockQuantity || 0;
+        const newStock = after.stockQuantity || 0;
+
+        if (newStock <= threshold && oldStock > threshold) {
+            console.log(`LOW STOCK ALERT: ${after.name} is down to ${newStock}`);
+
+            if (alertNumber) {
+                // Placeholder for real WhatsApp API call (e.g. Twilio)
+                console.log(`Simulating WhatsApp Alert to ${alertNumber}: Item ${after.name} is low on stock (${newStock} left).`);
+
+                // You can also send a system notification
+                const payload = {
+                    notification: {
+                        title: "📦 LOW STOCK ALERT",
+                        body: `${after.name} is low! Only ${newStock} units left.`,
+                    },
+                    topic: "admin_alerts"
+                };
+                await admin.messaging().send(payload);
+            }
+        }
+        return null;
+    });
+
+/**
  * Simple Audit Logging for core resources
  */
 export const auditProductChange = functions.firestore

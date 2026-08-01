@@ -3,10 +3,10 @@ package com.company.krishivishal.ui.admin
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.company.krishivishal.data.model.Crop
+import com.company.krishivishal.core.model.Crop
 import com.company.krishivishal.data.repository.CropRepository
 import com.company.krishivishal.data.repository.StorageRepository
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

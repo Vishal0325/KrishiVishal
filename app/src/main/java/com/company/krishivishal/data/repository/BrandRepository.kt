@@ -1,8 +1,8 @@
 package com.company.krishivishal.data.repository
 
 import com.company.krishivishal.data.local.BrandDao
-import com.company.krishivishal.data.model.Brand
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.model.Brand
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.networkBoundResource
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.Flow
@@ -12,6 +12,7 @@ import javax.inject.Singleton
 import com.company.krishivishal.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.flow
+import timber.log.Timber
 
 interface BrandRepository {
     fun getBrands(): Flow<Resource<List<Brand>>>
@@ -27,18 +28,20 @@ class BrandRepositoryImpl @Inject constructor(
 ) : BrandRepository {
 
     override fun getBrands(): Flow<Resource<List<Brand>>> = kotlinx.coroutines.flow.flow {
-        emit(Resource.Success(com.company.krishivishal.utils.Constants.SAMPLE_BRANDS))
+        emit(Resource.Success(com.company.krishivishal.core.util.Constants.SAMPLE_BRANDS))
         try {
             val snapshot = firestore.collection("brands").whereEqualTo("isActive", true).get().await()
             val fetched = snapshot.documents.mapNotNull { doc ->
                 Brand(id = doc.id, name = doc.getString("name") ?: "", imageUrl = doc.getString("imageUrl") ?: "", isActive = true)
             }
             if (fetched.isNotEmpty()) emit(Resource.Success(fetched))
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to fetch brands from Firestore, using fallback data")
+        }
     }
 
     private suspend fun seedBrands() {
-        com.company.krishivishal.utils.Constants.SAMPLE_BRANDS.forEach { brand ->
+        com.company.krishivishal.core.util.Constants.SAMPLE_BRANDS.forEach { brand ->
             firestore.collection("brands").document(brand.id).set(brand).await()
         }
     }

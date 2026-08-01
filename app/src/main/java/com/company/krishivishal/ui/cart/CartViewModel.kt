@@ -2,12 +2,14 @@ package com.company.krishivishal.ui.cart
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.company.krishivishal.data.model.CartItem
-import com.company.krishivishal.data.model.CartWithProduct
+import com.company.krishivishal.core.model.CartItem
+import com.company.krishivishal.core.model.CartWithProduct
+import com.company.krishivishal.core.model.availableStock
 import com.company.krishivishal.data.repository.CartRepository
 import com.company.krishivishal.domain.usecase.auth.GetCurrentUserUseCase
 import com.company.krishivishal.domain.usecase.cart.*
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Constants
+import com.company.krishivishal.core.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -30,7 +32,7 @@ class CartViewModel @Inject constructor(
     private fun loadCartItems() {
         viewModelScope.launch {
             getCurrentUserUseCase().flatMapLatest { user ->
-                val userId = user?.id ?: "guest_user"
+                val userId = user?.id ?: Constants.GUEST_USER_ID
                 cartRepository.getCartWithProducts(userId)
             }.collectLatest { resource ->
                 when (resource) {
@@ -61,6 +63,18 @@ class CartViewModel @Inject constructor(
 
     fun updateQuantity(cartItem: CartItem, newQuantity: Int) {
         if (newQuantity < 1) return
+        
+        // NEW: Validate stock before updating (Phase 2.2)
+        // Get CartWithProduct to check available stock
+        val cartWithProduct = _uiState.value.cartItems.find { it.cartItem.id == cartItem.id }
+        if (cartWithProduct != null) {
+            val availableStock = cartWithProduct.availableStock()  // Using extension function
+            if (newQuantity > availableStock) {
+                _uiState.update { it.copy(error = "Only $availableStock available in stock") }
+                return
+            }
+        }
+        
         viewModelScope.launch {
             cartRepository.updateCartItem(cartItem.copy(quantity = newQuantity)).collectLatest { resource ->
                 if (resource is Resource.Error) {
@@ -88,17 +102,15 @@ class CartViewModel @Inject constructor(
 
     fun toggleSelectAll(isSelected: Boolean) {
         viewModelScope.launch {
-            getCurrentUserUseCase().firstOrNull()?.let { user ->
-                cartRepository.selectAll(user.id, isSelected).collect()
-            } ?: cartRepository.selectAll("guest_user", isSelected).collect()
+            val userId = getCurrentUserUseCase().firstOrNull()?.id ?: Constants.GUEST_USER_ID
+            cartRepository.selectAll(userId, isSelected).collect()
         }
     }
 
     fun deleteSelected() {
         viewModelScope.launch {
-            getCurrentUserUseCase().firstOrNull()?.let { user ->
-                cartRepository.deleteSelected(user.id).collect()
-            } ?: cartRepository.deleteSelected("guest_user").collect()
+            val userId = getCurrentUserUseCase().firstOrNull()?.id ?: Constants.GUEST_USER_ID
+            cartRepository.deleteSelected(userId).collect()
         }
     }
 

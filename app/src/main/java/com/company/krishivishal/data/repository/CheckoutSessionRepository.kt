@@ -1,6 +1,6 @@
 package com.company.krishivishal.data.repository
 
-import com.company.krishivishal.data.model.CartWithProduct
+import com.company.krishivishal.core.model.CartWithProduct
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

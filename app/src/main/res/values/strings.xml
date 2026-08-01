@@ -169,6 +169,12 @@
     <string name="email_address">Email Address</string>
     <string name="cancel">Cancel</string>
     <string name="update_profile">Update Profile</string>
+    <string name="delete_account_data">Delete My Account &amp; Data</string>
+    <string name="delete_account_confirm_title">Delete Account?</string>
+    <string name="delete_account_confirm_msg">Are you sure you want to delete your account? This action is permanent and all your data (orders, wallet, profile) will be lost.</string>
+    <string name="account_deleted_success">Account Deleted Successfully</string>
+    <string name="delete_account_reauth_error">Failed to delete account. For security reasons, please logout and login again, then try deleting.</string>
+    <string name="delete_account">Delete Account</string>
     <string name="refer_earn">Refer &amp; Earn</string>
     <string name="refer_desc">Invite a farmer friend and get ₹50 discount on your next order!</string>
     <string name="refer_code_label">Your Referral Code</string>
@@ -177,4 +183,9 @@
     <string name="referral_msg">Join Krishi Vishal App using my code %1$s and get ₹50 off on your first order! Download here: https://krishivishal.com/download</string>
     <string name="continue_with_google">Continue with Google</string>
     <string name="or_divider">OR</string>
+    <string name="download_invoice">Download GST Invoice</string>
+    <string name="view_print_invoice">View / Print Invoice</string>
+    <string name="download_print_invoice">Download / Print Invoice</string>
+    <string name="expert_help">Expert Help</string>
+    <string name="whatsapp_msg">Hello Krishi Vishal, I need expert advice on my crop.</string>
 </resources>

@@ -1,5 +1,6 @@
 package com.company.krishivishaldelivery.ui.profile
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,12 +16,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.company.krishivishaldelivery.R
 import com.company.krishivishaldelivery.ui.dashboard.DeliveryViewModel
-import com.company.krishivishaldelivery.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import com.google.firebase.auth.FirebaseAuth
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,6 +37,28 @@ fun ProfileScreen(
     val auth = FirebaseAuth.getInstance()
     val riderResource by viewModel.riderProfile.collectAsState()
     var showEditDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        viewModel.deleteAccountResult.collect { resource ->
+            when (resource) {
+                is Resource.Success -> {
+                    Toast.makeText(context, context.getString(R.string.account_deleted_success), Toast.LENGTH_LONG).show()
+                    onLogout()
+                }
+                is Resource.Error -> {
+                    val message = if (resource.message?.contains("recent login", ignoreCase = true) == true) {
+                        context.getString(R.string.delete_account_reauth_error)
+                    } else {
+                        resource.message ?: "Something went wrong"
+                    }
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                else -> {}
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -60,6 +86,7 @@ fun ProfileScreen(
                 ProfileOption(Icons.Default.AccountBalance, "Bank Details", rider?.bankAccount ?: "Add Account") { showEditDialog = true }
                 ProfileOption(Icons.Default.DirectionsBike, "Vehicle Details", "${rider?.vehicleType}: ${rider?.vehicleNumber}") { showEditDialog = true }
                 ProfileOption(Icons.Default.Settings, "App Settings", "Theme, Notifications") { onSettingsClick() }
+                ProfileOption(Icons.Default.DeleteForever, stringResource(R.string.delete_account_data), "Permanent removal") { showDeleteConfirm = true }
                 
                 Spacer(modifier = Modifier.height(32.dp))
                 Button(
@@ -81,6 +108,30 @@ fun ProfileScreen(
                 onSave = { name, acc, bName, ifsc, vNum, vType ->
                     viewModel.updateProfile(name, acc, bName, ifsc, vNum, vType)
                     showEditDialog = false
+                }
+            )
+        }
+
+        if (showDeleteConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirm = false },
+                title = { Text(stringResource(R.string.delete_account_confirm_title)) },
+                text = { Text(stringResource(R.string.delete_account_confirm_msg)) },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.deleteAccount()
+                            showDeleteConfirm = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                    ) {
+                        Text(stringResource(R.string.delete_account))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirm = false }) {
+                        Text(stringResource(R.string.cancel))
+                    }
                 }
             )
         }

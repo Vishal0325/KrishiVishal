@@ -29,9 +29,10 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import androidx.compose.ui.res.stringResource
 import com.company.krishivishal.R
-import com.company.krishivishal.data.model.*
+import com.company.krishivishal.core.model.*
 import com.company.krishivishal.ui.theme.PrimaryGreen
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
+import com.company.krishivishal.ui.components.AnimatedHeartButton
 
 @Composable
 fun SectionHeader(title: String, onViewAll: () -> Unit) {
@@ -109,14 +110,13 @@ fun HomeProductItem(
     val sellingPrice = when {
         firstVariant != null -> firstVariant.price
         product.discountedPrice > 0 -> product.discountedPrice
-        product.price > 0 -> product.price
         else -> product.basePrice
     }
     
     val mrp = when {
         firstVariant != null -> firstVariant.basePrice
         product.mrp > 0 -> product.mrp
-        else -> product.basePrice
+        else -> product.basePrice.coerceAtLeast(sellingPrice)
     }
     
     // Auto-calculate discount percentage
@@ -203,17 +203,11 @@ fun HomeProductItem(
                             modifier = Modifier.size(18.dp)
                         )
                     }
-                    IconButton(
+                    AnimatedHeartButton(
+                        isWishlisted = isWishlisted,
                         onClick = onWishlistToggle,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isWishlisted) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = "Wishlist",
-                            tint = if (isWishlisted) Color.Red else Color.Gray,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                        size = 28
+                    )
                 }
             }
             
@@ -323,7 +317,8 @@ fun HomeProductItem(
                             Text(
                                 text = displaySize,
                                 fontSize = 10.sp,
-                                color = Color.Gray
+                                color = Color.Black,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
@@ -472,5 +467,86 @@ fun BrandItem(brand: Brand, onClick: () -> Unit) {
                 contentScale = ContentScale.Fit
             )
         }
+    }
+}
+
+@Composable
+fun SearchSuggestionProductItem(
+    product: Product,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .width(140.dp)
+            .clickable { onClick() },
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            AsyncImage(
+                model = product.imageUrl.ifEmpty { product.images.firstOrNull() },
+                contentDescription = product.name,
+                modifier = Modifier
+                    .size(100.dp)
+                    .clip(RoundedCornerShape(4.dp)),
+                contentScale = ContentScale.Fit
+            )
+            
+            Spacer(modifier = Modifier.height(4.dp))
+            
+            Text(
+                text = product.name,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            
+            Text(
+                text = "₹${(if (product.discountedPrice > 0) product.discountedPrice else product.basePrice).toInt()}",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = PrimaryGreen,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+fun SearchSuggestionsRow(
+    products: List<Product>,
+    onProductClick: (Product) -> Unit
+) {
+    Column {
+        SectionHeader(
+            title = "Top Matches",
+            onViewAll = { /* Handle view all if needed */ }
+        )
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(products, key = { it.id }) { product ->
+                SearchSuggestionProductItem(
+                    product = product,
+                    onClick = { onProductClick(product) }
+                )
+            }
+        }
+        HorizontalDivider(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            thickness = 1.dp,
+            color = Color.LightGray.copy(alpha = 0.5f)
+        )
     }
 }

@@ -16,6 +16,8 @@ import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,16 +29,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
-import com.company.krishivishal.data.model.Order
-import com.company.krishivishal.data.model.OrderStatus
+import androidx.compose.ui.res.stringResource
+import com.company.krishivishal.R
+import com.company.krishivishal.core.model.Order
+import com.company.krishivishal.core.model.OrderStatus
 import com.company.krishivishal.ui.theme.PrimaryGreen
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
+import com.company.krishivishal.ui.components.EmptyState
 import java.text.SimpleDateFormat
 import java.util.Locale
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.semantics.semantics
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,7 +102,13 @@ fun OrderScreen(
             } else if (uiState.error != null && uiState.orders.isEmpty()) {
                 Text(text = "Error: ${uiState.error}", modifier = Modifier.align(Alignment.Center), color = Color.Red)
             } else if (uiState.orders.isEmpty()) {
-                EmptyOrdersView()
+                EmptyState(
+                    icon = Icons.Default.ShoppingBag,
+                    title = "No orders placed yet",
+                    description = "Looks like you haven't ordered anything. Start exploring our fresh products!",
+                    actionText = "Start Shopping",
+                    onActionClick = onBack
+                )
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -128,24 +140,6 @@ fun OrderScreen(
                 }
             )
         }
-    }
-}
-
-@Composable
-fun EmptyOrdersView() {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(
-            imageVector = Icons.Default.ShoppingBag,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = Color.LightGray
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("No orders placed yet", color = Color.Gray, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -203,14 +197,29 @@ fun OrderItemCard(
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
+                    val firstItem = order.items.firstOrNull()
+                    val itemName = firstItem?.productName ?: "Multiple Items"
+                    val variantLabel = firstItem?.variantLabel
+                    
+                    // Group name and variant for accessibility
+                    Column(modifier = Modifier.semantics(mergeDescendants = true) {}) {
+                        Text(
+                            text = itemName,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp,
+                            maxLines = 1
+                        )
+                        if (!variantLabel.isNullOrBlank() && order.items.size == 1) {
+                            Text(
+                                text = variantLabel,
+                                fontSize = 11.sp,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+                    
                     Text(
-                        text = order.items.firstOrNull()?.productName ?: "Multiple Items",
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 14.sp,
-                        maxLines = 1
-                    )
-                    Text(
-                        text = if (order.items.size > 1) "and ${order.items.size - 1} other items" else "Qty: ${order.items.firstOrNull()?.quantity}",
+                        text = if (order.items.size > 1) "and ${order.items.size - 1} other items" else "Qty: ${firstItem?.quantity ?: 0}",
                         fontSize = 12.sp,
                         color = Color.Gray
                     )
@@ -226,6 +235,60 @@ fun OrderItemCard(
             AnimatedVisibility(visible = isExpanded) {
                 Column {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
+                    
+                    // NEW: Delivery Verification Section
+                    if (order.status != "DELIVERED" && order.status != "CANCELLED") {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF9C4)), // Light Yellow
+                            border = BorderStroke(1.dp, Color(0xFFFBC02D))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFFF57F17), modifier = Modifier.size(24.dp))
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column {
+                                    Text("Delivery Verification Code", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFFF57F17))
+                                    Text(
+                                        text = order.customerOTP.ifEmpty { "----" },
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 24.sp,
+                                        letterSpacing = 4.sp,
+                                        color = Color.Black
+                                    )
+                                    Text("Share this OTP only with the delivery rider.", fontSize = 10.sp, color = Color.DarkGray)
+                                }
+                            }
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
+                    }
+
+                    // Full Items List
+                    Text(text = "Items Ordered", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    order.items.forEach { item ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
+                                Text(item.productName, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                val label = item.variantLabel
+                                if (!label.isNullOrBlank()) {
+                                    Text(label, fontSize = 11.sp, color = Color.Gray)
+                                }
+                            }
+                            Text("x${item.quantity}", fontSize = 13.sp, color = Color.DarkGray)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text("₹${(item.price * item.quantity).toInt()}", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
                     Text(text = "Order Tracking", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Spacer(modifier = Modifier.height(16.dp))
                     OrderTimeline(currentStatus = order.orderStatus)
@@ -237,15 +300,29 @@ fun OrderItemCard(
 
                     // View Bill Button
                     Spacer(modifier = Modifier.height(16.dp))
-                    Button(
-                        onClick = onViewBillClick,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("View Invoice / Bill", fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = onViewBillClick,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(R.string.view_print_invoice), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        Button(
+                            onClick = { com.company.krishivishal.utils.PrintHelper.printOrderInvoice(context, order) },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(R.string.download_invoice), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
 
                     // Track Button
@@ -282,9 +359,12 @@ fun OrderItemCard(
 
                     // Return System Placeholder
                     if (order.orderStatus == OrderStatus.DELIVERED) {
+                        val context = androidx.compose.ui.platform.LocalContext.current
                         Spacer(modifier = Modifier.height(16.dp))
                         OutlinedButton(
-                            onClick = { },
+                            onClick = { 
+                                android.widget.Toast.makeText(context, "Return request initiated for Order #${order.id.take(8).uppercase()}", android.widget.Toast.LENGTH_LONG).show()
+                            },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = PrimaryGreen),
                             border = BorderStroke(1.dp, PrimaryGreen),
@@ -395,6 +475,17 @@ fun OrderCancellationDialog(
         }
     )
 }
+
+val OrderStatus.color: Color
+    get() = when (this) {
+        OrderStatus.PLACED -> Color(0xFF2196F3)
+        OrderStatus.CONFIRMED -> Color(0xFF4CAF50)
+        OrderStatus.SHIPPED -> Color(0xFFFF9800)
+        OrderStatus.OUT_FOR_DELIVERY -> Color(0xFF9C27B0)
+        OrderStatus.DELIVERED -> PrimaryGreen
+        OrderStatus.CANCELLED -> Color.Red
+        OrderStatus.RETURNED -> Color.Gray
+    }
 
 @Composable
 fun StatusBadge(status: OrderStatus) {

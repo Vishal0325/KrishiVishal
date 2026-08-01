@@ -1,6 +1,6 @@
 package com.company.krishivishal.domain.usecase.auth
 
-import com.company.krishivishal.data.model.User
+import com.company.krishivishal.core.model.User
 import com.company.krishivishal.data.repository.AuthRepository
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject

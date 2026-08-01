@@ -5,7 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import com.company.krishivishal.data.model.RecentSearch
+import com.company.krishivishal.core.model.RecentSearch
 import kotlinx.coroutines.flow.Flow
 
 /**

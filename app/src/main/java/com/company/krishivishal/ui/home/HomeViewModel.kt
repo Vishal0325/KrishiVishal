@@ -2,11 +2,14 @@ package com.company.krishivishal.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.company.krishivishal.data.model.*
+import com.company.krishivishal.core.model.*
 import com.company.krishivishal.data.repository.*
 import com.company.krishivishal.domain.usecase.home.*
 import com.company.krishivishal.analytics.AnalyticsTracker
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Constants
+import com.company.krishivishal.core.util.Resource
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -16,6 +19,7 @@ import javax.inject.Inject
 sealed class HomeUiEvent {
     data class ShowSnackbar(val message: String) : HomeUiEvent()
     data class NavigateToCart(val productId: String) : HomeUiEvent()
+    object LoginRequired : HomeUiEvent()
 }
 
 enum class ProductSortOrder {
@@ -37,10 +41,6 @@ class HomeViewModel @Inject constructor(
     private val analyticsTracker: AnalyticsTracker,
     private val userDao: com.company.krishivishal.data.local.UserDao
 ) : ViewModel() {
-
-    companion object {
-        const val GUEST_USER_ID = "guest_user"
-    }
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -82,6 +82,9 @@ class HomeViewModel @Inject constructor(
     val cartCount: StateFlow<Int> = _uiState.map { it.cartCount }
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
     // ----------------------------------------
+
+    val pagedProducts: Flow<PagingData<Product>> = productRepository.getProductsPaged()
+        .cachedIn(viewModelScope)
 
     init {
         loadHomeFeed()
@@ -146,7 +149,7 @@ class HomeViewModel @Inject constructor(
     private fun observeCartCount() {
         viewModelScope.launch {
             _currentUser.collectLatest { user ->
-                val userId = user?.id ?: GUEST_USER_ID
+                val userId = user?.id ?: Constants.GUEST_USER_ID
                 cartRepository.getCartCount(userId).collectLatest { count ->
                     _uiState.update { it.copy(cartCount = count) }
                 }
@@ -157,7 +160,7 @@ class HomeViewModel @Inject constructor(
     private fun observeWishlist() {
         viewModelScope.launch {
             _currentUser.collectLatest { user ->
-                val userId = user?.id ?: GUEST_USER_ID
+                val userId = user?.id ?: Constants.GUEST_USER_ID
                 wishlistRepository.getWishlist(userId).collectLatest { resource ->
                     if (resource is Resource.Success) {
                         _uiState.update { it.copy(wishlistItems = resource.data ?: emptyList()) }
@@ -176,15 +179,14 @@ class HomeViewModel @Inject constructor(
     }
 
     fun toggleWishlist(product: Product) {
-        val userId = _currentUser.value?.id ?: GUEST_USER_ID
-        viewModelScope.launch {
-            if (userId == GUEST_USER_ID) {
-                val existingGuest = userDao.getUserById(GUEST_USER_ID).firstOrNull()
-                if (existingGuest == null) {
-                    userDao.insertUser(User(id = GUEST_USER_ID, name = "Guest User"))
-                }
-            }
+        val currentUser = _currentUser.value
+        if (currentUser == null || currentUser.id == Constants.GUEST_USER_ID) {
+            viewModelScope.launch { _uiEvent.emit(HomeUiEvent.LoginRequired) }
+            return
+        }
 
+        val userId = currentUser.id
+        viewModelScope.launch {
             val isWishlisted = _uiState.value.wishlistItems.any { it.id == product.id }
             val wishlistItem = WishlistItem(
                 productId = product.id,
@@ -211,12 +213,12 @@ class HomeViewModel @Inject constructor(
     }
 
     fun addToCart(product: Product) {
-        val userId = _currentUser.value?.id ?: GUEST_USER_ID
+        val userId = _currentUser.value?.id ?: Constants.GUEST_USER_ID
         
         viewModelScope.launch {
             try {
-                if (userId == GUEST_USER_ID) {
-                    userDao.insertUser(User(id = GUEST_USER_ID, name = "Guest User"))
+                if (userId == Constants.GUEST_USER_ID) {
+                    userDao.insertUser(User(id = Constants.GUEST_USER_ID, name = "Guest User"))
                 }
                 
                 productRepository.saveProduct(product).collectLatest {}

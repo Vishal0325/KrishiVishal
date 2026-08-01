@@ -2,9 +2,9 @@ package com.company.krishivishal.domain.usecase.admin
 
 import android.content.Context
 import android.net.Uri
-import com.company.krishivishal.data.model.Product
+import com.company.krishivishal.core.model.Product
 import com.company.krishivishal.data.repository.ProductRepository
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import javax.inject.Inject
@@ -41,18 +41,33 @@ class BulkManageProductsUseCase @Inject constructor(
             while (line != null) {
                 val values = CSVUtil.parseLine(line)
                 if (values.size >= 5) {
-                    // Mapping CSV: name, brand, category, basePrice, stockQuantity, description
-                    val product = Product(
-                        id = java.util.UUID.randomUUID().toString(),
-                        name = values.getOrNull(0) ?: "",
-                        brand = values.getOrNull(1) ?: "",
-                        category = values.getOrNull(2) ?: "",
-                        basePrice = values.getOrNull(3)?.toDoubleOrNull() ?: 0.0,
-                        stockQuantity = values.getOrNull(4)?.toIntOrNull() ?: 0,
-                        description = values.getOrNull(5) ?: ""
-                    )
-                    products.add(product)
-                    count++
+                    // Mapping CSV: name, brand, category, mrp, basePrice, discountedPrice, stockQuantity, unit, weight, description
+                    val name = values.getOrNull(0) ?: ""
+                    val weight = values.getOrNull(8) ?: ""
+                    val unit = values.getOrNull(7) ?: ""
+                    
+                    // Validation: Skip rows with missing critical data or invalid weight
+                    val isWeightValid = weight.isNotBlank() && weight != "0"
+                    
+                    if (name.isNotBlank() && isWeightValid) {
+                        val product = Product(
+                            id = java.util.UUID.randomUUID().toString(),
+                            name = name,
+                            brand = values.getOrNull(1) ?: "",
+                            category = values.getOrNull(2) ?: "",
+                            mrp = values.getOrNull(3)?.toDoubleOrNull() ?: 0.0,
+                            basePrice = values.getOrNull(4)?.toDoubleOrNull() ?: 0.0,
+                            discountedPrice = values.getOrNull(5)?.toDoubleOrNull() ?: 0.0,
+                            stockQuantity = values.getOrNull(6)?.toIntOrNull() ?: 0,
+                            unit = unit,
+                            weight = weight,
+                            description = values.getOrNull(9) ?: ""
+                        )
+                        products.add(product)
+                        count++
+                    } else {
+                        android.util.Log.w("CSVImport", "Skipping invalid row: name='$name', weight='$weight'")
+                    }
                 }
                 line = reader.readLine()
             }
@@ -74,10 +89,21 @@ class BulkManageProductsUseCase @Inject constructor(
                 if (resource is Resource.Success) {
                     val products = resource.data ?: emptyList()
                     val sb = StringBuilder()
-                    sb.append("Name,Brand,Category,MRP,Stock,Description\n")
+                    sb.append("Name,Brand,Category,MRP,BasePrice,DiscountedPrice,Stock,Unit,Weight,Description\n")
                     
                     products.forEach { p ->
-                        val row = listOf(p.name, p.brand, p.category, p.basePrice, p.stockQuantity, p.description)
+                        val row = listOf(
+                            p.name, 
+                            p.brand, 
+                            p.category, 
+                            p.mrp, 
+                            p.basePrice, 
+                            p.discountedPrice, 
+                            p.stockQuantity, 
+                            p.unit, 
+                            p.weight, 
+                            p.description
+                        )
                         sb.append(CSVUtil.toCsvRow(row)).append("\n")
                     }
                     emit(Resource.Success(sb.toString()))

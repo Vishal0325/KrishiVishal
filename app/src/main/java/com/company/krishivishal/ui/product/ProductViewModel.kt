@@ -2,9 +2,9 @@ package com.company.krishivishal.ui.product
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.company.krishivishal.data.model.Product
+import com.company.krishivishal.core.model.Product
 import com.company.krishivishal.data.repository.ProductRepository
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

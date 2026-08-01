@@ -1,14 +1,14 @@
 package com.company.krishivishal.domain.usecase.home
 
-import com.company.krishivishal.data.model.BannerItem
-import com.company.krishivishal.data.model.Brand
-import com.company.krishivishal.data.model.Category
-import com.company.krishivishal.data.model.Crop
+import com.company.krishivishal.core.model.BannerItem
+import com.company.krishivishal.core.model.Brand
+import com.company.krishivishal.core.model.Category
+import com.company.krishivishal.core.model.Crop
 import com.company.krishivishal.data.repository.BannerRepository
 import com.company.krishivishal.data.repository.BrandRepository
 import com.company.krishivishal.data.repository.CategoryRepository
 import com.company.krishivishal.data.repository.CropRepository
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import javax.inject.Inject

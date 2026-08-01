@@ -19,15 +19,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.company.krishivishaldelivery.data.model.DeliveryOrder
+import com.company.krishivishal.core.model.Order
 import com.company.krishivishaldelivery.ui.dashboard.DeliveryViewModel
-import com.company.krishivishaldelivery.utils.Resource
+import com.company.krishivishal.core.util.Resource
+import com.company.krishivishal.core.model.AppConfig
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EarningsScreen(viewModel: DeliveryViewModel = hiltViewModel()) {
     val ordersResource by viewModel.orders.collectAsState()
+    val appConfigResource by viewModel.appConfig.collectAsState()
+    val payoutsResource by viewModel.payouts.collectAsState()
+    
     val orders = (ordersResource as? Resource.Success)?.data ?: emptyList()
+    val config = (appConfigResource as? Resource.Success)?.data ?: AppConfig()
+    val payoutLogs = (payoutsResource as? Resource.Success)?.data ?: emptyList()
     
     var selectedFilter by remember { mutableStateOf("All Time") }
 
@@ -50,7 +56,7 @@ fun EarningsScreen(viewModel: DeliveryViewModel = hiltViewModel()) {
     
     val totalEarnings = filteredOrders
         .filter { it.status == "DELIVERED" }
-        .sumOf { 25.0 } // Flat ₹25 per delivery for now
+        .sumOf { config.commissionPerOrder }
 
     Scaffold(
         topBar = {
@@ -129,9 +135,46 @@ fun EarningsScreen(viewModel: DeliveryViewModel = hiltViewModel()) {
                 }
             } else {
                 items(deliveredOrders.size) { index ->
-                    HistoryItem(deliveredOrders[index])
+                    HistoryItem(deliveredOrders[index], config.commissionPerOrder)
                 }
             }
+
+            if (payoutLogs.isNotEmpty()) {
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Payout History", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
+                
+                items(payoutLogs.size) { index ->
+                    val log = payoutLogs[index]
+                    PayoutLogItem(log)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PayoutLogItem(log: Map<String, Any>) {
+    val amount = (log["amount"] as? Number)?.toDouble() ?: 0.0
+    val paidAt = log["paidAt"] as? com.google.firebase.Timestamp
+    val dateStr = paidAt?.toDate()?.toLocaleString() ?: "Recent"
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF1F8E9)),
+        elevation = CardDefaults.cardElevation(1.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("Payment Received", fontWeight = FontWeight.Bold, color = Color(0xFF1B5E20))
+                Text(dateStr, color = Color.Gray, fontSize = 12.sp)
+            }
+            Text("₹$amount", fontWeight = FontWeight.Black, fontSize = 18.sp, color = Color(0xFF1B5E20))
         }
     }
 }
@@ -179,7 +222,7 @@ fun StatCard(title: String, value: String, icon: ImageVector, modifier: Modifier
 }
 
 @Composable
-fun HistoryItem(order: DeliveryOrder) {
+fun HistoryItem(order: Order, commission: Double) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -194,7 +237,7 @@ fun HistoryItem(order: DeliveryOrder) {
                 Text("Order #${order.id.takeLast(6)}", fontWeight = FontWeight.Medium)
                 Text(order.createdAt.toString(), color = Color.Gray, fontSize = 12.sp)
             }
-            Text("₹25.0", fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+            Text("₹$commission", fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
         }
     }
 }

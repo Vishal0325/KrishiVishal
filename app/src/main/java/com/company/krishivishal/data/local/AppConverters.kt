@@ -6,7 +6,7 @@ import com.google.gson.reflect.TypeToken
 import com.google.firebase.Timestamp
 import java.util.Date
 
-import com.company.krishivishal.data.model.OrderItem
+import com.company.krishivishal.core.model.OrderItem
 
 class AppConverters {
     @TypeConverter
@@ -41,13 +41,13 @@ class AppConverters {
     }
 
     @TypeConverter
-    fun fromSubCategoryList(value: String?): List<com.company.krishivishal.data.model.SubCategory> {
-        val listType = object : TypeToken<List<com.company.krishivishal.data.model.SubCategory>>() {}.type
+    fun fromSubCategoryList(value: String?): List<com.company.krishivishal.core.model.SubCategory> {
+        val listType = object : TypeToken<List<com.company.krishivishal.core.model.SubCategory>>() {}.type
         return Gson().fromJson(value, listType) ?: emptyList()
     }
 
     @TypeConverter
-    fun toSubCategoryList(list: List<com.company.krishivishal.data.model.SubCategory>): String {
+    fun toSubCategoryList(list: List<com.company.krishivishal.core.model.SubCategory>): String {
         return Gson().toJson(list)
     }
 

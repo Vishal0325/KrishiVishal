@@ -1,10 +1,10 @@
 package com.company.krishivishal.data.repository
 
 import com.company.krishivishal.data.local.CartDao
-import com.company.krishivishal.data.model.CartItem
-import com.company.krishivishal.data.model.CartWithProduct
+import com.company.krishivishal.core.model.CartItem
+import com.company.krishivishal.core.model.CartWithProduct
 import com.company.krishivishal.data.sync.SyncManager
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.safeCall
 import com.company.krishivishal.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher

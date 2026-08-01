@@ -1,13 +1,13 @@
 package com.company.krishivishal.data.repository
 
 import com.company.krishivishal.data.local.ProductDao
-import com.company.krishivishal.data.model.Product
-import com.company.krishivishal.data.model.Review
-import com.company.krishivishal.data.model.Variant
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.model.Product
+import com.company.krishivishal.core.model.Review
+import com.company.krishivishal.core.model.Variant
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.networkBoundResource
 import com.company.krishivishal.utils.safeCall
-import com.company.krishivishal.utils.Constants
+import com.company.krishivishal.core.util.Constants
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Filter
 import kotlinx.coroutines.flow.Flow
@@ -20,7 +20,11 @@ import com.company.krishivishal.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.Timestamp
-import com.company.krishivishal.data.model.ReviewItem
+import com.company.krishivishal.core.model.ReviewItem
+import androidx.paging.PagingData
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import com.company.krishivishal.data.paging.ProductPagingSource
 
 fun DocumentSnapshot.toProduct(): Product? {
     val data = this.data ?: return null
@@ -50,16 +54,23 @@ fun DocumentSnapshot.toProduct(): Product? {
                 imageUrl = images.first()
             }
             
+            mrp = (data["mrp"] ?: data["basePrice"] ?: data["price"] ?: 0.0).toString().toDoubleOrNull() ?: 0.0
             basePrice = (data["basePrice"] ?: data["mrp"] ?: data["price"] ?: 0.0).toString().toDoubleOrNull() ?: 0.0
-            discountedPrice = (data["discountedPrice"] ?: data["offerPrice"] ?: data["salePrice"] ?: 0.0).toString().toDoubleOrNull() ?: 0.0
+            discountedPrice = (data["discountedPrice"] ?: data["offerPrice"] ?: data["salePrice"] ?: data["price"] ?: 0.0).toString().toDoubleOrNull() ?: 0.0
             
             // Logic to ensure price > 0
             if (discountedPrice > 0) {
                 price = discountedPrice
-                mrp = if (basePrice > 0) basePrice else discountedPrice
-            } else {
+                if (mrp <= 0) mrp = if (basePrice > 0) basePrice else discountedPrice
+            } else if (basePrice > 0) {
                 price = basePrice
-                mrp = basePrice
+                discountedPrice = basePrice
+                if (mrp <= 0) mrp = basePrice
+            } else {
+                val p = (data["price"] ?: 0.0).toString().toDoubleOrNull() ?: 0.0
+                price = p
+                discountedPrice = p
+                if (mrp <= 0) mrp = p
             }
 
             discountPercent = (data["discountPercent"] ?: data["discount"] ?: 0).toString().toIntOrNull() ?: 0
@@ -80,22 +91,33 @@ fun DocumentSnapshot.toProduct(): Product? {
             val featuresData = data["features"] as? List<*>
             features = featuresData?.mapNotNull { it?.toString() } ?: emptyList()
 
-            // Restore Variants parsing
-            val variantsData = data["variants"] as? List<Map<String, Any>>
-            variants = variantsData?.mapNotNull { vMap ->
+            // Robust Variants parsing
+            val variantsData = data["variants"] as? List<*>
+            variants = variantsData?.mapNotNull { item ->
+                val vMap = item as? Map<*, *> ?: return@mapNotNull null
                 try {
+                    val vPrice = (vMap["price"] ?: vMap["discountedPrice"] ?: vMap["sellingPrice"] ?: 0.0).toString().toDoubleOrNull() ?: 0.0
+                    val vBasePrice = (vMap["basePrice"] ?: vMap["mrp"] ?: vPrice).toString().toDoubleOrNull() ?: vPrice
+                    val calculatedDiscount = if (vBasePrice > vPrice && vBasePrice > 0) {
+                        (((vBasePrice - vPrice) / vBasePrice) * 100).toInt()
+                    } else 0
+                    val vDiscount = (vMap["discountPercent"] ?: vMap["discount"] ?: calculatedDiscount).toString().toIntOrNull() ?: calculatedDiscount
+                    val vLabel = (vMap["label"] ?: vMap["size"] ?: vMap["weight"] ?: "").toString()
+                    val vSize = (vMap["size"] ?: vMap["weight"] ?: vMap["packSize"] ?: vLabel).toString()
+                    val vStock = (vMap["stock"] ?: vMap["stockQuantity"] ?: vMap["stockCount"] ?: 10).toString().toIntOrNull() ?: 10
+
                     Variant(
-                        id = vMap["id"]?.toString() ?: UUID.randomUUID().toString(),
+                        id = (vMap["id"] ?: UUID.randomUUID().toString()).toString(),
                         productId = this@toProduct.id,
-                        size = (vMap["size"] ?: vMap["weight"] ?: vMap["packSize"] ?: "").toString(),
+                        size = vSize,
                         weight = (vMap["weight"] ?: "").toString(),
                         unit = (vMap["unit"] ?: "").toString(),
-                        price = (vMap["price"] ?: vMap["discountedPrice"] ?: 0.0).toString().toDoubleOrNull() ?: 0.0,
-                        basePrice = (vMap["basePrice"] ?: vMap["mrp"] ?: 0.0).toString().toDoubleOrNull() ?: 0.0,
-                        discountPercent = (vMap["discountPercent"] ?: 0).toString().toIntOrNull() ?: 0,
-                        isBestSeller = vMap["isBestSeller"] as? Boolean ?: false,
-                        stock = (vMap["stock"] ?: 0).toString().toIntOrNull() ?: 0,
-                        label = vMap["label"]?.toString() ?: vMap["size"]?.toString() ?: "",
+                        price = vPrice,
+                        basePrice = vBasePrice,
+                        discountPercent = vDiscount,
+                        isBestSeller = (vMap["isBestSeller"] ?: false).toString().toBoolean(),
+                        stock = vStock,
+                        label = vLabel,
                         mfgDate = vMap["mfgDate"] as? Timestamp,
                         expiryDate = vMap["expiryDate"] as? Timestamp
                     )
@@ -103,8 +125,9 @@ fun DocumentSnapshot.toProduct(): Product? {
             } ?: emptyList()
 
             // Restore Reviews parsing
-            val reviewsData = data["reviews"] as? List<Map<String, Any>>
-            reviewItems = reviewsData?.mapNotNull { rMap ->
+            val reviewsData = data["reviews"] as? List<*>
+            reviewItems = reviewsData?.mapNotNull { item ->
+                val rMap = item as? Map<*, *> ?: return@mapNotNull null
                 try {
                     ReviewItem(
                         authorName = rMap["authorName"]?.toString() ?: "",
@@ -127,6 +150,7 @@ fun DocumentSnapshot.toProduct(): Product? {
 
 interface ProductRepository {
     fun getProducts(): Flow<Resource<List<Product>>>
+    fun getProductsPaged(pageSize: Int = 20): Flow<PagingData<Product>>
     fun getProductsByCategory(category: String): Flow<Resource<List<Product>>>
     fun getProductsByBrand(brand: String): Flow<Resource<List<Product>>>
     fun getProductsByCrop(cropId: String, cropName: String): Flow<Resource<List<Product>>>
@@ -153,9 +177,25 @@ class ProductRepositoryImpl @Inject constructor(
         },
         saveFetchResult = { products ->
             productDao.insertProducts(products)
+            val allVariants = products.flatMap { p -> 
+                p.variants.onEach { v -> if (v.productId.isEmpty()) v.productId = p.id } 
+            }
+            if (allVariants.isNotEmpty()) {
+                productDao.insertVariants(allVariants)
+            }
         },
         dispatcher = ioDispatcher
     )
+
+    override fun getProductsPaged(pageSize: Int): Flow<PagingData<Product>> {
+        return Pager(
+            config = PagingConfig(
+                pageSize = pageSize,
+                enablePlaceholders = false
+            ),
+            pagingSourceFactory = { ProductPagingSource(firestore) }
+        ).flow
+    }
 
     override fun getProductsByCategory(category: String): Flow<Resource<List<Product>>> = networkBoundResource(
         query = { productDao.getProductsByCategory(category) },
@@ -164,6 +204,12 @@ class ProductRepositoryImpl @Inject constructor(
         },
         saveFetchResult = { products ->
             productDao.insertProducts(products)
+            val allVariants = products.flatMap { p -> 
+                p.variants.onEach { v -> if (v.productId.isEmpty()) v.productId = p.id } 
+            }
+            if (allVariants.isNotEmpty()) {
+                productDao.insertVariants(allVariants)
+            }
         },
         dispatcher = ioDispatcher
     )
@@ -175,6 +221,12 @@ class ProductRepositoryImpl @Inject constructor(
         },
         saveFetchResult = { products ->
             productDao.insertProducts(products)
+            val allVariants = products.flatMap { p -> 
+                p.variants.onEach { v -> if (v.productId.isEmpty()) v.productId = p.id } 
+            }
+            if (allVariants.isNotEmpty()) {
+                productDao.insertVariants(allVariants)
+            }
         },
         dispatcher = ioDispatcher
     )
@@ -186,6 +238,12 @@ class ProductRepositoryImpl @Inject constructor(
         },
         saveFetchResult = { products ->
             productDao.insertProducts(products)
+            val allVariants = products.flatMap { p -> 
+                p.variants.onEach { v -> if (v.productId.isEmpty()) v.productId = p.id } 
+            }
+            if (allVariants.isNotEmpty()) {
+                productDao.insertVariants(allVariants)
+            }
         },
         dispatcher = ioDispatcher
     )
@@ -196,7 +254,13 @@ class ProductRepositoryImpl @Inject constructor(
             firestore.collection("products").document(productId).get().await().toProduct()
         },
         saveFetchResult = { product ->
-            product?.let { productDao.insertProducts(listOf(it)) }
+            product?.let {
+                productDao.insertProducts(listOf(it))
+                if (it.variants.isNotEmpty()) {
+                    it.variants.forEach { v -> if (v.productId.isEmpty()) v.productId = it.id }
+                    productDao.insertVariants(it.variants)
+                }
+            }
         },
         dispatcher = ioDispatcher
     )
@@ -204,14 +268,24 @@ class ProductRepositoryImpl @Inject constructor(
     override fun getVariantsByProductId(productId: String): Flow<Resource<List<Variant>>> = networkBoundResource(
         query = { productDao.getVariantsByProductId(productId).map { it } },
         fetch = {
-            val snapshot = firestore.collection("products").document(productId)
-                .collection("variants")
-                .get()
-                .await()
-            snapshot.documents.mapNotNull { it.toObject(Variant::class.java)?.apply { id = it.id } }
+            val docSnapshot = firestore.collection("products").document(productId).get().await()
+            val product = docSnapshot.toProduct()
+            val embeddedVariants = product?.variants ?: emptyList()
+            if (embeddedVariants.isNotEmpty()) {
+                embeddedVariants
+            } else {
+                val snapshot = firestore.collection("products").document(productId)
+                    .collection("variants")
+                    .get()
+                    .await()
+                snapshot.documents.mapNotNull { it.toObject(Variant::class.java)?.apply { id = it.id } }
+            }
         },
         saveFetchResult = { variants ->
-            productDao.insertVariants(variants)
+            if (variants.isNotEmpty()) {
+                variants.forEach { if (it.productId.isEmpty()) it.productId = productId }
+                productDao.insertVariants(variants)
+            }
         },
         dispatcher = ioDispatcher
     )
@@ -308,3 +382,4 @@ class ProductRepositoryImpl @Inject constructor(
             .toObjects(Review::class.java)
     }
 }
+

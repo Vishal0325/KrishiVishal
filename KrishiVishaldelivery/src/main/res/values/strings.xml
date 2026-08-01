@@ -1,3 +1,10 @@
 <resources>
     <string name="app_name">delivery</string>
+    <string name="delete_account_data">Delete My Account &amp; Data</string>
+    <string name="delete_account_confirm_title">Delete Account?</string>
+    <string name="delete_account_confirm_msg">Are you sure you want to delete your account? This action is permanent and all your data (orders, profile) will be lost.</string>
+    <string name="account_deleted_success">Account Deleted Successfully</string>
+    <string name="delete_account_reauth_error">Failed to delete account. For security reasons, please logout and login again, then try deleting.</string>
+    <string name="delete_account">Delete Account</string>
+    <string name="cancel">Cancel</string>
 </resources>

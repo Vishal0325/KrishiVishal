@@ -2,7 +2,7 @@ package com.company.krishivishal.utils
 
 import android.content.Context
 import android.content.Intent
-import com.company.krishivishal.data.model.Product
+import com.company.krishivishal.core.model.Product
 
 import android.net.Uri
 import androidx.core.content.FileProvider

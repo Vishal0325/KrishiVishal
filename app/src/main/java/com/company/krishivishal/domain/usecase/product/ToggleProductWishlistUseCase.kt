@@ -1,9 +1,9 @@
 package com.company.krishivishal.domain.usecase.product
 
-import com.company.krishivishal.data.model.Product
-import com.company.krishivishal.data.model.WishlistItem
+import com.company.krishivishal.core.model.Product
+import com.company.krishivishal.core.model.WishlistItem
 import com.company.krishivishal.data.repository.WishlistRepository
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject

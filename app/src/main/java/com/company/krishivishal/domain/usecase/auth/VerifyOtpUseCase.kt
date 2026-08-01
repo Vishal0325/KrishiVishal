@@ -1,8 +1,8 @@
 package com.company.krishivishal.domain.usecase.auth
 
-import com.company.krishivishal.data.model.User
+import com.company.krishivishal.core.model.User
 import com.company.krishivishal.data.repository.AuthRepository
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import com.google.firebase.auth.PhoneAuthProvider
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject

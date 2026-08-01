@@ -1,8 +1,8 @@
 package com.company.krishivishal.domain.usecase.admin
 
-import com.company.krishivishal.data.model.OrderStatus
+import com.company.krishivishal.core.model.OrderStatus
 import com.company.krishivishal.data.repository.OrderRepository
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 

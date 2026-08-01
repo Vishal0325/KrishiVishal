@@ -21,8 +21,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.company.krishivishal.data.model.Crop
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.model.Crop
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.ui.theme.PrimaryGreen
 import com.company.krishivishal.ui.theme.PoppinsFamily
 

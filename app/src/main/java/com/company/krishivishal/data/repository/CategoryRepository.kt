@@ -1,9 +1,9 @@
 package com.company.krishivishal.data.repository
 
 import com.company.krishivishal.data.local.CategoryDao
-import com.company.krishivishal.data.model.Category
-import com.company.krishivishal.utils.Constants
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.model.Category
+import com.company.krishivishal.core.util.Constants
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.networkBoundResource
 import com.company.krishivishal.utils.safeCall
 import com.google.firebase.firestore.FirebaseFirestore
@@ -30,7 +30,7 @@ class CategoryRepositoryImpl @Inject constructor(
 ) : CategoryRepository {
 
     override fun getCategories(): Flow<Resource<List<Category>>> = kotlinx.coroutines.flow.flow {
-        emit(Resource.Success(com.company.krishivishal.utils.Constants.SAMPLE_CATEGORIES))
+        emit(Resource.Success(com.company.krishivishal.core.util.Constants.SAMPLE_CATEGORIES))
         try {
             val snapshot = firestore.collection("categories").get().await()
             val fetched = snapshot.toObjects(Category::class.java)

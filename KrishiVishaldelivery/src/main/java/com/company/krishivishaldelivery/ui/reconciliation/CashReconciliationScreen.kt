@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.company.krishivishaldelivery.ui.dashboard.DeliveryViewModel
-import com.company.krishivishaldelivery.utils.Resource
+import com.company.krishivishal.core.util.Resource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

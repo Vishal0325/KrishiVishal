@@ -17,11 +17,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.company.krishivishal.data.model.Product
+import com.company.krishivishal.core.model.Product
 import com.company.krishivishal.ui.home.components.HomeProductItem
 import com.company.krishivishal.ui.theme.PrimaryGreen
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.ShareUtils
+import com.company.krishivishal.ui.components.EmptyState
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,65 +56,65 @@ fun WishlistScreen(
                 .padding(padding)
                 .background(Color(0xFFF5F5F5))
         ) {
-            when (val res = wishlistResource) {
-                is Resource.Loading -> {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = PrimaryGreen)
+            val items = wishlistResource.data ?: emptyList()
+
+            if (items.isEmpty()) {
+                when (val res = wishlistResource) {
+                    is Resource.Loading -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.align(Alignment.Center),
+                            color = PrimaryGreen
+                        )
+                    }
+                    is Resource.Error -> {
+                        Text(
+                            text = "Error: ${res.message}",
+                            modifier = Modifier.align(Alignment.Center).padding(16.dp),
+                            color = Color.Red
+                        )
+                    }
+                    else -> {
+                        EmptyState(
+                            icon = Icons.Default.Favorite,
+                            title = "Your wishlist is empty",
+                            description = "Explore products and add them to your wishlist to buy later.",
+                            actionText = "Go Shopping",
+                            onActionClick = onBack
+                        )
+                    }
                 }
-                is Resource.Success -> {
-                    val items = res.data ?: emptyList()
-                    if (items.isEmpty()) {
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Display items in 2 columns
+                    val chunkedItems = items.chunked(2)
+                    items(chunkedItems) { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Favorite,
-                                contentDescription = null,
-                                modifier = Modifier.size(64.dp),
-                                tint = Color.LightGray
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text("Your wishlist is empty", color = Color.Gray)
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            // Display items in 2 columns
-                            val chunkedItems = items.chunked(2)
-                            items(chunkedItems) { row ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                                ) {
-                                    row.forEach { product ->
-                                        Box(modifier = Modifier.weight(1f)) {
-                                            HomeProductItem(
-                                                product = product,
-                                                isWishlisted = true,
-                                                onClick = { onProductClick(product) },
-                                                onAddToCart = { onAddToCart(product) },
-                                                onBuyNow = { onBuyNow(product) },
-                                                onWishlistToggle = { viewModel.removeFromWishlist(product) },
-                                                onShare = { ShareUtils.shareProduct(context, product) }
-                                            )
-                                        }
-                                    }
-                                    if (row.size == 1) {
-                                        Spacer(modifier = Modifier.weight(1f))
-                                    }
+                            row.forEach { product ->
+                                Box(modifier = Modifier.weight(1f)) {
+                                    HomeProductItem(
+                                        product = product,
+                                        isWishlisted = true,
+                                        onClick = { onProductClick(product) },
+                                        onAddToCart = { onAddToCart(product) },
+                                        onBuyNow = { onBuyNow(product) },
+                                        onWishlistToggle = { viewModel.removeFromWishlist(product) },
+                                        onShare = { ShareUtils.shareProduct(context, product) }
+                                    )
                                 }
+                            }
+                            if (row.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
                 }
-                is Resource.Error -> {
-                    Text(text = "Error: ${res.message}", modifier = Modifier.align(Alignment.Center), color = Color.Red)
-                }
-                else -> {}
             }
         }
     }

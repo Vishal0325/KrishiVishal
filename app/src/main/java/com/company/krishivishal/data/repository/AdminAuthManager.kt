@@ -19,7 +19,8 @@ class AdminAuthManager @Inject constructor(
                 .document(uid)
                 .get()
                 .await()
-            doc.getBoolean("isAdmin") == true
+            val role = doc.getString("role")
+            role == "ADMIN" || doc.getBoolean("isAdmin") == true
         } catch (e: Exception) {
             false
         }

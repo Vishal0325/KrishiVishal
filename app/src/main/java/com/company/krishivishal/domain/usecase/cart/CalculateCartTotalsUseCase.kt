@@ -1,6 +1,6 @@
 package com.company.krishivishal.domain.usecase.cart
 
-import com.company.krishivishal.data.model.CartWithProduct
+import com.company.krishivishal.core.model.CartWithProduct
 import javax.inject.Inject
 
 data class CartTotals(

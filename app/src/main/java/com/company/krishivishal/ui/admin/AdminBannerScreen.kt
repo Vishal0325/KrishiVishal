@@ -25,9 +25,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
-import com.company.krishivishal.data.model.BannerItem
+import com.company.krishivishal.core.model.BannerItem
 import com.company.krishivishal.ui.theme.PrimaryGreen
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)

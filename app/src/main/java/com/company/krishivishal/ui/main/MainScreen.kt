@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.Home
@@ -18,13 +19,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.company.krishivishal.data.model.Category
-import com.company.krishivishal.data.model.Crop
-import com.company.krishivishal.data.model.Product
-import com.company.krishivishal.data.model.Order
+import com.company.krishivishal.core.model.Category
+import com.company.krishivishal.core.model.Crop
+import com.company.krishivishal.core.model.Product
+import com.company.krishivishal.core.model.Order
 import com.company.krishivishal.ui.cart.CartScreen
 import com.company.krishivishal.ui.profile.ProfileScreen
 import com.company.krishivishal.ui.wishlist.WishlistScreen
@@ -46,14 +48,22 @@ import com.company.krishivishal.ui.admin.*
 import com.company.krishivishal.ui.common.components.KrishiBottomBar
 import com.company.krishivishal.ui.navigation.BottomNavItem
 import com.company.krishivishal.ui.profile.ProfileViewModel
+import com.company.krishivishal.ui.support.SupportViewModel
+import com.company.krishivishal.utils.SupportUtils
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.ui.theme.PrimaryGreen
+import androidx.compose.ui.platform.LocalContext
+import com.company.krishivishal.R
 
 @Composable
 fun MainScreen(
     initialProductId: String? = null,
-    viewModel: MainViewModel = hiltViewModel()
+    viewModel: MainViewModel = hiltViewModel(),
+    supportViewModel: SupportViewModel = hiltViewModel()
 ) {
     val bottomBarState by viewModel.bottomBarState.collectAsState()
+    val supportConfig by supportViewModel.config.collectAsState()
+    val context = LocalContext.current
     var selectedItem by remember { mutableIntStateOf(0) }
     
     // Sync local selectedItem with ViewModel state if needed, 
@@ -74,7 +84,10 @@ fun MainScreen(
     val showSupport = remember { mutableStateOf(false) }
     val showSettings = remember { mutableStateOf(false) }
     val showLogin = remember { mutableStateOf(false) }
+    val showCart = remember { mutableStateOf(false) }
     val showCheckout = remember { mutableStateOf<CheckoutSource?>(null) }
+    val showOrderSuccess = remember { mutableStateOf(false) }
+    val showNotifications = remember { mutableStateOf(false) }
     val showTracking = remember { mutableStateOf<String?>(null) } // OrderID
     val showBill = remember { mutableStateOf<Order?>(null) }
     val showAdminPanel = remember { mutableStateOf(false) }
@@ -92,7 +105,7 @@ fun MainScreen(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            val showBottomNav = !showWishlist.value && !showAllCategories.value && !showAllBrands.value && 
+            val showBottomNav = !showWishlist.value && !showCart.value && !showAllCategories.value && !showAllBrands.value && 
                                 !showAllProducts.value && !showAddresses.value && !showOrders.value &&
                                 !showSupport.value && !showLogin.value &&
                                 showCheckout.value == null && !showSettings.value && showTracking.value == null &&
@@ -117,6 +130,31 @@ fun MainScreen(
                     },
                     badges = bottomBarState.badges
                 )
+            }
+        },
+        floatingActionButton = {
+            val showFAB = !showWishlist.value && !showCart.value && !showAllCategories.value && !showAllBrands.value && 
+                          !showAllProducts.value && !showAddresses.value && !showOrders.value &&
+                          !showSupport.value && !showLogin.value &&
+                          showCheckout.value == null && !showSettings.value && showTracking.value == null &&
+                          showBill.value == null && selectedProduct.value == null && selectedBrand.value == null
+
+            if (showFAB) {
+                FloatingActionButton(
+                    onClick = {
+                        val config = (supportConfig as? Resource.Success)?.data
+                        if (config != null && config.whatsappNumber.isNotEmpty()) {
+                            SupportUtils.openWhatsApp(context, config.whatsappNumber, context.getString(R.string.whatsapp_msg))
+                        } else {
+                            android.widget.Toast.makeText(context, "WhatsApp support not available", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    containerColor = Color(0xFF25D366),
+                    contentColor = Color.White,
+                    shape = CircleShape
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Expert Help")
+                }
             }
         }
     ) { innerPadding ->
@@ -271,13 +309,43 @@ fun MainScreen(
                         onBack = { showLogin.value = false }
                     )
                 }
+                showCart.value -> {
+                    CartScreen(
+                        onBack = { showCart.value = false },
+                        onCheckout = {
+                            showCart.value = false
+                            showCheckout.value = CheckoutSource.CART
+                        }
+                    )
+                }
                 showCheckout.value != null -> {
                     CheckoutScreen(
                         source = showCheckout.value!!,
                         onBack = { showCheckout.value = null },
                         onOrderSuccess = {
                             showCheckout.value = null
-                            selectedItem = 2 // Navigate to Orders
+                            showOrderSuccess.value = true
+                        }
+                    )
+                }
+                showOrderSuccess.value -> {
+                    com.company.krishivishal.ui.checkout.OrderSuccessScreen(
+                        onContinueShopping = {
+                            showOrderSuccess.value = false
+                            selectedItem = 0 // Home
+                        },
+                        onTrackOrder = {
+                            showOrderSuccess.value = false
+                            selectedItem = 2 // Orders
+                        }
+                    )
+                }
+                showNotifications.value -> {
+                    com.company.krishivishal.ui.notification.NotificationScreen(
+                        onBack = { showNotifications.value = false },
+                        onNotificationClick = { notification ->
+                            showNotifications.value = false
+                            // Handle deep-link logic
                         }
                     )
                 }
@@ -289,7 +357,8 @@ fun MainScreen(
                                     ProductDetailScreen(
                                         productId = selectedProduct.value!!,
                                         onBack = { selectedProduct.value = null },
-                                        onBuyNow = { showCheckout.value = CheckoutSource.BUY_NOW }
+                                        onBuyNow = { showCheckout.value = CheckoutSource.BUY_NOW },
+                                        onCartClick = { showCart.value = true }
                                     )
                                 }
                                 selectedBrand.value != null -> {
@@ -312,8 +381,9 @@ fun MainScreen(
                                         },
                                         onProductClick = { product -> selectedProduct.value = product.id },
                                         onBuyNowClick = { product -> selectedProduct.value = product.id },
-                                        onCartClick = { showCheckout.value = CheckoutSource.CART },
+                                        onCartClick = { showCart.value = true },
                                         onWishlistClick = { showWishlist.value = true },
+                                        onNotificationClick = { showNotifications.value = true },
                                         onViewAllCategories = { showAllCategories.value = true },
                                         onViewAllCrops = { selectedItem = 1 },
                                         onViewAllBrands = { showAllBrands.value = true },
@@ -329,7 +399,8 @@ fun MainScreen(
                                     ProductDetailScreen(
                                         productId = selectedProduct.value!!,
                                         onBack = { selectedProduct.value = null },
-                                        onBuyNow = { showCheckout.value = CheckoutSource.BUY_NOW }
+                                        onBuyNow = { showCheckout.value = CheckoutSource.BUY_NOW },
+                                        onCartClick = { showCart.value = true }
                                     )
                                 }
                                 selectedCrop.value != null -> {

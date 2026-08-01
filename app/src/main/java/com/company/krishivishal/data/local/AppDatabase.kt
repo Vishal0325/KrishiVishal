@@ -3,7 +3,7 @@ package com.company.krishivishal.data.local
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
-import com.company.krishivishal.data.model.*
+import com.company.krishivishal.core.model.*
 
 @Database(
     entities = [
@@ -19,9 +19,10 @@ import com.company.krishivishal.data.model.*
         ReturnRequest::class,
         Brand::class,
         SyncOperation::class,
-        Crop::class
+        Crop::class,
+        Notification::class
     ],
-    version = 35,
+    version = 37,
     exportSchema = false
 )
 @TypeConverters(AppConverters::class)
@@ -35,5 +36,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun brandDao(): BrandDao
     abstract fun syncOperationDao(): SyncOperationDao
     abstract fun cropDao(): CropDao
-    abstract fun guestWishlistDao(): GuestWishlistDao
+    abstract fun wishlistDao(): WishlistDao
+    abstract fun notificationDao(): NotificationDao
 }

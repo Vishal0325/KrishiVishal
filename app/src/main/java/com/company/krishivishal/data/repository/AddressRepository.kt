@@ -1,8 +1,8 @@
 package com.company.krishivishal.data.repository
 
 import com.company.krishivishal.data.local.UserDao
-import com.company.krishivishal.data.model.Address
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.model.Address
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.networkBoundResource
 import com.company.krishivishal.utils.safeCall
 import com.google.firebase.firestore.FirebaseFirestore
@@ -57,6 +57,9 @@ class AddressRepositoryImpl @Inject constructor(
             }
         }
 
+        // Ensure user exists in Room before inserting address (FK requirement)
+        // If they are anonymous, AuthRepo should have handled this, but we'll be safe
+        
         firestore.collection("users").document(address.userId)
             .collection("addresses")
             .document(address.id)

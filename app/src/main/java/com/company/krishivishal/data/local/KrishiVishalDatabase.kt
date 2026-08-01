@@ -3,7 +3,7 @@ package com.company.krishivishal.data.local
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import com.company.krishivishal.data.local.dao.RecentSearchDao
-import com.company.krishivishal.data.model.RecentSearch
+import com.company.krishivishal.core.model.RecentSearch
 
 /**
  * KrishiVishal Room Database

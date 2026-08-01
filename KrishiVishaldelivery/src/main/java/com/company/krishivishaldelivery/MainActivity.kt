@@ -1,34 +1,36 @@
 package com.company.krishivishaldelivery
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Payments
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
+import androidx.navigation.*
+import androidx.navigation.compose.*
 import com.company.krishivishaldelivery.service.LocationUpdateService
-import com.company.krishivishaldelivery.ui.auth.AuthViewModel
 import com.company.krishivishaldelivery.ui.auth.LoginScreen
 import com.company.krishivishaldelivery.ui.dashboard.DashboardScreen
 import com.company.krishivishaldelivery.ui.dashboard.DeliveryViewModel
@@ -40,6 +42,7 @@ import com.company.krishivishaldelivery.ui.profile.ProfileScreen
 import com.company.krishivishaldelivery.ui.scanner.QRScannerScreen
 import com.company.krishivishaldelivery.ui.settings.SettingsScreen
 import com.company.krishivishaldelivery.ui.theme.KrishiVishalTheme
+import com.company.krishivishal.core.util.Resource
 import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -54,6 +57,22 @@ class MainActivity : ComponentActivity() {
                 val deliveryViewModel: DeliveryViewModel = hiltViewModel()
                 val context = LocalContext.current
                 
+                val appConfigResource by deliveryViewModel.appConfig.collectAsState()
+                var showUpdateDialog by remember { mutableStateOf(false) }
+
+                LaunchedEffect(appConfigResource) {
+                    if (appConfigResource is Resource.Success) {
+                        val config = (appConfigResource as Resource.Success).data
+                        if (config != null && BuildConfig.VERSION_CODE < config.minAppVersion) {
+                            showUpdateDialog = true
+                        }
+                    }
+                }
+
+                if (showUpdateDialog) {
+                    UpdateRequiredDialog()
+                }
+
                 LaunchedEffect(Unit) {
                     deliveryViewModel.locationAction.collect { action ->
                         when(action) {
@@ -209,6 +228,44 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun UpdateRequiredDialog() {
+        Dialog(onDismissRequest = {}) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = Color.White,
+                modifier = Modifier.fillMaxWidth().padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Default.Update, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Update Required", fontWeight = FontWeight.Black, fontSize = 20.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "A new version of KV Delivery is available. Please update to continue delivering.",
+                        textAlign = TextAlign.Center,
+                        fontSize = 14.sp,
+                        color = Color.Gray
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(
+                        onClick = { 
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=${packageName}"))
+                            startActivity(intent)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                    ) {
+                        Text("Update Now", fontWeight = FontWeight.Bold)
                     }
                 }
             }

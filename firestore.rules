@@ -10,9 +10,12 @@ service cloud.firestore {
     }
 
     function isAdmin() {
+      // Robust admin check: Token claim OR Firestore isAdmin flag OR Firestore ADMIN role
       return isAuthenticated() && (
         request.auth.token.admin == true ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "ADMIN"
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "ADMIN" ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "SuperAdmin"
       );
     }
 
@@ -20,24 +23,18 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // ========== CORE COLLECTIONS (Public Read, Admin Write) ==========
+    // ========== CORE CATALOG (Public Read, Admin Write) ==========
 
     match /products/{id} {
       allow read: if true;
       allow write: if isAdmin();
-
-      match /variants/{variantId} {
+      // Allow users to update stock during order placement
+      allow update: if isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockQuantity']);
+      match /{allSubcollections=**} {
         allow read: if true;
         allow write: if isAdmin();
       }
-
-      match /reviews/{reviewId} {
-        allow read: if true;
-        allow create: if isAuthenticated();
-        allow update, delete: if isAdmin();
-      }
     }
-
 
     match /categories/{id} {
       allow read: if true;
@@ -59,86 +56,69 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // ========== USER & STAFF COLLECTIONS ==========
-
-    match /users/{userId} {
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
-      allow write: if isAdmin() || isOwner(userId);
-
-      match /addresses/{addressId} {
-        allow read, write: if isOwner(userId) || isAdmin();
-      }
-
-      match /cart/{cartItemId} {
-        allow read, write: if isOwner(userId) || isAdmin();
-      }
-    }
-
-    match /wishlist/{id} {
-      allow read, write: if isAuthenticated() && (
-        (resource == null || resource.data.userId == request.auth.uid) &&
-        (request.resource == null || request.resource.data.userId == request.auth.uid)
-      );
-    }
-
-
-    // ========== OPERATIONS ==========
+    // ========== OPERATIONS & TRANSACTIONS ==========
 
     match /orders/{orderId} {
-      // Users can read their own orders. Admins and Riders can read all relevant orders.
-      allow read: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid ||
-        isAdmin() ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "RIDER"
-      );
+      // Users can read own, Admins can read all, Riders can read assigned
+      allow read: if isAdmin() ||
+                   isOwner(resource.data.userId) ||
+                   (isAuthenticated() && resource.data.riderId == request.auth.uid);
 
-      // Users can only create their own orders. Only Admins can update status/modify.
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAdmin();
-      allow delete: if false;
-    }
+      allow update: if isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow delete: if isAdmin();
 
-    match /emergency_alerts/{alertId} {
-      allow create: if isAuthenticated();
-      allow read, update: if isAdmin();
-    }
-
-    match /cash_deposits/{id} {
-      allow create: if isAuthenticated();
-      allow read, update: if isAdmin() || (resource.data.riderId == request.auth.uid);
-    }
-
-    match /rider_shifts/{riderId}/{shiftId} {
-      allow read, write: if isOwner(riderId) || isAdmin();
+      match /{allSubcollections=**} {
+        allow read, write: if isAdmin() || isOwner(resource.data.userId);
+      }
     }
 
     match /returns/{id} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read: if isAdmin() || isOwner(resource.data.userId);
       allow create: if isAuthenticated();
       allow update: if isAdmin();
     }
 
-    // ========== SYSTEM ==========
+    match /users/{uId} {
+      allow read: if isOwner(uId) || isAdmin();
+      allow create: if isAuthenticated();
+      allow update: if isOwner(uId) || isAdmin();
+      allow delete: if isAdmin();
 
-    match /app_config/{id} {
+      match /{allSubcollections=**} {
+        allow read, write: if isOwner(uId) || isAdmin();
+      }
+    }
+
+    // ========== SYSTEM & TRACKING ==========
+
+    match /settings/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /riders/{id} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
 
-    match /settings/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+    match /sos_alerts/{id} {
+      allow read, write: if isAuthenticated();
     }
 
     match /audit_logs/{id} {
       allow read: if isAdmin();
       allow create: if isAuthenticated();
-      allow update, delete: if false;
+    }
+
+    match /auditLogs/{id} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
     }
 
     // ========== DEFAULT DENY ==========
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if isAdmin();
     }
   }
 }

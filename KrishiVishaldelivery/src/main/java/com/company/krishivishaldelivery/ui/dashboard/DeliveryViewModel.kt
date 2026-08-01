@@ -2,25 +2,36 @@ package com.company.krishivishaldelivery.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.company.krishivishal.core.model.*
+import com.company.krishivishal.core.model.AppConfig
 import com.company.krishivishaldelivery.data.model.*
 import com.company.krishivishaldelivery.data.repository.DeliveryRepository
-import com.company.krishivishaldelivery.utils.Resource
+import com.company.krishivishaldelivery.data.repository.ConfigRepository
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishaldelivery.utils.ConnectivityObserver
 import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
 @HiltViewModel
 class DeliveryViewModel @Inject constructor(
     private val auth: FirebaseAuth,
     private val repository: DeliveryRepository,
+    private val configRepository: ConfigRepository,
     private val connectivityObserver: ConnectivityObserver
 ) : ViewModel() {
 
-    private val _orders = MutableStateFlow<Resource<List<DeliveryOrder>>>(Resource.Loading())
-    val orders: StateFlow<Resource<List<DeliveryOrder>>> = _orders.asStateFlow()
+    private val _orders = MutableStateFlow<Resource<List<Order>>>(Resource.Loading())
+    val orders: StateFlow<Resource<List<Order>>> = _orders.asStateFlow()
+
+    private val _appConfig = MutableStateFlow<Resource<AppConfig>>(Resource.Loading())
+    val appConfig: StateFlow<Resource<AppConfig>> = _appConfig.asStateFlow()
+
+    private val _payouts = MutableStateFlow<Resource<List<Map<String, Any>>>>(Resource.Loading())
+    val payouts: StateFlow<Resource<List<Map<String, Any>>>> = _payouts.asStateFlow()
 
     val isConnected = connectivityObserver.isConnected.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
@@ -55,6 +66,9 @@ class DeliveryViewModel @Inject constructor(
     private val _locationAction = MutableSharedFlow<LocationAction>()
     val locationAction = _locationAction.asSharedFlow()
 
+    private val _deleteAccountResult = MutableSharedFlow<Resource<Unit>>()
+    val deleteAccountResult = _deleteAccountResult.asSharedFlow()
+
     private val currentRiderId: String get() = auth.currentUser?.uid ?: "test_rider_001"
 
     init {
@@ -63,6 +77,24 @@ class DeliveryViewModel @Inject constructor(
         syncData(riderId)
         loadOrders(riderId)
         loadRiderProfile(riderId)
+        loadConfig()
+        loadPayouts(riderId)
+    }
+
+    private fun loadPayouts(riderId: String) {
+        viewModelScope.launch {
+            repository.getRiderPayouts(riderId).collectLatest {
+                _payouts.value = it
+            }
+        }
+    }
+
+    private fun loadConfig() {
+        viewModelScope.launch {
+            configRepository.getConfig().collectLatest {
+                _appConfig.value = it
+            }
+        }
     }
 
     private fun loadIncentives() {
@@ -96,12 +128,33 @@ class DeliveryViewModel @Inject constructor(
         }
     }
 
+    fun deleteAccount() {
+        viewModelScope.launch {
+            try {
+                _deleteAccountResult.emit(Resource.Loading())
+                val riderId = currentRiderId
+                val firebaseUser = auth.currentUser ?: throw Exception("User not logged in")
+                
+                // 1. Delete rider from Firestore
+                repository.deleteRiderAccount(riderId)
+                
+                // 2. Delete from Auth
+                firebaseUser.delete().await()
+                
+                // 3. Success
+                _deleteAccountResult.emit(Resource.Success(Unit))
+            } catch (e: Exception) {
+                _deleteAccountResult.emit(Resource.Error(e.message ?: "Deletion failed"))
+            }
+        }
+    }
+
     private fun validateVehicleNumber(number: String): Boolean {
         val regex = "^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}$".toRegex()
         return regex.matches(number)
     }
 
-    private fun optimizeRoute(orders: List<DeliveryOrder>) = orders.sortedBy { it.targetLat + it.targetLng }
+    private fun optimizeRoute(orders: List<Order>) = orders.sortedBy { it.targetLat + it.targetLng }
 
     private fun syncData(riderId: String) = viewModelScope.launch { repository.syncAssignedOrders(riderId) }
 
@@ -121,7 +174,7 @@ class DeliveryViewModel @Inject constructor(
         }
     }
 
-    fun pickupScannedOrder(orderId: String, onSuccess: (DeliveryOrder) -> Unit, onError: (String) -> Unit) {
+    fun pickupScannedOrder(orderId: String, onSuccess: (Order) -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch {
             try {
                 repository.pickupOrderByScan(orderId, currentRiderId)?.let(onSuccess) ?: onError("Not found")

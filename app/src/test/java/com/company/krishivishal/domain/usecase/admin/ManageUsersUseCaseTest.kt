@@ -1,7 +1,7 @@
 package com.company.krishivishal.domain.usecase.admin
 
 import com.company.krishivishal.data.repository.AdminRepository
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.flowOf

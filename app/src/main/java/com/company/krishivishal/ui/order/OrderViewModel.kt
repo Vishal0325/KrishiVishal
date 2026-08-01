@@ -2,12 +2,12 @@ package com.company.krishivishal.ui.order
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.company.krishivishal.data.model.Order
-import com.company.krishivishal.data.model.OrderStatus
+import com.company.krishivishal.core.model.Order
+import com.company.krishivishal.core.model.OrderStatus
 import com.company.krishivishal.domain.usecase.auth.GetCurrentUserUseCase
 import com.company.krishivishal.domain.usecase.order.CancelOrderUseCase
 import com.company.krishivishal.domain.usecase.order.GetOrdersUseCase
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.analytics.AnalyticsTracker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*

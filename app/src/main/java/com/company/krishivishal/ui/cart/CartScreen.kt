@@ -17,15 +17,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
-import com.company.krishivishal.data.model.CartWithProduct
+import com.company.krishivishal.core.model.CartWithProduct
+import com.company.krishivishal.core.model.availableStock
+import com.company.krishivishal.core.model.displayVariantLabel
 import com.company.krishivishal.ui.theme.PrimaryGreen
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.ui.components.EmptyState
 import com.company.krishivishal.ui.components.ErrorState
 
@@ -266,17 +269,14 @@ fun CartListItem(
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(item.product.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
-                
-                val displaySize = when {
-                    item.variant != null && item.variant.label.isNotBlank() -> item.variant.label
-                    item.variant != null && item.variant.size.isNotBlank() -> item.variant.size
-                    item.product.weight.isNotBlank() && item.product.unit.isNotBlank() -> "${item.product.weight} ${item.product.unit}"
-                    else -> ""
-                }
-                
-                if (displaySize.isNotBlank()) {
-                    Text("Variant: $displaySize", fontSize = 11.sp, color = Color.Gray)
+                // Product Name and Variant grouped for accessibility
+                Column(modifier = Modifier.semantics(mergeDescendants = true) {}) {
+                    Text(item.product.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
+                    
+                    val variantLabel = item.displayVariantLabel()
+                    if (variantLabel.isNotBlank()) {
+                        Text("Variant: $variantLabel", fontSize = 11.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
                 }
                 
                 val sellingPrice = item.variant?.price ?: if (item.product.discountedPrice > 0) item.product.discountedPrice else if (item.product.price > 0) item.product.price else item.product.basePrice
@@ -301,7 +301,7 @@ fun CartListItem(
                     }
                     Text("${item.cartItem.quantity}", modifier = Modifier.padding(horizontal = 12.dp), fontWeight = FontWeight.Bold)
                     
-                    val maxStock = item.variant?.stock ?: item.product.stockQuantity
+                    val maxStock = item.availableStock()
                     val canIncrease = item.cartItem.quantity < maxStock
 
                     IconButton(
@@ -325,3 +325,5 @@ fun CartListItem(
         }
     }
 }
+
+

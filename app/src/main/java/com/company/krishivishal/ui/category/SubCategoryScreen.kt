@@ -21,8 +21,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.company.krishivishal.data.model.Category
-import com.company.krishivishal.data.model.SubCategory
+import com.company.krishivishal.core.model.Category
+import com.company.krishivishal.core.model.SubCategory
 import com.company.krishivishal.ui.theme.Background
 
 @OptIn(ExperimentalMaterial3Api::class)

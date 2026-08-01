@@ -1,9 +1,9 @@
 package com.company.krishivishal.data.local
 
 import androidx.room.*
-import com.company.krishivishal.data.model.Product
-import com.company.krishivishal.data.model.Variant
-import com.company.krishivishal.data.model.WishlistItem
+import com.company.krishivishal.core.model.Product
+import com.company.krishivishal.core.model.Variant
+import com.company.krishivishal.core.model.WishlistItem
 import kotlinx.coroutines.flow.Flow
 
 @Dao

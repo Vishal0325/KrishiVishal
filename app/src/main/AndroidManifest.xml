@@ -64,6 +64,11 @@
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="krishi_mart_notifications" />
 
+        <!-- Razorpay API Key -->
+        <meta-data
+            android:name="com.razorpay.ApiKey"
+            android:value="rzp_test_YOUR_KEY_ID" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="com.company.krishivishal.fileprovider"

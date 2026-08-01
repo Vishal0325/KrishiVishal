@@ -1,5 +1,6 @@
 package com.company.krishivishal.ui.admin
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -7,16 +8,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Print
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.company.krishivishal.data.model.Order
+import com.company.krishivishal.core.model.Order
 import com.company.krishivishal.ui.order.OrderViewModel
+import com.company.krishivishal.utils.PrintHelper
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -62,37 +66,57 @@ fun AdminOrderScreen(
 
 @Composable
 fun AdminOrderCard(order: Order, onStatusChange: (String) -> Unit) {
-    var showDialog by remember { mutableStateOf(false) }
+    var showStatusDialog by remember { mutableStateOf(false) }
+    var showPrintDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
+    val isNew = order.status == "PLACED"
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (isNew) Modifier.border(2.dp, Color.Blue, RoundedCornerShape(12.dp))
+                else Modifier
+            ),
+        colors = CardDefaults.cardColors(containerColor = if (isNew) Color(0xFFF0F7FF) else Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text(text = "Order #${order.id.takeLast(6).uppercase()}", fontWeight = FontWeight.Bold)
-                AdminStatusBadge(status = order.status)
+                Column {
+                    Text(text = "Order #${order.id.takeLast(6).uppercase()}", fontWeight = FontWeight.Bold)
+                    if (isNew) {
+                        Text("NEW ORDER", color = Color.Blue, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { showPrintDialog = true }) {
+                        Icon(Icons.Default.Print, contentDescription = "Print", tint = Color.Gray)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    AdminStatusBadge(status = order.status)
+                }
             }
+            Text(text = "Customer: ${order.userName}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
             Text(text = "Date: ${dateFormat.format(order.createdAt)}", style = MaterialTheme.typography.bodySmall)
             Text(text = "Amount: ₹${order.totalAmount}", fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
             
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             
             Button(
-                onClick = { showDialog = true },
+                onClick = { showStatusDialog = true },
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                colors = ButtonDefaults.buttonColors(containerColor = if (isNew) Color.Blue else Color(0xFF2E7D32))
             ) {
                 Text("Update Status")
             }
         }
     }
 
-    if (showDialog) {
+    if (showStatusDialog) {
         AlertDialog(
-            onDismissRequest = { showDialog = false },
+            onDismissRequest = { showStatusDialog = false },
             title = { Text("Update Order Status") },
             text = {
                 Column {
@@ -102,7 +126,7 @@ fun AdminOrderCard(order: Order, onStatusChange: (String) -> Unit) {
                                 .fillMaxWidth()
                                 .clickable { 
                                     onStatusChange(status)
-                                    showDialog = false
+                                    showStatusDialog = false
                                 }
                                 .padding(12.dp)
                         ) {
@@ -112,7 +136,37 @@ fun AdminOrderCard(order: Order, onStatusChange: (String) -> Unit) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showStatusDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showPrintDialog) {
+        AlertDialog(
+            onDismissRequest = { showPrintDialog = false },
+            title = { Text("Print Order Documents") },
+            text = {
+                Column {
+                    ListItem(
+                        headlineContent = { Text("Tax Invoice") },
+                        supportingContent = { Text("Full billing details for customer") },
+                        modifier = Modifier.clickable {
+                            PrintHelper.printOrderInvoice(context, order)
+                            showPrintDialog = false
+                        }
+                    )
+                    ListItem(
+                        headlineContent = { Text("Shipping Label") },
+                        supportingContent = { Text("Optimized for package delivery") },
+                        modifier = Modifier.clickable {
+                            PrintHelper.printShippingLabel(context, order)
+                            showPrintDialog = false
+                        }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPrintDialog = false }) { Text("Close") }
             }
         )
     }

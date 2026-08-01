@@ -1,8 +1,8 @@
 package com.company.krishivishal.data.repository
 
-import com.company.krishivishal.data.model.Product
-import com.company.krishivishal.data.model.SearchResult
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.model.Product
+import com.company.krishivishal.core.model.SearchResult
+import com.company.krishivishal.core.util.Resource
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow

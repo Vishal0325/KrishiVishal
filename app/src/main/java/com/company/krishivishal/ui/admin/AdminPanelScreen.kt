@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.company.krishivishal.ui.theme.PrimaryGreen
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.domain.usecase.admin.AdminStats
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -306,7 +306,7 @@ fun AdminGridItem(
 }
 
 @Composable
-fun RecentActivitySection(logsRes: Resource<List<com.company.krishivishal.data.model.AdminLog>>) {
+fun RecentActivitySection(logsRes: Resource<List<com.company.krishivishal.core.model.AdminLog>>) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),

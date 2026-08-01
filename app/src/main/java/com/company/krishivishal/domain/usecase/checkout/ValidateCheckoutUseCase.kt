@@ -1,7 +1,8 @@
 package com.company.krishivishal.domain.usecase.checkout
 
-import com.company.krishivishal.data.model.Address
-import com.company.krishivishal.data.model.CartWithProduct
+import com.company.krishivishal.core.model.Address
+import com.company.krishivishal.core.model.CartWithProduct
+import com.company.krishivishal.core.model.availableStock
 import javax.inject.Inject
 
 sealed class CheckoutValidationResult {
@@ -11,7 +12,7 @@ sealed class CheckoutValidationResult {
 
 /**
  * UseCase to validate if the checkout process can proceed.
- * Checks for empty cart, missing address, etc.
+ * Checks for empty cart, missing address, and stock availability.
  */
 class ValidateCheckoutUseCase @Inject constructor() {
     operator fun invoke(
@@ -24,7 +25,20 @@ class ValidateCheckoutUseCase @Inject constructor() {
         if (selectedAddress == null) {
             return CheckoutValidationResult.Invalid("Please select a delivery address.")
         }
-        // Additional checks like stock availability could be added here
+        
+        // NEW: Check stock availability for each item
+        // Uses variant?.stock ?: product.stockQuantity fallback
+        for (item in cartItems) {
+            val availableStock = item.availableStock()
+            if (item.cartItem.quantity > availableStock) {
+                val itemName = item.product?.name ?: "Product"
+                val variantLabel = item.variant?.label?.let { " ($it)" } ?: ""
+                return CheckoutValidationResult.Invalid(
+                    "$itemName$variantLabel: Only $availableStock available, but you have ${item.cartItem.quantity} in cart."
+                )
+            }
+        }
+        
         return CheckoutValidationResult.Valid
     }
 }

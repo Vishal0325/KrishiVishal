@@ -22,10 +22,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.company.krishivishaldelivery.data.model.DeliveryOrder
+import com.company.krishivishal.core.model.Order
 import com.company.krishivishaldelivery.ui.dashboard.DeliveryViewModel
 import com.company.krishivishaldelivery.ui.dashboard.StatusBadge
-import com.company.krishivishaldelivery.utils.Resource
+import com.company.krishivishal.core.util.Resource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,7 +38,7 @@ fun OrderDetailScreen(
     val ordersResource by viewModel.orders.collectAsState()
     val context = LocalContext.current
 
-    val order = (ordersResource as? Resource.Success)?.data?.find { it.id == orderId }
+    val order = (ordersResource as? Resource.Success<List<Order>>)?.data?.find { it.id == orderId }
 
     Scaffold(
         topBar = {
@@ -207,7 +207,7 @@ fun OrderDetailScreen(
 }
 
 @Composable
-fun OrderHeaderSection(order: DeliveryOrder) {
+fun OrderHeaderSection(order: Order) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -249,7 +249,7 @@ fun SummaryRow(label: String, value: String, isBold: Boolean = false) {
 }
 
 @Composable
-fun ActionBottomBar(order: DeliveryOrder, onDeliverClick: () -> Unit, onStatusChange: (String) -> Unit) {
+fun ActionBottomBar(order: Order, onDeliverClick: () -> Unit, onStatusChange: (String) -> Unit) {
     Surface(
         shadowElevation = 8.dp,
         modifier = Modifier.fillMaxWidth()

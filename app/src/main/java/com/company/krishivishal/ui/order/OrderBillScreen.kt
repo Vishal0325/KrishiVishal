@@ -22,7 +22,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
-import com.company.krishivishal.data.model.Order
+import androidx.compose.ui.res.stringResource
+import com.company.krishivishal.R
+import com.company.krishivishal.core.model.Order
 import com.company.krishivishal.ui.theme.PrimaryGreen
 import com.company.krishivishal.utils.PrintHelper
 import java.text.SimpleDateFormat
@@ -48,7 +50,7 @@ fun OrderBillScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { /* Share PDF */ }) {
+                    IconButton(onClick = { PrintHelper.printOrderInvoice(context, order) }) {
                         Icon(Icons.Default.Share, contentDescription = "Share")
                     }
                 },
@@ -84,7 +86,7 @@ fun OrderBillScreen(
             ) {
                 Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Print Invoice", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.download_print_invoice), fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -164,7 +166,8 @@ fun CompactTemplate(order: Order, dateFormat: SimpleDateFormat) {
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         order.items.forEach { 
             Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("${it.quantity}x ${it.productName}", fontSize = 12.sp, modifier = Modifier.weight(1f))
+                val itemText = "${it.quantity}x ${it.productName}${if (!it.variantLabel.isNullOrBlank()) " (${it.variantLabel})" else ""}"
+                Text(itemText, fontSize = 12.sp, modifier = Modifier.weight(1f))
                 Text("₹${it.price * it.quantity}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
         }
@@ -210,7 +213,12 @@ fun DetailedTaxTemplate(order: Order, dateFormat: SimpleDateFormat) {
             }
             order.items.forEach { 
                 Row(Modifier.padding(8.dp)) {
-                    Text(it.productName, Modifier.weight(2.5f), fontSize = 11.sp)
+                    Column(Modifier.weight(2.5f)) {
+                        val label = it.variantLabel
+                        if (!label.isNullOrBlank()) {
+                            Text(label, fontSize = 9.sp, color = Color.Gray)
+                        }
+                    }
                     Text("3101", Modifier.weight(1f), fontSize = 11.sp, textAlign = TextAlign.Center)
                     Text("5%", Modifier.weight(1f), fontSize = 11.sp, textAlign = TextAlign.Center)
                     Text("₹${it.price * it.quantity}", Modifier.weight(1.5f), fontSize = 11.sp, textAlign = TextAlign.End)
@@ -254,7 +262,12 @@ fun TableSectionDark(order: Order) {
     Column {
         order.items.forEach { item ->
             Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(item.productName, color = Color.White, modifier = Modifier.weight(1f), fontSize = 14.sp)
+                Column(modifier = Modifier.weight(1f)) {
+                    val label = item.variantLabel
+                    if (!label.isNullOrBlank()) {
+                        Text(label, color = Color.White.copy(0.7f), fontSize = 12.sp)
+                    }
+                }
                 Text("₹${item.price * item.quantity}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
             HorizontalDivider(color = Color.White.copy(0.1f))
@@ -288,7 +301,12 @@ fun TableSection(order: Order) {
                     .fillMaxWidth()
                     .padding(12.dp)
             ) {
-                Text(item.productName, modifier = Modifier.weight(3f), fontSize = 13.sp)
+                Column(modifier = Modifier.weight(3f)) {
+                    val label = item.variantLabel
+                    if (!label.isNullOrBlank()) {
+                        Text(label, fontSize = 11.sp, color = Color.Gray)
+                    }
+                }
                 Text("${item.quantity}", modifier = Modifier.weight(1f), fontSize = 13.sp, textAlign = TextAlign.Center)
                 Text("₹${item.price * item.quantity}", modifier = Modifier.weight(1.5f), fontSize = 13.sp, textAlign = TextAlign.End, fontWeight = FontWeight.SemiBold)
             }

@@ -3,10 +3,10 @@ package com.company.krishivishal.ui.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.company.krishivishal.data.local.dao.RecentSearchDao
-import com.company.krishivishal.data.model.RecentSearch
-import com.company.krishivishal.data.model.SearchUiState
+import com.company.krishivishal.core.model.RecentSearch
+import com.company.krishivishal.core.model.SearchUiState
 import com.company.krishivishal.data.repository.ProductSearchRepository
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -56,7 +56,7 @@ class SearchViewModel @Inject constructor(
             .launchIn(viewModelScope)
     }
 
-    private fun handleSearchResource(resource: Resource<List<com.company.krishivishal.data.model.Product>>) {
+    private fun handleSearchResource(resource: Resource<List<com.company.krishivishal.core.model.Product>>) {
         when (resource) {
             is Resource.Loading -> {
                 _searchState.update { it.copy(isLoading = true, error = null) }
@@ -65,7 +65,7 @@ class SearchViewModel @Inject constructor(
                 val products = resource.data ?: emptyList()
                 // Convert Product to SearchResult for the UI
                 val searchResults = products.map { p ->
-                    com.company.krishivishal.data.model.SearchResult(
+                    com.company.krishivishal.core.model.SearchResult(
                         id = p.id,
                         name = p.name,
                         price = p.basePrice,

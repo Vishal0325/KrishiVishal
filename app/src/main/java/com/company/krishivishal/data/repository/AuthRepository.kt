@@ -1,13 +1,14 @@
 package com.company.krishivishal.data.repository
 
 import com.company.krishivishal.data.local.UserDao
-import com.company.krishivishal.data.model.User
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.model.User
+import com.company.krishivishal.core.util.Resource
 import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -33,6 +34,7 @@ interface AuthRepository {
     fun startPhoneVerification(phoneNumber: String, activity: Activity, callbacks: PhoneAuthProvider.OnVerificationStateChangedCallbacks)
     fun updateUser(user: User): Flow<Resource<Unit>>
     fun mergeGuestWishlistToFirestore(userId: String): Flow<Resource<Unit>>
+    fun deleteAccount(): Flow<Resource<Unit>>
 }
 
 @Singleton
@@ -40,7 +42,7 @@ class AuthRepositoryImpl @Inject constructor(
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
     private val userDao: UserDao,
-    private val guestWishlistDao: com.company.krishivishal.data.local.GuestWishlistDao,
+    private val wishlistDao: com.company.krishivishal.data.local.WishlistDao,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : AuthRepository {
 
@@ -70,15 +72,20 @@ class AuthRepositoryImpl @Inject constructor(
                 if (user != null) {
                     userDao.insertUser(user)
                     trySend(user)
-                } else if (firebaseUser.isAnonymous) {
-                    // Create basic guest profile
-                    val guest = User(id = firebaseUser.uid, name = "Guest User")
-                    trySend(guest)
+                } else {
+                    // Create basic user profile if missing from DB but exists in Auth
+                    val newUser = User(
+                        id = firebaseUser.uid,
+                        name = firebaseUser.displayName ?: "Guest User",
+                        email = firebaseUser.email,
+                        phone = firebaseUser.phoneNumber
+                    )
+                    userDao.insertUser(newUser)
+                    trySend(newUser)
                 }
             } catch (e: Exception) {
-                if (firebaseUser.isAnonymous) {
-                    trySend(User(id = firebaseUser.uid, name = "Guest User"))
-                }
+                // Fallback for offline or restricted rules
+                userDao.getUserById(firebaseUser.uid).firstOrNull()?.let { trySend(it) }
             }
         }
 
@@ -174,7 +181,7 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override fun mergeGuestWishlistToFirestore(userId: String): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
-        val localItems = guestWishlistDao.getAllLocalWishlistItems()
+        val localItems = wishlistDao.getAllGuestItems()
         
         if (localItems.isNotEmpty()) {
             val productIds = localItems.map { it.productId }
@@ -185,8 +192,27 @@ class AuthRepositoryImpl @Inject constructor(
                 .await()
             
             // Successfully synced, clear local guest wishlist
-            guestWishlistDao.clearLocalWishlist()
+            wishlistDao.clearGuestWishlist()
         }
+        Unit
+    }
+
+    override fun deleteAccount(): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
+        val firebaseUser = auth.currentUser ?: throw Exception("User not logged in")
+        val userId = firebaseUser.uid
+
+        // 1. Delete user document from Firestore
+        firestore.collection("users").document(userId).delete().await()
+
+        // 2. Delete user from Firebase Auth
+        firebaseUser.delete().await()
+
+        // 3. Clear local database
+        userDao.deleteUserById(userId)
+        
+        // 4. Local Sign out just in case
+        auth.signOut()
+        
         Unit
     }
 }

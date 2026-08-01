@@ -2,12 +2,12 @@ package com.company.krishivishal.ui.product
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.company.krishivishal.data.model.*
+import com.company.krishivishal.core.model.*
 import com.company.krishivishal.data.repository.CartRepository
 import com.company.krishivishal.data.repository.CheckoutSessionRepository
 import com.company.krishivishal.domain.usecase.auth.GetCurrentUserUseCase
 import com.company.krishivishal.domain.usecase.product.*
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.analytics.AnalyticsTracker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -47,11 +47,24 @@ class ProductDetailViewModel @Inject constructor(
                     }
                     is Resource.Success -> {
                         val product = resource.data
-                        _uiState.update { it.copy(
-                            isProductLoading = false,
-                            product = product,
-                            error = null
-                        ) }
+                        _uiState.update { currentState ->
+                            val currentVariants = if (currentState.variants.isNotEmpty()) {
+                                currentState.variants
+                            } else {
+                                product?.variants ?: emptyList()
+                            }
+                            val initialVariant = currentState.selectedVariant 
+                                ?: currentVariants.firstOrNull { it.isBestSeller } 
+                                ?: currentVariants.firstOrNull()
+                                
+                            currentState.copy(
+                                isProductLoading = false,
+                                product = product,
+                                variants = currentVariants,
+                                selectedVariant = initialVariant,
+                                error = null
+                            )
+                        }
                         if (product != null) {
                             checkWishlistStatus(product.id, userId)
                             analyticsTracker.trackViewProduct(
@@ -75,8 +88,13 @@ class ProductDetailViewModel @Inject constructor(
                         _uiState.update { it.copy(isVariantsLoading = true) }
                     }
                     is Resource.Success -> {
-                        val variants = resource.data ?: emptyList()
+                        val fetchedVariants = resource.data ?: emptyList()
                         _uiState.update { currentState ->
+                            val variants = if (fetchedVariants.isNotEmpty()) {
+                                fetchedVariants
+                            } else {
+                                currentState.product?.variants ?: emptyList()
+                            }
                             val currentSelected = currentState.selectedVariant
                             val initialVariant = if (currentSelected == null || variants.none { it.id == currentSelected.id }) {
                                 variants.firstOrNull { it.isBestSeller } ?: variants.firstOrNull()
@@ -198,8 +216,13 @@ class ProductDetailViewModel @Inject constructor(
 
     fun toggleWishlist() {
         val currentUser = _user.value
+        if (currentUser == null || currentUser.id == "guest_user") {
+            _uiState.update { it.copy(showLoginPrompt = true) }
+            return
+        }
+        
         val product = _uiState.value.product ?: return
-        val userId = currentUser?.id ?: "guest_user"
+        val userId = currentUser.id
 
         viewModelScope.launch {
             toggleProductWishlistUseCase(product, userId).collect { resource ->
@@ -210,6 +233,10 @@ class ProductDetailViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun onLoginPromptShown() {
+        _uiState.update { it.copy(showLoginPrompt = false) }
     }
 
     fun clearCartMessage() {
@@ -229,5 +256,6 @@ data class ProductDetailUiState(
     val isWishlisted: Boolean = false,
     val error: String? = null,
     val cartMessage: String? = null,
-    val navigateToCheckout: Boolean = false
+    val navigateToCheckout: Boolean = false,
+    val showLoginPrompt: Boolean = false
 )

@@ -2,9 +2,9 @@ package com.company.krishivishal.data.repository
 
 import com.company.krishivishal.data.local.OrderDao
 import com.company.krishivishal.data.local.CartDao
-import com.company.krishivishal.data.model.Order
-import com.company.krishivishal.data.model.OrderStatus
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.model.Order
+import com.company.krishivishal.core.model.OrderStatus
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.networkBoundResource
 import com.company.krishivishal.utils.safeCall
 import com.google.firebase.firestore.FirebaseFirestore

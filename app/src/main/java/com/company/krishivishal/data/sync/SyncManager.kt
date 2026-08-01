@@ -4,6 +4,7 @@ import android.content.Context
 import com.company.krishivishal.data.local.AppDatabase
 import com.company.krishivishal.data.local.SyncOperation
 import com.company.krishivishal.utils.ConnectivityObserver
+import com.company.krishivishal.core.util.Constants
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -56,6 +57,11 @@ class SyncManager @Inject constructor(
         userId: String,
         payload: Any
     ) {
+        if (userId == Constants.GUEST_USER_ID) {
+            Timber.d("Skipping sync queue for guest user: $operationType")
+            return
+        }
+
         try {
             val jsonPayload = when (payload) {
                 is String -> payload
@@ -193,6 +199,26 @@ class SyncManager @Inject constructor(
                         }
                     }.await()
                     Timber.d("Cart cleared in Firestore")
+                    true
+                }
+                "ADD_TO_WISHLIST" -> {
+                    firestore.collection("users")
+                        .document(operation.userId)
+                        .collection("wishlist")
+                        .document(operation.entityId)
+                        .set(payload.toMap())
+                        .await()
+                    Timber.d("Wishlist item added to Firestore")
+                    true
+                }
+                "REMOVE_FROM_WISHLIST" -> {
+                    firestore.collection("users")
+                        .document(operation.userId)
+                        .collection("wishlist")
+                        .document(operation.entityId)
+                        .delete()
+                        .await()
+                    Timber.d("Wishlist item removed from Firestore")
                     true
                 }
                 "UPDATE_ORDER" -> {

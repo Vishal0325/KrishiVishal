@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -17,19 +19,35 @@ android {
         applicationId = "com.company.krishivishaldelivery"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val keystorePropertiesFile = rootProject.file("keystore.properties")
+            if (keystorePropertiesFile.exists()) {
+                val props = Properties()
+                props.load(keystorePropertiesFile.inputStream())
+                storeFile = rootProject.file(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
@@ -46,9 +64,8 @@ android {
 }
 
 dependencies {
-    // Shared Data (Aap chaho toh 'app' module ko as a dependency add kar sakte ho 
-    // models share karne ke liye, ya fir models ko alag library module mein move kar sakte ho)
-    // Filhal hum manually models handle karenge ya ':app' module ki dependency lenge.
+    // Shared Core Module
+    implementation(project(":core"))
 
     // Core
     implementation(libs.androidx.core.ktx)

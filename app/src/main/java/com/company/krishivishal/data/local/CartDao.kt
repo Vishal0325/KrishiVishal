@@ -1,7 +1,7 @@
 package com.company.krishivishal.data.local
 
 import androidx.room.*
-import com.company.krishivishal.data.model.CartItem
+import com.company.krishivishal.core.model.CartItem
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -20,7 +20,7 @@ interface CartDao {
 
     @Transaction
     @Query("SELECT * FROM cart_items WHERE userId = :userId")
-    fun getCartWithProducts(userId: String): Flow<List<com.company.krishivishal.data.model.CartWithProduct>>
+    fun getCartWithProducts(userId: String): Flow<List<com.company.krishivishal.core.model.CartWithProduct>>
 
     @Query("SELECT SUM(quantity) FROM cart_items WHERE userId = :userId")
     fun getCartCount(userId: String): Flow<Int?>

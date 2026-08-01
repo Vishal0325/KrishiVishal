@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "409780110248",
+    "firebase_url": "https://krishivishal-a9ed7-default-rtdb.asia-southeast1.firebasedatabase.app",
     "project_id": "krishivishal-a9ed7",
     "storage_bucket": "krishivishal-a9ed7.firebasestorage.app"
   },
@@ -10,6 +11,25 @@
         "mobilesdk_app_id": "1:409780110248:android:f3a977b43ca7b22631139d",
         "android_client_info": {
           "package_name": "com.company.krishivishal"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDVCaQ1Q2LQ8SZk3pxDjFkjTOwrQzqGBBg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:409780110248:android:d811ecedaf6d396c31139d",
+        "android_client_info": {
+          "package_name": "com.company.krishivishaldelivery"
         }
       },
       "oauth_client": [],

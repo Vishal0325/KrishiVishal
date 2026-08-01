@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.company.krishivishal.data.repository.AuthRepository
 import com.company.krishivishal.data.repository.CartRepository
 import com.company.krishivishal.data.repository.OrderRepository
-import com.company.krishivishal.ui.home.HomeViewModel
+import com.company.krishivishal.core.util.Constants
 import com.company.krishivishal.ui.navigation.BadgeState
 import com.company.krishivishal.ui.navigation.BottomBarState
 import com.company.krishivishal.ui.navigation.BottomNavItem
@@ -39,7 +39,7 @@ class MainViewModel @Inject constructor(
     private fun observeCartCount() {
         viewModelScope.launch {
             authRepository.getCurrentUser().collectLatest { user ->
-                val userId = user?.id ?: HomeViewModel.GUEST_USER_ID
+                val userId = user?.id ?: Constants.GUEST_USER_ID
                 cartRepository.getCartWithProducts(userId).collectLatest { resource ->
                     val count = resource.data?.size ?: 0
                     updateBadge(BottomNavItem.Home.index, count)

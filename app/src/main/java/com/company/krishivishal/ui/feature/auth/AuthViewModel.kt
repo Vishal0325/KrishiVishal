@@ -8,7 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.company.krishivishal.R
 import com.company.krishivishal.domain.usecase.auth.*
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.FirebaseException
@@ -166,7 +166,7 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    private suspend fun handleAuthResource(resource: Resource<com.company.krishivishal.data.model.User>) {
+    private suspend fun handleAuthResource(resource: Resource<com.company.krishivishal.core.model.User>) {
         when (resource) {
             is Resource.Success -> {
                 val user = resource.data

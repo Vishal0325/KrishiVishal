@@ -2,7 +2,7 @@ package com.company.krishivishal.domain.usecase.admin
 
 import com.company.krishivishal.data.repository.OrderRepository
 import com.company.krishivishal.data.repository.ProductRepository
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import java.text.SimpleDateFormat

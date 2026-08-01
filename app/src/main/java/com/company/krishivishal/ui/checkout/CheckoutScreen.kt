@@ -15,17 +15,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
-import com.company.krishivishal.data.model.Address
+import com.company.krishivishal.core.model.Address
+import com.company.krishivishal.core.model.displayVariantLabel
 import com.company.krishivishal.ui.theme.PrimaryGreen
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.ui.components.ErrorState
 import com.company.krishivishal.ui.address.AddAddressDialog
+import com.razorpay.Checkout
+import org.json.JSONObject
+import androidx.compose.ui.platform.LocalContext
+import android.app.Activity
+import android.widget.Toast
+import kotlinx.coroutines.flow.collectLatest
+import com.company.krishivishal.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,6 +48,7 @@ fun CheckoutScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showAddAddressDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     LaunchedEffect(source) {
         viewModel.setSource(source)
@@ -45,6 +57,22 @@ fun CheckoutScreen(
     LaunchedEffect(uiState.checkoutResource) {
         if (uiState.checkoutResource is Resource.Success) {
             onOrderSuccess()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.uiEvent.collectLatest { event ->
+            when (event) {
+                is CheckoutUiEvent.InitiatePayment -> {
+                    startRazorpay(
+                        activity = context as Activity,
+                        amount = event.amount,
+                        orderId = event.orderId,
+                        userEmail = uiState.userEmail,
+                        userPhone = uiState.userPhone
+                    )
+                }
+            }
         }
     }
 
@@ -93,7 +121,7 @@ fun CheckoutScreen(
                         Button(
                             onClick = { viewModel.placeOrder() },
                             modifier = Modifier.fillMaxWidth().height(52.dp),
-                            enabled = uiState.selectedAddress != null && uiState.checkoutResource !is Resource.Loading,
+                            enabled = uiState.checkoutResource !is Resource.Loading,
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
                         ) {
@@ -160,7 +188,11 @@ fun CheckoutScreen(
                         }
 
                         items(uiState.checkoutItems) { item ->
-                            OrderSummaryItem(item)
+                            OrderSummaryItem(
+                                item = item,
+                                onQuantityChange = { newQty -> viewModel.updateQuantity(item.cartItem.id, newQty) },
+                                onRemove = { viewModel.removeItem(item.cartItem.id) }
+                            )
                         }
 
                         // Price Details Section
@@ -172,7 +204,37 @@ fun CheckoutScreen(
                         item {
                             SectionHeader("Payment Method")
                             Spacer(modifier = Modifier.height(8.dp))
-                            PaymentMethodCard()
+                            
+                            if (uiState.paymentOptions.size > 1) {
+                                uiState.paymentOptions.forEach { option ->
+                                    PaymentMethodItem(
+                                        title = option.title,
+                                        subtitle = option.subtitle,
+                                        icon = option.icon,
+                                        iconColor = option.iconColor,
+                                        isSelected = uiState.selectedPaymentMethod == option.method,
+                                        onSelect = { viewModel.updatePaymentMethod(option.method) }
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
+                            } else {
+                                // Only one option available (usually COD if online disabled)
+                                val option = uiState.paymentOptions.firstOrNull() ?: PaymentOption(
+                                    method = PaymentMethod.COD,
+                                    title = "Cash on delivery",
+                                    subtitle = "Pay when order arrives",
+                                    icon = Icons.Default.Payments,
+                                    iconColor = Color(0xFFFF9800)
+                                )
+                                PaymentMethodItem(
+                                    title = option.title,
+                                    subtitle = option.subtitle,
+                                    icon = option.icon,
+                                    iconColor = option.iconColor,
+                                    isSelected = true,
+                                    onSelect = {}
+                                )
+                            }
                         }
 
                         item { Spacer(modifier = Modifier.height(100.dp)) }
@@ -229,56 +291,170 @@ fun SectionHeader(title: String, actionText: String? = null, onAction: () -> Uni
 }
 
 @Composable
-fun OrderSummaryItem(item: com.company.krishivishal.data.model.CartWithProduct) {
+fun OrderSummaryItem(
+    item: com.company.krishivishal.core.model.CartWithProduct,
+    onQuantityChange: (Int) -> Unit,
+    onRemove: () -> Unit
+) {
     val sellingPrice = item.variant?.price ?: if (item.product.discountedPrice > 0) item.product.discountedPrice else if (item.product.price > 0) item.product.price else item.product.basePrice
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         border = BorderStroke(1.dp, Color(0xFFF1F3F5))
     ) {
-        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             AsyncImage(
                 model = item.product.images.firstOrNull() ?: item.product.imageUrl,
                 contentDescription = null,
-                modifier = Modifier.size(50.dp).clip(RoundedCornerShape(8.dp)),
-                contentScale = ContentScale.Fit
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFFF8F9FA)),
+                contentScale = ContentScale.Fit,
+                placeholder = androidx.compose.ui.res.painterResource(R.drawable.ic_placeholder_product)
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(item.product.name, maxLines = 1, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                val variant = item.variant?.label ?: item.variant?.size ?: item.product.weight
-                Text("${item.cartItem.quantity} x $variant", fontSize = 12.sp, color = Color.Gray)
+                // Group Name and Variant for accessibility
+                Column(modifier = Modifier.semantics(mergeDescendants = true) {}) {
+                    Text(
+                        text = item.product.name,
+                        maxLines = 1,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    
+                    val variantLabel = item.displayVariantLabel()
+                    if (variantLabel.isNotBlank()) {
+                        Text(
+                            text = variantLabel,
+                            fontSize = 11.sp,
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Text(
+                    text = "₹${sellingPrice.toInt()}",
+                    fontSize = 13.sp,
+                    color = PrimaryGreen,
+                    fontWeight = FontWeight.Medium
+                )
             }
-            Text("₹${(sellingPrice * item.cartItem.quantity).toInt()}", fontWeight = FontWeight.Bold, color = Color.Black)
+            
+            // Quantity Controls
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .background(Color(0xFFF1F3F5), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 4.dp)
+            ) {
+                IconButton(
+                    onClick = { if (item.cartItem.quantity > 1) onQuantityChange(item.cartItem.quantity - 1) else onRemove() },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = if (item.cartItem.quantity > 1) Icons.Default.Remove else Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = if (item.cartItem.quantity > 1) Color.DarkGray else Color.Red,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                
+                Text(
+                    text = item.cartItem.quantity.toString(),
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                
+                IconButton(
+                    onClick = { onQuantityChange(item.cartItem.quantity + 1) },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = null,
+                        tint = PrimaryGreen,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-fun PaymentMethodCard() {
+fun PaymentMethodItem(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    iconColor: Color,
+    isSelected: Boolean,
+    onSelect: () -> Unit
+) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onSelect() },
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFF1F3F5))
+        border = BorderStroke(1.dp, if (isSelected) PrimaryGreen else Color(0xFFF1F3F5))
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                Icons.Default.Payments, 
+                icon, 
                 contentDescription = null, 
-                tint = Color(0xFFFF9800),
+                tint = iconColor,
                 modifier = Modifier.size(24.dp)
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column {
-                Text("Cash on Delivery (COD)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Text("Pay at your doorstep", fontSize = 12.sp, color = Color.Gray)
+                Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(subtitle, fontSize = 12.sp, color = Color.Gray)
             }
             Spacer(modifier = Modifier.weight(1f))
-            RadioButton(selected = true, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = PrimaryGreen))
+            RadioButton(
+                selected = isSelected, 
+                onClick = onSelect, 
+                colors = RadioButtonDefaults.colors(selectedColor = PrimaryGreen)
+            )
         }
+    }
+}
+
+fun startRazorpay(
+    activity: Activity, 
+    amount: Double, 
+    orderId: String,
+    userEmail: String?,
+    userPhone: String?
+) {
+    val checkout = Checkout()
+    
+    try {
+        val options = JSONObject()
+        options.put("name", "KrishiVishal")
+        options.put("description", "Payment for Order #$orderId")
+        options.put("theme.color", "#2E7D32")
+        options.put("currency", "INR")
+        options.put("amount", (amount * 100).toInt()) // Amount in paise
+        
+        val prefill = JSONObject()
+        prefill.put("email", userEmail ?: "customer@example.com")
+        prefill.put("contact", userPhone ?: "9999999999")
+        options.put("prefill", prefill)
+
+        checkout.open(activity, options)
+    } catch (e: Exception) {
+        Toast.makeText(activity, "Error in payment: " + e.message, Toast.LENGTH_LONG).show()
     }
 }
 

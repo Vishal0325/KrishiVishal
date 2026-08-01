@@ -2,11 +2,11 @@ package com.company.krishivishal.ui.home
 
 import app.cash.turbine.test
 import com.company.krishivishal.data.local.UserDao
-import com.company.krishivishal.data.model.User
+import com.company.krishivishal.core.model.User
 import com.company.krishivishal.data.repository.*
 import com.company.krishivishal.domain.usecase.home.*
 import com.company.krishivishal.utils.MainDispatcherRule
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk

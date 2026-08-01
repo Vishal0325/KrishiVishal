@@ -97,11 +97,12 @@ fun SettingsScreen(onBack: () -> Unit) {
                 )
             }
             item {
+                val context = androidx.compose.ui.platform.LocalContext.current
                 SettingsClickItem(
                     icon = Icons.Default.DarkMode,
                     title = "Theme Selection",
                     value = "System Default",
-                    onClick = { /* Logic to change theme */ }
+                    onClick = { android.widget.Toast.makeText(context, "App theme is set to System Default", android.widget.Toast.LENGTH_SHORT).show() }
                 )
             }
 
@@ -110,19 +111,21 @@ fun SettingsScreen(onBack: () -> Unit) {
                 SettingsHeader("Support & Safety")
             }
             item {
+                val context = androidx.compose.ui.platform.LocalContext.current
                 SettingsClickItem(
                     icon = Icons.Default.History,
                     title = "Data Usage & Privacy",
                     value = "",
-                    onClick = {}
+                    onClick = { android.widget.Toast.makeText(context, "Your data is encrypted and secure with Firebase Cloud", android.widget.Toast.LENGTH_LONG).show() }
                 )
             }
             item {
+                val context = androidx.compose.ui.platform.LocalContext.current
                 SettingsClickItem(
                     icon = Icons.Default.VerifiedUser,
                     title = "Version Details",
                     value = "v2.1.0",
-                    onClick = {}
+                    onClick = { android.widget.Toast.makeText(context, "Krishi Vishal v2.1.0 (Latest Release)", android.widget.Toast.LENGTH_SHORT).show() }
                 )
             }
             

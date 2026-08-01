@@ -1,7 +1,7 @@
 package com.company.krishivishal.data.repository
 
 import android.net.Uri
-import com.company.krishivishal.utils.Resource
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.safeCall
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.flow.Flow
