@@ -1,3 +1,0 @@
-- [x] Fix `mrp` mapping in `Product.kt`
-- [x] Update `ProductDetailScreen.kt` for better pricing display
-- [x] Verify build via `./gradlew :app:assembleDebug`
