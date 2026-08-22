@@ -193,7 +193,7 @@ exports.onUserRoleUpdate = functions.firestore
                 await change.after.ref.update({
                     role: 'RIDER',
                     name: data.name === "New Rider" || !data.name ? (whitelistData.name || data.name) : data.name,
-                    isAdmin: true,
+                    isAdmin: false, // Rider should not have Admin privileges
                     whitelisted: true,
                     riderSerialId: uniqueId,
                     riderIdDisplay: `KV-${uniqueId}`,
@@ -247,8 +247,9 @@ exports.onUserRoleUpdate = functions.firestore
         }
 
         // CUSTOM CLAIMS: Admin / Rider access control
+        // HARDENING: A user with 'RIDER' role should never have 'admin' claim
         const claims = {
-            admin: !!data.isAdmin,
+            admin: data.role === 'RIDER' ? false : !!data.isAdmin,
             role: data.role || null,
             isRider: data.role === 'RIDER',
             isActive: data.isActive !== false
