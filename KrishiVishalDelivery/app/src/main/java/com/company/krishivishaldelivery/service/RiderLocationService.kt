@@ -59,32 +59,36 @@ class RiderLocationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val orderStatus = intent?.getStringExtra("ORDER_STATUS") ?: "IDLE"
         when (intent?.action) {
-            ACTION_START -> startForegroundService(Priority.PRIORITY_HIGH_ACCURACY, 15000) // Initial start
-            ACTION_IN_TRANSIT -> startForegroundService(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 45000)
-            ACTION_AT_DELIVERY -> startForegroundService(Priority.PRIORITY_LOW_POWER, 120000)
+            ACTION_START, ACTION_IN_TRANSIT, ACTION_AT_DELIVERY -> startForegroundService(orderStatus)
             ACTION_STOP -> stopSelf()
         }
         return START_STICKY
     }
 
     @SuppressLint("MissingPermission")
-    private fun startForegroundService(priority: Int, interval: Long) {
+    private fun startForegroundService(orderStatus: String) {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Delivery Mode Active")
-            .setContentText("Your location is being shared for active deliveries")
+            .setContentText("Location shared for $orderStatus")
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
         startForeground(NOTIFICATION_ID, notification)
 
-        // Remove previous updates before re-applying with new context
         fusedLocationClient.removeLocationUpdates(locationCallback)
 
-        val locationRequest = LocationRequest.Builder(priority, interval)
-            .setMinUpdateIntervalMillis(interval / 2)
-            .setMaxUpdateDelayMillis(interval * 2)
+        val (priority, intervalMs, minIntervalMs) = when (orderStatus) {
+            "PICKING_UP" -> Triple(Priority.PRIORITY_HIGH_ACCURACY, 30000L, 15000L)
+            "IN_TRANSIT" -> Triple(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 60000L, 30000L)
+            "AT_DELIVERY" -> Triple(Priority.PRIORITY_LOW_POWER, 120000L, 60000L)
+            else -> Triple(Priority.PRIORITY_PASSIVE, 300000L, 180000L)
+        }
+
+        val locationRequest = LocationRequest.Builder(priority, intervalMs)
+            .setMinUpdateIntervalMillis(minIntervalMs)
             .build()
 
         fusedLocationClient.requestLocationUpdates(

@@ -89,13 +89,17 @@ function validateOrderTransition(oldStatus, newStatus, context) {
 /**
  * Safe Secret Handling: Ensures a required secret is present in the environment.
  */
-function getRequiredSecret(key) {
-    const value = process.env[key];
-    if (!value || value.trim() === '') {
-        console.error(`CRITICAL CONFIG ERROR: Required secret '${key}' is missing.`);
+function getRequiredSecret(secretName, description = "") {
+    const value = process.env[secretName];
+    if (!value || value.trim() === "") {
+        const errorMsg = `Required secret '${secretName}' is not configured${
+            description ? ` (${description})` : ""
+        }. Please set it in Firebase Console → Functions → Runtime environment variables.`;
+
+        console.error("FATAL:", errorMsg);
         throw new functions.https.HttpsError(
             'failed-precondition',
-            `Required configuration '${key}' is missing. Please contact support.`
+            'Service configuration incomplete. Admin has been notified.'
         );
     }
     return value;

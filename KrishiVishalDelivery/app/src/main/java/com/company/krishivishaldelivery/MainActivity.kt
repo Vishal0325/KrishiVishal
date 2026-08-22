@@ -92,15 +92,15 @@ class MainActivity : ComponentActivity() {
                                     is LocationAction.AtDelivery -> RiderLocationService.ACTION_AT_DELIVERY
                                     else -> RiderLocationService.ACTION_START
                                 }
-                                val orderId = when(event) {
-                                    is LocationAction.Start -> event.orderId
-                                    is LocationAction.InTransit -> event.orderId
-                                    is LocationAction.AtDelivery -> event.orderId
-                                    else -> ""
+                                val status = when(event) {
+                                    is LocationAction.Start -> "PICKING_UP"
+                                    is LocationAction.InTransit -> "IN_TRANSIT"
+                                    is LocationAction.AtDelivery -> "AT_DELIVERY"
+                                    else -> "IDLE"
                                 }
                                 val intent = Intent(context, RiderLocationService::class.java).apply {
                                     action = actionName
-                                    putExtra("ORDER_ID", orderId)
+                                    putExtra("ORDER_STATUS", status)
                                 }
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                     startForegroundService(intent)

@@ -1,7 +1,7 @@
 const crypto = require("crypto");
-const functions \u003d require(\"firebase-functions/v1\");
-const admin \u003d require(\"firebase-admin\");
-const { getRequiredSecret } \u003d require(\"./src/security_utils\");
+const functions = require("firebase-functions/v1");
+const admin = require("firebase-admin");
+const { getRequiredSecret } = require("./src/security_utils");
 
 /**
  * Webhook handler to verify Razorpay payments.
