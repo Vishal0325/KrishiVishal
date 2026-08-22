@@ -49,25 +49,8 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    function isOwner(userId) {
-      return isAuthenticated() &&
-        request.auth.uid == userId;
-    }
-
-    function isRider() {
-      return isAuthenticated() && (
-        request.auth.token.role == "RIDER" ||
-        (
-          userDocExists() &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid))
-            .data.role == "RIDER"
-        )
-      );
-    }
-
     function isAssignedRider(riderId) {
-      return isRider() &&
-        riderId == request.auth.uid;
+      return isRider() && riderId == request.auth.uid;
     }
 
 
