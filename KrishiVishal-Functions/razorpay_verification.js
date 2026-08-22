@@ -1,19 +1,21 @@
 const crypto = require("crypto");
-const functions = require("firebase-functions/v1");
-const admin = require("firebase-admin");
+const functions \u003d require(\"firebase-functions/v1\");
+const admin \u003d require(\"firebase-admin\");
+const { getRequiredSecret } \u003d require(\"./src/security_utils\");
 
 /**
  * Webhook handler to verify Razorpay payments.
  * Hardened with signature verification, idempotency, state validation, and amount matching.
  */
 exports.razorpayWebhook = functions.https.onRequest(async (req, res) => {
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
-    const signature = req.headers["x-razorpay-signature"];
-
-    if (!secret) {
+    let secret;
+    try {
+        secret = getRequiredSecret('RAZORPAY_WEBHOOK_SECRET');
+    } catch (e) {
         console.error("FATAL: RAZORPAY_WEBHOOK_SECRET is not configured. Webhook failing closed.");
-        return res.status(500).send("Internal Server Error");
+        return res.status(500).send("Internal Configuration Error");
     }
+    const signature = req.headers["x-razorpay-signature"];
 
     if (!signature) {
         return res.status(400).send("Missing signature");

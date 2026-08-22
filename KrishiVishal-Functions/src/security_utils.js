@@ -86,11 +86,27 @@ function validateOrderTransition(oldStatus, newStatus, context) {
     return true;
 }
 
+/**
+ * Safe Secret Handling: Ensures a required secret is present in the environment.
+ */
+function getRequiredSecret(key) {
+    const value = process.env[key];
+    if (!value || value.trim() === '') {
+        console.error(`CRITICAL CONFIG ERROR: Required secret '${key}' is missing.`);
+        throw new functions.https.HttpsError(
+            'failed-precondition',
+            `Required configuration '${key}' is missing. Please contact support.`
+        );
+    }
+    return value;
+}
+
 module.exports = {
     requireAuth,
     requireAdmin,
     requireRider,
     requireOrderOwner,
     requireAssignedRider,
-    validateOrderTransition
+    validateOrderTransition,
+    getRequiredSecret
 };

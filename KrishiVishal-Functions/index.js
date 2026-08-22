@@ -12,7 +12,8 @@ const {
     requireRider,
     requireOrderOwner,
     requireAssignedRider,
-    validateOrderTransition
+    validateOrderTransition,
+    getRequiredSecret
 } = require("./src/security_utils");
 
 const { logAudit } = require("./src/audit_utils");
@@ -111,8 +112,7 @@ async function getGSPProvider() {
     }
 
     if (gspConfig.activeProvider === 'CLEARTAX') {
-        const authToken = process.env.CLEARTAX_AUTH_TOKEN;
-        if (!authToken) throw new Error("CLEARTAX_AUTH_TOKEN not configured in Secret Manager.");
+        const authToken = getRequiredSecret('CLEARTAX_AUTH_TOKEN');
         return new ClearTaxProvider({ authToken, mode: gspConfig.mode });
     }
 
@@ -496,13 +496,8 @@ exports.verifyPayment = functions.runWith({ secrets: ["RAZORPAY_KEY_ID", "RAZORP
         throw new functions.https.HttpsError('invalid-argument', 'Missing mandatory payment verification fields.');
     }
 
-    const razorpaySecret = process.env.RAZORPAY_KEY_SECRET;
-    const razorpayKeyId = process.env.RAZORPAY_KEY_ID;
-
-    if (!razorpaySecret || !razorpayKeyId) {
-        console.error("FATAL: Razorpay credentials not configured in Secret Manager.");
-        throw new functions.https.HttpsError("internal", "Payment configuration error.");
-    }
+    const razorpaySecret = getRequiredSecret('RAZORPAY_KEY_SECRET');
+    const razorpayKeyId = getRequiredSecret('RAZORPAY_KEY_ID');
 
     // 1. Fetch Order and Verify Ownership/Existence
     const orderRef = db.collection("orders").doc(orderId);
@@ -615,13 +610,8 @@ exports.initiateRefund = functions.runWith({ secrets: ["RAZORPAY_KEY_ID", "RAZOR
         throw new functions.https.HttpsError('invalid-argument', 'Refund amount must be a positive number.');
     }
 
-    const keyId = process.env.RAZORPAY_KEY_ID;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
-
-    if (!keyId || !keySecret) {
-        console.error("FATAL: Razorpay secrets are missing in Secret Manager.");
-        throw new functions.https.HttpsError("internal", "Refund configuration error.");
-    }
+    const keyId = getRequiredSecret('RAZORPAY_KEY_ID');
+    const keySecret = getRequiredSecret('RAZORPAY_KEY_SECRET');
 
     try {
         const result = await db.runTransaction(async (transaction) => {
