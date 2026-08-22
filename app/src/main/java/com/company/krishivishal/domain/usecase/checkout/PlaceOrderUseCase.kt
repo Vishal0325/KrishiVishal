@@ -18,7 +18,7 @@ class PlaceOrderUseCase @Inject constructor(
         userId: String,
         cartItems: List<CartWithProduct>,
         address: Address,
-        paymentMethod: String = "CASH_ON_DELIVERY",
+        paymentMethod: String = "COD",
         lat: Double = 0.0,
         lng: Double = 0.0
     ): Flow<Resource<Triple<String, Double, String>>> {
