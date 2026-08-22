@@ -11,30 +11,13 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function userDocExists() {
-      return isAuthenticated() &&
-        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    // SINGLE SOURCE OF TRUTH: Firebase Auth Custom Claims
+    function getRole() {
+      return request.auth.token.role;
     }
 
-    function userDocData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-    }
-
-    // CANONICAL RBAC: Use Custom Claims (Authoritative) with fallback to User Doc
     function hasRole(roleName) {
-      return isAuthenticated() && (
-        request.auth.token.role == roleName ||
-        userDocData().role == roleName
-      );
-    }
-
-    function isAdmin() {
-      return isAuthenticated() && (
-        request.auth.token.admin == true ||
-        userDocData().isAdmin == true ||
-        request.auth.token.role in ["ADMIN", "SuperAdmin"] ||
-        userDocData().role in ["ADMIN", "SuperAdmin"]
-      );
+      return isAuthenticated() && getRole() == roleName;
     }
 
     function isSuperAdmin() {
@@ -42,15 +25,28 @@ service cloud.firestore {
     }
 
     function canManageCatalog() {
-      return isAdmin() && (hasRole("SuperAdmin") || hasRole("CatalogManager"));
+      return hasRole("SuperAdmin") || hasRole("CatalogManager");
     }
 
     function canManageOrders() {
-      return isAdmin() && (hasRole("SuperAdmin") || hasRole("OrderManager"));
+      return hasRole("SuperAdmin") || hasRole("OrderManager");
     }
 
     function canViewFinance() {
       return isSuperAdmin();
+    }
+
+    // RBAC AUTHORITY: Determined by 'role' custom claim
+    function isAdmin() {
+      return getRole() in ["SuperAdmin", "CatalogManager", "OrderManager", "Viewer"];
+    }
+
+    function isRider() {
+      return hasRole("Rider");
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
     }
 
     function isOwner(userId) {
@@ -343,8 +339,9 @@ service cloud.firestore {
         ]);
 
 
-      // User cannot modify security or financial fields. (Correction 13)
-      allow update: if isAdmin() ||
+      // User cannot modify security or financial fields.
+      // ONLY SuperAdmin can modify another user's role or admin status.
+      allow update: if isSuperAdmin() ||
         (
           isOwner(uId) &&
           !request.resource.data
@@ -363,7 +360,7 @@ service cloud.firestore {
             ])
         );
 
-      allow delete: if isAdmin();
+      allow delete: if isSuperAdmin();
 
 
       // ----------------------------------------------------------

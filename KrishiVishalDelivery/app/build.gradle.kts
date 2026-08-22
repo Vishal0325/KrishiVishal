@@ -65,7 +65,7 @@ android {
 
 dependencies {
     // Shared Core Module
-    implementation(project(":core"))
+    implementation(project(":delivery-core"))
 
     // Core
     implementation(libs.androidx.core.ktx)

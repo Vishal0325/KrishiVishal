@@ -9,6 +9,9 @@ const db = admin.firestore();
 const {
     requireAuth,
     requireAdmin,
+    requireSuperAdmin,
+    requireRole,
+    requireAnyRole,
     requireRider,
     requireOrderOwner,
     requireAssignedRider,
@@ -191,7 +194,7 @@ exports.onUserRoleUpdate = functions.firestore
                 }
 
                 await change.after.ref.update({
-                    role: 'RIDER',
+                    role: 'Rider',
                     name: data.name === "New Rider" || !data.name ? (whitelistData.name || data.name) : data.name,
                     isAdmin: false, // Rider should not have Admin privileges
                     whitelisted: true,
@@ -215,7 +218,7 @@ exports.onUserRoleUpdate = functions.firestore
         }
 
         // FALLBACK: If user is RIDER (Ensure riders collection is always in sync)
-        if (data.role === 'RIDER') {
+        if (data.role === 'Rider' || data.role === 'RIDER') {
             let uniqueId = data.riderSerialId;
 
             // If ID is missing, generate it
@@ -247,11 +250,16 @@ exports.onUserRoleUpdate = functions.firestore
         }
 
         // CUSTOM CLAIMS: Admin / Rider access control
-        // HARDENING: A user with 'RIDER' role should never have 'admin' claim
+        // HARDENING: Only set canonical roles. Casing is normalized.
+        let role = data.role || 'Customer';
+
+        // Normalize 'RIDER' to 'Rider' for consistency
+        if (role === 'RIDER') role = 'Rider';
+
         const claims = {
-            admin: data.role === 'RIDER' ? false : !!data.isAdmin,
-            role: data.role || null,
-            isRider: data.role === 'RIDER',
+            role: role,
+            admin: ['SuperAdmin', 'CatalogManager', 'OrderManager', 'Viewer'].includes(role),
+            isRider: role === 'Rider',
             isActive: data.isActive !== false
         };
 
@@ -350,6 +358,9 @@ exports.createOrder = functions.runWith({
         let totalTax = 0;
 
         const result = await db.runTransaction(async (transaction) => {
+            // AUTHORIZATION: Only SuperAdmin can manage users, but role assignment
+            // is handled by onUserRoleUpdate trigger.
+            // This function is for ORDER CREATION.
             const items = [];
 
             // 1. Collect all product and cost references first (ALL READS MUST BE FIRST)
@@ -699,7 +710,7 @@ exports.initiateRefund = functions.runWith({ secrets: ["RAZORPAY_KEY_ID", "RAZOR
  * AI: Approve Action Request (SuperAdmin Only)
  */
 exports.approveAiAction = functions.https.onCall(async (data, context) => {
-    if (!context.auth?.token.admin) throw new functions.https.HttpsError('permission-denied', 'SuperAdmin only.');
+    requireSuperAdmin(context);
     const { requestId } = data;
 
     const reqRef = db.collection("ai_action_requests").doc(requestId);
@@ -750,7 +761,7 @@ exports.rejectAiAction = functions.https.onCall(async (data, context) => {
  * AI: Get System Health Metrics
  */
 exports.getAiSystemHealth = functions.https.onCall(async (data, context) => {
-    if (!context.auth?.token.admin) throw new functions.https.HttpsError('permission-denied', 'Admin only.');
+    requireAdmin(context);
 
     const logs = await db.collection("ai_activity_logs").orderBy("timestamp", "desc").limit(100).get();
     const actions = await db.collection("ai_action_requests").get();
@@ -887,7 +898,7 @@ exports.aiSupervisor = functions.https.onCall(async (data, context) => {
 exports.getFinanceSummary = functions.runWith({
     memory: "512MB"
 }).https.onCall(async (data, context) => {
-    if (!context.auth?.token.admin) throw new functions.https.HttpsError('permission-denied', 'Admin only.');
+    requireSuperAdmin(context);
 
     const { startDate, endDate } = data; // ISO Strings
     const start = admin.firestore.Timestamp.fromDate(new Date(startDate));
@@ -1432,7 +1443,7 @@ exports.generateEInvoice = functions.https.onCall(async (data, context) => {
  * Moves funds from RAZORPAY_PENDING to BANK_ACCOUNT and records fees.
  */
 exports.recordBankPayout = functions.https.onCall(async (data, context) => {
-    if (!context.auth?.token.admin) throw new functions.https.HttpsError('permission-denied', 'SuperAdmin only.');
+    requireSuperAdmin(context);
     const { payoutId, grossAmount, netAmount, fees, taxOnFees, timestamp } = data;
 
     try {
@@ -1475,7 +1486,7 @@ exports.recordBankPayout = functions.https.onCall(async (data, context) => {
  * Posts to Ledger and updates Expense/Payout status.
  */
 exports.recordExpensePayment = functions.https.onCall(async (data, context) => {
-    requireAdmin(context);
+    requireSuperAdmin(context);
     const {
         type, // 'GENERAL_EXPENSE' or 'RIDER_PAYOUT'
         targetId,
@@ -1570,7 +1581,7 @@ exports.recordExpensePayment = functions.https.onCall(async (data, context) => {
  * Deletes from Storage first, then atomically removes from Firestore array.
  */
 exports.deleteExpenseAttachment = functions.https.onCall(async (data, context) => {
-    requireAdmin(context);
+    requireSuperAdmin(context);
     const { expenseId, attachmentId } = data;
 
     if (!expenseId || !attachmentId) {

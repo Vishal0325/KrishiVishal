@@ -13,13 +13,45 @@ function requireAuth(context) {
 
 /**
  * Checks if the user is an Admin.
- * Custom claims are authoritative, fallback to user document for compatibility.
+ * Custom claims are authoritative.
  */
 function requireAdmin(context) {
     requireAuth(context);
-    const isAdmin = context.auth.token.admin === true || context.auth.token.role === 'ADMIN' || context.auth.token.role === 'SuperAdmin';
+    const role = context.auth.token.role;
+    // Allow if role is one of the manager roles OR if legacy 'admin' claim is present
+    const isAdmin = ['SuperAdmin', 'CatalogManager', 'OrderManager', 'Viewer'].includes(role) || context.auth.token.admin === true;
     if (!isAdmin) {
         throw new functions.https.HttpsError('permission-denied', 'Admin privileges required.');
+    }
+}
+
+/**
+ * Checks for SuperAdmin specifically.
+ */
+function requireSuperAdmin(context) {
+    requireAuth(context);
+    if (context.auth.token.role !== 'SuperAdmin') {
+        throw new functions.https.HttpsError('permission-denied', 'SuperAdmin privileges required.');
+    }
+}
+
+/**
+ * Checks for specific role.
+ */
+function requireRole(context, role) {
+    requireAuth(context);
+    if (context.auth.token.role !== role) {
+        throw new functions.https.HttpsError('permission-denied', `Role ${role} required.`);
+    }
+}
+
+/**
+ * Checks for any of the given roles.
+ */
+function requireAnyRole(context, roles) {
+    requireAuth(context);
+    if (!roles.includes(context.auth.token.role)) {
+        throw new functions.https.HttpsError('permission-denied', 'Required role not found.');
     }
 }
 
@@ -28,7 +60,7 @@ function requireAdmin(context) {
  */
 function requireRider(context) {
     requireAuth(context);
-    if (context.auth.token.role !== 'RIDER') {
+    if (context.auth.token.role !== 'Rider' && context.auth.token.role !== 'RIDER') {
         throw new functions.https.HttpsError('permission-denied', 'Rider privileges required.');
     }
 }
@@ -108,6 +140,9 @@ function getRequiredSecret(secretName, description = "") {
 module.exports = {
     requireAuth,
     requireAdmin,
+    requireSuperAdmin,
+    requireRole,
+    requireAnyRole,
     requireRider,
     requireOrderOwner,
     requireAssignedRider,

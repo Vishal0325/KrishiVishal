@@ -17,31 +17,26 @@ export function useAuth() {
       if (firebaseUser) {
         setUser(firebaseUser);
         try {
-          // Check Custom Claims first (Most secure)
+          // RBAC SINGLE SOURCE OF TRUTH: Firebase Auth Custom Claims
           const idTokenResult = await firebaseUser.getIdTokenResult();
-          const hasAdminClaim = !!idTokenResult.claims.admin;
+          const claims = idTokenResult.claims;
 
-          // Check Firestore document for role details
+          // Role claim is authoritative
+          const userRole = claims.role || null;
+          const isSystemAdmin = !!claims.admin; // Maps to legacy 'admin' claim
+
+          // Check Firestore ONLY for isActive status (Operational, not Authorization)
           const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          const userData = userDoc.exists() ? userDoc.data() : null;
 
-          if (userDoc.exists()) {
-            const data = userDoc.data();
-            const isActive = data.isActive !== false;
-
-            if (!isActive) {
-              await auth.signOut();
-              setUser(null);
-              setIsAdmin(false);
-              setRole(null);
-            } else {
-              // Admin if they have the claim OR the flag in DB (for backward compatibility)
-              setIsAdmin(hasAdminClaim || data.isAdmin === true || String(data.isAdmin).toLowerCase() === "true");
-              setRole(data.role || (hasAdminClaim ? "SuperAdmin" : "Viewer"));
-            }
+          if (userData && userData.isActive === false) {
+            await auth.signOut();
+            setUser(null);
+            setIsAdmin(false);
+            setRole(null);
           } else {
-            // Document missing, but if they have the claim, allow access
-            setIsAdmin(hasAdminClaim);
-            setRole(hasAdminClaim ? "SuperAdmin" : null);
+            setRole(userRole);
+            setIsAdmin(isSystemAdmin || ['SuperAdmin', 'CatalogManager', 'OrderManager', 'Viewer'].includes(userRole));
           }
         } catch (error) {
           console.error("Auth error:", error);
