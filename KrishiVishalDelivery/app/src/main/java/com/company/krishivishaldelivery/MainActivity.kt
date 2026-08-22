@@ -85,10 +85,22 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     deliveryViewModel.locationAction.collect { event ->
                         when(event) {
-                            is LocationAction.Start -> {
+                            is LocationAction.Start, is LocationAction.InTransit, is LocationAction.AtDelivery -> {
+                                val actionName = when(event) {
+                                    is LocationAction.Start -> RiderLocationService.ACTION_START
+                                    is LocationAction.InTransit -> RiderLocationService.ACTION_IN_TRANSIT
+                                    is LocationAction.AtDelivery -> RiderLocationService.ACTION_AT_DELIVERY
+                                    else -> RiderLocationService.ACTION_START
+                                }
+                                val orderId = when(event) {
+                                    is LocationAction.Start -> event.orderId
+                                    is LocationAction.InTransit -> event.orderId
+                                    is LocationAction.AtDelivery -> event.orderId
+                                    else -> ""
+                                }
                                 val intent = Intent(context, RiderLocationService::class.java).apply {
-                                    action = RiderLocationService.ACTION_START
-                                    putExtra("ORDER_ID", event.orderId)
+                                    action = actionName
+                                    putExtra("ORDER_ID", orderId)
                                 }
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                     startForegroundService(intent)

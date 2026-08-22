@@ -193,8 +193,12 @@ class DeliveryViewModel @Inject constructor(
     fun updateStatus(orderId: String, nextStatus: String) {
         viewModelScope.launch {
             repository.updateOrderStatus(orderId, nextStatus)
-            if (nextStatus == "OUT_FOR_DELIVERY") _locationAction.emit(LocationAction.Start(orderId))
-            else if (nextStatus == "DELIVERED") _locationAction.emit(LocationAction.Stop)
+            when (nextStatus) {
+                "PICKED_UP" -> _locationAction.emit(LocationAction.Start(orderId))
+                "OUT_FOR_DELIVERY" -> _locationAction.emit(LocationAction.InTransit(orderId))
+                "DELIVERED" -> _locationAction.emit(LocationAction.Stop)
+                else -> {}
+            }
         }
     }
 
@@ -250,5 +254,7 @@ class DeliveryViewModel @Inject constructor(
 
 sealed class LocationAction {
     data class Start(val orderId: String) : LocationAction()
+    data class InTransit(val orderId: String) : LocationAction()
+    data class AtDelivery(val orderId: String) : LocationAction()
     object Stop : LocationAction()
 }

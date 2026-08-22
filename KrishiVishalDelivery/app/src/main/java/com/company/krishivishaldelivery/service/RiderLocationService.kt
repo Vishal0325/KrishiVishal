@@ -40,6 +40,8 @@ class RiderLocationService : Service() {
         private const val NOTIFICATION_ID = 12345
         const val ACTION_START = "ACTION_START"
         const val ACTION_STOP = "ACTION_STOP"
+        const val ACTION_IN_TRANSIT = "ACTION_IN_TRANSIT"
+        const val ACTION_AT_DELIVERY = "ACTION_AT_DELIVERY"
     }
 
     override fun onCreate() {
@@ -58,14 +60,16 @@ class RiderLocationService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> startForegroundService()
+            ACTION_START -> startForegroundService(Priority.PRIORITY_HIGH_ACCURACY, 15000) // Initial start
+            ACTION_IN_TRANSIT -> startForegroundService(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 45000)
+            ACTION_AT_DELIVERY -> startForegroundService(Priority.PRIORITY_LOW_POWER, 120000)
             ACTION_STOP -> stopSelf()
         }
         return START_STICKY
     }
 
     @SuppressLint("MissingPermission")
-    private fun startForegroundService() {
+    private fun startForegroundService(priority: Int, interval: Long) {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Delivery Mode Active")
             .setContentText("Your location is being shared for active deliveries")
@@ -75,8 +79,12 @@ class RiderLocationService : Service() {
 
         startForeground(NOTIFICATION_ID, notification)
 
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000)
-            .setMinUpdateIntervalMillis(5000)
+        // Remove previous updates before re-applying with new context
+        fusedLocationClient.removeLocationUpdates(locationCallback)
+
+        val locationRequest = LocationRequest.Builder(priority, interval)
+            .setMinUpdateIntervalMillis(interval / 2)
+            .setMaxUpdateDelayMillis(interval * 2)
             .build()
 
         fusedLocationClient.requestLocationUpdates(
