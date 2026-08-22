@@ -23,11 +23,11 @@ class ConfigRepositoryImpl @Inject constructor(
 ) : ConfigRepository {
 
     override fun getConfig(): Flow<Resource<AppConfig>> = safeCall(ioDispatcher) {
-        val snapshot = firestore.collection("settings").document("config").get().await()
+        val snapshot = firestore.collection("settings").document("app_config").get().await()
         snapshot.toObject(AppConfig::class.java) ?: AppConfig()
     }
 
     override fun updateConfig(config: AppConfig): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
-        firestore.collection("settings").document("config").set(config).await()
+        firestore.collection("settings").document("app_config").set(config).await()
     }
 }

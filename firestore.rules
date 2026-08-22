@@ -23,13 +23,34 @@ service cloud.firestore {
           userDocExists() &&
           get(/databases/$(database)/documents/users/$(request.auth.uid))
             .data.isAdmin == true
-        ) ||
-        (
-          userDocExists() &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid))
-            .data.role in ["ADMIN", "SuperAdmin"]
         )
       );
+    }
+
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isSuperAdmin() {
+      return isAdmin() && (request.auth.token.role == "SuperAdmin" || getUserRole() == "SuperAdmin");
+    }
+
+    function canManageCatalog() {
+      return isAdmin() && (
+        request.auth.token.role in ["SuperAdmin", "CatalogManager"] ||
+        getUserRole() in ["SuperAdmin", "CatalogManager"]
+      );
+    }
+
+    function canManageOrders() {
+      return isAdmin() && (
+        request.auth.token.role in ["SuperAdmin", "OrderManager"] ||
+        getUserRole() in ["SuperAdmin", "OrderManager"]
+      );
+    }
+
+    function canViewFinance() {
+      return isSuperAdmin();
     }
 
     function isOwner(userId) {
@@ -61,7 +82,7 @@ service cloud.firestore {
 
     match /products/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if canManageCatalog();
 
       // Do NOT automatically expose every future subcollection.
       match /reviews/{reviewId} {
@@ -70,7 +91,7 @@ service cloud.firestore {
         allow create: if isAuthenticated() &&
           request.resource.data.userId == request.auth.uid;
 
-        allow update, delete: if isAdmin() ||
+        allow update, delete: if canManageCatalog() ||
           (
             isAuthenticated() &&
             resource.data.userId == request.auth.uid
@@ -85,22 +106,22 @@ service cloud.firestore {
 
     match /categories/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if canManageCatalog();
     }
 
     match /brands/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if canManageCatalog();
     }
 
     match /crops/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if canManageCatalog();
     }
 
     match /banners/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if canManageCatalog();
     }
 
 
@@ -109,18 +130,18 @@ service cloud.firestore {
     // ============================================================
 
     match /product_costs/{id} {
-      allow read, write: if isAdmin();
+      allow read, write: if canViewFinance();
     }
 
     match /ledger/{id} {
-      allow read: if isAdmin();
+      allow read: if canViewFinance();
 
       // Ledger must only be written by Admin SDK / Cloud Functions.
       allow write: if false;
     }
 
     match /finance/{document=**} {
-      allow read: if isAdmin();
+      allow read: if canViewFinance();
       allow write: if false;
     }
 
@@ -134,7 +155,7 @@ service cloud.firestore {
       // Customer can read own order.
       // Admin can read all.
       // Rider can read ONLY assigned order.
-      allow read: if isAdmin() ||
+      allow read: if canManageOrders() ||
         (
           isAuthenticated() &&
           resource.data.userId == request.auth.uid
@@ -149,7 +170,7 @@ service cloud.firestore {
 
       // Clients cannot freely modify orders.
       // Assigned rider may update ONLY safe delivery fields. (Correction 13)
-      allow update: if isAdmin() ||
+      allow update: if canManageOrders() ||
         (
           isRider() &&
           resource.data.riderId == request.auth.uid &&
@@ -176,7 +197,7 @@ service cloud.firestore {
           ])
         );
 
-      allow delete: if isAdmin();
+      allow delete: if isSuperAdmin();
 
 
       // ----------------------------------------------------------
@@ -185,7 +206,7 @@ service cloud.firestore {
       // ----------------------------------------------------------
 
       match /tracking/{trackingId} {
-        allow read: if isAdmin() ||
+        allow read: if canManageOrders() ||
           (
             isAuthenticated() &&
             get(/databases/$(database)/documents/orders/$(orderId))
@@ -208,7 +229,7 @@ service cloud.firestore {
 
     match /returns/{returnId} {
 
-      allow read: if isAdmin() ||
+      allow read: if canManageOrders() ||
         (
           isAuthenticated() &&
           resource.data.userId == request.auth.uid
@@ -232,7 +253,7 @@ service cloud.firestore {
 
       // Admin has full control.
       // Assigned rider can only update QC/delivery-related fields.
-      allow update: if isAdmin() ||
+      allow update: if canManageOrders() ||
         (
           isRider() &&
           resource.data.riderId == request.auth.uid &&
@@ -249,7 +270,7 @@ service cloud.firestore {
             ])
         );
 
-      allow delete: if isAdmin();
+      allow delete: if isSuperAdmin();
     }
 
 
@@ -258,44 +279,44 @@ service cloud.firestore {
     // ============================================================
 
     match /expenses/{id} {
-      allow read: if isAdmin();
+      allow read: if canViewFinance();
 
       // Strict creation rules
-      allow create: if isAdmin() &&
+      allow create: if canViewFinance() &&
         request.resource.data.createdBy == request.auth.uid &&
         request.resource.data.approvalStatus == 'PENDING' &&
         request.resource.data.paymentStatus == 'UNPAID';
 
       // Protection against unauthorized field tampering
-      allow update: if isAdmin() &&
+      allow update: if canViewFinance() &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['expenseNumber', 'createdBy']);
 
-      allow delete: if isAdmin();
+      allow delete: if isSuperAdmin();
     }
 
     match /expenseCategories/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow read: if canViewFinance();
+      allow write: if canViewFinance();
     }
 
     match /expenseVendors/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow read: if canViewFinance();
+      allow write: if canViewFinance();
     }
 
     match /expensePayments/{id} {
-      allow read: if isAdmin();
-      allow create: if isAdmin() && request.resource.data.createdBy == request.auth.uid;
+      allow read: if canViewFinance();
+      allow create: if canViewFinance() && request.resource.data.createdBy == request.auth.uid;
       allow update, delete: if false; // Payments are immutable
     }
 
     match /expenseAuditLogs/{id} {
-      allow read: if isAdmin();
+      allow read: if canViewFinance();
       allow write: if false; // Append-only via server/privileged logic
     }
 
     match /expenseBudgets/{id} {
-      allow read, write: if isAdmin();
+      allow read, write: if canViewFinance();
     }
 
 
@@ -402,9 +423,13 @@ service cloud.firestore {
     // SETTINGS
     // ============================================================
 
-    match /settings/{allPaths=**} {
+    match /settings/app_config {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    match /settings/config {
+      allow read, write: if isAdmin();
     }
 
 

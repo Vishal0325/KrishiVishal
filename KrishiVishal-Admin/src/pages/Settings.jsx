@@ -40,23 +40,66 @@ const Settings = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(db, 'settings', 'config'), (snapshot) => {
-      if (snapshot.exists()) setSettings(snapshot.data());
+    // Listen to BOTH public and private configs
+    const unsubPrivate = onSnapshot(doc(db, 'settings', 'config'), (snap) => {
+      if (snap.exists()) setSettings(prev => ({ ...prev, ...snap.data() }));
+    });
+
+    const unsubPublic = onSnapshot(doc(db, 'settings', 'app_config'), (snap) => {
+      if (snap.exists()) setSettings(prev => ({ ...prev, ...snap.data() }));
       setLoading(false);
     });
-    return unsubscribe;
+
+    return () => { unsubPrivate(); unsubPublic(); };
   }, []);
 
   const handleSave = async (e) => {
     e.preventDefault();
     try {
-      await setDoc(doc(db, 'settings', 'config'), {
-        ...settings,
-        updatedAt: Timestamp.now()
-      });
-      toast.success('Settings updated successfully!');
+      const batch = writeBatch(db);
+      const timestamp = Timestamp.now();
+
+      // 1. Private Configuration (Secrets & Internal Logic)
+      const privateData = {
+        razorpayKey: settings.razorpayKey,
+        adminAlertWhatsApp: settings.adminAlertWhatsApp,
+        lowStockThreshold: settings.lowStockThreshold,
+        baseSalaryPerDay: settings.baseSalaryPerDay,
+        commissionPerOrder: settings.commissionPerOrder,
+        fuelAllowancePerDay: settings.fuelAllowancePerDay,
+        gsp: settings.gsp,
+        updatedAt: timestamp
+      };
+
+      // 2. Public Configuration (App functionality & UI)
+      const publicData = {
+        appName: settings.appName,
+        supportPhone: settings.supportPhone,
+        supportEmail: settings.supportEmail,
+        freeDeliveryAbove: settings.freeDeliveryAbove,
+        deliveryCharge: settings.deliveryCharge,
+        codAvailable: settings.codAvailable,
+        aboutUs: settings.aboutUs,
+        gstin: settings.gstin,
+        stateName: settings.stateName,
+        stateCode: settings.stateCode,
+        activeBillTemplate: settings.activeBillTemplate,
+        autoPrintNewOrders: settings.autoPrintNewOrders,
+        maintenanceMode: settings.maintenanceMode,
+        enableAiSupervisor: settings.enableAiSupervisor,
+        enableOnlinePayments: settings.enableOnlinePayments,
+        enableDeliveryTracking: settings.enableDeliveryTracking,
+        updatedAt: timestamp
+      };
+
+      batch.set(doc(db, 'settings', 'config'), privateData, { merge: true });
+      batch.set(doc(db, 'settings', 'app_config'), publicData, { merge: true });
+
+      await batch.commit();
+      toast.success('System configuration synchronized!');
     } catch (error) {
-      toast.error('Failed to save');
+      console.error(error);
+      toast.error('Failed to sync settings');
     }
   };
 
