@@ -1566,6 +1566,65 @@ exports.recordExpensePayment = functions.https.onCall(async (data, context) => {
 });
 
 /**
+ * ATTACHMENTS: Atomic/Idempotent Deletion (SuperAdmin Only)
+ * Deletes from Storage first, then atomically removes from Firestore array.
+ */
+exports.deleteExpenseAttachment = functions.https.onCall(async (data, context) => {
+    requireAdmin(context);
+    const { expenseId, attachmentId } = data;
+
+    if (!expenseId || !attachmentId) {
+        throw new functions.https.HttpsError('invalid-argument', 'Missing parameters.');
+    }
+
+    try {
+        const expenseRef = db.collection("expenses").doc(expenseId);
+
+        await db.runTransaction(async (transaction) => {
+            const snap = await transaction.get(expenseRef);
+            if (!snap.exists) throw new Error("Expense not found");
+
+            const attachments = snap.data().attachments || [];
+            const attachment = attachments.find(a => a.id === attachmentId);
+
+            if (!attachment) {
+                console.warn(`Attachment ${attachmentId} already deleted or not found.`);
+                return;
+            }
+
+            // IDEMPOTENCY: Storage delete should be handled carefully.
+            const bucket = admin.storage().bucket();
+            const file = bucket.file(attachment.storagePath);
+
+            try {
+                await file.delete();
+            } catch (storageErr) {
+                if (storageErr.code !== 404) throw storageErr;
+            }
+
+            // Remove from array
+            transaction.update(expenseRef, {
+                attachments: attachments.filter(a => a.id !== attachmentId),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            await logAudit({
+                action: "ATTACHMENT_DELETED",
+                actorId: context.auth.uid,
+                targetId: expenseId,
+                targetType: "EXPENSE",
+                metadata: { attachmentId }
+            });
+        });
+
+        return { success: true };
+    } catch (error) {
+        console.error("deleteExpenseAttachment Error:", error);
+        throw new functions.https.HttpsError('internal', error.message);
+    }
+});
+
+/**
  * RECURRING: Process Recurring Expenses (Runs daily)
  */
 exports.processRecurringExpenses = functions.pubsub.schedule('every 24 hours').onRun(async (context) => {

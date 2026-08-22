@@ -185,27 +185,11 @@ export const expenseService = {
   },
 
   async deleteAttachment(expenseId, attachmentId, actorId) {
-    const expenseRef = doc(db, this.COLLECTIONS.EXPENSES, expenseId);
+    const deleteExpenseAttachment = httpsCallable(functions, 'deleteExpenseAttachment');
 
-    return await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(expenseRef);
-      if (!snap.exists()) return;
-
-      const attachments = snap.data().attachments || [];
-      const attachment = attachments.find(a => a.id === attachmentId);
-      if (!attachment) return;
-
-      // 1. Delete from Storage (Outside transaction logic but inside this method)
-      // Note: If storage delete fails, transaction shouldn't commit or vice versa?
-      // Usually better to delete storage first, then firestore.
-      const storageRef = ref(storage, attachment.storagePath);
-      await deleteObject(storageRef);
-
-      // 2. Atomic removal from array
-      transaction.update(expenseRef, {
-        attachments: attachments.filter(a => a.id !== attachmentId),
-        updatedAt: serverTimestamp()
-      });
+    return await deleteExpenseAttachment({
+      expenseId,
+      attachmentId
     });
   },
 

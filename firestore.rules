@@ -16,37 +16,37 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
+    function userDocData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // CANONICAL RBAC: Use Custom Claims (Authoritative) with fallback to User Doc
+    function hasRole(roleName) {
+      return isAuthenticated() && (
+        request.auth.token.role == roleName ||
+        userDocData().role == roleName
+      );
+    }
+
     function isAdmin() {
       return isAuthenticated() && (
         request.auth.token.admin == true ||
-        (
-          userDocExists() &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid))
-            .data.isAdmin == true
-        )
+        userDocData().isAdmin == true ||
+        request.auth.token.role in ["ADMIN", "SuperAdmin"] ||
+        userDocData().role in ["ADMIN", "SuperAdmin"]
       );
-    }
-
-    function getUserRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
 
     function isSuperAdmin() {
-      return isAdmin() && (request.auth.token.role == "SuperAdmin" || getUserRole() == "SuperAdmin");
+      return hasRole("SuperAdmin");
     }
 
     function canManageCatalog() {
-      return isAdmin() && (
-        request.auth.token.role in ["SuperAdmin", "CatalogManager"] ||
-        getUserRole() in ["SuperAdmin", "CatalogManager"]
-      );
+      return isAdmin() && (hasRole("SuperAdmin") || hasRole("CatalogManager"));
     }
 
     function canManageOrders() {
-      return isAdmin() && (
-        request.auth.token.role in ["SuperAdmin", "OrderManager"] ||
-        getUserRole() in ["SuperAdmin", "OrderManager"]
-      );
+      return isAdmin() && (hasRole("SuperAdmin") || hasRole("OrderManager"));
     }
 
     function canViewFinance() {
