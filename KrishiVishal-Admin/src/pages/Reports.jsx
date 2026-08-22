@@ -10,15 +10,25 @@ import { formatCurrency } from '../utils/formatters';
 const Reports = () => {
   const [dateRange, setDateRange] = useState('30D');
   const [orders, setOrders] = useState([]);
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const qOrders = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+    const unsubscribeOrders = onSnapshot(qOrders, (snapshot) => {
       setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    const qUsers = query(collection(db, 'users'));
+    const unsubscribeUsers = onSnapshot(qUsers, (snapshot) => {
+      setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLoading(false);
     });
-    return unsubscribe;
+
+    return () => {
+      unsubscribeOrders();
+      unsubscribeUsers();
+    };
   }, []);
 
   const regionData = useMemo(() => {
@@ -69,15 +79,40 @@ const Reports = () => {
       .sort((a, b) => b.value - a.value);
   }, [orders]);
 
-  const salesData = [
-    { date: 'Mon', revenue: 4500, orders: 12 },
-    { date: 'Tue', revenue: 5200, orders: 15 },
-    { date: 'Wed', revenue: 3800, orders: 10 },
-    { date: 'Thu', revenue: 6100, orders: 18 },
-    { date: 'Fri', revenue: 5900, orders: 16 },
-    { date: 'Sat', revenue: 7200, orders: 22 },
-    { date: 'Sun', revenue: 8400, orders: 25 },
-  ];
+  const salesData = useMemo(() => {
+    const daily = {};
+    const last7Days = [...Array(7)].map((_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      return d.toLocaleDateString('en-US', { weekday: 'short' });
+    }).reverse();
+
+    last7Days.forEach(day => { daily[day] = { date: day, revenue: 0, orders: 0 }; });
+
+    orders.forEach(o => {
+      const day = o.createdAt?.toDate?.()?.toLocaleDateString('en-US', { weekday: 'short' });
+      if (daily[day]) {
+        daily[day].revenue += Number(o.totalAmount || 0);
+        daily[day].orders += 1;
+      }
+    });
+    return Object.values(daily);
+  }, [orders]);
+
+  const summaryMetrics = useMemo(() => {
+    const totalRevenue = orders.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
+    const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;
+
+    // Active users: unique userIds in the order list
+    const activeUsers = new Set(orders.map(o => o.userId)).size;
+
+    return [
+      { label: 'Avg Order Value', value: formatCurrency(avgOrderValue), sub: 'Based on total orders', color: 'blue' },
+      { label: 'Total Revenue', value: formatCurrency(totalRevenue), sub: 'Gross lifetime sales', color: 'green' },
+      { label: 'Active Farmers', value: activeUsers.toString(), sub: 'Unique customers', color: 'purple' },
+      { label: 'Total Orders', value: orders.length.toString(), sub: 'Lifetime volume', color: 'orange' },
+    ];
+  }, [orders]);
 
   const exportGstReport = () => {
     const headers = ["Order ID", "Date", "Customer", "Total Amount", "Taxable Value", "GST Amount", "CGST", "SGST"];
@@ -162,12 +197,7 @@ const Reports = () => {
 
       {/* Summary Row */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        {[
-          { label: 'Avg Order Value', value: '₹2,450', sub: '+12% vs last month', color: 'blue' },
-          { label: 'Churn Rate', value: '4.2%', sub: '-0.5% improvement', color: 'green' },
-          { label: 'Customer LTV', value: '₹18,200', sub: 'High retention', color: 'purple' },
-          { label: 'Conversion', value: '18.4%', sub: 'Healthy funnel', color: 'orange' },
-        ].map((s, i) => (
+        {summaryMetrics.map((s, i) => (
           <div key={i} className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm relative overflow-hidden group hover:shadow-xl transition-shadow">
             <div className={`absolute top-0 right-0 w-24 h-24 -mr-8 -mt-8 bg-${s.color}-500/5 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700`} />
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{s.label}</p>
@@ -227,8 +257,8 @@ const Reports = () => {
         <div className="space-y-6">
           <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm flex items-center justify-between group hover:border-primary transition-all">
             <div className="space-y-1">
-              <h3 className="text-sm font-black text-gray-400 uppercase tracking-[0.2em]">New Farmer Signups</h3>
-              <p className="text-4xl font-black text-gray-900 tracking-tighter">842</p>
+              <h3 className="text-sm font-black text-gray-400 uppercase tracking-[0.2em]">Total Farmer Base</h3>
+              <p className="text-4xl font-black text-gray-900 tracking-tighter">{users.filter(u => !u.isAdmin).length}</p>
             </div>
             <div className="h-16 w-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center shadow-lg shadow-blue-50 group-hover:bg-blue-600 group-hover:text-white transition-all">
               <TrendingUp size={24} />
