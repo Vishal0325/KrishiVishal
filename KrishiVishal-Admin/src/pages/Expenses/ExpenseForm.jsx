@@ -66,6 +66,16 @@ const ExpenseForm = () => {
     attachments: []
   });
 
+  const [budgetInfo, setBudgetInfo] = useState(null);
+
+  useEffect(() => {
+    if (formData.categoryId) {
+      const date = new Date(formData.expenseDate);
+      expenseService.getCategoryBudget(formData.categoryId, date.getMonth() + 1, date.getFullYear())
+        .then(setBudgetInfo);
+    }
+  }, [formData.categoryId, formData.expenseDate]);
+
   // 1. Calculations
   const calculatedTotals = useMemo(() => {
     const sub = parseFloat(formData.subtotal) || 0;
@@ -268,6 +278,12 @@ const ExpenseForm = () => {
                   <option value="">Select Category</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
+                {budgetInfo && (
+                  <div className={`mt-2 p-3 rounded-xl border text-[10px] font-black uppercase flex items-center justify-between ${budgetInfo.remainingMinor < 0 ? 'bg-red-50 border-red-100 text-red-600' : 'bg-green-50 border-green-100 text-green-600'}`}>
+                    <span>Monthly Budget: {formatCurrency(budgetInfo.amountMinor / 100)}</span>
+                    <span>Remaining: {formatCurrency(budgetInfo.remainingMinor / 100)}</span>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">

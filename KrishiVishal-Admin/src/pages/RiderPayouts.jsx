@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, onSnapshot, doc, getDoc, addDoc, Timestamp, orderBy } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '../firebase/config';
 import { Banknote, Calendar, ChevronLeft, ChevronRight, User, Package, TrendingUp, CheckCircle, Clock, Download } from 'lucide-react';
 import DataTable from '../components/common/DataTable';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
@@ -95,39 +96,34 @@ const RiderPayouts = () => {
     const riderName = riders[selectedRider.riderId]?.name || 'Rider';
 
     try {
-      // 1. Record in Payout Logs
-      await addDoc(collection(db, 'payout_logs'), {
-        riderId: selectedRider.riderId,
-        riderName,
+      const recordExpensePayment = httpsCallable(functions, 'recordExpensePayment');
+
+      await recordExpensePayment({
+        type: 'RIDER_PAYOUT',
+        targetId: selectedRider.riderId,
         amount: selectedRider.totalEarnings,
         method: payoutForm.method,
         referenceId: payoutForm.reference,
-        month: currentMonth + 1,
-        year: currentYear,
-        ordersCount: selectedRider.orderCount,
-        paidAt: Timestamp.now(),
-        breakdown: {
-          commission: selectedRider.commissionTotal,
-          baseSalary: selectedRider.baseSalaryTotal,
-          fuel: selectedRider.fuelTotal
-        }
-      });
-
-      // 2. Add to General Ledger (Expense Entry)
-      await addDoc(collection(db, 'ledger'), {
-        account: 'RIDER_PAYMENT',
-        type: 'DEBIT', // Money going out
-        amount: selectedRider.totalEarnings,
         description: `Payout to ${riderName} for ${monthName} ${currentYear}`,
-        referenceId: payoutForm.reference || selectedRider.riderId,
-        timestamp: Timestamp.now()
+        riderStats: {
+          riderName,
+          month: currentMonth + 1,
+          year: currentYear,
+          ordersCount: selectedRider.orderCount,
+          breakdown: {
+            commission: selectedRider.commissionTotal,
+            baseSalary: selectedRider.baseSalaryTotal,
+            fuel: selectedRider.fuelTotal
+          }
+        }
       });
 
       toast.success(`₹${selectedRider.totalEarnings} paid to ${riderName} via ${payoutForm.method}`);
       setIsModalOpen(false);
       setPayoutForm({ method: 'UPI', reference: '' });
     } catch (e) {
-      toast.error("Failed to record payout");
+      console.error(e);
+      toast.error(e.message || "Failed to record payout");
     } finally {
       setSaving(false);
     }
@@ -163,36 +159,37 @@ const RiderPayouts = () => {
     setSaving(true);
     try {
       const selectedData = payoutSummary.filter(s => selectedRiders.has(s.riderId));
+      const recordExpensePayment = httpsCallable(functions, 'recordExpensePayment');
 
       for (const s of selectedData) {
         const riderName = riders[s.riderId]?.name || 'Rider';
-        // Record log
-        await addDoc(collection(db, 'payout_logs'), {
-          riderId: s.riderId,
-          riderName,
+
+        await recordExpensePayment({
+          type: 'RIDER_PAYOUT',
+          targetId: s.riderId,
           amount: s.totalEarnings,
           method: 'BULK_BANK_TRANSFER',
           referenceId: batchId || 'BATCH_PAY',
-          month: currentMonth + 1,
-          year: currentYear,
-          paidAt: Timestamp.now()
-        });
-
-        // Record Ledger
-        await addDoc(collection(db, 'ledger'), {
-          account: 'RIDER_PAYMENT',
-          type: 'DEBIT',
-          amount: s.totalEarnings,
           description: `Bulk Payout to ${riderName}`,
-          referenceId: batchId || 'BATCH_PAY',
-          timestamp: Timestamp.now()
+          riderStats: {
+            riderName,
+            month: currentMonth + 1,
+            year: currentYear,
+            ordersCount: s.orderCount,
+            breakdown: {
+              commission: s.commissionTotal,
+              baseSalary: s.baseSalaryTotal,
+              fuel: s.fuelTotal
+            }
+          }
         });
       }
 
       toast.success(`${selectedRiders.size} Riders marked as PAID!`);
       setSelectedRiders(new Set());
     } catch (e) {
-      toast.error("Bulk update failed");
+      console.error(e);
+      toast.error(e.message || "Bulk update failed");
     } finally {
       setSaving(false);
     }

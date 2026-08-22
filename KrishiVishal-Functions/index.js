@@ -1469,8 +1469,159 @@ exports.recordBankPayout = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
+
 /**
- * GSP: Generate e-Way Bill (Admin Only)
+ * FINANCE: Record General Expense Payment (Admin Only)
+ * Posts to Ledger and updates Expense/Payout status.
+ */
+exports.recordExpensePayment = functions.https.onCall(async (data, context) => {
+    requireAdmin(context);
+    const {
+        type, // 'GENERAL_EXPENSE' or 'RIDER_PAYOUT'
+        targetId,
+        amount,
+        method,
+        referenceId,
+        description,
+        riderStats // Optional, for rider payouts
+    } = data;
+
+    if (!amount || amount <= 0) throw new functions.https.HttpsError('invalid-argument', 'Invalid amount.');
+
+    try {
+        const batch = db.batch();
+        const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
+        // 1. Create Ledger Entry (The Source of Truth for Finance)
+        const account = type === 'RIDER_PAYOUT' ? 'RIDER_PAYMENT' : (data.account || 'GENERAL_EXPENSE');
+        batch.set(db.collection("ledger").doc(), {
+            account,
+            type: 'DEBIT', // Money going out
+            amount: Number(amount),
+            description: description || `Payment for ${type}`,
+            referenceId: referenceId || targetId,
+            actorId: context.auth.uid,
+            timestamp
+        });
+
+        // 2. Update Target Document
+        if (type === 'RIDER_PAYOUT' && riderStats) {
+            // Record in Payout Logs
+            batch.set(db.collection("payout_logs").doc(), {
+                riderId: targetId,
+                riderName: riderStats.riderName,
+                amount: Number(amount),
+                method,
+                referenceId: referenceId || 'N/A',
+                month: riderStats.month,
+                year: riderStats.year,
+                ordersCount: riderStats.ordersCount,
+                paidAt: timestamp,
+                breakdown: riderStats.breakdown || {}
+            });
+        } else if (type === 'GENERAL_EXPENSE') {
+            const expenseRef = db.collection("expenses").doc(targetId);
+            const expenseSnap = await expenseRef.get();
+            if (!expenseSnap.exists) throw new Error("Expense not found");
+
+            const currentPaid = Number(expenseSnap.data().paidAmountMinor || 0);
+            const totalAmount = Number(expenseSnap.data().totalAmountMinor || 0);
+            const newPaid = currentPaid + Math.round(Number(amount) * 100);
+
+            const status = newPaid >= totalAmount ? 'PAID' : 'PARTIALLY_PAID';
+
+            batch.update(expenseRef, {
+                paidAmountMinor: newPaid,
+                paymentStatus: status,
+                updatedAt: timestamp
+            });
+
+            // Record Payment Detail
+            batch.set(db.collection("expensePayments").doc(), {
+                expenseId: targetId,
+                amountMinor: Math.round(Number(amount) * 100),
+                paymentMethod: method,
+                transactionId: referenceId,
+                paymentDate: new Date().toISOString(),
+                createdBy: context.auth.uid,
+                createdAt: timestamp
+            });
+        }
+
+        await batch.commit();
+
+        await logAudit({
+            action: type === 'RIDER_PAYOUT' ? 'RIDER_PAYOUT_PROCESSED' : 'EXPENSE_PAID',
+            actorId: context.auth.uid,
+            targetId,
+            targetType: type,
+            metadata: { amount, method, referenceId }
+        });
+
+        return { success: true };
+    } catch (error) {
+        console.error("recordExpensePayment Error:", error);
+        throw new functions.https.HttpsError('internal', error.message);
+    }
+});
+
+/**
+ * RECURRING: Process Recurring Expenses (Runs daily)
+ */
+exports.processRecurringExpenses = functions.pubsub.schedule('every 24 hours').onRun(async (context) => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+
+    try {
+        const q = db.collection("recurringExpenses")
+            .where("status", "==", "ACTIVE")
+            .where("nextRunDate", "<=", todayStr);
+
+        const snapshot = await q.get();
+        if (snapshot.empty) return null;
+
+        const batch = db.batch();
+
+        for (const doc of snapshot.docs) {
+            const config = doc.data();
+            const expenseId = db.collection("expenses").doc().id;
+
+            // Create pending expense
+            batch.set(db.collection("expenses").doc(expenseId), {
+                expenseNumber: `RECUR-${Date.now().toString().slice(-6)}`,
+                expenseDate: admin.firestore.FieldValue.serverTimestamp(),
+                categoryId: config.categoryId,
+                categoryName: config.categoryName,
+                vendorId: config.vendorId || "",
+                vendorName: config.vendorName || "Self",
+                description: `Recurring: ${config.name}`,
+                subtotalMinor: config.amountMinor,
+                totalAmountMinor: config.amountMinor, // Simplified for recurring auto-gen
+                approvalStatus: 'PENDING',
+                paymentStatus: 'UNPAID',
+                deleted: false,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // Calculate next run date
+            const nextDate = new Date(config.nextRunDate);
+            if (config.frequency === 'MONTHLY') nextDate.setMonth(nextDate.getMonth() + 1);
+            else if (config.frequency === 'WEEKLY') nextDate.setDate(nextDate.getDate() + 7);
+
+            batch.update(doc.ref, {
+                nextRunDate: nextDate.toISOString().split('T')[0],
+                lastRunDate: todayStr,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
+
+        await batch.commit();
+        console.log(`Processed ${snapshot.size} recurring expenses.`);
+    } catch (e) {
+        console.error("Recurring Expenses Error:", e);
+    }
+});
  * Enforces Admin Auth and Production Safety.
  */
 exports.generateEWayBill = functions.https.onCall(async (data, context) => {

@@ -19,7 +19,12 @@ import { collection, query, orderBy, onSnapshot, doc, updateDoc, addDoc, serverT
 import DataTable from '../../components/common/DataTable';
 import toast from 'react-hot-toast';
 
+import { useAuth } from '../../hooks/useAuth';
+
 const ExpenseVendors = () => {
+  const { role } = useAuth();
+  const isSuperAdmin = role === 'SuperAdmin';
+  // ... rest of the code ...
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -200,17 +205,19 @@ const ExpenseVendors = () => {
                     <input value={formData.pan} onChange={(e) => setFormData({...formData, pan: e.target.value})} className="w-full px-5 py-3 bg-gray-50 border border-gray-100 rounded-xl font-bold text-gray-800 uppercase" />
                  </div>
 
-                 <div className="md:col-span-2 p-6 bg-blue-50/50 rounded-3xl space-y-4 border border-blue-100">
-                    <div className="flex items-center space-x-2 text-blue-700">
-                       <Landmark size={18} />
-                       <h3 className="text-[10px] font-black uppercase tracking-widest">Bank Settlement Details</h3>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                       <input placeholder="Bank Name" value={formData.bankName} onChange={(e) => setFormData({...formData, bankName: e.target.value})} className="w-full px-5 py-3 bg-white border border-blue-100 rounded-xl text-xs font-bold" />
-                       <input placeholder="Account Number" value={formData.accountNumber} onChange={(e) => setFormData({...formData, accountNumber: e.target.value})} className="w-full px-5 py-3 bg-white border border-blue-100 rounded-xl text-xs font-bold" />
-                       <input placeholder="IFSC Code" value={formData.ifsc} onChange={(e) => setFormData({...formData, ifsc: e.target.value})} className="w-full px-5 py-3 bg-white border border-blue-100 rounded-xl text-xs font-bold uppercase" />
-                    </div>
-                 </div>
+                 {isSuperAdmin && (
+                   <div className="md:col-span-2 p-6 bg-blue-50/50 rounded-3xl space-y-4 border border-blue-100">
+                      <div className="flex items-center space-x-2 text-blue-700">
+                         <Landmark size={18} />
+                         <h3 className="text-[10px] font-black uppercase tracking-widest">Bank Settlement Details</h3>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                         <input placeholder="Bank Name" value={formData.bankName} onChange={(e) => setFormData({...formData, bankName: e.target.value})} className="w-full px-5 py-3 bg-white border border-blue-100 rounded-xl text-xs font-bold" />
+                         <input placeholder="Account Number" value={formData.accountNumber} onChange={(e) => setFormData({...formData, accountNumber: e.target.value})} className="w-full px-5 py-3 bg-white border border-blue-100 rounded-xl text-xs font-bold" />
+                         <input placeholder="IFSC Code" value={formData.ifsc} onChange={(e) => setFormData({...formData, ifsc: e.target.value})} className="w-full px-5 py-3 bg-white border border-blue-100 rounded-xl text-xs font-bold uppercase" />
+                      </div>
+                   </div>
+                 )}
 
                  <button
                    disabled={saving}
