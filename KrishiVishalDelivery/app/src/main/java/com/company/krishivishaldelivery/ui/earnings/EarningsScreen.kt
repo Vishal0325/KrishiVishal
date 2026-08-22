@@ -51,12 +51,15 @@ fun EarningsScreen(viewModel: DeliveryViewModel = hiltViewModel()) {
 
     // Logic for Cash to Deposit
     val cashToDeposit = orders
-        .filter { it.isCOD && it.status == "DELIVERED" } 
+        .filter { it.isCOD && it.status == "DELIVERED" && !it.isCashDeposited } 
         .sumOf { it.codAmount }
     
-    val totalEarnings = filteredOrders
+    val totalEarningsPotential = filteredOrders
         .filter { it.status == "DELIVERED" }
         .sumOf { config.commissionPerOrder }
+
+    val settledAmount = payoutLogs.sumOf { (it["amount"] as? Number)?.toDouble() ?: 0.0 }
+    val pendingSettlement = (totalEarningsPotential - settledAmount).coerceAtLeast(0.0)
 
     Scaffold(
         topBar = {
@@ -77,7 +80,7 @@ fun EarningsScreen(viewModel: DeliveryViewModel = hiltViewModel()) {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                EarningSummaryCard(totalEarnings, selectedFilter)
+                EarningSummaryCard(totalEarningsPotential, pendingSettlement, selectedFilter)
             }
 
             item {
@@ -180,16 +183,33 @@ fun PayoutLogItem(log: Map<String, Any>) {
 }
 
 @Composable
-fun EarningSummaryCard(amount: Double, filter: String) {
+fun EarningSummaryCard(total: Double, pending: Double, filter: String) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF2E7D32)),
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Total Earnings", color = Color.White.copy(alpha = 0.8f))
-            Text("₹$amount", color = Color.White, fontSize = 36.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(8.dp))
+            Text("Total Potential Earnings", color = Color.White.copy(alpha = 0.8f))
+            Text("₹$total", color = Color.White, fontSize = 36.sp, fontWeight = FontWeight.Bold)
+            
+            if (pending > 0) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    color = Color.White.copy(alpha = 0.1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        "Pending Settle: ₹$pending", 
+                        color = Color.Yellow, 
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(12.dp))
             Surface(
                 color = Color.White.copy(alpha = 0.2f),
                 shape = RoundedCornerShape(20.dp)
