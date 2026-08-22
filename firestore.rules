@@ -157,12 +157,16 @@ service cloud.firestore {
             .diff(resource.data)
             .affectedKeys()
             .hasOnly([
+              'status',
               'deliveryStatus',
               'deliveryLocation',
               'deliveryProof',
               'deliveryProofUrl',
               'deliveredAt',
-              'riderNote'
+              'riderNote',
+              'updatedAt',
+              'otpRetryCount',
+              'lastOtpAttempt'
             ]) &&
           !request.resource.data.keys().hasAny([
             'totalAmount',

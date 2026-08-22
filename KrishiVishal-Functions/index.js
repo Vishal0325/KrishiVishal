@@ -329,7 +329,7 @@ exports.createOrder = functions.runWith({
     }
 
     // Basic structure validation for address and contact
-    if (!address || typeof address !== 'object') {
+    if (!address || (typeof address !== 'object' && typeof address !== 'string')) {
         throw new functions.https.HttpsError('invalid-argument', 'Valid delivery address required.');
     }
 

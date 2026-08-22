@@ -178,9 +178,9 @@ fun ProofOfDeliveryScreen(
             Text("Customer Delivery PIN (OTP)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
             OutlinedTextField(
                 value = otpValue,
-                onValueChange = { if (it.length <= 4) otpValue = it },
+                onValueChange = { if (it.length <= 6) otpValue = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Enter 4-digit PIN") },
+                placeholder = { Text("Enter 6-digit PIN") },
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
                 ),
@@ -192,8 +192,8 @@ fun ProofOfDeliveryScreen(
 
             Button(
                 onClick = {
-                    if (otpValue.length < 4) {
-                        scope.launch { snackbarHostState.showSnackbar("Please enter valid 4-digit PIN") }
+                    if (otpValue.length < 6) {
+                        scope.launch { snackbarHostState.showSnackbar("Please enter valid 6-digit PIN") }
                         return@Button
                     }
                     scope.launch {
@@ -222,7 +222,7 @@ fun ProofOfDeliveryScreen(
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                enabled = !isUploading && capturedPhoto != null && signaturePoints.isNotEmpty() && otpValue.length == 4,
+                enabled = !isUploading && capturedPhoto != null && signaturePoints.isNotEmpty() && otpValue.length == 6,
                 shape = RoundedCornerShape(8.dp)
             ) {
                 if (isUploading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))

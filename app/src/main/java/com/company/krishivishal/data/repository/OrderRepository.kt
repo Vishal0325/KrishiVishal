@@ -29,7 +29,8 @@ import kotlinx.coroutines.coroutineScope
 
 interface OrderRepository {
     fun getOrders(userId: String): Flow<Resource<List<Order>>>
-    fun placeOrder(order: Order): Flow<Resource<Unit>>
+    // V4: placeOrder (Direct Write) is deprecated and blocked by security rules. 
+    // Use createOrderViaFunction instead for secure, server-side validated orders.
     fun createOrderViaFunction(
         cartItems: List<com.company.krishivishal.core.model.CartItem>,
         address: String,
@@ -74,41 +75,6 @@ class OrderRepositoryImpl @Inject constructor(
         },
         dispatcher = ioDispatcher
     )
-
-    override fun placeOrder(order: Order): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
-        firestore.runTransaction { transaction ->
-            val orderRef = firestore.collection("orders").document(order.id)
-            transaction.set(orderRef, order)
-            
-            // Deduct stock (Product and Variant specific)
-            order.items.forEach { item ->
-                val productRef = firestore.collection("products").document(item.productId)
-                val productSnap = transaction.get(productRef)
-                val product = productSnap.toProduct() ?: return@forEach
-                
-                // 1. Update main product document's overall stock
-                transaction.update(productRef, "stockQuantity", FieldValue.increment(-item.quantity.toLong()))
-                
-                // 2. If this is a variant, update its specific stock in sub-collection AND embedded list
-                val variantId = item.variantId
-                if (!variantId.isNullOrBlank()) {
-                    // Update sub-collection (standalone)
-                    val variantRef = productRef.collection("variants").document(variantId)
-                    transaction.update(variantRef, "stock", FieldValue.increment(-item.quantity.toLong()))
-                    
-                    // Update embedded list in product document for search consistency
-                    val updatedVariants = product.variants.map { v ->
-                        if (v.id == variantId) v.copy(stock = v.stock - item.quantity) else v
-                    }
-                    transaction.update(productRef, "variants", updatedVariants)
-                }
-            }
-        }.await()
-
-        orderDao.insertOrder(order)
-        cartDao.clearCart(order.userId)
-        Unit
-    }
 
     override fun createOrderViaFunction(
         cartItems: List<com.company.krishivishal.core.model.CartItem>,
