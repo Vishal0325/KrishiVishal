@@ -12,14 +12,13 @@ function requireAuth(context) {
 }
 
 /**
- * Checks if the user is an Admin.
+ * Checks if the user is an Admin (Managerial Role).
  * Custom claims are authoritative.
  */
 function requireAdmin(context) {
     requireAuth(context);
     const role = context.auth.token.role;
-    // Allow if role is one of the manager roles OR if legacy 'admin' claim is present
-    const isAdmin = ['SuperAdmin', 'CatalogManager', 'OrderManager', 'Viewer'].includes(role) || context.auth.token.admin === true;
+    const isAdmin = ['SuperAdmin', 'CatalogManager', 'OrderManager', 'Viewer'].includes(role);
     if (!isAdmin) {
         throw new functions.https.HttpsError('permission-denied', 'Admin privileges required.');
     }
@@ -48,9 +47,9 @@ function requireRole(context, role) {
 /**
  * Checks for any of the given roles.
  */
-function requireAnyRole(context, roles) {
+function requireAnyRole(context, rolesList) {
     requireAuth(context);
-    if (!roles.includes(context.auth.token.role)) {
+    if (!rolesList.includes(context.auth.token.role)) {
         throw new functions.https.HttpsError('permission-denied', 'Required role not found.');
     }
 }
@@ -60,29 +59,34 @@ function requireAnyRole(context, roles) {
  */
 function requireRider(context) {
     requireAuth(context);
-    if (context.auth.token.role !== 'Rider' && context.auth.token.role !== 'RIDER') {
+    // Canonical PascalCase role is "Rider"
+    if (context.auth.token.role !== 'Rider') {
         throw new functions.https.HttpsError('permission-denied', 'Rider privileges required.');
     }
 }
 
 /**
- * Verifies that the authenticated user owns the order OR is an admin.
+ * Verifies that the authenticated user owns the order OR is a management user.
  */
 function requireOrderOwner(order, context) {
     const uid = requireAuth(context);
-    const isAdmin = context.auth.token.admin === true || context.auth.token.role === 'ADMIN';
-    if (order.userId !== uid && !isAdmin) {
+    const role = context.auth.token.role;
+    const isManager = ['SuperAdmin', 'OrderManager'].includes(role);
+
+    if (order.userId !== uid && !isManager) {
         throw new functions.https.HttpsError('permission-denied', 'You do not have permission to access this order.');
     }
 }
 
 /**
- * Verifies that the authenticated user is the assigned rider for the order OR an admin.
+ * Verifies that the authenticated user is the assigned rider for the order OR a management user.
  */
 function requireAssignedRider(order, context) {
     const uid = requireAuth(context);
-    const isAdmin = context.auth.token.admin === true || context.auth.token.role === 'ADMIN';
-    if (order.riderId !== uid && !isAdmin) {
+    const role = context.auth.token.role;
+    const isManager = ['SuperAdmin', 'OrderManager'].includes(role);
+
+    if (order.riderId !== uid && !isManager) {
         throw new functions.https.HttpsError('permission-denied', 'You are not the assigned rider for this order.');
     }
 }
@@ -102,8 +106,8 @@ const VALID_TRANSITIONS = {
 };
 
 function validateOrderTransition(oldStatus, newStatus, context) {
-    // Admins can bypass state machine for corrections (explicit override)
-    if (context && context.auth && context.auth.token.admin === true) {
+    // SuperAdmins can bypass state machine for corrections (explicit override)
+    if (context && context.auth && context.auth.token.role === 'SuperAdmin') {
         return true;
     }
 

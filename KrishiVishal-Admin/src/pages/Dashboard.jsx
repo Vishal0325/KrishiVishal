@@ -76,8 +76,8 @@ const Dashboard = () => {
   const realFarmers = customers.filter(u =>
     u.isAdmin !== true &&
     String(u.isAdmin).toLowerCase() !== "true" &&
-    u.role !== 'RIDER' &&
-    !['SuperAdmin', 'CatalogManager', 'OrderManager'].includes(u.role)
+    u.role !== 'Rider' &&
+    !['SuperAdmin', 'CatalogManager', 'OrderManager', 'Viewer'].includes(u.role)
   );
 
   const metrics = [

@@ -217,8 +217,8 @@ exports.onUserRoleUpdate = functions.firestore
             }
         }
 
-        // FALLBACK: If user is RIDER (Ensure riders collection is always in sync)
-        if (data.role === 'Rider' || data.role === 'RIDER') {
+        // FALLBACK: If user is Rider (Ensure riders collection is always in sync)
+        if (data.role === 'Rider') {
             let uniqueId = data.riderSerialId;
 
             // If ID is missing, generate it
@@ -258,10 +258,12 @@ exports.onUserRoleUpdate = functions.firestore
 
         const claims = {
             role: role,
-            admin: ['SuperAdmin', 'CatalogManager', 'OrderManager', 'Viewer'].includes(role),
             isRider: role === 'Rider',
             isActive: data.isActive !== false
         };
+
+        // Remove legacy 'admin' claim for a clean RBAC architecture.
+        // Authorization is now 100% role-based.
 
         await admin.auth().setCustomUserClaims(context.params.userId, claims);
 
@@ -707,6 +709,68 @@ exports.initiateRefund = functions.runWith({ secrets: ["RAZORPAY_KEY_ID", "RAZOR
 });
 
 /**
+ * RBAC: Assign role to a user (SuperAdmin Only)
+ * Sets Custom Claims and updates Firestore profile.
+ */
+exports.assignUserRole = functions.https.onCall(async (data, context) => {
+    requireSuperAdmin(context);
+    const { targetUid, role } = data;
+
+    const validRoles = ['SuperAdmin', 'CatalogManager', 'OrderManager', 'Rider', 'Customer', 'Viewer'];
+    if (!validRoles.includes(role)) {
+        throw new functions.https.HttpsError('invalid-argument', 'Invalid role specified.');
+    }
+
+    if (!targetUid) {
+        throw new functions.https.HttpsError('invalid-argument', 'Target user UID required.');
+    }
+
+    try {
+        const claims = {
+            role: role,
+            isRider: role === 'Rider',
+            isActive: true // Default to active on role assignment
+        };
+
+        // 1. Set Auth Custom Claims (The authority)
+        await admin.auth().setCustomUserClaims(targetUid, claims);
+
+        // 2. Update Firestore Profile (For UI display/filtering)
+        await db.collection("users").doc(targetUid).set({
+            role: role,
+            isAdmin: ['SuperAdmin', 'CatalogManager', 'OrderManager', 'Viewer'].includes(role),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        // 3. Special Case: Rider sync
+        if (role === 'Rider') {
+            const userSnap = await db.collection("users").doc(targetUid).get();
+            const userData = userSnap.data() || {};
+
+            await db.collection("riders").doc(targetUid).set({
+                name: userData.name || "Rider",
+                phone: userData.phone || "",
+                status: 'ACTIVE',
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+        }
+
+        await logAudit({
+            action: "ROLE_ASSIGNED",
+            actorId: context.auth.uid,
+            targetId: targetUid,
+            targetType: "USER",
+            metadata: { role }
+        });
+
+        return { success: true };
+    } catch (error) {
+        console.error("assignUserRole Error:", error);
+        throw new functions.https.HttpsError('internal', error.message);
+    }
+});
+
+/**
  * AI: Approve Action Request (SuperAdmin Only)
  */
 exports.approveAiAction = functions.https.onCall(async (data, context) => {
@@ -738,7 +802,7 @@ exports.approveAiAction = functions.https.onCall(async (data, context) => {
  * AI: Reject Action Request (SuperAdmin Only)
  */
 exports.rejectAiAction = functions.https.onCall(async (data, context) => {
-    if (!context.auth?.token.admin) throw new functions.https.HttpsError('permission-denied', 'SuperAdmin only.');
+    requireSuperAdmin(context);
     const { requestId, reason } = data;
 
     if (!reason) throw new functions.https.HttpsError('invalid-argument', 'Rejection reason required.');
@@ -1867,7 +1931,10 @@ exports.cancelOrder = functions.https.onCall(async (data, context) => {
             if (!orderSnap.exists) throw new Error("Order not found.");
             const order = orderSnap.data();
 
-            if (order.userId !== context.auth.uid && !context.auth.token.admin) {
+            const role = context.auth.token.role;
+            const isManager = ['SuperAdmin', 'OrderManager'].includes(role);
+
+            if (order.userId !== context.auth.uid && !isManager) {
                 throw new Error("Permission denied.");
             }
 

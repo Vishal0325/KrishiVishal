@@ -8,19 +8,14 @@ import javax.inject.Singleton
 
 @Singleton
 class AdminAuthManager @Inject constructor(
-    private val firestore: FirebaseFirestore,
     private val auth: FirebaseAuth
 ) {
     suspend fun isCurrentUserAdmin(): Boolean {
-        val uid = auth.currentUser?.uid ?: return false
+        val user = auth.currentUser ?: return false
         return try {
-            val doc = firestore
-                .collection("users")
-                .document(uid)
-                .get()
-                .await()
-            val role = doc.getString("role")
-            role == "ADMIN" || doc.getBoolean("isAdmin") == true
+            val tokenResult = user.getIdTokenResult(false).await()
+            val role = tokenResult.claims["role"] as? String
+            role in listOf("SuperAdmin", "CatalogManager", "OrderManager", "Viewer")
         } catch (e: Exception) {
             false
         }

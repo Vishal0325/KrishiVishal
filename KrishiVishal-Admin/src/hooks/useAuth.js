@@ -23,7 +23,6 @@ export function useAuth() {
 
           // Role claim is authoritative
           const userRole = claims.role || null;
-          const isSystemAdmin = !!claims.admin; // Maps to legacy 'admin' claim
 
           // Check Firestore ONLY for isActive status (Operational, not Authorization)
           const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
@@ -36,7 +35,8 @@ export function useAuth() {
             setRole(null);
           } else {
             setRole(userRole);
-            setIsAdmin(isSystemAdmin || ['SuperAdmin', 'CatalogManager', 'OrderManager', 'Viewer'].includes(userRole));
+            // Derive isAdmin solely from the role claim. Supported management roles:
+            setIsAdmin(['SuperAdmin', 'CatalogManager', 'OrderManager', 'Viewer'].includes(userRole));
           }
         } catch (error) {
           console.error("Auth error:", error);

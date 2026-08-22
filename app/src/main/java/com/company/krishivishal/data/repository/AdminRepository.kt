@@ -5,6 +5,7 @@ import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.safeCall
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
@@ -25,6 +26,7 @@ interface AdminRepository {
 @Singleton
 class AdminRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
+    private val functions: FirebaseFunctions,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : AdminRepository {
 
@@ -38,7 +40,12 @@ class AdminRepositoryImpl @Inject constructor(
     }
 
     override fun updateUserRole(userId: String, role: String): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
-        firestore.collection("users").document(userId).update("role", role).await()
+        val data = hashMapOf(
+            "targetUid" to userId,
+            "role" to role
+        )
+        functions.getHttpsCallable("assignUserRole").call(data).await()
+        Unit
     }
 
     override fun getCoupons(): Flow<Resource<List<Coupon>>> = safeCall(ioDispatcher) {

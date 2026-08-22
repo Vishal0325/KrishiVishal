@@ -6,7 +6,7 @@ import { db } from "../firebase/config";
  */
 export async function getAllRiders() {
   try {
-    const q = query(collection(db, "users"), where("role", "==", "RIDER"));
+    const q = query(collection(db, "users"), where("role", "==", "Rider"));
     const snapshot = await getDocs(q);
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   } catch (error) {
@@ -60,7 +60,7 @@ export async function makeUserRider(uid) {
   try {
     const userRef = doc(db, "users", uid);
     await updateDoc(userRef, {
-      role: "RIDER",
+      role: "Rider",
       updatedAt: Timestamp.now(),
     });
     return { success: true };
@@ -71,13 +71,13 @@ export async function makeUserRider(uid) {
 }
 
 /**
- * Revokes RIDER role from a user, setting them back to CUSTOMER.
+ * Revokes Rider role from a user, setting them back to Customer.
  */
 export async function revokeRiderAccess(uid) {
   try {
     const userRef = doc(db, "users", uid);
     await updateDoc(userRef, {
-      role: "CUSTOMER",
+      role: "Customer",
       updatedAt: Timestamp.now(),
     });
     return { success: true };
