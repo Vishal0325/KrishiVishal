@@ -115,21 +115,43 @@ const Dashboard = () => {
     },
   ];
 
-  const salesData = [
-    { date: '01 Jun', revenue: 4500, orders: 12 },
-    { date: '02 Jun', revenue: 5200, orders: 15 },
-    { date: '03 Jun', revenue: 3800, orders: 10 },
-    { date: '04 Jun', revenue: 6100, orders: 18 },
-    { date: '05 Jun', revenue: 5900, orders: 16 },
-    { date: '06 Jun', revenue: 7200, orders: 22 },
-  ];
+  const salesData = useMemo(() => {
+    const dailyMap = {};
+    const daysToShow = chartFilter === '7D' ? 7 : chartFilter === '30D' ? 30 : 90;
 
-  const categoryData = [
-    { name: 'Seeds', value: 400 },
-    { name: 'Fertilizers', value: 300 },
-    { name: 'Pesticides', value: 300 },
-    { name: 'Tools', value: 200 },
-  ];
+    // Initialize last X days
+    for (let i = 0; i < daysToShow; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      dailyMap[key] = { date: key, revenue: 0, orders: 0 };
+    }
+
+    orders.forEach(o => {
+      const date = o.createdAt?.toDate?.() || new Date();
+      const key = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      if (dailyMap[key]) {
+        dailyMap[key].revenue += (o.totalAmount || 0);
+        dailyMap[key].orders += 1;
+      }
+    });
+
+    return Object.values(dailyMap).reverse();
+  }, [orders, chartFilter]);
+
+  const categoryData = useMemo(() => {
+    const cats = {};
+    orders.forEach(o => {
+      (o.items || []).forEach(item => {
+        const name = item.category || 'Other';
+        cats[name] = (cats[name] || 0) + (item.quantity || 1);
+      });
+    });
+    return Object.entries(cats)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 4);
+  }, [orders]);
 
   const orderColumns = [
     { header: 'Order ID', render: (o) => <span className="font-mono text-xs font-bold text-gray-400">KV-{o.id.substring(0, 6)}</span> },

@@ -10,7 +10,7 @@ const { getRequiredSecret } = require("./src/security_utils");
 exports.razorpayWebhook = functions.https.onRequest(async (req, res) => {
     let secret;
     try {
-        secret = getRequiredSecret('RAZORPAY_WEBHOOK_SECRET');
+        secret = getRequiredSecret('RAZORPAY_WEBHOOK_SECRET', 'Razorpay Webhook secret');
     } catch (e) {
         console.error("FATAL: RAZORPAY_WEBHOOK_SECRET is not configured. Webhook failing closed.");
         return res.status(500).send("Internal Configuration Error");

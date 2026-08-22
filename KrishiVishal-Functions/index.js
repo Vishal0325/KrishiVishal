@@ -112,7 +112,7 @@ async function getGSPProvider() {
     }
 
     if (gspConfig.activeProvider === 'CLEARTAX') {
-        const authToken = getRequiredSecret('CLEARTAX_AUTH_TOKEN');
+        const authToken = getRequiredSecret('CLEARTAX_AUTH_TOKEN', 'ClearTax API token');
         return new ClearTaxProvider({ authToken, mode: gspConfig.mode });
     }
 
@@ -496,8 +496,8 @@ exports.verifyPayment = functions.runWith({ secrets: ["RAZORPAY_KEY_ID", "RAZORP
         throw new functions.https.HttpsError('invalid-argument', 'Missing mandatory payment verification fields.');
     }
 
-    const razorpaySecret = getRequiredSecret('RAZORPAY_KEY_SECRET');
-    const razorpayKeyId = getRequiredSecret('RAZORPAY_KEY_ID');
+    const razorpaySecret = getRequiredSecret('RAZORPAY_KEY_SECRET', 'Razorpay signing secret');
+    const razorpayKeyId = getRequiredSecret('RAZORPAY_KEY_ID', 'Razorpay account key');
 
     // 1. Fetch Order and Verify Ownership/Existence
     const orderRef = db.collection("orders").doc(orderId);
@@ -610,8 +610,8 @@ exports.initiateRefund = functions.runWith({ secrets: ["RAZORPAY_KEY_ID", "RAZOR
         throw new functions.https.HttpsError('invalid-argument', 'Refund amount must be a positive number.');
     }
 
-    const keyId = getRequiredSecret('RAZORPAY_KEY_ID');
-    const keySecret = getRequiredSecret('RAZORPAY_KEY_SECRET');
+    const keyId = getRequiredSecret('RAZORPAY_KEY_ID', 'Razorpay account key');
+    const keySecret = getRequiredSecret('RAZORPAY_KEY_SECRET', 'Razorpay signing secret');
 
     try {
         const result = await db.runTransaction(async (transaction) => {
