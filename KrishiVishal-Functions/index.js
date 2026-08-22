@@ -99,7 +99,7 @@ class MockGSPProvider extends GSPProvider {
     async getStatus(type, id) { return { status: 'SUCCESS', data: {} }; }
 }
 
-const ClearTaxProvider = require("./lib/providers/ClearTaxProvider");
+const ClearTaxProvider = require("./src/providers/ClearTaxProvider");
 
 async function getGSPProvider() {
     const config = await db.collection("settings").doc("config").get();

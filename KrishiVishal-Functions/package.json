@@ -1,12 +1,10 @@
 {
   "name": "krishivishal-functions",
   "scripts": {
-    "lint": "eslint",
-    "build": "tsc",
-    "build:watch": "tsc --watch",
-    "serve": "npm run build && firebase emulators:start --only functions",
-    "shell": "npm run build && firebase functions:shell",
-    "start": "npm run build && firebase emulators:start",
+    "lint": "eslint .",
+    "serve": "firebase emulators:start --only functions",
+    "shell": "firebase functions:shell",
+    "start": "firebase emulators:start",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log"
   },
@@ -21,8 +19,7 @@
     "razorpay": "^2.9.8"
   },
   "devDependencies": {
-    "firebase-functions-test": "^3.1.0",
-    "typescript": "^7.0.2"
+    "firebase-functions-test": "^3.1.0"
   },
   "private": true
 }
