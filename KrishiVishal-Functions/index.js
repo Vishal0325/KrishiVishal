@@ -1622,6 +1622,9 @@ exports.processRecurringExpenses = functions.pubsub.schedule('every 24 hours').o
         console.error("Recurring Expenses Error:", e);
     }
 });
+
+/**
+ * GSP: Generate e-Way Bill (Admin Only)
  * Enforces Admin Auth and Production Safety.
  */
 exports.generateEWayBill = functions.https.onCall(async (data, context) => {
