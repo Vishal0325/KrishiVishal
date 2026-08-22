@@ -32,7 +32,13 @@ data class OrderItem(
     
     // NEW: Variant identification fields (nullable for backward compatibility)
     @SerializedName("variantId") val variantId: String? = null,
-    @SerializedName("variantLabel") val variantLabel: String? = null
+    @SerializedName("variantLabel") val variantLabel: String? = null,
+
+    // V4: Tax Compliance Fields
+    @SerializedName("hsnCode") val hsnCode: String = "",
+    @SerializedName("gstRate") val gstRate: Double = 0.0,
+    @SerializedName("gstAmount") val gstAmount: Double = 0.0,
+    @SerializedName("taxableAmount") val taxableAmount: Double = 0.0
 ) : Parcelable
 
 @Parcelize
@@ -130,7 +136,53 @@ data class Order(
 
     @ColumnInfo(name = "isCashDeposited")
     @SerializedName("isCashDeposited")
-    val isCashDeposited: Boolean = false
+    val isCashDeposited: Boolean = false,
+
+    // V4: GST & Tax Summary
+    @ColumnInfo(name = "totalTax")
+    @SerializedName("totalTax")
+    val totalTax: Double = 0.0,
+
+    @ColumnInfo(name = "taxableTotal")
+    @SerializedName("taxableTotal")
+    val taxableTotal: Double = 0.0,
+
+    @ColumnInfo(name = "cgst")
+    @SerializedName("cgst")
+    val cgst: Double = 0.0,
+
+    @ColumnInfo(name = "sgst")
+    @SerializedName("sgst")
+    val sgst: Double = 0.0,
+
+    @ColumnInfo(name = "igst")
+    @SerializedName("igst")
+    val igst: Double = 0.0,
+
+    // V4 Hardened: Price Breakdown Components
+    @ColumnInfo(name = "subtotal")
+    @SerializedName("subtotal")
+    val subtotal: Double = 0.0,
+
+    @ColumnInfo(name = "totalDiscount")
+    @SerializedName("totalDiscount")
+    val totalDiscount: Double = 0.0,
+
+    @ColumnInfo(name = "deliveryCharges")
+    @SerializedName("deliveryCharges")
+    val deliveryCharges: Double = 0.0,
+
+    @ColumnInfo(name = "platformFee")
+    @SerializedName("platformFee")
+    val platformFee: Double = 0.0,
+
+    @ColumnInfo(name = "handlingCharge")
+    @SerializedName("handlingCharge")
+    val handlingCharge: Double = 0.0,
+
+    @ColumnInfo(name = "packagingFee")
+    @SerializedName("packagingFee")
+    val packagingFee: Double = 0.0
 ) : Parcelable {
     @get:Exclude
     val orderStatus: OrderStatus 

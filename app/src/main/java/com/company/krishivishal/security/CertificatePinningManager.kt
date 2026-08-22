@@ -1,14 +1,9 @@
 package com.company.krishivishal.security
 
 import android.content.Context
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.ktx.Firebase
-import com.google.firebase.storage.ktx.storage
 import okhttp3.CertificatePinner
 import okhttp3.OkHttpClient
 import timber.log.Timber
-import java.security.cert.CertificateFactory
-import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -17,67 +12,48 @@ import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
 /**
- * SSL Certificate pinning for secure communication
- * Prevents MITM attacks by pinning certificates
+ * SSL Certificate pinning for secure communication.
+ * Prevents MITM attacks by pinning certificates.
+ *
+ * TODO (Pre-release): Add real certificate pins.
+ * Run the following against each Firebase endpoint to obtain pins:
+ *   openssl s_client -connect firestore.googleapis.com:443 < /dev/null 2>/dev/null \
+ *     | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der \
+ *     | openssl dgst -sha256 -binary | base64
+ * Then add them via CertificatePinner.Builder().add("domain", "sha256/...").
+ *
+ * Current state: placeholder pins have been removed to prevent runtime SSL failures.
+ * OkHttpClient uses the Android system trust store (safe, but unpinned).
  */
 @Singleton
 class CertificatePinningManager @Inject constructor(context: Context) {
 
-    companion object {
-        // Firebase domains - get current certificate pins from Firebase docs
-        private const val FIRESTORE_DOMAIN = "firestore.googleapis.com"
-        private const val STORAGE_DOMAIN = "storage.googleapis.com"
-        private const val FIREBASE_AUTH_DOMAIN = "identitytoolkit.googleapis.com"
-        
-        // Certificate pins (SHA-256 hashes)
-        // Note: Update these with actual certificate pins from Firebase
-        private const val FIRESTORE_PIN = "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-        private const val STORAGE_PIN = "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-        private const val AUTH_PIN = "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-    }
-
     private val context = context
 
     /**
-     * Create OkHttpClient with certificate pinning
+     * Returns an OkHttpClient using the system trust store.
+     * Replace with certificate-pinned client once real pins are obtained.
      */
     fun createPinnedOkHttpClient(): OkHttpClient {
-        return try {
-            val certificatePinner = CertificatePinner.Builder()
-                // Firebase domains
-                .add(FIRESTORE_DOMAIN, FIRESTORE_PIN)
-                .add(STORAGE_DOMAIN, STORAGE_PIN)
-                .add(FIREBASE_AUTH_DOMAIN, AUTH_PIN)
-                // Backup pins (usually leaf + root)
-                .build()
+        val pinner = CertificatePinner.Builder()
+            // TODO (PRODUCTION): Replace with real SHA-256 fingerprints before release
+            // .add("*.googleapis.com", "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+            // .add("*.firebaseio.com", "sha256/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=")
+            // .add("api.krishivishal.com", "sha256/CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=")
+            .build()
 
-            OkHttpClient.Builder()
-                .certificatePinner(certificatePinner)
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .writeTimeout(30, TimeUnit.SECONDS)
-                .retryOnConnectionFailure(true)
-                .build()
-                .also {
-                    Timber.d("OkHttpClient configured with certificate pinning")
-                }
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to create pinned OkHttpClient, using default")
-            createDefaultOkHttpClient()
-        }
-    }
-
-    /**
-     * Create default OkHttpClient without pinning (fallback)
-     */
-    private fun createDefaultOkHttpClient(): OkHttpClient {
         return OkHttpClient.Builder()
+            .certificatePinner(pinner)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build()
+            .also {
+                Timber.d("OkHttpClient configured with certificate pinner structure (actual pins pending)")
+            }
     }
+
 
     /**
      * Get system trust managers

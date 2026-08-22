@@ -35,8 +35,8 @@ fun CartWithProduct.displayVariantLabel(): String {
     }
 
     // 2. Fallback to Product weight/unit (legacy system)
-    val w = product.weight.removeSuffix(".0").trim()
-    val u = product.unit.trim()
+    val w = product?.weight?.removeSuffix(".0")?.trim() ?: ""
+    val u = product?.unit?.trim() ?: ""
     
     return when {
         w.isNotBlank() && u.isNotBlank() -> {

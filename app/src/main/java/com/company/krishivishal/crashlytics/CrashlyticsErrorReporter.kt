@@ -61,9 +61,10 @@ class CrashlyticsErrorReporter @Inject constructor() {
             // Record the exception
             crashlytics.recordException(exception)
             
-            Timber.e(exception, "Error reported to Crashlytics: ${category.displayName}")
+            // Use standard Log.e to avoid recursion with Timber/CrashlyticsTree
+            android.util.Log.e("CrashlyticsReporter", "Error reported: ${category.displayName}", exception)
         } catch (e: Exception) {
-            Timber.e(e, "Failed to report error to Crashlytics")
+            android.util.Log.e("CrashlyticsReporter", "Failed to report error", e)
         }
     }
 

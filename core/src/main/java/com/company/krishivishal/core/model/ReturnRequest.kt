@@ -16,7 +16,10 @@ data class ReturnRequest(
     
     @SerializedName("orderId")
     val orderId: String = "",
-    
+
+    @SerializedName("orderItemId")
+    val orderItemId: String = "",
+
     @SerializedName("userId")
     val userId: String = "",
     
@@ -25,19 +28,46 @@ data class ReturnRequest(
     
     @SerializedName("productName")
     val productName: String = "",
-    
+
+    @SerializedName("quantity")
+    val quantity: Int = 1,
+
     @SerializedName("reason")
     val reason: String = "",
     
     @SerializedName("description")
     val description: String = "",
-    
+
+    @SerializedName("customerComment")
+    val customerComment: String = "",
+
     @SerializedName("proofUrls")
     val proofUrls: List<String> = emptyList(),
     
     @SerializedName("status")
-    val status: String = "PENDING", // PENDING, UNDER_REVIEW, APPROVED, REJECTED, PICKUP_SCHEDULED, PICKED_UP, VERIFIED, REFUND_INITIATED, COMPLETED
-    
+    val status: String = "REQUESTED", // REQUESTED, APPROVED, RIDER_ASSIGNED, PICKUP_SCHEDULED, PICKED_UP, HUB_RECEIVED, QC_PENDING, QC_PASSED, QC_FAILED, REFUND_PENDING, COMPLETED, REJECTED, CANCELLED
+
+    @SerializedName("riderId")
+    val riderId: String = "",
+
+    @SerializedName("qcStatus")
+    val qcStatus: String = "PENDING", // PENDING, PASSED, FAILED
+
+    @SerializedName("qcPhotos")
+    val qcPhotos: List<String> = emptyList(),
+
+    @SerializedName("refundStatus")
+    val refundStatus: String = "PENDING", // PENDING, INITIATED, COMPLETED, FAILED
+
+    @SerializedName("refundAmount")
+    val refundAmount: Double = 0.0,
+
+    @SerializedName("gatewayRefundId")
+    val gatewayRefundId: String = "",
+
+    @SerializedName("rejectionReason")
+    val rejectionReason: String = "",
+
     @SerializedName("refundMethod")
     val refundMethod: String = "UPI", // UPI, BANK_ACCOUNT, WALLET
     

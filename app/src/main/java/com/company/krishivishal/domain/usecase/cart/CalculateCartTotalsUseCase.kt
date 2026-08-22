@@ -30,7 +30,7 @@ class CalculateCartTotalsUseCase @Inject constructor() {
         var gstAmount = 0.0
 
         selectedItems.forEach { item ->
-            val product = item.product
+            val product = item.product ?: return@forEach
             val variant = item.variant
             val quantity = item.cartItem.quantity
             
@@ -41,11 +41,9 @@ class CalculateCartTotalsUseCase @Inject constructor() {
             totalSavings += (mrp - sellingPrice).coerceAtLeast(0.0) * quantity
             totalQuantity += quantity
             
-            // Assume 5% GST if not specified, or calculate based on price if needed
-            // For now, let's just calculate a sample GST included in selling price or added
-            // Requirement says GST should be per product. 
-            // In many Indian e-commerce, it's included. But here we'll show it separately as requested.
-            gstAmount += (sellingPrice * quantity * 0.05) // 5% GST example
+            // Indian GST Calculation: based on product's specific rate (fallback to 5%)
+            val rate = if (product.gstRate > 0) product.gstRate else 5.0
+            gstAmount += (sellingPrice * quantity * (rate / 100.0))
         }
 
         val netAmount = subtotal - totalSavings
@@ -60,17 +58,18 @@ class CalculateCartTotalsUseCase @Inject constructor() {
 
         val grandTotal = netAmount + gstAmount + deliveryCharges + platformFee + handlingCharge + packagingFee
 
+        // Return rounded totals to prevent floating-point display issues (e.g., 99.999999)
         return CartTotals(
-            subtotal = subtotal,
-            totalDiscount = totalSavings,
-            gstAmount = gstAmount,
+            subtotal = kotlin.math.round(subtotal),
+            totalDiscount = kotlin.math.round(totalSavings),
+            gstAmount = kotlin.math.round(gstAmount),
             deliveryCharges = deliveryCharges,
             platformFee = platformFee,
             handlingCharge = handlingCharge,
             packagingFee = packagingFee,
-            grandTotal = grandTotal,
+            grandTotal = kotlin.math.round(grandTotal),
             totalQuantity = totalQuantity,
-            totalSavings = totalSavings
+            totalSavings = kotlin.math.round(totalSavings)
         )
     }
 }

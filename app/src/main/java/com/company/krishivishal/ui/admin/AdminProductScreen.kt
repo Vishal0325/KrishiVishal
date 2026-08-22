@@ -79,7 +79,10 @@ fun AdminProductScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.deleteProduct(productToDelete!!.id)
+                        val deletingProduct = productToDelete
+                        if (deletingProduct != null) {
+                            viewModel.deleteProduct(deletingProduct.id)
+                        }
                         productToDelete = null
                         if (selectedProductBase != null) {
                             selectedProductBase = null
@@ -147,8 +150,11 @@ fun AdminProductScreen(
                     )
                 }
                 selectedProductBase != null -> {
-                    LaunchedEffect(selectedProductBase) {
-                        viewModel.loadProductDetails(selectedProductBase!!.id)
+                    val selectedProduct = selectedProductBase
+                    if (selectedProduct != null) {
+                        LaunchedEffect(selectedProduct.id) {
+                            viewModel.loadProductDetails(selectedProduct.id)
+                        }
                     }
 
                     when (val res = uiState.productDetailResource) {
@@ -580,6 +586,7 @@ fun EditProductContent(
                         basePrice = parsedBasePrice,
                         discountedPrice = parsedDiscountedPrice,
                         stockQuantity = stock.toIntOrNull() ?: 0,
+                        stock = stock.toIntOrNull() ?: 0,
                         description = description,
                         variants = variants
                     ))

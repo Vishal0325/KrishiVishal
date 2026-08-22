@@ -36,12 +36,20 @@ class AddressViewModel @Inject constructor(
 
     fun loadAddresses() {
         viewModelScope.launch {
-            authRepository.getCurrentUser().collectLatest { user ->
-                val userId = user?.id ?: Constants.GUEST_USER_ID
-                addressRepository.getAddresses(userId).collectLatest { resource ->
+            authRepository.getCurrentUser()
+                .distinctUntilChangedBy { it?.id }
+                .flatMapLatest { user ->
+                    val userId = user?.id
+                    if (userId.isNullOrEmpty() || userId == Constants.GUEST_USER_ID) {
+                        // Guest users can't access Firestore addresses — show empty list
+                        flowOf(Resource.Success(emptyList()))
+                    } else {
+                        addressRepository.getAddresses(userId)
+                    }
+                }
+                .collect { resource ->
                     _addresses.value = resource
                 }
-            }
         }
     }
 

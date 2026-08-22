@@ -30,8 +30,8 @@ class SyncManager @Inject constructor(
     private val database: AppDatabase,
     private val firestore: FirebaseFirestore,
     private val connectivityObserver: ConnectivityObserver,
-    context: Context,
-    private val dispatcher: CoroutineDispatcher = Dispatchers.IO
+    @dagger.hilt.android.qualifiers.ApplicationContext context: Context,
+    @param:com.company.krishivishal.di.IoDispatcher private val dispatcher: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.IO
 ) {
     private val syncScope = CoroutineScope(dispatcher + SupervisorJob())
     private val syncOperationDao = database.syncOperationDao()
@@ -65,8 +65,12 @@ class SyncManager @Inject constructor(
         try {
             val jsonPayload = when (payload) {
                 is String -> payload
-                is Map<*, *> -> JSONObject(payload).toString()
-                else -> JSONObject(payload as Map<*, *>).toString()
+                is Map<*, *> -> JSONObject(payload as Map<*, *>).toString()
+                else -> try {
+                    com.google.gson.Gson().toJson(payload)
+                } catch (e: Exception) {
+                    payload.toString()
+                }
             }
 
             val operation = SyncOperation(
@@ -228,6 +232,14 @@ class SyncManager @Inject constructor(
                         .await()
                     true
                 }
+                "CREATE_ORDER" -> {
+                    firestore.collection("orders")
+                        .document(operation.entityId)
+                        .set(payload.toMap())
+                        .await()
+                    Timber.d("Offline order synced to Firestore: ${operation.entityId}")
+                    true
+                }
                 else -> {
                     Timber.w("Unknown operation type: ${operation.operationType}")
                     false
@@ -286,13 +298,33 @@ class SyncManager @Inject constructor(
      */
     fun getPendingOperationCount() = syncOperationDao.getPendingOperationCount()
 
-    private fun JSONObject.toMap(): Map<String, Any> {
-        val map = mutableMapOf<String, Any>()
+    private fun JSONObject.toMap(): Map<String, Any?> {
+        val map = mutableMapOf<String, Any?>()
         val keys = keys()
         while (keys.hasNext()) {
             val key = keys.next()
-            map[key] = get(key)
+            map[key] = when (val value = get(key)) {
+                is JSONObject -> value.toMap()
+                is org.json.JSONArray -> value.toList()
+                JSONObject.NULL -> null
+                else -> value
+            }
         }
         return map
+    }
+
+    private fun org.json.JSONArray.toList(): List<Any?> {
+        val list = mutableListOf<Any?>()
+        for (i in 0 until length()) {
+            list.add(
+                when (val value = get(i)) {
+                    is JSONObject -> value.toMap()
+                    is org.json.JSONArray -> value.toList()
+                    JSONObject.NULL -> null
+                    else -> value
+                }
+            )
+        }
+        return list
     }
 }

@@ -20,9 +20,12 @@ import com.company.krishivishal.core.model.*
         Brand::class,
         SyncOperation::class,
         Crop::class,
-        Notification::class
+        Notification::class,
+        ProductCropCrossRef::class,
+        ProductRecommendationCrossRef::class,
+        RecentlyViewedProduct::class
     ],
-    version = 37,
+    version = 48,
     exportSchema = false
 )
 @TypeConverters(AppConverters::class)
@@ -38,4 +41,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun cropDao(): CropDao
     abstract fun wishlistDao(): WishlistDao
     abstract fun notificationDao(): NotificationDao
+    abstract fun returnDao(): ReturnDao
 }

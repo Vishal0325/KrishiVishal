@@ -19,6 +19,9 @@ interface UserDao {
     @Query("SELECT * FROM addresses WHERE userId = :userId")
     fun getAddressesByUserId(userId: String): Flow<List<Address>>
 
+    @Query("DELETE FROM addresses WHERE userId = :userId AND id NOT IN (:activeIds)")
+    suspend fun deleteAddressesNotInList(userId: String, activeIds: List<String>)
+
     @Query("DELETE FROM users WHERE id = :userId")
     suspend fun deleteUserById(userId: String)
 

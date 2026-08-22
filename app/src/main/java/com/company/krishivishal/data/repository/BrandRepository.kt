@@ -6,6 +6,10 @@ import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.networkBoundResource
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -27,18 +31,23 @@ class BrandRepositoryImpl @Inject constructor(
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : BrandRepository {
 
-    override fun getBrands(): Flow<Resource<List<Brand>>> = kotlinx.coroutines.flow.flow {
-        emit(Resource.Success(com.company.krishivishal.core.util.Constants.SAMPLE_BRANDS))
-        try {
-            val snapshot = firestore.collection("brands").whereEqualTo("isActive", true).get().await()
+    override fun getBrands(): Flow<Resource<List<Brand>>> = firestore.collection("brands")
+        .snapshots()
+        .map { snapshot ->
             val fetched = snapshot.documents.mapNotNull { doc ->
-                Brand(id = doc.id, name = doc.getString("name") ?: "", imageUrl = doc.getString("imageUrl") ?: "", isActive = true)
+                val isActive = doc.getBoolean("isActive") ?: true
+                if (isActive) {
+                    Brand(id = doc.id, name = doc.getString("name") ?: "", imageUrl = doc.getString("imageUrl") ?: "", isActive = true)
+                } else null
             }
-            if (fetched.isNotEmpty()) emit(Resource.Success(fetched))
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to fetch brands from Firestore, using fallback data")
+            if (fetched.isNotEmpty()) Resource.Success(fetched)
+            else Resource.Success(com.company.krishivishal.core.util.Constants.SAMPLE_BRANDS)
         }
-    }
+        .catch { e ->
+            Timber.e(e, "Failed to fetch brands from Firestore")
+            emit(Resource.Success(com.company.krishivishal.core.util.Constants.SAMPLE_BRANDS))
+        }
+        .flowOn(ioDispatcher)
 
     private suspend fun seedBrands() {
         com.company.krishivishal.core.util.Constants.SAMPLE_BRANDS.forEach { brand ->

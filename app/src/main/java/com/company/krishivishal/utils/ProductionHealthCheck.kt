@@ -20,9 +20,4 @@ class ProductionHealthCheck @Inject constructor(
             false
         }
     }
-
-    fun isEnvironmentSecure(): Boolean {
-        // Placeholder for root detection or SSL pinning verification
-        return true 
-    }
 }

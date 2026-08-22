@@ -40,12 +40,6 @@ class SearchViewModel @Inject constructor(
         _queryFlow
             .debounce(300L)
             .distinctUntilChanged()
-            .onEach { query ->
-                _searchState.update { it.copy(query = query) }
-                if (query.isBlank()) {
-                    _searchState.update { it.copy(results = emptyList(), isLoading = false, isEmpty = false) }
-                }
-            }
             .filter { it.isNotBlank() }
             .flatMapLatest { query ->
                 searchRepository.searchProductsByKeywords(query)
@@ -75,8 +69,9 @@ class SearchViewModel @Inject constructor(
                         brand = p.brand,
                         rating = p.rating,
                         reviewCount = p.reviewsCount,
-                        inStock = p.stockQuantity > 0,
-                        cropAssociatedIds = p.associatedCropIds
+                        inStock = if (p.variants.isNotEmpty()) p.variants.any { it.stock > 0 } else p.stockQuantity > 0,
+                        cropAssociatedIds = p.associatedCropIds,
+                        cropAssociatedNames = p.associatedCropNames
                     )
                 }
                 
@@ -104,7 +99,11 @@ class SearchViewModel @Inject constructor(
     }
 
     fun updateSearchQuery(query: String) {
+        _searchState.update { it.copy(query = query) }
         _queryFlow.value = query
+        if (query.isBlank()) {
+            _searchState.update { it.copy(results = emptyList(), isLoading = false, isEmpty = false, error = null) }
+        }
     }
 
     private fun loadRecentSearches() {

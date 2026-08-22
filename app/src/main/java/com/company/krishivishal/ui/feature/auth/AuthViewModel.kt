@@ -1,29 +1,38 @@
 package com.company.krishivishal.ui.feature.auth
 
 import android.app.Activity
-import android.content.Context
-import androidx.credentials.CredentialManager
-import androidx.credentials.GetCredentialRequest
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.company.krishivishal.R
-import com.company.krishivishal.domain.usecase.auth.*
 import com.company.krishivishal.core.util.Resource
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
-import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.company.krishivishal.data.repository.CartRepository
+import com.company.krishivishal.data.repository.ReferralRepository
+import com.company.krishivishal.domain.usecase.auth.LoginWithEmailUseCase
+import com.company.krishivishal.domain.usecase.auth.MergeWishlistUseCase
+import com.company.krishivishal.domain.usecase.auth.RegisterUseCase
+import com.company.krishivishal.domain.usecase.auth.SendOtpUseCase
+import com.company.krishivishal.domain.usecase.auth.SignInWithCredentialUseCase
+import com.company.krishivishal.domain.usecase.auth.VerifyOtpUseCase
 import com.google.firebase.FirebaseException
 import com.google.firebase.auth.AuthCredential
-import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.PhoneAuthCredential
 import com.google.firebase.auth.PhoneAuthProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
-
-import com.company.krishivishal.data.repository.ReferralRepository
 
 @HiltViewModel
 class AuthViewModel @Inject constructor(
@@ -33,7 +42,7 @@ class AuthViewModel @Inject constructor(
     private val loginWithEmailUseCase: LoginWithEmailUseCase,
     private val registerUseCase: RegisterUseCase,
     private val mergeWishlistUseCase: MergeWishlistUseCase,
-    private val referralRepository: ReferralRepository
+    private val cartRepository: CartRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState())
@@ -52,14 +61,15 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun onReferralCodeChange(newValue: String) {
-        _uiState.update { it.copy(referralCode = newValue) }
-    }
-
     fun onOtpChange(newValue: String) {
         if (newValue.length <= 6) {
             _uiState.update { it.copy(otp = newValue, error = null) }
         }
+    }
+
+    fun onOtpReceived(otp: String) {
+        _uiState.update { it.copy(otp = otp, error = null) }
+        verifyOtp()
     }
 
     fun sendOtp(phoneNumber: String, activity: Activity) {
@@ -73,9 +83,12 @@ class AuthViewModel @Inject constructor(
 
             override fun onVerificationFailed(e: FirebaseException) {
                 _uiState.update { it.copy(isLoading = false, error = e.localizedMessage) }
+                android.util.Log.e("AuthViewModel", "SMS Verification Failed: ${e.message}")
+                
                 viewModelScope.launch {
-                    val message = when (e.message) {
-                        "This app is not authorized to use Firebase Authentication. Please verify that the correct package name and SHA-1 are configured in the Firebase Console." -> "App not authorized. Check SHA-1 configuration."
+                    val message = when {
+                        e.message?.contains("App Check", true) == true -> "Security check failed. Please try on a real device."
+                        e.message?.contains("quota", true) == true -> "SMS quota exceeded. Please try again tomorrow."
                         else -> e.message ?: "Verification Failed"
                     }
                     _uiEvent.emit(AuthUiEvent.ShowSnackbar(message))
@@ -100,59 +113,34 @@ class AuthViewModel @Inject constructor(
     }
 
     fun verifyOtp() {
+        if (_uiState.value.isLoading) return // Prevent multiple calls
+
         val otp = _uiState.value.otp
+        if (otp.length < 6) {
+            viewModelScope.launch {
+                _uiEvent.emit(AuthUiEvent.ShowSnackbar("Kripya 6-digit ka OTP dalein."))
+            }
+            return
+        }
+
         if (verificationId.isEmpty()) {
+            android.util.Log.e("AuthViewModel", "verificationId is empty during verifyOtp")
             viewModelScope.launch {
                 _uiEvent.emit(AuthUiEvent.ShowSnackbar("OTP session expired. Please resend OTP."))
             }
             return
         }
         
-        _uiState.update { it.copy(isLoading = true) }
-        viewModelScope.launch {
-            verifyOtpUseCase(verificationId, otp).collectLatest { resource ->
-                handleAuthResource(resource)
-            }
-        }
-    }
-
-    fun signInWithGoogle(context: Context) {
-        val credentialManager = CredentialManager.create(context)
-        
-        // IMPORTANT: You must replace this with your actual Web Client ID from Firebase Console
-        // It usually looks like "409780110248-xxxxxxxx.apps.googleusercontent.com"
-        val webClientId = "409780110248-v8h6g2m6p4u3l1p2v5e7v9r6q4k7k6b5.apps.googleusercontent.com" // Placeholder/Example
-
-        val googleIdOption = GetGoogleIdOption.Builder()
-            .setFilterByAuthorizedAccounts(false)
-            .setServerClientId(webClientId)
-            .setAutoSelectEnabled(true)
-            .build()
-
-        val request = GetCredentialRequest.Builder()
-            .addCredentialOption(googleIdOption)
-            .build()
-
-        _uiState.update { it.copy(isLoading = true) }
-
+        _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
             try {
-                val result = credentialManager.getCredential(
-                    context = context,
-                    request = request
-                )
-                
-                val credential = result.credential
-                if (credential is GoogleIdTokenCredential) {
-                    val firebaseCredential = GoogleAuthProvider.getCredential(credential.idToken, null)
-                    signInWithFirebaseCredential(firebaseCredential)
-                } else {
-                    _uiState.update { it.copy(isLoading = false) }
-                    _uiEvent.emit(AuthUiEvent.ShowSnackbar("Unexpected credential type"))
+                verifyOtpUseCase(verificationId, otp).collectLatest { resource ->
+                    handleAuthResource(resource)
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false) }
-                _uiEvent.emit(AuthUiEvent.ShowSnackbar("Google Sign-In failed: ${e.localizedMessage}"))
+                android.util.Log.e("AuthViewModel", "Unexpected error in verifyOtp: ${e.message}")
+                _uiState.update { it.copy(isLoading = false, error = e.localizedMessage) }
+                _uiEvent.emit(AuthUiEvent.ShowSnackbar(e.localizedMessage ?: "Verification Failed"))
             }
         }
     }
@@ -170,23 +158,38 @@ class AuthViewModel @Inject constructor(
         when (resource) {
             is Resource.Success -> {
                 val user = resource.data
+                _uiState.update { it.copy(isLoading = false) }
+                _uiEvent.emit(AuthUiEvent.LoginSuccess)
+                
                 if (user != null) {
-                    // Process referral if code provided and user is new (name empty initially)
-                    val refCode = _uiState.value.referralCode
-                    if (refCode.isNotBlank() && user.name.isEmpty()) {
-                        referralRepository.processReferral(user.id, refCode).collectLatest { }
+                    // Start sync in background independently
+                    viewModelScope.launch {
+                        try {
+                            mergeWishlistUseCase(user.id).collectLatest { }
+                            
+                            val cartResource = cartRepository.getCart("guest_user").first()
+                            if (cartResource is Resource.Success) {
+                                cartResource.data?.forEach { item ->
+                                    launch {
+                                        cartRepository.addToCart(item.copy(
+                                            id = java.util.UUID.randomUUID().toString(), 
+                                            userId = user.id
+                                        )).collect()
+                                    }
+                                }
+                                cartRepository.clearCart("guest_user").collect()
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("AuthViewModel", "Sync failed: ${e.message}")
+                        }
                     }
-
-                    mergeWishlistUseCase(user.id).collect {
-                        _uiState.update { it.copy(isLoading = false) }
-                        _uiEvent.emit(AuthUiEvent.LoginSuccess)
-                    }
-                } else {
-                    _uiState.update { it.copy(isLoading = false) }
-                    _uiEvent.emit(AuthUiEvent.LoginSuccess)
                 }
             }
             is Resource.Error -> {
+                android.util.Log.e(
+                    "AuthViewModel",
+                    "Auth resource failed inside handleAuthResource: ${resource.message}"
+                )
                 _uiState.update { it.copy(isLoading = false, error = resource.message) }
                 _uiEvent.emit(AuthUiEvent.ShowSnackbar(resource.message ?: "Action Failed"))
             }

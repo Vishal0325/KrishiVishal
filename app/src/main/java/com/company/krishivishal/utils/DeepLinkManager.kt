@@ -15,10 +15,6 @@ class DeepLinkManager @Inject constructor() {
     fun createProductShareLink(productId: String): Uri {
         return Uri.parse("$DEEP_LINK_BASE/product?id=$productId")
     }
-
-    fun createReferralLink(referralCode: String): Uri {
-        return Uri.parse("$DEEP_LINK_BASE/register?ref=$referralCode")
-    }
     
     fun getProductIdFromUri(uri: Uri): String? {
         return if (uri.scheme == "https" && uri.host == "www.krishivishal.com" && uri.path?.contains("product") == true) {

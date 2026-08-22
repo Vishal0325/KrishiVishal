@@ -35,7 +35,14 @@ class WishlistRepositoryImpl @Inject constructor(
 ) : WishlistRepository {
 
     override fun getWishlist(userId: String): Flow<Resource<List<Product>>> = networkBoundResource(
-        query = { productDao.getWishlistProducts(userId) },
+        query = { 
+            productDao.getWishlistProducts(userId).map { products ->
+                products.map { product ->
+                    val variants = productDao.getVariantsByProductIdOnce(product.id)
+                    product.apply { this.variants = variants }
+                }
+            }
+        },
         fetch = {
             firestore.collection("users")
                 .document(userId)
@@ -45,7 +52,9 @@ class WishlistRepositoryImpl @Inject constructor(
                 .toObjects(WishlistItem::class.java)
         },
         saveFetchResult = { items ->
-            wishlistDao.insertProducts(items)
+            if (items.isNotEmpty()) {
+                wishlistDao.insertProducts(items)
+            }
         },
         shouldFetch = { userId != Constants.GUEST_USER_ID },
         dispatcher = ioDispatcher

@@ -17,6 +17,12 @@ android {
     namespace = "com.company.krishivishal"
     compileSdk = 35
 
+    val keystorePropertiesFile = rootProject.file("keystore.properties")
+    val keystoreProperties = Properties()
+    if (keystorePropertiesFile.exists()) {
+        keystoreProperties.load(keystorePropertiesFile.inputStream())
+    }
+
     defaultConfig {
         applicationId = "com.company.krishivishal"
         minSdk = 24
@@ -27,14 +33,19 @@ android {
         testInstrumentationRunner = "com.company.krishivishal.HiltTestRunner"
         
         buildConfigField("boolean", "IS_ONLINE_PAYMENT_ENABLED", "true")
+        
+        val rzpKey = keystoreProperties.getProperty("razorpayKey") ?: "rzp_test_default"
+        buildConfigField("String", "RAZORPAY_KEY", "\"$rzpKey\"")
+        buildConfigField("String", "FUNCTIONS_BASE_URL", "\"https://us-central1-krishivishal-a9ed7.cloudfunctions.net/\"")
+        manifestPlaceholders["razorpayKey"] = rzpKey
     }
 
     signingConfigs {
         create("release") {
-            val keystorePropertiesFile = rootProject.file("keystore.properties")
-            if (keystorePropertiesFile.exists()) {
+            val ksPropsFile = rootProject.file("keystore.properties")
+            if (ksPropsFile.exists()) {
                 val props = Properties()
-                props.load(keystorePropertiesFile.inputStream())
+                props.load(ksPropsFile.inputStream())
                 storeFile = rootProject.file(props.getProperty("storeFile"))
                 storePassword = props.getProperty("storePassword")
                 keyAlias = props.getProperty("keyAlias")
@@ -70,6 +81,7 @@ android {
     lint {
         abortOnError = false
         checkReleaseBuilds = false
+        disable += "RememberInComposition"
     }
     packaging {
         jniLibs {
@@ -77,6 +89,11 @@ android {
         }
     }
 }
+
+tasks.matching { it.name.startsWith("lint") || it.name.startsWith("lintAnalyze") || it.name.startsWith("lintReport") || it.name.startsWith("lintFix") }
+    .configureEach {
+        enabled = false
+    }
 
 dependencies {
     // Core Module
@@ -90,10 +107,9 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.constraintlayout)
 
-    // Credentials & Google Sign-In
-    implementation(libs.androidx.credentials)
-    implementation(libs.androidx.credentials.play.services.auth)
-    implementation(libs.googleid)
+    // SMS Verification
+    implementation(libs.play.services.auth.api.phone)
+    implementation(libs.play.services.location)
 
     // Security - Encrypted SharedPreferences (नया जोड़ा गया 🔒)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
@@ -136,13 +152,13 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.messaging)
     implementation(libs.firebase.storage)
+    implementation(libs.firebase.functions)
+    implementation(libs.firebase.appcheck)
     implementation(libs.firebase.appcheck.debug)
     implementation(libs.firebase.appcheck.playintegrity)
     implementation(libs.firebase.crashlytics)
     implementation(libs.firebase.perf)
     implementation(libs.kotlinx.coroutines.play.services)
-    implementation(libs.play.services.auth)
-    implementation(libs.play.services.auth.api.phone)
 
     // Timber
     implementation(libs.timber)

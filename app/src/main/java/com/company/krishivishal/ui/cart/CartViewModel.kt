@@ -19,7 +19,9 @@ import javax.inject.Inject
 class CartViewModel @Inject constructor(
     private val cartRepository: CartRepository,
     private val calculateCartTotalsUseCase: CalculateCartTotalsUseCase,
-    private val getCurrentUserUseCase: GetCurrentUserUseCase
+    private val getCurrentUserUseCase: GetCurrentUserUseCase,
+    private val productRepository: com.company.krishivishal.data.repository.ProductRepository,
+    private val configRepository: com.company.krishivishal.data.repository.ConfigRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CartUiState())
@@ -50,6 +52,9 @@ class CartViewModel @Inject constructor(
                                 isAllSelected = items.isNotEmpty() && items.all { it.cartItem.isSelected },
                                 error = null
                             ) 
+                        }
+                        if (items.isNotEmpty()) {
+                            loadCartRecommendations(items)
                         }
                     }
                     is Resource.Error -> {
@@ -94,6 +99,22 @@ class CartViewModel @Inject constructor(
         }
     }
 
+    fun addProductToCart(product: com.company.krishivishal.core.model.Product) {
+        viewModelScope.launch {
+            val cartItem = CartItem(
+                id = java.util.UUID.randomUUID().toString(),
+                userId = getCurrentUserUseCase().firstOrNull()?.id ?: Constants.GUEST_USER_ID,
+                productId = product.id,
+                quantity = 1
+            )
+            cartRepository.addToCart(cartItem).collectLatest { resource ->
+                if (resource is Resource.Error) {
+                    _uiState.update { it.copy(error = resource.message) }
+                }
+            }
+        }
+    }
+
     fun toggleSelection(itemId: String, isSelected: Boolean) {
         viewModelScope.launch {
             cartRepository.updateSelection(itemId, isSelected).collect()
@@ -119,6 +140,31 @@ class CartViewModel @Inject constructor(
         this.collectLatest { }
     }
 
+    private fun loadCartRecommendations(cartItems: List<CartWithProduct>) {
+        viewModelScope.launch {
+            configRepository.getConfig().collect { configResource ->
+                if (configResource is Resource.Success && configResource.data?.ff_smart_cart_recommendations == true) {
+                    // Fetch for the most recently added item or top item
+                    val productId = cartItems.firstOrNull()?.product?.id ?: return@collect
+                    productRepository.getRecommendations(productId).collect { recResource ->
+                        if (recResource is Resource.Success) {
+                            val recs = recResource.data
+                            // Mix technical, similar and related for cart
+                            val combined = ((recs?.technical ?: emptyList()) + 
+                                            (recs?.similar ?: emptyList()) + 
+                                            (recs?.related ?: emptyList()))
+                                            .distinctBy { it.id }
+                                            .filter { p -> cartItems.none { it.product?.id == p.id } }
+                                            .take(10)
+                            
+                            _uiState.update { it.copy(recommendations = combined) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fun clearError() {
         _uiState.update { it.copy(error = null) }
     }
@@ -129,5 +175,6 @@ data class CartUiState(
     val cartItems: List<CartWithProduct> = emptyList(),
     val totals: CartTotals = CartTotals(),
     val isAllSelected: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val recommendations: List<com.company.krishivishal.core.model.Product> = emptyList()
 )

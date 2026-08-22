@@ -25,7 +25,7 @@ class AdminProductViewModel @Inject constructor(
     private val bulkManageUseCase: BulkManageProductsUseCase,
     private val categoryRepository: CategoryRepository,
     private val brandRepository: BrandRepository,
-    private val cropRepository: CropRepository
+    private val cropRepository: CropRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AdminProductUiState())
@@ -121,10 +121,6 @@ class AdminProductViewModel @Inject constructor(
                 }
             }
         }
-    }
-
-    fun resetSaveStatus() {
-        _uiState.update { it.copy(saveStatus = null) }
     }
 
     fun clearProductDetail() {

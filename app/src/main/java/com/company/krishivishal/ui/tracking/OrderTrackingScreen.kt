@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.company.krishivishal.ui.theme.PrimaryGreen
+import com.company.krishivishal.performance.MapsResilienceManager
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.*
@@ -30,6 +31,7 @@ import java.util.*
 fun OrderTrackingScreen(
     orderId: String,
     viewModel: OrderTrackingViewModel,
+    mapsResilienceManager: MapsResilienceManager,
     onBack: () -> Unit
 ) {
     val uiState by viewModel.trackingState.collectAsState()
@@ -38,7 +40,7 @@ fun OrderTrackingScreen(
         viewModel.setOrderId(orderId)
     }
 
-    var showTimeline by remember { mutableStateOf(false) }
+    var showTimeline by remember { mutableStateOf(!mapsResilienceManager.isMapsHealthy()) }
 
     Scaffold(
         topBar = {
@@ -46,7 +48,7 @@ fun OrderTrackingScreen(
                 title = {
                     Column {
                         Text("Track Delivery", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text("Order #$orderId", fontSize = 12.sp, color = Color.Gray)
+                        Text("Order #$orderId", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 navigationIcon = {
@@ -59,11 +61,11 @@ fun OrderTrackingScreen(
                         Icon(if (showTimeline) Icons.Default.Map else Icons.Default.List, contentDescription = null)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding).background(Color(0xFFF8F9FA))) {
+        Box(modifier = Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background)) {
             when {
                 uiState.isLoading -> {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = PrimaryGreen)
@@ -90,7 +92,8 @@ fun OrderTrackingScreen(
                     OrderInfoCard(
                         modifier = Modifier.align(Alignment.BottomCenter),
                         status = uiState.status,
-                        estimatedTime = uiState.estimatedDeliveryTime?.toDate()
+                        estimatedTime = uiState.estimatedDeliveryTime?.toDate(),
+                        mapsHealthy = mapsResilienceManager.isMapsHealthy()
                     )
                 }
             }
@@ -135,7 +138,7 @@ fun OrderTimelineView(currentStatus: String, history: List<com.company.krishivis
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(MaterialTheme.colorScheme.surface)
             .padding(24.dp)
             .verticalScroll(rememberScrollState())
     ) {
@@ -152,12 +155,12 @@ fun OrderTimelineView(currentStatus: String, history: List<com.company.krishivis
                     Surface(
                         modifier = Modifier.size(28.dp),
                         shape = CircleShape,
-                        color = if (isCompleted) PrimaryGreen else Color(0xFFEEEEEE)
+                        color = if (isCompleted) PrimaryGreen else MaterialTheme.colorScheme.surfaceVariant
                     ) {
                         if (isCompleted && !isCurrent) {
                             Icon(Icons.Default.Check, null, modifier = Modifier.padding(6.dp), tint = Color.White)
                         } else if (isCurrent) {
-                            Box(modifier = Modifier.padding(8.dp).background(Color.White, CircleShape))
+                            Box(modifier = Modifier.padding(8.dp).background(MaterialTheme.colorScheme.onPrimary, CircleShape))
                         }
                     }
                     if (index < statuses.size - 1) {
@@ -165,7 +168,7 @@ fun OrderTimelineView(currentStatus: String, history: List<com.company.krishivis
                             modifier = Modifier
                                 .width(2.dp)
                                 .weight(1f)
-                                .background(if (isCompleted) PrimaryGreen else Color(0xFFEEEEEE))
+                                .background(if (isCompleted) PrimaryGreen else MaterialTheme.colorScheme.surfaceVariant)
                         )
                     }
                 }
@@ -174,7 +177,7 @@ fun OrderTimelineView(currentStatus: String, history: List<com.company.krishivis
                     Text(
                         status.replace("_", " "),
                         fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
-                        color = if (isCompleted) Color.Black else Color.Gray,
+                        color = if (isCompleted) MaterialTheme.colorScheme.onSurface else Color.Gray,
                         fontSize = 16.sp
                     )
                     stepHistory?.let {
@@ -192,40 +195,56 @@ fun OrderTimelineView(currentStatus: String, history: List<com.company.krishivis
 }
 
 @Composable
-fun OrderInfoCard(modifier: Modifier, status: String, estimatedTime: Date?) {
+fun OrderInfoCard(modifier: Modifier, status: String, estimatedTime: Date?, mapsHealthy: Boolean = true) {
     Card(
         modifier = modifier.fillMaxWidth().padding(16.dp),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
     ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                modifier = Modifier.size(48.dp),
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFFE8F5E9)
-            ) {
-                Icon(
-                    Icons.Default.DirectionsBike,
-                    contentDescription = null,
-                    tint = PrimaryGreen,
-                    modifier = Modifier.padding(10.dp)
-                )
+        Column(modifier = Modifier.padding(16.dp)) {
+            if (!mapsHealthy) {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                ) {
+                    Text(
+                        "Live tracking is temporarily unavailable. Using timeline view.",
+                        modifier = Modifier.padding(8.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
             }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column {
-                Text(status.replace("_", " "), fontWeight = FontWeight.ExtraBold, fontSize = 17.sp, color = Color.Black)
-                estimatedTime?.let {
-                    val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
-                    Text("Expected by ${sdf.format(it)}", color = Color.Gray, fontSize = 13.sp)
-                } ?: Text("Updating location...", color = Color.Gray, fontSize = 13.sp)
-            }
-            val context = androidx.compose.ui.platform.LocalContext.current
-            IconButton(onClick = { 
-                val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:9876543210"))
-                context.startActivity(intent)
-            }) {
-                Icon(Icons.Default.Call, null, tint = PrimaryGreen)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    modifier = Modifier.size(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                ) {
+                    Icon(
+                        Icons.Default.DirectionsBike,
+                        contentDescription = null,
+                        tint = PrimaryGreen,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(status.replace("_", " "), fontWeight = FontWeight.ExtraBold, fontSize = 17.sp, color = MaterialTheme.colorScheme.onSurface)
+                    estimatedTime?.let {
+                        val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
+                        Text("Expected by ${sdf.format(it)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                    } ?: Text("Updating location...", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                }
+                val context = androidx.compose.ui.platform.LocalContext.current
+                IconButton(onClick = { 
+                    val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:9876543210"))
+                    context.startActivity(intent)
+                }) {
+                    Icon(Icons.Default.Call, null, tint = PrimaryGreen)
+                }
             }
         }
     }

@@ -1,6 +1,7 @@
 package com.company.krishivishal.ui.category
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -29,12 +30,13 @@ import com.company.krishivishal.ui.theme.Background
 @Composable
 fun SubCategoryScreen(
     category: Category,
+    onSubCategoryClick: (SubCategory) -> Unit,
     onBack: () -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Background)
+            .background(MaterialTheme.colorScheme.background)
     ) {
         TopAppBar(
             title = { Text(category.name, fontWeight = FontWeight.Bold) },
@@ -43,7 +45,7 @@ fun SubCategoryScreen(
                     Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                 }
             },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
         )
 
         if (category.subCategories.isEmpty()) {
@@ -59,7 +61,10 @@ fun SubCategoryScreen(
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(category.subCategories) { subCategory ->
-                    SubCategoryItem(subCategory = subCategory)
+                    SubCategoryItem(
+                        subCategory = subCategory,
+                        onClick = { onSubCategoryClick(subCategory) }
+                    )
                 }
             }
         }
@@ -67,16 +72,18 @@ fun SubCategoryScreen(
 }
 
 @Composable
-fun SubCategoryItem(subCategory: SubCategory) {
+fun SubCategoryItem(subCategory: SubCategory, onClick: () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
     ) {
         Box(
             modifier = Modifier
                 .size(80.dp)
                 .clip(CircleShape)
-                .background(Color.White),
+                .background(MaterialTheme.colorScheme.surface),
             contentAlignment = Alignment.Center
         ) {
             AsyncImage(
@@ -98,7 +105,7 @@ fun SubCategoryItem(subCategory: SubCategory) {
             textAlign = TextAlign.Center,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            color = Color.Black
+            color = MaterialTheme.colorScheme.onSurface
         )
     }
 }

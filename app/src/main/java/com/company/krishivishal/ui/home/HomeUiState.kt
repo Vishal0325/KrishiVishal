@@ -21,5 +21,10 @@ data class HomeUiState(
     val searchQuery: String = "",
     val sortOrder: ProductSortOrder = ProductSortOrder.DEFAULT,
     val isRefreshing: Boolean = false,
-    val isLoadingFeed: Boolean = true
+    val isLoadingFeed: Boolean = true,
+    val buyAgainProducts: List<Product> = emptyList(),
+    val seasonalProducts: List<Product> = emptyList(),
+    val recentlyViewedProducts: List<Product> = emptyList(),
+    val config: com.company.krishivishal.core.model.AppConfig? = null,
+    val personalizedProducts: List<Product> = emptyList()
 )

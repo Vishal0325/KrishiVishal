@@ -7,7 +7,7 @@
 -keepattributes SourceFile,LineNumberTable,Signature,InnerClasses,EnclosingMethod,*Annotation*
 
 # App Specific - Keep Models
--keep class com.company.krishivishal.data.model.** { *; }
+-keep class com.company.krishivishal.core.model.** { *; }
 
 # Hilt
 -keep class dagger.hilt.internal.GeneratedComponentManager { *; }

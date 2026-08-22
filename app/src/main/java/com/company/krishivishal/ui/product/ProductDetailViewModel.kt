@@ -2,6 +2,7 @@ package com.company.krishivishal.ui.product
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.company.krishivishal.R
 import com.company.krishivishal.core.model.*
 import com.company.krishivishal.data.repository.CartRepository
 import com.company.krishivishal.data.repository.CheckoutSessionRepository
@@ -9,6 +10,8 @@ import com.company.krishivishal.domain.usecase.auth.GetCurrentUserUseCase
 import com.company.krishivishal.domain.usecase.product.*
 import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.analytics.AnalyticsTracker
+import com.company.krishivishal.core.util.Constants
+import com.company.krishivishal.data.local.UserDao
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -25,6 +28,10 @@ class ProductDetailViewModel @Inject constructor(
     private val cartRepository: CartRepository,
     private val checkoutSessionRepository: CheckoutSessionRepository,
     private val wishlistRepository: com.company.krishivishal.data.repository.WishlistRepository,
+    private val productRepository: com.company.krishivishal.data.repository.ProductRepository,
+    private val configRepository: com.company.krishivishal.data.repository.ConfigRepository,
+    private val productDao: com.company.krishivishal.data.local.ProductDao,
+    private val userDao: UserDao,
     private val analyticsTracker: AnalyticsTracker
 ) : ViewModel() {
 
@@ -32,11 +39,18 @@ class ProductDetailViewModel @Inject constructor(
     val uiState: StateFlow<ProductDetailUiState> = _uiState.asStateFlow()
 
     private val _user = getCurrentUserUseCase()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val user: StateFlow<User?> = _user
 
     fun loadProduct(productId: String) {
-        val userId = _user.value?.id ?: "guest_user"
+        // Load Config
+        viewModelScope.launch {
+            configRepository.getConfig().collect { resource ->
+                if (resource is Resource.Success) {
+                    _uiState.update { it.copy(appConfig = resource.data) }
+                }
+            }
+        }
         
         // Load Product Details
         viewModelScope.launch {
@@ -47,6 +61,15 @@ class ProductDetailViewModel @Inject constructor(
                     }
                     is Resource.Success -> {
                         val product = resource.data
+                        if (product != null && !product.isActive) {
+                            _uiState.update { it.copy(isProductLoading = false, error = "This product is no longer available.") }
+                            // Also remove from local db so it stops showing up in other places
+                            viewModelScope.launch {
+                                productDao.deleteProductById(product.id)
+                            }
+                            return@collect
+                        }
+                        
                         _uiState.update { currentState ->
                             val currentVariants = if (currentState.variants.isNotEmpty()) {
                                 currentState.variants
@@ -66,10 +89,14 @@ class ProductDetailViewModel @Inject constructor(
                             )
                         }
                         if (product != null) {
+                            val currentUser = _user.value ?: getCurrentUserUseCase().firstOrNull()
+                            val userId = currentUser?.id ?: Constants.GUEST_USER_ID
                             checkWishlistStatus(product.id, userId)
                             analyticsTracker.trackViewProduct(
                                 product.id, product.name, product.category, product.basePrice
                             )
+                            loadRecommendations(product.id)
+                            saveRecentlyViewed(product.id, userId)
                         }
                     }
                     is Resource.Error -> {
@@ -158,55 +185,101 @@ class ProductDetailViewModel @Inject constructor(
     }
 
     fun addToCart(quantity: Int) {
-        val currentUser = _user.value
         val product = _uiState.value.product ?: return
+        if (!product.isActive) {
+            _uiState.update { it.copy(error = "This product is no longer available.") }
+            return
+        }
         val variant = _uiState.value.selectedVariant
 
-        val userId = currentUser?.id ?: "guest_user"
-
         viewModelScope.launch {
-            val cartItem = CartItem(
-                id = UUID.randomUUID().toString(),
-                userId = userId,
-                productId = product.id,
-                variantId = variant?.id,
-                quantity = quantity
-            )
-            cartRepository.addToCart(cartItem).collect { resource ->
-                if (resource is Resource.Success) {
-                    _uiState.update { it.copy(cartMessage = "Added to cart successfully!") }
-                    analyticsTracker.trackAddToCart(product.id, product.name, product.basePrice, quantity)
-                } else if (resource is Resource.Error) {
-                    _uiState.update { it.copy(error = resource.message) }
+            try {
+                val currentUser = _user.value ?: getCurrentUserUseCase().firstOrNull()
+                val userId = currentUser?.id ?: Constants.GUEST_USER_ID
+
+                if (userId == Constants.GUEST_USER_ID) {
+                    userDao.insertUser(User(id = Constants.GUEST_USER_ID, name = "Guest User"))
                 }
+
+                // Ensure product is saved locally in Room
+                productRepository.saveProduct(product).collectLatest {}
+
+                val currentCartResource = cartRepository.getCart(userId).first()
+                val existingItem = if (currentCartResource is Resource.Success) {
+                    currentCartResource.data?.find { it.productId == product.id && it.variantId == variant?.id }
+                } else null
+
+                if (existingItem != null) {
+                    val updatedItem = existingItem.copy(quantity = existingItem.quantity + quantity)
+                    cartRepository.updateCartItem(updatedItem).collectLatest { resource ->
+                        if (resource is Resource.Success) {
+                            _uiState.update { it.copy(cartMessageRes = R.string.added_to_cart) }
+                            analyticsTracker.trackAddToCart(product.id, product.name, product.basePrice, quantity)
+                        } else if (resource is Resource.Error) {
+                            _uiState.update { it.copy(error = resource.message) }
+                        }
+                    }
+                } else {
+                    val cartItem = CartItem(
+                        id = UUID.randomUUID().toString(),
+                        userId = userId,
+                        productId = product.id,
+                        variantId = variant?.id,
+                        quantity = quantity
+                    )
+                    cartRepository.addToCart(cartItem).collectLatest { resource ->
+                        if (resource is Resource.Success) {
+                            _uiState.update { it.copy(cartMessageRes = R.string.added_to_cart) }
+                            analyticsTracker.trackAddToCart(product.id, product.name, product.basePrice, quantity)
+                        } else if (resource is Resource.Error) {
+                            _uiState.update { it.copy(error = resource.message) }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = e.message) }
             }
         }
     }
 
     fun buyNow(quantity: Int) {
-        val currentUser = _user.value
         val product = _uiState.value.product ?: return
+        if (!product.isActive) {
+            _uiState.update { it.copy(error = "This product is no longer available.") }
+            return
+        }
         val variant = _uiState.value.selectedVariant
 
-        val userId = currentUser?.id ?: "guest_user"
-
         viewModelScope.launch {
-            val buyNowItem = CartWithProduct(
-                cartItem = CartItem(
-                    id = UUID.randomUUID().toString(),
-                    userId = userId,
-                    productId = product.id,
-                    variantId = variant?.id,
-                    quantity = quantity,
-                    isSelected = true
-                ),
-                product = product,
-                variant = variant
-            )
-            
-            checkoutSessionRepository.setBuyNowItem(buyNowItem)
-            _uiState.update { it.copy(navigateToCheckout = true) }
-            analyticsTracker.trackAddToCart(product.id, product.name, product.basePrice, quantity)
+            try {
+                val currentUser = _user.value ?: getCurrentUserUseCase().firstOrNull()
+                val userId = currentUser?.id ?: Constants.GUEST_USER_ID
+
+                if (userId == Constants.GUEST_USER_ID) {
+                    userDao.insertUser(User(id = Constants.GUEST_USER_ID, name = "Guest User"))
+                }
+
+                productRepository.saveProduct(product).collectLatest {}
+
+                val buyNowItem = CartWithProduct(
+                    cartItem = CartItem(
+                        id = UUID.randomUUID().toString(),
+                        userId = userId,
+                        productId = product.id,
+                        variantId = variant?.id,
+                        quantity = quantity,
+                        isSelected = true
+                    ),
+                    product = product,
+                    variant = variant
+                )
+                
+                checkoutSessionRepository.setBuyNowItem(buyNowItem)
+                _uiState.update { it.copy(navigateToCheckout = true) }
+                analyticsTracker.trackAddToCart(product.id, product.name, product.basePrice, quantity)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = e.message) }
+            }
         }
     }
 
@@ -215,16 +288,16 @@ class ProductDetailViewModel @Inject constructor(
     }
 
     fun toggleWishlist() {
-        val currentUser = _user.value
-        if (currentUser == null || currentUser.id == "guest_user") {
-            _uiState.update { it.copy(showLoginPrompt = true) }
-            return
-        }
-        
-        val product = _uiState.value.product ?: return
-        val userId = currentUser.id
-
         viewModelScope.launch {
+            val currentUser = _user.value ?: getCurrentUserUseCase().firstOrNull()
+            if (currentUser == null || currentUser.id == Constants.GUEST_USER_ID) {
+                _uiState.update { it.copy(showLoginPrompt = true) }
+                return@launch
+            }
+            
+            val product = _uiState.value.product ?: return@launch
+            val userId = currentUser.id
+
             toggleProductWishlistUseCase(product, userId).collect { resource ->
                 if (resource is Resource.Success) {
                     val newStatus = !_uiState.value.isWishlisted
@@ -240,7 +313,155 @@ class ProductDetailViewModel @Inject constructor(
     }
 
     fun clearCartMessage() {
-        _uiState.update { it.copy(cartMessage = null) }
+        _uiState.update { it.copy(cartMessage = null, cartMessageRes = null) }
+    }
+
+    fun trackRecommendationClick(product: Product) {
+        analyticsTracker.trackCustomEvent(
+            "recommendation_click",
+            mapOf(
+                "product_id" to product.id,
+                "product_name" to product.name,
+                "category" to product.category,
+                "reason" to product.recommendationReason
+            )
+        )
+    }
+
+    fun trackRecommendationImpression(recommendations: RecommendationResult) {
+        val allIds = (recommendations.technical + recommendations.similar + recommendations.related).map { it.id }
+        if (allIds.isEmpty()) return
+        
+        analyticsTracker.trackCustomEvent(
+            "recommendation_impression",
+            mapOf(
+                "product_ids" to allIds.joinToString(","),
+                "total_count" to allIds.size
+            )
+        )
+    }
+
+    fun trackRecommendationAddToCart(product: Product) {
+        analyticsTracker.trackCustomEvent(
+            "recommendation_add_to_cart",
+            mapOf(
+                "product_id" to product.id,
+                "product_name" to product.name,
+                "category" to product.category
+            )
+        )
+        // Actual Add to Cart Logic
+        viewModelScope.launch {
+            try {
+                val currentUser = _user.value ?: getCurrentUserUseCase().firstOrNull()
+                val userId = currentUser?.id ?: Constants.GUEST_USER_ID
+
+                if (userId == Constants.GUEST_USER_ID) {
+                    userDao.insertUser(User(id = Constants.GUEST_USER_ID, name = "Guest User"))
+                }
+
+                productRepository.saveProduct(product).collectLatest {}
+
+                val currentCartResource = cartRepository.getCart(userId).first()
+                val existingItem = if (currentCartResource is Resource.Success) {
+                    currentCartResource.data?.find { it.productId == product.id }
+                } else null
+
+                if (existingItem != null) {
+                    val updatedItem = existingItem.copy(quantity = existingItem.quantity + 1)
+                    cartRepository.updateCartItem(updatedItem).collectLatest { resource ->
+                        if (resource is Resource.Success) {
+                            _uiState.update { it.copy(cartMessageRes = R.string.added_to_cart) }
+                        }
+                    }
+                } else {
+                    val cartItem = CartItem(
+                        id = UUID.randomUUID().toString(),
+                        userId = userId,
+                        productId = product.id,
+                        quantity = 1
+                    )
+                    cartRepository.addToCart(cartItem).collectLatest { resource ->
+                        if (resource is Resource.Success) {
+                            _uiState.update { it.copy(cartMessageRes = R.string.added_to_cart) }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = e.message) }
+            }
+        }
+    }
+
+    private fun loadRecommendations(productId: String) {
+        viewModelScope.launch {
+            configRepository.getConfig().collect { resource ->
+                if (resource is Resource.Success && resource.data?.ff_product_recommendations == true) {
+                    productRepository.getRecommendations(productId).collect { recResource ->
+                        when (recResource) {
+                            is Resource.Loading -> {
+                                _uiState.update { it.copy(isRecommendationsLoading = true) }
+                            }
+                            is Resource.Success -> {
+                                _uiState.update { it.copy(
+                                    isRecommendationsLoading = false,
+                                    recommendations = recResource.data ?: RecommendationResult()
+                                ) }
+                            }
+                            is Resource.Error -> {
+                                _uiState.update { it.copy(isRecommendationsLoading = false) }
+                            }
+                            else -> {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun requestStockNotification() {
+        val product = _uiState.value.product ?: return
+
+        viewModelScope.launch {
+            val currentUser = _user.value ?: getCurrentUserUseCase().firstOrNull()
+            val userId = currentUser?.id ?: Constants.GUEST_USER_ID
+
+            _uiState.update { it.copy(isNotifyMeLoading = true) }
+            productRepository.requestStockNotification(product.id, userId).collect { resource ->
+                when (resource) {
+                    is Resource.Success -> {
+                        _uiState.update { it.copy(isNotifyMeLoading = false, notifyMeSuccess = true, cartMessageRes = R.string.notify_success_msg) }
+                    }
+                    is Resource.Error -> {
+                        _uiState.update { it.copy(isNotifyMeLoading = false, error = resource.message) }
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    private fun saveRecentlyViewed(productId: String, userId: String) {
+        viewModelScope.launch {
+            productDao.insertRecentlyViewed(RecentlyViewedProduct(userId, productId))
+        }
+    }
+
+    fun addToCompare() {
+        val product = _uiState.value.product ?: return
+        val currentList = _uiState.value.compareList.toMutableList()
+        if (currentList.any { it.id == product.id }) return
+        if (currentList.size >= 3) {
+            _uiState.update { it.copy(cartMessage = "Max 3 products allowed for comparison") }
+            return
+        }
+        currentList.add(product)
+        _uiState.update { it.copy(compareList = currentList, cartMessage = "Added to comparison list") }
+    }
+
+    fun removeFromCompare(productId: String) {
+        val currentList = _uiState.value.compareList.filter { it.id != productId }
+        _uiState.update { it.copy(compareList = currentList) }
     }
 }
 
@@ -256,6 +477,13 @@ data class ProductDetailUiState(
     val isWishlisted: Boolean = false,
     val error: String? = null,
     val cartMessage: String? = null,
+    val cartMessageRes: Int? = null,
     val navigateToCheckout: Boolean = false,
-    val showLoginPrompt: Boolean = false
+    val showLoginPrompt: Boolean = false,
+    val isNotifyMeLoading: Boolean = false,
+    val notifyMeSuccess: Boolean = false,
+    val recommendations: RecommendationResult = RecommendationResult(),
+    val isRecommendationsLoading: Boolean = false,
+    val appConfig: AppConfig? = null,
+    val compareList: List<Product> = emptyList()
 )

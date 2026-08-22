@@ -25,6 +25,8 @@ import com.airbnb.lottie.compose.*
 
 @Composable
 fun OrderSuccessScreen(
+    otp: String = "",
+    orderId: String = "",
     onContinueShopping: () -> Unit,
     onTrackOrder: () -> Unit
 ) {
@@ -37,7 +39,7 @@ fun OrderSuccessScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(MaterialTheme.colorScheme.background)
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -56,14 +58,38 @@ fun OrderSuccessScreen(
             text = stringResource(R.string.order_success),
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
-            color = Color.Black,
+            color = MaterialTheme.colorScheme.onBackground,
             textAlign = TextAlign.Center
         )
+
+        if (otp.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(24.dp))
+            Surface(
+                color = Color(0xFFFFF9C4), // Light Yellow
+                shape = RoundedCornerShape(16.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFBC02D))
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("Delivery PIN", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFFF57F17))
+                    Text(
+                        text = otp,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 32.sp,
+                        letterSpacing = 8.sp,
+                        color = Color.Black
+                    )
+                    Text("Share with delivery boy only", fontSize = 10.sp, color = Color.Gray)
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "Your order has been received and is being processed. Thank you for shopping with us!",
+            text = if (orderId.isNotEmpty()) "Order #${orderId.takeLast(8).uppercase()} has been received." else "Your order has been received and is being processed. Thank you for shopping with us!",
             fontSize = 14.sp,
             color = Color.Gray,
             textAlign = TextAlign.Center,

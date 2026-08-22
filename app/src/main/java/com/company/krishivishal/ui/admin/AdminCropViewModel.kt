@@ -73,8 +73,4 @@ class AdminCropViewModel @Inject constructor(
             }
         }
     }
-
-    fun resetSaveStatus() {
-        _saveStatus.value = null
-    }
 }

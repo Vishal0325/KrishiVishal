@@ -31,7 +31,8 @@ data class SearchResult(
     val rating: Float = 0f,
     val reviewCount: Int = 0,
     val inStock: Boolean = true,
-    val cropAssociatedIds: List<String> = emptyList()
+    val cropAssociatedIds: List<String> = emptyList(),
+    val cropAssociatedNames: List<String> = emptyList()
 )
 
 /**

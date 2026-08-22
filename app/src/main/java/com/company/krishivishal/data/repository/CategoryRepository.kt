@@ -8,7 +8,11 @@ import com.company.krishivishal.utils.networkBoundResource
 import com.company.krishivishal.utils.safeCall
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
+import com.google.firebase.firestore.snapshots
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.company.krishivishal.di.IoDispatcher
@@ -16,6 +20,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 
 interface CategoryRepository {
     fun getCategories(): Flow<Resource<List<Category>>>
+    fun getCategoryById(categoryId: String): Flow<Resource<Category?>>
     fun addCategory(category: Category): Flow<Resource<Unit>>
     fun updateCategory(category: Category): Flow<Resource<Unit>>
     fun deleteCategory(category: Category): Flow<Resource<Unit>>
@@ -29,14 +34,30 @@ class CategoryRepositoryImpl @Inject constructor(
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : CategoryRepository {
 
-    override fun getCategories(): Flow<Resource<List<Category>>> = kotlinx.coroutines.flow.flow {
-        emit(Resource.Success(com.company.krishivishal.core.util.Constants.SAMPLE_CATEGORIES))
-        try {
-            val snapshot = firestore.collection("categories").get().await()
+    override fun getCategories(): Flow<Resource<List<Category>>> = firestore.collection("categories")
+        .snapshots()
+        .map { snapshot ->
             val fetched = snapshot.toObjects(Category::class.java)
-            if (fetched.isNotEmpty()) emit(Resource.Success(fetched))
-        } catch (e: Exception) {}
-    }
+            if (fetched.isNotEmpty()) Resource.Success(fetched)
+            else Resource.Success(com.company.krishivishal.core.util.Constants.SAMPLE_CATEGORIES)
+        }
+        .catch { e ->
+            timber.log.Timber.e(e, "Error fetching categories from Firestore")
+            emit(Resource.Success(com.company.krishivishal.core.util.Constants.SAMPLE_CATEGORIES))
+        }
+        .flowOn(ioDispatcher)
+
+    override fun getCategoryById(categoryId: String): Flow<Resource<Category?>> = 
+        networkBoundResource(
+            query = { categoryDao.getCategoryById(categoryId) },
+            fetch = {
+                firestore.collection("categories").document(categoryId).get().await().toObject(Category::class.java)
+            },
+            saveFetchResult = { category ->
+                category?.let { categoryDao.insertCategories(listOf(it)) }
+            },
+            dispatcher = ioDispatcher
+        )
 
     override fun addCategory(category: Category): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
         firestore.collection("categories").document(category.id).set(category).await()

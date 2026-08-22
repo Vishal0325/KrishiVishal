@@ -50,7 +50,7 @@ fun NotificationScreen(
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
     ) { padding ->
@@ -58,7 +58,7 @@ fun NotificationScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(Color(0xFFF8F9FA))
+                .background(MaterialTheme.colorScheme.background)
         ) {
             if (notifications.isEmpty()) {
                 EmptyState(
@@ -104,7 +104,8 @@ fun NotificationItem(
             .clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (notification.isRead) Color.White else Color(0xFFF0F7F0)
+            containerColor = if (notification.isRead) MaterialTheme.colorScheme.surface 
+            else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
     ) {
@@ -128,7 +129,7 @@ fun NotificationItem(
                     text = notification.title,
                     fontWeight = if (notification.isRead) FontWeight.Medium else FontWeight.Bold,
                     fontSize = 15.sp,
-                    color = Color.Black
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = notification.body,

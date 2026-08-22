@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,14 +30,24 @@ import com.google.maps.android.compose.*
 fun RiderTrackingScreen(
     orderId: String,
     riderId: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    viewModel: OrderTrackingViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 ) {
-    // In real implementation, these coordinates would come from Firestore using a ViewModel
-    val riderLocation = LatLng(25.7711, 87.4753) // Dummy Purnea coordinates
+    LaunchedEffect(orderId) {
+        viewModel.setOrderId(orderId)
+    }
+
+    val trackingState by viewModel.trackingState.collectAsState()
+
+    val riderLocation = trackingState.riderLocation?.let { LatLng(it.latitude, it.longitude) } ?: LatLng(25.7711, 87.4753) // Fallback if null
     val targetLocation = LatLng(25.7750, 87.4850)
     
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(riderLocation, 14f)
+    }
+
+    LaunchedEffect(riderLocation) {
+        cameraPositionState.position = CameraPosition.fromLatLngZoom(riderLocation, 14f)
     }
 
     var showTimeline by remember { mutableStateOf(false) }
@@ -47,24 +58,24 @@ fun RiderTrackingScreen(
                 title = { 
                     Column {
                         Text("Track Delivery", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text("Order #$orderId", fontSize = 12.sp, color = Color.Gray)
+                        Text("Order #$orderId", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
                     IconButton(onClick = { showTimeline = !showTimeline }) {
-                        Icon(if (showTimeline) Icons.Default.Map else Icons.Default.List, contentDescription = null)
+                        Icon(if (showTimeline) Icons.Default.Map else Icons.AutoMirrored.Filled.List, contentDescription = null)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Box(modifier = Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background)) {
             if (!showTimeline) {
                 GoogleMap(
                     modifier = Modifier.fillMaxSize(),
@@ -72,13 +83,13 @@ fun RiderTrackingScreen(
                     uiSettings = MapUiSettings(zoomControlsEnabled = false)
                 ) {
                     Marker(
-                        state = MarkerState(position = riderLocation),
+                        state = rememberMarkerState(position = riderLocation),
                         title = "Your Rider",
                         snippet = "En-route to your farm",
                         icon = com.google.android.gms.maps.model.BitmapDescriptorFactory.defaultMarker(com.google.android.gms.maps.model.BitmapDescriptorFactory.HUE_GREEN)
                     )
                     Marker(
-                        state = MarkerState(position = targetLocation),
+                        state = rememberMarkerState(position = targetLocation),
                         title = "Your Farm",
                         snippet = "Delivery Location"
                     )
@@ -117,7 +128,7 @@ fun RiderTrackingScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     elevation = CardDefaults.cardElevation(8.dp)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -128,7 +139,7 @@ fun RiderTrackingScreen(
                                 color = PrimaryGreen.copy(alpha = 0.1f)
                             ) {
                                 Icon(
-                                    Icons.Default.DirectionsBike,
+                                    Icons.AutoMirrored.Filled.DirectionsBike,
                                     contentDescription = null,
                                     modifier = Modifier.padding(12.dp),
                                     tint = PrimaryGreen
@@ -136,8 +147,8 @@ fun RiderTrackingScreen(
                             }
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Rider: Suresh Kumar", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                Text("On the way - Arriving in 12 mins", color = Color.Gray, fontSize = 13.sp)
+                                Text("Rider: Suresh Kumar", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Text("On the way - Arriving in 12 mins", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                             }
                             val context = androidx.compose.ui.platform.LocalContext.current
                             IconButton(
@@ -171,11 +182,11 @@ fun OrderTimelineView() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(MaterialTheme.colorScheme.surface)
             .padding(24.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        Text("Order Status", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Text("Order Status", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
         Spacer(modifier = Modifier.height(24.dp))
 
         statuses.forEachIndexed { index, (title, subtitle) ->
@@ -184,12 +195,12 @@ fun OrderTimelineView() {
                     Surface(
                         modifier = Modifier.size(24.dp),
                         shape = CircleShape,
-                        color = if (index <= currentStep) PrimaryGreen else Color.LightGray
+                        color = if (index <= currentStep) PrimaryGreen else MaterialTheme.colorScheme.surfaceVariant
                     ) {
                         if (index < currentStep) {
                             Icon(Icons.Default.Check, null, modifier = Modifier.padding(4.dp), tint = Color.White)
                         } else if (index == currentStep) {
-                            Box(modifier = Modifier.padding(6.dp).background(Color.White, CircleShape))
+                            Box(modifier = Modifier.padding(6.dp).background(MaterialTheme.colorScheme.onPrimary, CircleShape))
                         }
                     }
                     if (index < statuses.size - 1) {
@@ -197,7 +208,7 @@ fun OrderTimelineView() {
                             modifier = Modifier
                                 .width(2.dp)
                                 .weight(1f)
-                                .background(if (index < currentStep) PrimaryGreen else Color.LightGray)
+                                .background(if (index < currentStep) PrimaryGreen else MaterialTheme.colorScheme.surfaceVariant)
                         )
                     }
                 }
@@ -206,7 +217,7 @@ fun OrderTimelineView() {
                     Text(
                         title, 
                         fontWeight = if (index == currentStep) FontWeight.Bold else FontWeight.Medium,
-                        color = if (index <= currentStep) Color.Black else Color.Gray,
+                        color = if (index <= currentStep) MaterialTheme.colorScheme.onSurface else Color.Gray,
                         fontSize = 16.sp
                     )
                     Text(

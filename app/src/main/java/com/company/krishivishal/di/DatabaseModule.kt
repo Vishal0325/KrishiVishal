@@ -60,4 +60,21 @@ object DatabaseModule {
 
     @Provides
     fun provideSyncOperationDao(database: AppDatabase): SyncOperationDao = database.syncOperationDao()
+
+    @Provides
+    fun provideReturnDao(database: AppDatabase): ReturnDao = database.returnDao()
+
+    @Provides
+    @Singleton
+    fun provideKrishiVishalDatabase(@ApplicationContext context: Context): KrishiVishalDatabase {
+        return Room.databaseBuilder(
+            context,
+            KrishiVishalDatabase::class.java,
+            "krishi_vishal_search_db"
+        ).fallbackToDestructiveMigration().build()
+    }
+
+    @Provides
+    fun provideRecentSearchDao(database: KrishiVishalDatabase): com.company.krishivishal.data.local.dao.RecentSearchDao =
+        database.recentSearchDao()
 }

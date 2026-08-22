@@ -37,19 +37,23 @@ data class User(
     @SerializedName("tier")
     val tier: String = "New Farmer", // Default tier
 
-    @ColumnInfo(name = "referralCode")
-    @SerializedName("referralCode")
-    val referralCode: String = "",
-
-    @ColumnInfo(name = "referredBy")
-    @SerializedName("referredBy")
-    val referredBy: String? = null,
-
     @ColumnInfo(name = "walletBalance", defaultValue = "0")
     @SerializedName("walletBalance")
     val walletBalance: Double = 0.0,
 
     @ColumnInfo(name = "role")
     @SerializedName("role")
-    val role: String = "CUSTOMER" // GUEST, CUSTOMER, SELLER, RIDER, ADMIN
+    val role: String = "CUSTOMER", // GUEST, CUSTOMER, SELLER, RIDER, ADMIN
+
+    @ColumnInfo(name = "location")
+    @SerializedName("location")
+    val location: String = "Samastipur, Bihar",
+
+    @ColumnInfo(name = "interestedCategories")
+    @SerializedName("interestedCategories")
+    val interestedCategories: List<String> = emptyList(),
+
+    @ColumnInfo(name = "fcmToken")
+    @SerializedName("fcmToken")
+    val fcmToken: String? = null
 ) : Parcelable

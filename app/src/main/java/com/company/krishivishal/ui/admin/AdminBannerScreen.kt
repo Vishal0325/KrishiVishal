@@ -94,9 +94,9 @@ fun AdminBannerScreen(
                     isAddingNew = false
                     bannerToEdit = null
                 },
-                onUpload = { uri ->
+                onUpload = { uri, onComplete ->
                     viewModel.uploadBannerImage(bannerToEdit?.id ?: "new", uri) { url ->
-                        // Optional: update locally for instant preview if possible
+                        onComplete(url)
                     }
                 }
             )
@@ -140,7 +140,7 @@ fun BannerDialog(
     banner: BannerItem,
     onDismiss: () -> Unit,
     onSave: (BannerItem) -> Unit,
-    onUpload: (Uri) -> Unit
+    onUpload: (Uri, (String) -> Unit) -> Unit
 ) {
     var titleText by remember { mutableStateOf(banner.title) }
     var imageUrlText by remember { mutableStateOf(banner.imageUrl) }
@@ -148,7 +148,11 @@ fun BannerDialog(
     var priorityText by remember { mutableStateOf(banner.priority.toString()) }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { onUpload(it) }
+        uri?.let {
+            onUpload(it) { url ->
+                imageUrlText = url
+            }
+        }
     }
 
     AlertDialog(

@@ -3,38 +3,85 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ========== HELPER FUNCTIONS ==========
+    // ============================================================
+    // HELPERS
+    // ============================================================
 
     function isAuthenticated() {
       return request.auth != null;
     }
 
+    function userDocExists() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function isAdmin() {
-      // Robust admin check: Token claim OR Firestore isAdmin flag OR Firestore ADMIN role
       return isAuthenticated() && (
         request.auth.token.admin == true ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "ADMIN" ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "SuperAdmin"
+        (
+          userDocExists() &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid))
+            .data.isAdmin == true
+        ) ||
+        (
+          userDocExists() &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid))
+            .data.role in ["ADMIN", "SuperAdmin"]
+        )
       );
     }
 
     function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+      return isAuthenticated() &&
+        request.auth.uid == userId;
     }
 
-    // ========== CORE CATALOG (Public Read, Admin Write) ==========
+    function isRider() {
+      return isAuthenticated() && (
+        request.auth.token.role == "RIDER" ||
+        (
+          userDocExists() &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid))
+            .data.role == "RIDER"
+        )
+      );
+    }
+
+    function isAssignedRider(riderId) {
+      return isRider() &&
+        riderId == request.auth.uid;
+    }
+
+
+    // ============================================================
+    // PRODUCTS
+    // Public Read / Admin Write
+    // ============================================================
 
     match /products/{id} {
       allow read: if true;
       allow write: if isAdmin();
-      // Allow users to update stock during order placement
-      allow update: if isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockQuantity']);
-      match /{allSubcollections=**} {
+
+      // Do NOT automatically expose every future subcollection.
+      match /reviews/{reviewId} {
         allow read: if true;
-        allow write: if isAdmin();
+
+        allow create: if isAuthenticated() &&
+          request.resource.data.userId == request.auth.uid;
+
+        allow update, delete: if isAdmin() ||
+          (
+            isAuthenticated() &&
+            resource.data.userId == request.auth.uid
+          );
       }
     }
+
+
+    // ============================================================
+    // PUBLIC CATALOG
+    // ============================================================
 
     match /categories/{id} {
       allow read: if true;
@@ -56,69 +103,394 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // ========== OPERATIONS & TRANSACTIONS ==========
+
+    // ============================================================
+    // FINANCIAL / INTERNAL DATA
+    // ============================================================
+
+    match /product_costs/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    match /ledger/{id} {
+      allow read: if isAdmin();
+
+      // Ledger must only be written by Admin SDK / Cloud Functions.
+      allow write: if false;
+    }
+
+    match /finance/{document=**} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+
+    // ============================================================
+    // ORDERS
+    // ============================================================
 
     match /orders/{orderId} {
-      // Users can read own, Admins can read all, Riders can read assigned
-      allow read: if isAdmin() ||
-                   isOwner(resource.data.userId) ||
-                   (isAuthenticated() && resource.data.riderId == request.auth.uid);
 
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      // Customer can read own order.
+      // Admin can read all.
+      // Rider can read ONLY assigned order.
+      allow read: if isAdmin() ||
+        (
+          isAuthenticated() &&
+          resource.data.userId == request.auth.uid
+        ) ||
+        (
+          isRider() &&
+          resource.data.riderId == request.auth.uid
+        );
+
+      // Orders are created ONLY by Cloud Functions / Admin SDK.
+      allow create: if false;
+
+      // Clients cannot freely modify orders.
+      // Assigned rider may update ONLY safe delivery fields. (Correction 13)
+      allow update: if isAdmin() ||
+        (
+          isRider() &&
+          resource.data.riderId == request.auth.uid &&
+          request.resource.data
+            .diff(resource.data)
+            .affectedKeys()
+            .hasOnly([
+              'deliveryStatus',
+              'deliveryLocation',
+              'deliveryProof',
+              'deliveryProofUrl',
+              'deliveredAt',
+              'riderNote'
+            ]) &&
+          !request.resource.data.keys().hasAny([
+            'totalAmount',
+            'userId',
+            'paymentStatus',
+            'paymentMethod'
+          ])
+        );
+
       allow delete: if isAdmin();
 
-      match /{allSubcollections=**} {
-        allow read, write: if isAdmin() || isOwner(resource.data.userId);
+
+      // ----------------------------------------------------------
+      // Order Subcollections
+      // Explicit rules only.
+      // ----------------------------------------------------------
+
+      match /tracking/{trackingId} {
+        allow read: if isAdmin() ||
+          (
+            isAuthenticated() &&
+            get(/databases/$(database)/documents/orders/$(orderId))
+              .data.userId == request.auth.uid
+          ) ||
+          (
+            isRider() &&
+            get(/databases/$(database)/documents/orders/$(orderId))
+              .data.riderId == request.auth.uid
+          );
+
+        allow write: if false;
       }
     }
 
-    match /returns/{id} {
-      allow read: if isAdmin() || isOwner(resource.data.userId);
-      allow create: if isAuthenticated();
-      allow update: if isAdmin();
+
+    // ============================================================
+    // RETURNS
+    // ============================================================
+
+    match /returns/{returnId} {
+
+      allow read: if isAdmin() ||
+        (
+          isAuthenticated() &&
+          resource.data.userId == request.auth.uid
+        ) ||
+        (
+          isRider() &&
+          resource.data.riderId == request.auth.uid
+        );
+
+
+      // Customer can create ONLY their own return request.
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == "REQUESTED" &&
+        !("refundAmount" in request.resource.data) &&
+        !("refundId" in request.resource.data) &&
+        !("approvedBy" in request.resource.data) &&
+        !("qcStatus" in request.resource.data) &&
+        !("refundStatus" in request.resource.data);
+
+
+      // Admin has full control.
+      // Assigned rider can only update QC/delivery-related fields.
+      allow update: if isAdmin() ||
+        (
+          isRider() &&
+          resource.data.riderId == request.auth.uid &&
+          request.resource.data
+            .diff(resource.data)
+            .affectedKeys()
+            .hasOnly([
+              'riderId',
+              'status',
+              'qcStatus',
+              'qcPhotos',
+              'qcNote',
+              'qcCompletedAt'
+            ])
+        );
+
+      allow delete: if isAdmin();
     }
+
+
+    // ============================================================
+    // EXPENSE MANAGEMENT
+    // ============================================================
+
+    match /expenses/{id} {
+      allow read: if isAdmin();
+
+      // Strict creation rules
+      allow create: if isAdmin() &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.approvalStatus == 'PENDING' &&
+        request.resource.data.paymentStatus == 'UNPAID';
+
+      // Protection against unauthorized field tampering
+      allow update: if isAdmin() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['expenseNumber', 'createdBy']);
+
+      allow delete: if isAdmin();
+    }
+
+    match /expenseCategories/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /expenseVendors/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /expensePayments/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if false; // Payments are immutable
+    }
+
+    match /expenseAuditLogs/{id} {
+      allow read: if isAdmin();
+      allow write: if false; // Append-only via server/privileged logic
+    }
+
+    match /expenseBudgets/{id} {
+      allow read, write: if isAdmin();
+    }
+
+
+    // ============================================================
+    // USERS
+    // ============================================================
 
     match /users/{uId} {
+
       allow read: if isOwner(uId) || isAdmin();
-      allow create: if isAuthenticated();
-      allow update: if isOwner(uId) || isAdmin();
+
+
+      // User can create ONLY their own profile.
+      // Sensitive fields cannot be self-created.
+      allow create: if isOwner(uId) &&
+        !request.resource.data.keys().hasAny([
+          'isAdmin',
+          'role',
+          'walletBalance',
+          'rewardPoints',
+          'referralCode',
+          'customClaims',
+          'ledgerPosted'
+        ]);
+
+
+      // User cannot modify security or financial fields. (Correction 13)
+      allow update: if isAdmin() ||
+        (
+          isOwner(uId) &&
+          !request.resource.data
+            .diff(resource.data)
+            .affectedKeys()
+            .hasAny([
+              'isAdmin',
+              'role',
+              'walletBalance',
+              'rewardPoints',
+              'referralCode',
+              'customClaims',
+              'isActive',
+              'whitelisted',
+              'ledgerPosted'
+            ])
+        );
+
       allow delete: if isAdmin();
 
-      match /{allSubcollections=**} {
+
+      // ----------------------------------------------------------
+      // ADDRESSES
+      // ----------------------------------------------------------
+
+      match /addresses/{addressId} {
         allow read, write: if isOwner(uId) || isAdmin();
+      }
+
+
+      // Explicitly deny unknown user subcollections.
+      match /{document=**} {
+        allow read, write: if false;
       }
     }
 
-    // ========== SYSTEM & TRACKING ==========
 
-    match /settings/{id} {
+    // ============================================================
+    // RIDERS
+    // ============================================================
+
+    match /riders/{riderId} {
+
+      allow read: if isAdmin() || isOwner(riderId);
+
+      // Rider records managed by backend/admin only.
+      allow write: if isAdmin();
+    }
+
+
+    // ============================================================
+    // WISHLIST
+    // ============================================================
+
+    match /wishlists/{userId}/{itemId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+
+    // ============================================================
+    // STOCK NOTIFICATION REQUESTS
+    // ============================================================
+
+    match /stock_notification_requests/{id} {
+
+      allow read: if isAdmin();
+
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+
+      allow update, delete: if isAdmin();
+    }
+
+
+    // ============================================================
+    // SETTINGS
+    // ============================================================
+
+    match /settings/{allPaths=**} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
-    match /riders/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+
+    // ============================================================
+    // SOS ALERTS
+    // ============================================================
+
+    match /sos_alerts/{alertId} {
+
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+
+      allow read: if isAdmin() ||
+        (
+          isAuthenticated() &&
+          resource.data.userId == request.auth.uid
+        );
+
+      allow update, delete: if isAdmin();
     }
 
-    match /sos_alerts/{id} {
-      allow read, write: if isAuthenticated();
+
+    // ============================================================
+    // EMERGENCY ALERTS
+    // ============================================================
+
+    match /emergency_alerts/{alertId} {
+
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+
+      allow read: if isAdmin() ||
+        (
+          isAuthenticated() &&
+          resource.data.userId == request.auth.uid
+        );
+
+      allow update, delete: if isAdmin();
     }
+
+
+    // ============================================================
+    // AUDIT LOGS
+    // ============================================================
 
     match /audit_logs/{id} {
       allow read: if isAdmin();
-      allow create: if isAuthenticated();
+      allow write: if false;
     }
 
     match /auditLogs/{id} {
       allow read: if isAdmin();
-      allow create: if isAuthenticated();
+      allow write: if false;
     }
 
-    // ========== DEFAULT DENY ==========
-    match /{document=**} {
+
+    // ============================================================
+    // TRANSACTIONAL OUTBOX
+    // ============================================================
+
+    match /outbox/{id} {
+      allow read, write: if false; // Cloud Functions only
+    }
+
+
+    // ============================================================
+    // WHITELISTED RIDERS
+    // ============================================================
+
+    match /whitelisted_riders/{phone} {
       allow read, write: if isAdmin();
+    }
+
+
+    // ============================================================
+    // NOTIFICATION LOGS
+    // ============================================================
+
+    match /notification_logs/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+
+    // ============================================================
+    // DEFAULT DENY
+    // ============================================================
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

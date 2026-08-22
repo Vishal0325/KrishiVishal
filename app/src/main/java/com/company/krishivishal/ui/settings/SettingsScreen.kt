@@ -1,5 +1,6 @@
 package com.company.krishivishal.ui.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,14 +20,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.company.krishivishal.ui.theme.PrimaryGreen
 import com.company.krishivishal.utils.LocaleManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    viewModel: SettingsViewModel = hiltViewModel()
+) {
     val context = LocalContext.current
     var notificationsEnabled by remember { mutableStateOf(true) }
+    val isDarkMode by viewModel.isDarkMode.collectAsState()
     
     val currentLocale = AppCompatDelegate.getApplicationLocales().get(0)?.language ?: "en"
     var selectedLanguage by remember { mutableStateOf(if (currentLocale == "hi") "Hindi (हिंदी)" else "English") }
@@ -53,7 +59,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
     ) { padding ->
@@ -61,6 +67,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .background(MaterialTheme.colorScheme.background)
         ) {
             item {
                 SettingsHeader("App Notifications")
@@ -97,12 +104,12 @@ fun SettingsScreen(onBack: () -> Unit) {
                 )
             }
             item {
-                val context = androidx.compose.ui.platform.LocalContext.current
-                SettingsClickItem(
+                SettingsSwitchItem(
                     icon = Icons.Default.DarkMode,
-                    title = "Theme Selection",
-                    value = "System Default",
-                    onClick = { android.widget.Toast.makeText(context, "App theme is set to System Default", android.widget.Toast.LENGTH_SHORT).show() }
+                    title = "Dark Mode",
+                    subtitle = "Turn on dark theme for a better night experience",
+                    checked = isDarkMode,
+                    onCheckedChange = { viewModel.toggleDarkMode(it) }
                 )
             }
 

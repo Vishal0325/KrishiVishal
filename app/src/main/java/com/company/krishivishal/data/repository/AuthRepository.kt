@@ -22,7 +22,9 @@ import kotlinx.coroutines.withContext
 import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import android.app.Activity
+import com.google.android.gms.auth.api.phone.SmsRetriever
 import com.google.firebase.auth.PhoneAuthCredential
+import com.company.krishivishal.performance.SmsResilienceManager
 
 interface AuthRepository {
     fun getCurrentUser(): Flow<User?>
@@ -43,53 +45,54 @@ class AuthRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val userDao: UserDao,
     private val wishlistDao: com.company.krishivishal.data.local.WishlistDao,
+    private val smsResilienceManager: SmsResilienceManager,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : AuthRepository {
 
     override fun getCurrentUser(): Flow<User?> = callbackFlow {
-        val firebaseUser = auth.currentUser
-        if (firebaseUser == null) {
-            // No user, but we will handle anonymous sign-in in ViewModel or elsewhere
-            trySend(null)
-            close()
-            return@callbackFlow
-        }
+        // Use an auth state listener so the flow stays alive and reacts to login/logout
+        val authListener = com.google.firebase.auth.FirebaseAuth.AuthStateListener { firebaseAuth ->
+            val firebaseUser = firebaseAuth.currentUser
+            if (firebaseUser == null) {
+                trySend(null)
+                return@AuthStateListener
+            }
 
-        // Emit local data first
-        val localJob = launch {
-            userDao.getUserById(firebaseUser.uid).collect { user ->
-                if (user != null) {
-                    trySend(user)
+            // Emit local user data immediately for fast UI
+            launch {
+                userDao.getUserById(firebaseUser.uid).collect { user ->
+                    if (user != null) trySend(user)
+                }
+            }
+
+            // Sync from Firestore in the background
+            launch {
+                try {
+                    val userDoc = firestore.collection("users").document(firebaseUser.uid).get().await()
+                    val user = userDoc.toObject(User::class.java)
+                    if (user != null) {
+                        val updatedUser = if (user.phone.isNullOrEmpty()) user.copy(phone = firebaseUser.phoneNumber) else user
+                        userDao.insertUser(updatedUser)
+                        trySend(updatedUser)
+                    } else {
+                        val newUser = User(
+                            id = firebaseUser.uid,
+                            name = firebaseUser.displayName ?: "Farmer",
+                            email = firebaseUser.email,
+                            phone = firebaseUser.phoneNumber
+                        )
+                        userDao.insertUser(newUser)
+                        trySend(newUser)
+                        firestore.collection("users").document(firebaseUser.uid).set(newUser)
+                    }
+                } catch (e: Exception) {
+                    userDao.getUserById(firebaseUser.uid).firstOrNull()?.let { trySend(it) }
                 }
             }
         }
 
-        // Try to sync from Firestore
-        launch {
-            try {
-                val userDoc = firestore.collection("users").document(firebaseUser.uid).get().await()
-                val user = userDoc.toObject(User::class.java)
-                if (user != null) {
-                    userDao.insertUser(user)
-                    trySend(user)
-                } else {
-                    // Create basic user profile if missing from DB but exists in Auth
-                    val newUser = User(
-                        id = firebaseUser.uid,
-                        name = firebaseUser.displayName ?: "Guest User",
-                        email = firebaseUser.email,
-                        phone = firebaseUser.phoneNumber
-                    )
-                    userDao.insertUser(newUser)
-                    trySend(newUser)
-                }
-            } catch (e: Exception) {
-                // Fallback for offline or restricted rules
-                userDao.getUserById(firebaseUser.uid).firstOrNull()?.let { trySend(it) }
-            }
-        }
-
-        awaitClose { localJob.cancel() }
+        auth.addAuthStateListener(authListener)
+        awaitClose { auth.removeAuthStateListener(authListener) }
     }
 
     override suspend fun signInAnonymously(): Resource<User> = withContext(ioDispatcher) {
@@ -144,12 +147,23 @@ class AuthRepositoryImpl @Inject constructor(
         activity: Activity,
         callbacks: PhoneAuthProvider.OnVerificationStateChangedCallbacks
     ) {
+        if (!smsResilienceManager.canSendSms()) {
+            callbacks.onVerificationFailed(com.google.firebase.FirebaseException("SMS quota exceeded. Please try again later."))
+            return
+        }
+
+        // Start SMS Retriever for Auto-Read
+        val client = SmsRetriever.getClient(activity)
+        client.startSmsRetriever()
+        
         val options = PhoneAuthOptions.newBuilder(auth)
             .setPhoneNumber(phoneNumber)
             .setTimeout(60L, java.util.concurrent.TimeUnit.SECONDS)
             .setActivity(activity)
             .setCallbacks(callbacks)
             .build()
+        
+        android.util.Log.d("AuthRepo", "Starting SMS verification for: $phoneNumber with SMS Retriever")
         PhoneAuthProvider.verifyPhoneNumber(options)
     }
 
@@ -157,17 +171,20 @@ class AuthRepositoryImpl @Inject constructor(
         val result = auth.signInWithCredential(credential).await()
         val firebaseUser = result.user ?: throw Exception("Sign in failed")
 
+        android.util.Log.d("AuthRepo", "Credential sign-in succeeded for uid=${firebaseUser.uid}")
+
         val userDoc = firestore.collection("users").document(firebaseUser.uid).get().await()
         var user = userDoc.toObject(User::class.java)
-        
+
         if (user == null) {
             // New user via social or phone
             user = User(
                 id = firebaseUser.uid,
-                name = firebaseUser.displayName ?: "", 
+                name = firebaseUser.displayName ?: "",
                 email = firebaseUser.email ?: "",
                 phone = firebaseUser.phoneNumber
             )
+            android.util.Log.d("AuthRepo", "Creating a missing profile for ${firebaseUser.uid}")
             firestore.collection("users").document(user.id).set(user).await()
         }
 

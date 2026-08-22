@@ -152,32 +152,35 @@ fun AdminCategoryScreen(
                                 onToggleSelect = { viewModel.toggleSelection(it.id) }
                             )
                         } else {
-                            EditCategoryContent(
-                                category = selectedCategory!!,
-                                onSave = { updated ->
-                                    viewModel.saveCategory(updated)
-                                    viewModel.setEditingCategory(null)
-                                },
-                                onUploadImage = { id, uri, isSub ->
-                                    if (isSub) {
-                                        viewModel.uploadSubCategoryImage(id, uri) { url ->
-                                            val currentCat = viewModel.editingCategory.value
-                                            currentCat?.let { cat ->
-                                                val newList = cat.subCategories.map { 
-                                                    if (it.id == id) it.copy(imageUrl = url) else it
+                            val category = selectedCategory
+                            if (category != null) {
+                                EditCategoryContent(
+                                    category = category,
+                                    onSave = { updated ->
+                                        viewModel.saveCategory(updated)
+                                        viewModel.setEditingCategory(null)
+                                    },
+                                    onUploadImage = { id, uri, isSub ->
+                                        if (isSub) {
+                                            viewModel.uploadSubCategoryImage(id, uri) { url ->
+                                                val currentCat = viewModel.editingCategory.value
+                                                currentCat?.let { cat ->
+                                                    val newList = cat.subCategories.map {
+                                                        if (it.id == id) it.copy(imageUrl = url) else it
+                                                    }
+                                                    viewModel.updateEditingCategory(cat.copy(subCategories = newList))
                                                 }
-                                                viewModel.updateEditingCategory(cat.copy(subCategories = newList))
                                             }
-                                        }
-                                    } else {
-                                        viewModel.uploadCategoryImage(id, uri) { url ->
-                                            viewModel.editingCategory.value?.let { cat ->
-                                                viewModel.updateEditingCategory(cat.copy(imageUrl = url))
+                                        } else {
+                                            viewModel.uploadCategoryImage(id, uri) { url ->
+                                                viewModel.editingCategory.value?.let { cat ->
+                                                    viewModel.updateEditingCategory(cat.copy(imageUrl = url))
+                                                }
                                             }
                                         }
                                     }
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                     is Resource.Error -> ErrorState(message = res.message ?: "Unknown Error", onRetry = { viewModel.loadCategories() }, modifier = Modifier.align(Alignment.Center))

@@ -90,18 +90,21 @@ fun AdminBrandScreen(
                                 onDelete = { viewModel.deleteBrand(it) }
                             )
                         } else {
-                            EditBrandContent(
-                                brand = selectedBrand!!,
-                                onSave = { updated ->
-                                    viewModel.saveBrand(updated)
-                                    selectedBrand = null
-                                },
-                                onUploadImage = { uri ->
-                                    viewModel.uploadBrandImage(selectedBrand!!.id, uri) { url ->
-                                        selectedBrand = selectedBrand?.copy(imageUrl = url)
+                            val brand = selectedBrand
+                            if (brand != null) {
+                                EditBrandContent(
+                                    brand = brand,
+                                    onSave = { updated ->
+                                        viewModel.saveBrand(updated)
+                                        selectedBrand = null
+                                    },
+                                    onUploadImage = { uri ->
+                                        viewModel.uploadBrandImage(brand.id, uri) { url ->
+                                            selectedBrand = selectedBrand?.copy(imageUrl = url)
+                                        }
                                     }
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                     is Resource.Error -> Text("Error: ${res.message}", modifier = Modifier.align(Alignment.Center))

@@ -3,47 +3,308 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // helper functions
+    // ============================================================
+    // HELPERS
+    // ============================================================
+
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    function isAdmin() {
+    function userDocExists() {
       return isAuthenticated() &&
-        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+        firestore.exists(
+          /databases/(default)/documents/users/$(request.auth.uid)
+        );
     }
 
-    // Product Images: Publicly readable, Admin writeable
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.admin == true ||
+        (
+          userDocExists() &&
+          firestore.get(
+            /databases/(default)/documents/users/$(request.auth.uid)
+          ).data.isAdmin == true
+        ) ||
+        (
+          userDocExists() &&
+          firestore.get(
+            /databases/(default)/documents/users/$(request.auth.uid)
+          ).data.role in ["ADMIN", "SuperAdmin"]
+        )
+      );
+    }
+
+    function isRider() {
+      return isAuthenticated() && (
+        request.auth.token.role == "RIDER" ||
+        (
+          userDocExists() &&
+          firestore.get(
+            /databases/(default)/documents/users/$(request.auth.uid)
+          ).data.role == "RIDER"
+        )
+      );
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isValidImage() {
+      return isImage() && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    function isValidProfileImage() {
+      return isImage() && request.resource.size < 5 * 1024 * 1024;
+    }
+
+    function isValidDocument() {
+      return (request.resource.contentType.matches('application/pdf') || isImage()) &&
+        request.resource.size < 15 * 1024 * 1024;
+    }
+
+    function orderExists(orderId) {
+      return firestore.exists(
+        /databases/(default)/documents/orders/$(orderId)
+      );
+    }
+
+    function isOrderOwner(orderId) {
+      return isAuthenticated() &&
+        orderExists(orderId) &&
+        firestore.get(
+          /databases/(default)/documents/orders/$(orderId)
+        ).data.userId == request.auth.uid;
+    }
+
+    function isAssignedRider(orderId) {
+      return isRider() &&
+        orderExists(orderId) &&
+        firestore.get(
+          /databases/(default)/documents/orders/$(orderId)
+        ).data.riderId == request.auth.uid;
+    }
+
+    function returnExists(returnId) {
+      return firestore.exists(
+        /databases/(default)/documents/returns/$(returnId)
+      );
+    }
+
+    function isReturnOwner(returnId) {
+      return isAuthenticated() &&
+        returnExists(returnId) &&
+        firestore.get(
+          /databases/(default)/documents/returns/$(returnId)
+        ).data.userId == request.auth.uid;
+    }
+
+    function isReturnRider(returnId) {
+      return isRider() &&
+        returnExists(returnId) &&
+        firestore.get(
+          /databases/(default)/documents/returns/$(returnId)
+        ).data.riderId == request.auth.uid;
+    }
+
+
+    // ============================================================
+    // PUBLIC PRODUCT IMAGES
+    // ============================================================
+
     match /products/{allPaths=**} {
       allow read: if true;
-      allow write: if isAdmin();
+
+      allow create, update: if isAdmin() &&
+        isValidImage();
+
+      allow delete: if isAdmin();
     }
 
-    // Banner Images: Publicly readable, Admin writeable
+
+    // ============================================================
+    // PUBLIC BANNERS
+    // ============================================================
+
     match /banners/{allPaths=**} {
       allow read: if true;
-      allow write: if isAdmin();
+
+      allow create, update: if isAdmin() &&
+        isValidImage();
+
+      allow delete: if isAdmin();
     }
 
-    // Brand Logos: Publicly readable, Admin writeable
+
+    // ============================================================
+    // PUBLIC BRAND LOGOS
+    // ============================================================
+
     match /brands/{allPaths=**} {
       allow read: if true;
-      allow write: if isAdmin();
+
+      allow create, update: if isAdmin() &&
+        isValidImage();
+
+      allow delete: if isAdmin();
     }
 
-    // Category & Sub-Category Images: Publicly readable, Admin writeable
+
+    // ============================================================
+    // PUBLIC CATEGORY IMAGES
+    // ============================================================
+
     match /categories/{allPaths=**} {
       allow read: if true;
-      allow write: if isAdmin();
-    }
-    match /subcategories/{allPaths=**} {
-      allow read: if true;
-      allow write: if isAdmin();
+
+      allow create, update: if isAdmin() &&
+        isValidImage();
+
+      allow delete: if isAdmin();
     }
 
-    // User Uploads (e.g. Profile Pictures): Owner readable/writeable
-    match /users/{userId}/{allPaths=**} {
-      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+
+    // ============================================================
+    // PUBLIC SUBCATEGORY IMAGES
+    // ============================================================
+
+    match /subcategories/{allPaths=**} {
+      allow read: if true;
+
+      allow create, update: if isAdmin() &&
+        isValidImage();
+
+      allow delete: if isAdmin();
+    }
+
+
+    // ============================================================
+    // USER PROFILE FILES
+    // Structure:
+    // users/{userId}/{fileName}
+    // ============================================================
+
+    match /users/{userId}/{fileName} {
+
+      allow read: if isAuthenticated() &&
+        (
+          request.auth.uid == userId ||
+          isAdmin()
+        );
+
+      allow create, update: if isAuthenticated() &&
+        request.auth.uid == userId &&
+        isValidProfileImage();
+
+      allow delete: if isAuthenticated() &&
+        (
+          request.auth.uid == userId ||
+          isAdmin()
+        );
+    }
+
+
+    // ============================================================
+    // PROOF OF DELIVERY
+    // Structure:
+    // pod/{orderId}/{fileName}
+    //
+    // Rider: Upload
+    // Customer: Read
+    // Admin: Full access
+    // ============================================================
+
+    match /pod/{orderId}/{fileName} {
+
+      allow read: if isAdmin() ||
+        isOrderOwner(orderId) ||
+        isAssignedRider(orderId);
+
+      // (Correction 12) Only assigned rider can create, no overwrite/delete
+      allow create: if (isAdmin() || isAssignedRider(orderId)) &&
+        isValidImage() &&
+        !exists(/b/$(bucket)/o/pod/$(orderId)/$(fileName));
+
+      // Rider cannot overwrite/delete evidence.
+      allow update, delete: if isAdmin();
+    }
+
+
+    // ============================================================
+    // LEGACY ORDER FILES
+    // Structure:
+    // orders/{orderId}/...
+    //
+    // Keep secure in case existing app uses this path.
+    // ============================================================
+
+    match /orders/{orderId}/{allPaths=**} {
+
+      allow read: if isAdmin() ||
+        isOrderOwner(orderId) ||
+        isAssignedRider(orderId);
+
+      allow create: if isAdmin() ||
+        (
+          isAssignedRider(orderId) &&
+          isValidImage()
+        );
+
+      allow update, delete: if isAdmin();
+    }
+
+
+    // ============================================================
+    // RETURN QC PHOTOS
+    // Structure:
+    // returns/{returnId}/{fileName}
+    //
+    // Assigned rider: Upload
+    // Customer: Read
+    // Admin: Full access
+    // ============================================================
+
+    match /returns/{returnId}/{fileName} {
+
+      allow read: if isAdmin() ||
+        isReturnOwner(returnId) ||
+        isReturnRider(returnId);
+
+      // (Correction 12) Only assigned return rider can create, no overwrite/delete
+      allow create: if (isAdmin() || isReturnRider(returnId)) &&
+        isValidImage() &&
+        !exists(/b/$(bucket)/o/returns/$(returnId)/$(fileName));
+
+      // Evidence cannot be changed by rider after upload.
+      allow update, delete: if isAdmin();
+    }
+
+
+    // ============================================================
+    // EXPENSE ATTACHMENTS
+    // Structure:
+    // expenses/{expenseId}/{fileName}
+    // ============================================================
+
+    match /expenses/{expenseId}/{fileName} {
+      allow read: if isAdmin();
+
+      allow create: if isAdmin() &&
+        isValidDocument();
+
+      // No unauthorized delete or overwrite
+      allow update, delete: if isAdmin();
+    }
+
+
+    // ============================================================
+    // DEFAULT DENY
+    // ============================================================
+
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }

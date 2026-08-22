@@ -60,7 +60,7 @@ fun AdminPanelScreen(
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
     ) { padding ->
@@ -68,7 +68,7 @@ fun AdminPanelScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(Color(0xFFF8F9FA))
+                .background(MaterialTheme.colorScheme.background)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -78,42 +78,43 @@ fun AdminPanelScreen(
 
             // Visual Analytics
             if (uiState.stats is Resource.Success) {
-                val stats = uiState.stats.data!!
-                
-                Text("Sales Trends", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Card(
-                    modifier = Modifier.fillMaxWidth().height(250.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Revenue (Daily)", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        // Note: revenueByDay values are Double, but BarChart expects Int for simplicity here. 
-                        // Mapping to Int for visual trend.
-                        BarChart(
-                            data = stats.revenueByDay.mapValues { it.value.toInt() },
-                            modifier = Modifier.fillMaxSize().padding(bottom = 20.dp)
-                        )
-                    }
-                }
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                val stats = (uiState.stats as? Resource.Success)?.data
+                if (stats != null) {
+                    Text("Sales Trends", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Card(
-                        modifier = Modifier.weight(1f).height(200.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White)
+                        modifier = Modifier.fillMaxWidth().height(250.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
-                        Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Orders", style = MaterialTheme.typography.labelMedium)
-                            PieChart(data = stats.ordersByStatus, modifier = Modifier.size(100.dp).padding(top = 16.dp))
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Revenue (Daily)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            // Note: revenueByDay values are Double, but BarChart expects Int for simplicity here.
+                            // Mapping to Int for visual trend.
+                            BarChart(
+                                data = stats.revenueByDay.mapValues { it.value.toInt() },
+                                modifier = Modifier.fillMaxSize().padding(bottom = 20.dp)
+                            )
                         }
                     }
-                    Card(
-                        modifier = Modifier.weight(1f).height(200.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White)
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Categories", style = MaterialTheme.typography.labelMedium)
-                            PieChart(data = stats.topCategories, modifier = Modifier.size(100.dp).padding(top = 16.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Card(
+                            modifier = Modifier.weight(1f).height(200.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Orders", style = MaterialTheme.typography.labelMedium)
+                                PieChart(data = stats.ordersByStatus, modifier = Modifier.size(100.dp).padding(top = 16.dp))
+                            }
+                        }
+                        Card(
+                            modifier = Modifier.weight(1f).height(200.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Categories", style = MaterialTheme.typography.labelMedium)
+                                PieChart(data = stats.topCategories, modifier = Modifier.size(100.dp).padding(top = 16.dp))
+                            }
                         }
                     }
                 }
@@ -177,7 +178,7 @@ fun AdminPanelScreen(
                 )
             }
 
-            Text("Users & Marketing", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.Black)
+            Text("Users & Marketing", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onBackground)
             
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 AdminMenuItem(
@@ -217,7 +218,7 @@ fun AdminPanelScreen(
                 )
             }
 
-            Text("Recent Activity", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.Black)
+            Text("Recent Activity", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onBackground)
             RecentActivitySection(uiState.recentLogs)
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -238,11 +239,11 @@ fun StatsOverviewSection(statsRes: Resource<AdminStats>) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("Dashboard Overview", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.Gray)
+            Text("Dashboard Overview", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(16.dp))
             
             when (statsRes) {
@@ -250,11 +251,13 @@ fun StatsOverviewSection(statsRes: Resource<AdminStats>) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = PrimaryGreen)
                 }
                 is Resource.Success -> {
-                    val stats = statsRes.data!!
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        StatItem("Revenue", "₹${stats.totalRevenue.toInt()}", Color(0xFF2E7D32))
-                        StatItem("Orders", "${stats.totalOrders}", Color(0xFF1565C0))
-                        StatItem("Products", "${stats.totalProducts}", Color(0xFFEF6C00))
+                    val stats = statsRes.data
+                    if (stats != null) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            StatItem("Revenue", "₹${stats.totalRevenue.toInt()}", Color(0xFF2E7D32))
+                            StatItem("Orders", "${stats.totalOrders}", Color(0xFF1565C0))
+                            StatItem("Products", "${stats.totalProducts}", Color(0xFFEF6C00))
+                        }
                     }
                 }
                 is Resource.Error -> {
@@ -270,7 +273,7 @@ fun StatsOverviewSection(statsRes: Resource<AdminStats>) {
 fun StatItem(label: String, value: String, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(text = value, fontWeight = FontWeight.Black, fontSize = 20.sp, color = color)
-        Text(text = label, fontSize = 12.sp, color = Color.Gray)
+        Text(text = label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -285,7 +288,7 @@ fun AdminGridItem(
     Card(
         modifier = modifier.clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(
@@ -310,7 +313,7 @@ fun RecentActivitySection(logsRes: Resource<List<com.company.krishivishal.core.m
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             when (logsRes) {
@@ -318,7 +321,7 @@ fun RecentActivitySection(logsRes: Resource<List<com.company.krishivishal.core.m
                 is Resource.Success -> {
                     val logs = logsRes.data ?: emptyList()
                     if (logs.isEmpty()) {
-                        Text("No recent activity", fontSize = 12.sp, color = Color.Gray)
+                        Text("No recent activity", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         logs.take(5).forEach { log ->
                             Row(modifier = Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -329,7 +332,7 @@ fun RecentActivitySection(logsRes: Resource<List<com.company.krishivishal.core.m
                                         SimpleDateFormat("hh:mm a", Locale.getDefault()).format(log.timestamp.toDate())
                                     }
                                     Text(text = log.action, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                                    Text(text = "${log.adminName} • $time", fontSize = 11.sp, color = Color.Gray)
+                                    Text(text = "${log.adminName} • $time", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -354,7 +357,7 @@ fun AdminMenuItem(
             .fillMaxWidth()
             .clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
@@ -378,13 +381,13 @@ fun AdminMenuItem(
             
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                Text(text = subtitle, fontSize = 11.sp, color = Color.Gray)
+                Text(text = subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             
             Icon(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = Color.LightGray
+                tint = MaterialTheme.colorScheme.outline
             )
         }
     }

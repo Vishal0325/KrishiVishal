@@ -97,19 +97,22 @@ fun AdminCropScreen(
                                 onDelete = { viewModel.deleteCrop(it.id) }
                             )
                         } else {
-                            EditCropContent(
-                                crop = selectedCrop!!,
-                                onSave = { updated ->
-                                    viewModel.saveCrop(updated)
-                                    selectedCrop = null
-                                },
-                                onUploadImage = { id, uri ->
-                                    viewModel.uploadCropImage(id, uri) { url ->
-                                        selectedCrop = selectedCrop?.copy(imageUrl = url)
-                                    }
-                                },
-                                viewModel = viewModel
-                            )
+                            val crop = selectedCrop
+                            if (crop != null) {
+                                EditCropContent(
+                                    crop = crop,
+                                    onSave = { updated ->
+                                        viewModel.saveCrop(updated)
+                                        selectedCrop = null
+                                    },
+                                    onUploadImage = { id, uri ->
+                                        viewModel.uploadCropImage(id, uri) { url ->
+                                            selectedCrop = selectedCrop?.copy(imageUrl = url)
+                                        }
+                                    },
+                                    viewModel = viewModel
+                                )
+                            }
                         }
                     }
                     is Resource.Error -> Text("Error: ${res.message}", modifier = Modifier.align(Alignment.Center))

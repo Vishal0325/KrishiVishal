@@ -23,6 +23,12 @@ object OfflineSupportModule {
 
     @Provides
     @Singleton
+    fun provideConnectivityObserver(
+        @ApplicationContext context: Context
+    ): ConnectivityObserver = NetworkConnectivityObserver(context)
+
+    @Provides
+    @Singleton
     fun provideSyncManager(
         database: AppDatabase,
         firestore: FirebaseFirestore,

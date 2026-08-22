@@ -12,13 +12,16 @@ import timber.log.Timber
 class CrashlyticsTree(private val errorReporter: CrashlyticsErrorReporter) : Timber.Tree() {
 
     override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+        // Skip VERBOSE and DEBUG logs
+        if (priority <= Log.DEBUG) return
+
+        // Skip internal error reporting tags to prevent infinite recursion/StackOverflow
+        if (tag == "NetworkErrorHandler" || tag == "CrashlyticsReporter" || tag == "CrashlyticsTree") return
+
         try {
-            // Add breadcrumb
-            val logMessage = "$tag: $message"
+            val logMessage = "${tag ?: "App"}: $message"
             
             when (priority) {
-                Log.VERBOSE -> FirebaseCrashlytics.getInstance().log(logMessage)
-                Log.DEBUG -> FirebaseCrashlytics.getInstance().log(logMessage)
                 Log.INFO -> FirebaseCrashlytics.getInstance().log(logMessage)
                 Log.WARN -> {
                     FirebaseCrashlytics.getInstance().log("WARN: $logMessage")

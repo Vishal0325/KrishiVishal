@@ -18,25 +18,29 @@ data class CartItem(
     @PrimaryKey
     @ColumnInfo(name = "id")
     @SerializedName("id")
-    val id: String,
+    val id: String = "",
 
     @ColumnInfo(name = "userId")
     @SerializedName("user_id")
-    val userId: String,
+    val userId: String = "",
 
     @ColumnInfo(name = "productId")
     @SerializedName("product_id")
-    val productId: String,
+    val productId: String = "",
 
     @ColumnInfo(name = "variantId")
     @SerializedName("variant_id")
-    val variantId: String?,
+    val variantId: String? = null,
 
     @ColumnInfo(name = "quantity")
     @SerializedName("quantity")
-    val quantity: Int,
+    val quantity: Int = 1,
 
     @ColumnInfo(name = "isSelected")
     @SerializedName("is_selected")
-    val isSelected: Boolean = true
+    val isSelected: Boolean = true,
+
+    @ColumnInfo(name = "timestamp")
+    @SerializedName("timestamp")
+    val timestamp: Long = System.currentTimeMillis()
 ) : Parcelable

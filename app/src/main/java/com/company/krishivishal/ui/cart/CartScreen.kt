@@ -37,6 +37,7 @@ import com.company.krishivishal.ui.components.ErrorState
 fun CartScreen(
     onBack: () -> Unit,
     onCheckout: () -> Unit,
+    onNavigateToProduct: (String) -> Unit,
     viewModel: CartViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -53,11 +54,11 @@ fun CartScreen(
                 actions = {
                     if (uiState.cartItems.any { it.cartItem.isSelected }) {
                         IconButton(onClick = { viewModel.deleteSelected() }) {
-                            Icon(Icons.Default.DeleteSweep, contentDescription = "Delete Selected", tint = Color.Red)
+                            Icon(Icons.Default.DeleteSweep, contentDescription = "Delete Selected", tint = MaterialTheme.colorScheme.error)
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
         bottomBar = {
@@ -66,7 +67,7 @@ fun CartScreen(
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shadowElevation = 8.dp,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.surface
                 ) {
                     Column(modifier = Modifier.padding(16.dp).navigationBarsPadding()) {
                         Row(
@@ -109,7 +110,7 @@ fun CartScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(Color(0xFFF8F9FA))
+                .background(MaterialTheme.colorScheme.background)
         ) {
             when {
                 uiState.isLoading -> {
@@ -117,7 +118,7 @@ fun CartScreen(
                 }
                 uiState.error != null -> {
                     ErrorState(
-                        message = uiState.error!!,
+                        message = uiState.error ?: "Something went wrong",
                         onRetry = { viewModel.clearError() },
                         modifier = Modifier.align(Alignment.Center)
                     )
@@ -169,6 +170,17 @@ fun CartScreen(
                         item {
                             PriceBreakdownCard(uiState.totals)
                         }
+
+                        if (uiState.recommendations.isNotEmpty()) {
+                            item {
+                                com.company.krishivishal.ui.product.components.RecommendationSection(
+                                    title = "You May Also Need",
+                                    products = uiState.recommendations,
+                                    onProductClick = { onNavigateToProduct(it.id) },
+                                    onAddToCart = { viewModel.addProductToCart(it) }
+                                )
+                            }
+                        }
                         
                         item { Spacer(modifier = Modifier.height(100.dp)) }
                     }
@@ -182,8 +194,8 @@ fun CartScreen(
 fun PriceBreakdownCard(totals: com.company.krishivishal.domain.usecase.cart.CartTotals) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFEEEEEE))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Price Details (${totals.totalQuantity} Items)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -244,8 +256,11 @@ fun CartListItem(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = if (item.cartItem.isSelected) Color.White else Color(0xFFF1F3F5)),
-        border = if (item.cartItem.isSelected) null else BorderStroke(1.dp, Color.LightGray)
+        colors = CardDefaults.cardColors(
+            containerColor = if (item.cartItem.isSelected) MaterialTheme.colorScheme.surface 
+            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        border = if (item.cartItem.isSelected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(
             modifier = Modifier
@@ -260,7 +275,7 @@ fun CartListItem(
             )
             
             AsyncImage(
-                model = item.product.images.firstOrNull() ?: item.product.imageUrl,
+                model = item.product?.images?.firstOrNull() ?: item.product?.imageUrl,
                 contentDescription = null,
                 modifier = Modifier
                     .size(70.dp)
@@ -271,7 +286,7 @@ fun CartListItem(
             Column(modifier = Modifier.weight(1f)) {
                 // Product Name and Variant grouped for accessibility
                 Column(modifier = Modifier.semantics(mergeDescendants = true) {}) {
-                    Text(item.product.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
+                    Text(item.product?.name ?: "Unknown Product", fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
                     
                     val variantLabel = item.displayVariantLabel()
                     if (variantLabel.isNotBlank()) {
@@ -279,8 +294,8 @@ fun CartListItem(
                     }
                 }
                 
-                val sellingPrice = item.variant?.price ?: if (item.product.discountedPrice > 0) item.product.discountedPrice else if (item.product.price > 0) item.product.price else item.product.basePrice
-                val mrp = item.variant?.basePrice ?: if (item.product.mrp > 0) item.product.mrp else item.product.basePrice
+                val sellingPrice = item.variant?.price ?: if ((item.product?.discountedPrice ?: 0.0) > 0) item.product?.discountedPrice ?: 0.0 else if ((item.product?.price ?: 0.0) > 0) item.product?.price ?: 0.0 else item.product?.basePrice ?: 0.0
+                val mrp = item.variant?.basePrice ?: if ((item.product?.mrp ?: 0.0) > 0) item.product?.mrp ?: 0.0 else item.product?.basePrice ?: 0.0
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("₹${sellingPrice.toInt()}", color = PrimaryGreen, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
@@ -295,9 +310,9 @@ fun CartListItem(
                     IconButton(
                         onClick = onDecrease, 
                         modifier = Modifier.size(28.dp),
-                        colors = IconButtonDefaults.iconButtonColors(containerColor = Color.White)
+                        colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                     ) {
-                        Icon(Icons.Default.Remove, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Remove, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
                     }
                     Text("${item.cartItem.quantity}", modifier = Modifier.padding(horizontal = 12.dp), fontWeight = FontWeight.Bold)
                     
@@ -308,12 +323,12 @@ fun CartListItem(
                         onClick = onIncrease, 
                         enabled = canIncrease,
                         modifier = Modifier.size(28.dp),
-                        colors = IconButtonDefaults.iconButtonColors(containerColor = Color.White)
+                        colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                     ) {
                         Icon(
                             Icons.Default.Add, 
                             contentDescription = null, 
-                            tint = if (canIncrease) PrimaryGreen else Color.LightGray,
+                            tint = if (canIncrease) PrimaryGreen else MaterialTheme.colorScheme.outline,
                             modifier = Modifier.size(16.dp)
                         )
                     }

@@ -4,9 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.company.krishivishal.core.model.Order
 import com.company.krishivishal.core.model.OrderStatus
+import com.company.krishivishal.core.model.ReturnRequest
 import com.company.krishivishal.domain.usecase.auth.GetCurrentUserUseCase
 import com.company.krishivishal.domain.usecase.order.CancelOrderUseCase
 import com.company.krishivishal.domain.usecase.order.GetOrdersUseCase
+import com.company.krishivishal.data.repository.ReturnRepository
 import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.analytics.AnalyticsTracker
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -19,6 +21,7 @@ class OrderViewModel @Inject constructor(
     private val getOrdersUseCase: GetOrdersUseCase,
     private val cancelOrderUseCase: CancelOrderUseCase,
     private val getCurrentUserUseCase: GetCurrentUserUseCase,
+    private val returnRepository: ReturnRepository,
     private val analyticsTracker: AnalyticsTracker,
     private val firestore: com.google.firebase.firestore.FirebaseFirestore
 ) : ViewModel() {
@@ -29,9 +32,13 @@ class OrderViewModel @Inject constructor(
     private val _billTemplate = MutableStateFlow("standard")
     val billTemplate: StateFlow<String> = _billTemplate.asStateFlow()
 
+    private val _appConfig = MutableStateFlow(com.company.krishivishal.core.model.AppConfig())
+    val appConfig: StateFlow<com.company.krishivishal.core.model.AppConfig> = _appConfig.asStateFlow()
+
     init {
         loadOrders()
         observeBillTemplate()
+        observeAppConfig()
     }
 
     private fun observeBillTemplate() {
@@ -40,6 +47,18 @@ class OrderViewModel @Inject constructor(
                 .addSnapshotListener { snapshot, _ ->
                     val template = snapshot?.getString("activeBillTemplate") ?: "standard"
                     _billTemplate.value = template
+                }
+        }
+    }
+
+    private fun observeAppConfig() {
+        viewModelScope.launch {
+            firestore.collection("settings").document("config")
+                .addSnapshotListener { snapshot, _ ->
+                    val config = snapshot?.toObject(com.company.krishivishal.core.model.AppConfig::class.java)
+                    if (config != null) {
+                        _appConfig.value = config
+                    }
                 }
         }
     }
@@ -90,11 +109,39 @@ class OrderViewModel @Inject constructor(
             loadOrders()
         }
     }
+
+    fun requestReturn(order: Order, reason: String = "Customer requested return") {
+        viewModelScope.launch {
+            _uiState.update { it.copy(returnRequestResource = Resource.Loading()) }
+
+            val request = ReturnRequest(
+                orderId = order.id,
+                userId = order.userId,
+                productId = order.items.firstOrNull()?.productId ?: "general",
+                productName = order.items.firstOrNull()?.productName ?: "Ordered Item",
+                reason = reason,
+                status = "REQUESTED"
+            )
+
+            returnRepository.requestReturn(request).collectLatest { resource ->
+                _uiState.update { it.copy(returnRequestResource = resource) }
+                if (resource is Resource.Success) {
+                    // Update local order status to indicate return is initiated
+                    updateOrderStatus(order.id, "RETURNED")
+                }
+            }
+        }
+    }
+
+    fun clearReturnState() {
+        _uiState.update { it.copy(returnRequestResource = null) }
+    }
 }
 
 data class OrderHistoryUiState(
     val isLoading: Boolean = false,
     val orders: List<Order> = emptyList(),
     val error: String? = null,
-    val cancelOrderResource: Resource<Unit>? = null
+    val cancelOrderResource: Resource<Unit>? = null,
+    val returnRequestResource: Resource<String>? = null
 )

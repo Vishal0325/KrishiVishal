@@ -12,6 +12,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Filter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -19,12 +20,15 @@ import java.util.UUID
 import com.company.krishivishal.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.Timestamp
 import com.company.krishivishal.core.model.ReviewItem
 import androidx.paging.PagingData
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import com.company.krishivishal.data.paging.ProductPagingSource
+import com.google.firebase.functions.FirebaseFunctions
+import com.company.krishivishal.core.model.RecommendationResult
 
 fun DocumentSnapshot.toProduct(): Product? {
     val data = this.data ?: return null
@@ -45,13 +49,22 @@ fun DocumentSnapshot.toProduct(): Product? {
             classification = (data["classification"] ?: data["classification_type"] ?: "").toString()
             subCategory = (data["subCategory"] ?: "").toString()
             
-            val firebaseUrl = (data["imageUrl"] ?: data["image"] ?: data["thumb"] ?: "").toString()
-            val firebaseImages = (data["images"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            val firebaseUrl = (data["imageUrl"] ?: data["image"] ?: data["thumb"] ?: "").toString().trim()
+            val firebaseImages = (data["images"] as? List<*>)?.mapNotNull { it?.toString() } 
+                ?: (data["imageUrls"] as? List<*>)?.mapNotNull { it?.toString() }
+                ?: (data["gallery"] as? List<*>)?.mapNotNull { it?.toString() }
+                ?: emptyList()
             
-            imageUrl = firebaseUrl
-            images = firebaseImages
-            if (imageUrl.isEmpty() && images.isNotEmpty()) {
+            // Clean up potentially weird string "null" from Firestore
+            imageUrl = if (firebaseUrl == "null") "" else firebaseUrl
+            images = firebaseImages.filter { it.isNotBlank() && it != "null" }
+            
+            if (imageUrl.isBlank() && images.isNotEmpty()) {
                 imageUrl = images.first()
+            }
+            // Ensure imageUrl is in the images list if not already there
+            if (imageUrl.isNotBlank() && !images.contains(imageUrl)) {
+                images = listOf(imageUrl) + images
             }
             
             mrp = (data["mrp"] ?: data["basePrice"] ?: data["price"] ?: 0.0).toString().toDoubleOrNull() ?: 0.0
@@ -141,6 +154,25 @@ fun DocumentSnapshot.toProduct(): Product? {
 
             isActive = (data["isActive"] ?: true).toString().toBoolean()
             isReturnable = (data["isReturnable"] ?: true).toString().toBoolean()
+
+            technicalName = (data["technicalName"] ?: "").toString()
+            technicalNameNormalized = (data["technicalNameNormalized"] ?: "").toString()
+            priceBand = (data["priceBand"] ?: "").toString()
+            packSizeBand = (data["packSizeBand"] ?: "").toString()
+            salesCount = (data["salesCount"] ?: 0).toString().toIntOrNull() ?: 0
+            salesCount90d = (data["salesCount90d"] ?: 0).toString().toIntOrNull() ?: 0
+            viewCount = (data["viewCount"] ?: 0).toString().toIntOrNull() ?: 0
+            searchCount = (data["searchCount"] ?: 0).toString().toIntOrNull() ?: 0
+            tags = (data["tags"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            targetPestIds = (data["targetPestIds"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+
+            usageInstructionsField = (data["usageInstructions"] ?: "").toString()
+            targetCrops = (data["targetCrops"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            targetPests = (data["targetPests"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            targetDiseases = (data["targetDiseases"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            applicationMethod = (data["applicationMethod"] ?: "").toString()
+            safetyNotes = (data["safetyNotes"] ?: "").toString()
+            mixingCompatibility = (data["mixingCompatibility"] ?: "").toString()
         }
     } catch (e: Exception) {
         android.util.Log.e("ProductRepo", "Error mapping product ${this.id}: ${e.message}")
@@ -161,22 +193,43 @@ interface ProductRepository {
     suspend fun seedProducts()
     fun addReview(review: Review): Flow<Resource<Unit>>
     fun getReviews(productId: String): Flow<Resource<List<Review>>>
+    fun requestStockNotification(productId: String, userId: String): Flow<Resource<Unit>>
+    fun getRecommendations(productId: String): Flow<Resource<RecommendationResult>>
 }
 
 @Singleton
 class ProductRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val productDao: ProductDao,
+    private val functions: FirebaseFunctions,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : ProductRepository {
 
     override fun getProducts(): Flow<Resource<List<Product>>> = networkBoundResource(
-        query = { productDao.getAllProducts() },
+        query = { 
+            productDao.getAllProducts().map { products ->
+                products.map { product ->
+                    val variants = productDao.getVariantsByProductIdOnce(product.id)
+                    product.apply { this.variants = variants }
+                }
+            }
+        },
         fetch = {
             firestore.collection("products").get().await().mapNotNull { it.toProduct() }
         },
         saveFetchResult = { products ->
             productDao.insertProducts(products)
+            
+            // Sync Crop Junction Table for fast indexed lookups
+            val cropRefs = products.flatMap { product ->
+                product.associatedCropIds.map { cropId ->
+                    com.company.krishivishal.core.model.ProductCropCrossRef(product.id, cropId)
+                }
+            }
+            if (cropRefs.isNotEmpty()) {
+                productDao.insertProductCropCrossRefs(cropRefs)
+            }
+
             val allVariants = products.flatMap { p -> 
                 p.variants.onEach { v -> if (v.productId.isEmpty()) v.productId = p.id } 
             }
@@ -188,7 +241,7 @@ class ProductRepositoryImpl @Inject constructor(
     )
 
     override fun getProductsPaged(pageSize: Int): Flow<PagingData<Product>> {
-        return Pager(
+        return Pager<QuerySnapshot, Product>(
             config = PagingConfig(
                 pageSize = pageSize,
                 enablePlaceholders = false
@@ -198,12 +251,30 @@ class ProductRepositoryImpl @Inject constructor(
     }
 
     override fun getProductsByCategory(category: String): Flow<Resource<List<Product>>> = networkBoundResource(
-        query = { productDao.getProductsByCategory(category) },
+        query = { 
+            productDao.getProductsByCategory(category).map { products ->
+                products.map { product ->
+                    val variants = productDao.getVariantsByProductIdOnce(product.id)
+                    product.apply { this.variants = variants }
+                }
+            }
+        },
         fetch = {
             firestore.collection("products").whereEqualTo("category", category).get().await().mapNotNull { it.toProduct() }
         },
         saveFetchResult = { products ->
             productDao.insertProducts(products)
+            
+            // Sync Crop Junction Table for fast indexed lookups
+            val cropRefs = products.flatMap { product ->
+                product.associatedCropIds.map { cropId ->
+                    com.company.krishivishal.core.model.ProductCropCrossRef(product.id, cropId)
+                }
+            }
+            if (cropRefs.isNotEmpty()) {
+                productDao.insertProductCropCrossRefs(cropRefs)
+            }
+
             val allVariants = products.flatMap { p -> 
                 p.variants.onEach { v -> if (v.productId.isEmpty()) v.productId = p.id } 
             }
@@ -215,12 +286,30 @@ class ProductRepositoryImpl @Inject constructor(
     )
 
     override fun getProductsByBrand(brand: String): Flow<Resource<List<Product>>> = networkBoundResource(
-        query = { productDao.getProductsByBrand(brand) },
+        query = { 
+            productDao.getProductsByBrand(brand).map { products ->
+                products.map { product ->
+                    val variants = productDao.getVariantsByProductIdOnce(product.id)
+                    product.apply { this.variants = variants }
+                }
+            }
+        },
         fetch = {
             firestore.collection("products").whereEqualTo("brand", brand).get().await().mapNotNull { it.toProduct() }
         },
         saveFetchResult = { products ->
             productDao.insertProducts(products)
+            
+            // Sync Crop Junction Table for fast indexed lookups
+            val cropRefs = products.flatMap { product ->
+                product.associatedCropIds.map { cropId ->
+                    com.company.krishivishal.core.model.ProductCropCrossRef(product.id, cropId)
+                }
+            }
+            if (cropRefs.isNotEmpty()) {
+                productDao.insertProductCropCrossRefs(cropRefs)
+            }
+
             val allVariants = products.flatMap { p -> 
                 p.variants.onEach { v -> if (v.productId.isEmpty()) v.productId = p.id } 
             }
@@ -232,12 +321,30 @@ class ProductRepositoryImpl @Inject constructor(
     )
 
     override fun getProductsByCrop(cropId: String, cropName: String): Flow<Resource<List<Product>>> = networkBoundResource(
-        query = { productDao.getProductsByCrop(cropId, cropName) },
+        query = { 
+            productDao.getProductsByCrop(cropId, cropName).map { products ->
+                products.map { product ->
+                    val variants = productDao.getVariantsByProductIdOnce(product.id)
+                    product.apply { this.variants = variants }
+                }
+            }
+        },
         fetch = {
             firestore.collection("products").whereArrayContains("associatedCropIds", cropId).get().await().mapNotNull { it.toProduct() }
         },
         saveFetchResult = { products ->
             productDao.insertProducts(products)
+            
+            // Sync Crop Junction Table for fast indexed lookups
+            val cropRefs = products.flatMap { product ->
+                product.associatedCropIds.map { cropId ->
+                    com.company.krishivishal.core.model.ProductCropCrossRef(product.id, cropId)
+                }
+            }
+            if (cropRefs.isNotEmpty()) {
+                productDao.insertProductCropCrossRefs(cropRefs)
+            }
+
             val allVariants = products.flatMap { p -> 
                 p.variants.onEach { v -> if (v.productId.isEmpty()) v.productId = p.id } 
             }
@@ -249,7 +356,14 @@ class ProductRepositoryImpl @Inject constructor(
     )
 
     override fun getProductDetails(productId: String): Flow<Resource<Product?>> = networkBoundResource(
-        query = { productDao.getProductByIdFlow(productId) },
+        query = { 
+            productDao.getProductByIdFlow(productId).map { product ->
+                if (product != null) {
+                    val variants = productDao.getVariantsByProductIdOnce(product.id)
+                    product.apply { this.variants = variants }
+                } else null
+            }
+        },
         fetch = {
             firestore.collection("products").document(productId).get().await().toProduct()
         },
@@ -339,8 +453,8 @@ class ProductRepositoryImpl @Inject constructor(
             // 1. Delete from Firestore
             firestore.collection("products").document(productId).delete().await()
             
-            // 2. Delete from Room
-            productDao.deleteProductById(productId)
+            // 2. Delete from Room (including all relations: cart, wishlist, crop refs, etc.)
+            productDao.deleteProductAndRelations(productId)
             
             emit(Resource.Success(Unit))
         } catch (e: Exception) {
@@ -381,5 +495,97 @@ class ProductRepositoryImpl @Inject constructor(
             .await()
             .toObjects(Review::class.java)
     }
+
+    override fun requestStockNotification(productId: String, userId: String): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
+        val request = mapOf(
+            "productId" to productId,
+            "userId" to userId,
+            "timestamp" to com.google.firebase.Timestamp.now(),
+            "status" to "PENDING"
+        )
+        firestore.collection("stock_notification_requests").add(request).await()
+    }
+
+    override fun getRecommendations(productId: String): Flow<Resource<RecommendationResult>> = kotlinx.coroutines.flow.flow {
+        emit(Resource.Loading())
+        try {
+            val data = hashMapOf(
+                "productId" to productId,
+                "maxResults" to 15
+            )
+
+            val result = functions
+                .getHttpsCallable("getRecommendations")
+                .call(data)
+                .await()
+
+            val sections = result.data as? Map<String, Any> ?: emptyMap()
+            
+            fun parseList(key: String): List<Product> {
+                val list = sections[key] as? List<Map<String, Any>> ?: return emptyList()
+                return list.mapNotNull { map ->
+                    try {
+                        Product().apply {
+                            id = map["id"]?.toString() ?: ""
+                            name = map["name"]?.toString() ?: ""
+                            brand = map["brand"]?.toString() ?: ""
+                            price = (map["price"] ?: 0.0).toString().toDoubleOrNull() ?: 0.0
+                            imageUrl = map["imageUrl"]?.toString() ?: ""
+                            composition = map["composition"]?.toString() ?: ""
+                            category = map["category"]?.toString() ?: ""
+                            technicalNameNormalized = map["technicalNameNormalized"]?.toString() ?: ""
+                            recommendationReason = map["recommendationReason"]?.toString() ?: ""
+                        }
+                    } catch (e: Exception) { null }
+                }
+            }
+
+            val finalResult = RecommendationResult(
+                technical = parseList("technical"),
+                similar = parseList("similar"),
+                related = parseList("related")
+            )
+
+            // Cache to Room
+            productDao.deleteRecommendationsForProduct(productId)
+            val crossRefs = mutableListOf<com.company.krishivishal.core.model.ProductRecommendationCrossRef>()
+            
+            fun addRefs(products: List<Product>, type: String) {
+                products.forEachIndexed { index, p ->
+                    crossRefs.add(com.company.krishivishal.core.model.ProductRecommendationCrossRef(
+                        sourceProductId = productId,
+                        recommendedProductId = p.id,
+                        type = type,
+                        position = index
+                    ))
+                }
+            }
+            
+            addRefs(finalResult.technical, "technical")
+            addRefs(finalResult.similar, "similar")
+            addRefs(finalResult.related, "related")
+            
+            productDao.insertRecommendations(crossRefs)
+            // Also ensure products themselves are in DAO (shallow)
+            productDao.insertProducts(finalResult.technical + finalResult.similar + finalResult.related)
+
+            emit(Resource.Success(finalResult))
+        } catch (e: Exception) {
+            // Fallback to local cache
+            try {
+                val technical = productDao.getRecommendationsByType(productId, "technical")
+                val similar = productDao.getRecommendationsByType(productId, "similar")
+                val related = productDao.getRecommendationsByType(productId, "related")
+                
+                if (technical.isNotEmpty() || similar.isNotEmpty() || related.isNotEmpty()) {
+                    emit(Resource.Success(RecommendationResult(technical, similar, related)))
+                } else {
+                    emit(Resource.Error(e.message ?: "Recommendations unavailable"))
+                }
+            } catch (localEx: Exception) {
+                emit(Resource.Error(e.message ?: "Recommendations unavailable"))
+            }
+        }
+    }.flowOn(ioDispatcher)
 }
 

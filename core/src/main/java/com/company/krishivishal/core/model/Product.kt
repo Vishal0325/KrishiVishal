@@ -29,7 +29,9 @@ data class ReviewItem(
     indices = [
         androidx.room.Index("category"),
         androidx.room.Index("brand"),
-        androidx.room.Index("cropId")
+        androidx.room.Index("cropId"),
+        androidx.room.Index("technicalNameNormalized"),
+        androidx.room.Index("isActive")
     ]
 )
 data class Product(
@@ -217,8 +219,10 @@ data class Product(
     @set:PropertyName("weight")
     var weight: String = "",
 
-    @androidx.room.Ignore
-    @IgnoredOnParcel
+    @ColumnInfo(name = "images")
+    @SerializedName("images")
+    @get:PropertyName("images")
+    @set:PropertyName("images")
     var images: List<String> = emptyList(),
 
     @androidx.room.Ignore
@@ -248,8 +252,8 @@ data class Product(
 
     @androidx.room.Ignore
     @IgnoredOnParcel
-    @get:Exclude
-    @set:Exclude
+    @get:PropertyName("stock")
+    @set:PropertyName("stock")
     var stock: Int = 0,
 
     @androidx.room.Ignore
@@ -262,5 +266,154 @@ data class Product(
 
     @androidx.room.Ignore
     @IgnoredOnParcel
-    var herbicideMetadata: Map<String, Any?>? = null
+    var herbicideMetadata: Map<String, Any?>? = null,
+
+    @ColumnInfo(name = "hsnCode")
+    @SerializedName("hsnCode")
+    @get:PropertyName("hsnCode")
+    @set:PropertyName("hsnCode")
+    var hsnCode: String = "",
+
+    @ColumnInfo(name = "gstRate")
+    @SerializedName("gstRate")
+    @get:PropertyName("gstRate")
+    @set:PropertyName("gstRate")
+    var gstRate: Double = 0.0,
+
+    @androidx.room.Ignore
+    @IgnoredOnParcel
+    @get:Exclude
+    @set:Exclude
+    var costPrice: Double = 0.0,
+
+    @ColumnInfo(name = "isTaxInclusive")
+    @SerializedName("isTaxInclusive")
+    @get:PropertyName("isTaxInclusive")
+    @set:PropertyName("isTaxInclusive")
+    var isTaxInclusive: Boolean = true,
+
+    @ColumnInfo(name = "technicalName")
+    @SerializedName("technicalName")
+    @get:PropertyName("technicalName")
+    @set:PropertyName("technicalName")
+    var technicalName: String = "",
+
+    @ColumnInfo(name = "technicalNameNormalized")
+    @SerializedName("technicalNameNormalized")
+    @get:PropertyName("technicalNameNormalized")
+    @set:PropertyName("technicalNameNormalized")
+    var technicalNameNormalized: String = "",
+
+    @ColumnInfo(name = "priceBand")
+    @SerializedName("priceBand")
+    @get:PropertyName("priceBand")
+    @set:PropertyName("priceBand")
+    var priceBand: String = "",
+
+    @ColumnInfo(name = "packSizeBand")
+    @SerializedName("packSizeBand")
+    @get:PropertyName("packSizeBand")
+    @set:PropertyName("packSizeBand")
+    var packSizeBand: String = "",
+
+    @ColumnInfo(name = "salesCount")
+    @SerializedName("salesCount")
+    @get:PropertyName("salesCount")
+    @set:PropertyName("salesCount")
+    var salesCount: Int = 0,
+
+    @ColumnInfo(name = "salesCount90d")
+    @SerializedName("salesCount90d")
+    @get:PropertyName("salesCount90d")
+    @set:PropertyName("salesCount90d")
+    var salesCount90d: Int = 0,
+
+    @ColumnInfo(name = "viewCount")
+    @SerializedName("viewCount")
+    @get:PropertyName("viewCount")
+    @set:PropertyName("viewCount")
+    var viewCount: Int = 0,
+
+    @ColumnInfo(name = "searchCount")
+    @SerializedName("searchCount")
+    @get:PropertyName("searchCount")
+    @set:PropertyName("searchCount")
+    var searchCount: Int = 0,
+
+    @ColumnInfo(name = "tags")
+    @SerializedName("tags")
+    @get:PropertyName("tags")
+    @set:PropertyName("tags")
+    var tags: List<String> = emptyList(),
+
+    @ColumnInfo(name = "targetPestIds")
+    @SerializedName("targetPestIds")
+    @get:PropertyName("targetPestIds")
+    @set:PropertyName("targetPestIds")
+    var targetPestIds: List<String> = emptyList(),
+
+    @androidx.room.Ignore
+    @IgnoredOnParcel
+    var recommendationReason: String = "",
+
+    @ColumnInfo(name = "usageInstructions")
+    @SerializedName("usageInstructions")
+    @get:PropertyName("usageInstructions")
+    @set:PropertyName("usageInstructions")
+    var usageInstructionsField: String = "",
+
+    @ColumnInfo(name = "targetCrops")
+    @SerializedName("targetCrops")
+    @get:PropertyName("targetCrops")
+    @set:PropertyName("targetCrops")
+    var targetCrops: List<String> = emptyList(),
+
+    @ColumnInfo(name = "targetPests")
+    @SerializedName("targetPests")
+    @get:PropertyName("targetPests")
+    @set:PropertyName("targetPests")
+    var targetPests: List<String> = emptyList(),
+
+    @ColumnInfo(name = "targetDiseases")
+    @SerializedName("targetDiseases")
+    @get:PropertyName("targetDiseases")
+    @set:PropertyName("targetDiseases")
+    var targetDiseases: List<String> = emptyList(),
+
+    @ColumnInfo(name = "applicationMethod")
+    @SerializedName("applicationMethod")
+    @get:PropertyName("applicationMethod")
+    @set:PropertyName("applicationMethod")
+    var applicationMethod: String = "",
+
+    @ColumnInfo(name = "safetyNotes")
+    @SerializedName("safetyNotes")
+    @get:PropertyName("safetyNotes")
+    @set:PropertyName("safetyNotes")
+    var safetyNotes: String = "",
+
+    @ColumnInfo(name = "mixingCompatibility")
+    @SerializedName("mixingCompatibility")
+    @get:PropertyName("mixingCompatibility")
+    @set:PropertyName("mixingCompatibility")
+    var mixingCompatibility: String = ""
 ) : Parcelable
+
+@Parcelize
+data class RecommendationResult(
+    val technical: List<Product> = emptyList(),
+    val similar: List<Product> = emptyList(),
+    val related: List<Product> = emptyList()
+) : Parcelable
+
+@Entity(
+    tableName = "product_recommendations",
+    primaryKeys = ["sourceProductId", "recommendedProductId", "type"]
+)
+data class ProductRecommendationCrossRef(
+    val sourceProductId: String,
+    val recommendedProductId: String,
+    val type: String, // "technical", "similar", "related"
+    val score: Int = 0,
+    val position: Int = 0
+)

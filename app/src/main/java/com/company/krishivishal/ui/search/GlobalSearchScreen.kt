@@ -1,5 +1,11 @@
 package com.company.krishivishal.ui.search
 
+import android.app.Activity
+import android.content.Intent
+import android.speech.RecognizerIntent
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -11,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -33,6 +41,7 @@ import com.company.krishivishal.core.model.RecentSearch
 import com.company.krishivishal.core.model.SearchResult
 import com.company.krishivishal.ui.theme.PrimaryGreen
 import com.company.krishivishal.ui.theme.PoppinsFamily
+import java.util.Locale
 
 /**
  * Global Search Screen - Material3 Design
@@ -45,6 +54,32 @@ fun GlobalSearchScreen(
     viewModel: SearchViewModel = hiltViewModel()
 ) {
     val searchState by viewModel.searchState.collectAsState()
+    val context = LocalContext.current
+
+    val voiceSearchLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val data = result.data
+            val spokenText = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spokenText.isNullOrBlank()) {
+                viewModel.updateSearchQuery(spokenText)
+            }
+        }
+    }
+
+    val onVoiceSearch = {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "उत्पाद का नाम बोलें (Speak product name)...")
+        }
+        try {
+            voiceSearchLauncher.launch(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Voice search is not supported on this device", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -55,13 +90,13 @@ fun GlobalSearchScreen(
                         Icon(Icons.Default.Close, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White),
-                modifier = Modifier.elevation(4.dp)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.shadow(4.dp)
             )
         },
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFFAFAFA))
+            .background(MaterialTheme.colorScheme.background)
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -75,7 +110,8 @@ fun GlobalSearchScreen(
                 SearchBarSection(
                     query = searchState.query,
                     onQueryChange = { viewModel.updateSearchQuery(it) },
-                    onClear = { viewModel.updateSearchQuery("") }
+                    onClear = { viewModel.updateSearchQuery("") },
+                    onVoiceSearch = onVoiceSearch
                 )
             }
 
@@ -96,7 +132,7 @@ fun GlobalSearchScreen(
             // Error State
             if (searchState.error != null) {
                 item {
-                    ErrorMessageCard(searchState.error!!)
+                    ErrorMessageCard(searchState.error ?: "Something went wrong")
                 }
             }
 
@@ -156,8 +192,11 @@ fun GlobalSearchScreen(
 fun SearchBarSection(
     query: String,
     onQueryChange: (String) -> Unit,
-    onClear: () -> Unit
+    onClear: () -> Unit,
+    onVoiceSearch: () -> Unit
 ) {
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
@@ -181,15 +220,26 @@ fun SearchBarSection(
             )
         },
         trailingIcon = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = onClear, modifier = Modifier.size(24.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = onClear, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Clear",
+                            tint = Color.Gray,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                IconButton(onClick = onVoiceSearch, modifier = Modifier.size(28.dp)) {
                     Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Clear",
-                        tint = Color.Gray,
-                        modifier = Modifier.size(20.dp)
+                        Icons.Default.Mic,
+                        contentDescription = "Voice Search",
+                        tint = PrimaryGreen,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
+                Spacer(modifier = Modifier.width(4.dp))
             }
         },
         singleLine = true,
@@ -201,6 +251,12 @@ fun SearchBarSection(
         ),
         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
             imeAction = ImeAction.Search
+        ),
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+            onSearch = {
+                keyboardController?.hide()
+                // The search is already reactive via ViewModel's queryFlow debounce
+            }
         ),
         textStyle = androidx.compose.ui.text.TextStyle(
             fontFamily = PoppinsFamily,
@@ -224,7 +280,7 @@ fun SearchResultCard(
             .fillMaxWidth()
             .clickable { onProductClick() },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
@@ -241,7 +297,7 @@ fun SearchResultCard(
                 modifier = Modifier
                     .size(80.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFFF5F5F5)),
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentScale = ContentScale.Crop
             )
 
@@ -258,38 +314,42 @@ fun SearchResultCard(
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
                     fontFamily = PoppinsFamily,
-                    maxLines = 2
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
 
                 // Category Tag Row (Category + Discount)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
+                    // Category chip — constrained so long names don't overflow
                     Surface(
-                        color = Color(0xFFE8F5E9),
+                        color = MaterialTheme.colorScheme.primaryContainer,
                         shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.wrapContentWidth()
+                        modifier = Modifier.widthIn(max = 130.dp)
                     ) {
                         Text(
                             result.category,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = PrimaryGreen,
+                            color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            fontFamily = PoppinsFamily
+                            fontFamily = PoppinsFamily,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
 
-                    val calculatedDiscount = if (result.price > result.discountedPrice) {
+                    val calculatedDiscount = if (result.price > 0 && result.discountedPrice > 0 && result.price > result.discountedPrice) {
                         (((result.price - result.discountedPrice) / result.price) * 100).toInt()
                     } else 0
 
                     if (calculatedDiscount > 0) {
                         Surface(
                             color = Color(0xFFFF9800),
-                            shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier.wrapContentWidth()
+                            shape = RoundedCornerShape(6.dp)
                         ) {
                             Text(
                                 "$calculatedDiscount% OFF",
@@ -303,50 +363,56 @@ fun SearchResultCard(
                     }
                 }
 
-                // Price
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        "₹${result.discountedPrice.toInt()}",
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 16.sp,
-                        color = PrimaryGreen,
-                        fontFamily = PoppinsFamily
-                    )
-                    if (result.price > result.discountedPrice) {
+                // Price — guard against zero/missing values
+                val displayPrice = if (result.discountedPrice > 0) result.discountedPrice else result.price
+                val hasDiscount = result.price > 0 && result.discountedPrice > 0 && result.price > result.discountedPrice
+
+                if (displayPrice > 0) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Text(
-                            "₹${result.price.toInt()}",
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 13.sp,
-                            color = Color.Gray,
-                            textDecoration = TextDecoration.LineThrough,
+                            "₹${displayPrice.toInt()}",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 16.sp,
+                            color = PrimaryGreen,
                             fontFamily = PoppinsFamily
                         )
+                        if (hasDiscount) {
+                            Text(
+                                "₹${result.price.toInt()}",
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 13.sp,
+                                color = Color.Gray,
+                                textDecoration = TextDecoration.LineThrough,
+                                fontFamily = PoppinsFamily
+                            )
+                        }
                     }
                 }
 
-                // Associated Crops Tags (New)
-                if (result.cropAssociatedIds.isNotEmpty()) {
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
+                // Associated Crops Tags — use readable names, hide if none available
+                val cropNames = result.cropAssociatedNames.filter { it.isNotBlank() }
+                if (cropNames.isNotEmpty()) {
+                    Row(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        result.cropAssociatedIds.take(3).forEach { cropId ->
+                        cropNames.take(2).forEach { cropName ->
                             Surface(
-                                color = Color(0xFFFFF8E1), // Light Yellow/Amber for crops
+                                color = Color(0xFFFFF8E1),
                                 shape = RoundedCornerShape(4.dp),
                                 border = BorderStroke(0.5.dp, Color(0xFFFFD54F))
                             ) {
                                 Text(
-                                    cropId.uppercase(),
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold,
+                                    cropName.replaceFirstChar { it.uppercase() }.take(14),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.SemiBold,
                                     color = Color(0xFFF57F17),
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                    fontFamily = PoppinsFamily
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    fontFamily = PoppinsFamily,
+                                    maxLines = 1
                                 )
                             }
                         }
@@ -471,7 +537,7 @@ fun RecentSearchItem(
                 search.query,
                 fontSize = 14.sp,
                 fontFamily = PoppinsFamily,
-                color = Color(0xFF424242)
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
 
@@ -515,7 +581,7 @@ fun NoResultsView(query: String) {
             fontSize = 20.sp,
             fontFamily = PoppinsFamily,
             textAlign = TextAlign.Center,
-            color = Color.Black
+            color = MaterialTheme.colorScheme.onBackground
         )
 
         Text(
@@ -586,7 +652,7 @@ fun InitialSearchView() {
         val popularSearches = listOf("Fertilizer", "Seeds", "Pesticide", "Organic")
         popularSearches.forEach { search ->
             Surface(
-                color = Color(0xFFF5F5F5),
+                color = MaterialTheme.colorScheme.surfaceVariant,
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()

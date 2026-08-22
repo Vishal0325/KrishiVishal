@@ -3,29 +3,39 @@ package com.company.krishivishal.ui.home
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.company.krishivishal.R
 import com.company.krishivishal.core.model.Product
+import com.company.krishivishal.core.model.Category
+import com.company.krishivishal.core.model.Crop
+import com.company.krishivishal.core.model.BannerItem
 import com.company.krishivishal.ui.components.EmptyState
 import com.company.krishivishal.ui.components.ErrorState
 import com.company.krishivishal.ui.components.LoginRequiredDialog
@@ -33,14 +43,20 @@ import com.company.krishivishal.ui.home.components.*
 import com.company.krishivishal.ui.theme.PrimaryGreen
 import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.ShareUtils
+import com.company.krishivishal.ui.notification.NotificationViewModel
 import kotlinx.coroutines.flow.collectLatest
+
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemContentType
+import androidx.paging.compose.itemKey
+import androidx.paging.LoadState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onBrandClick: (String) -> Unit,
-    onCategoryClick: (com.company.krishivishal.core.model.Category) -> Unit,
-    onCropClick: (com.company.krishivishal.core.model.Crop) -> Unit,
+    onCategoryClick: (Category) -> Unit,
+    onCropClick: (Crop) -> Unit,
     onProductClick: (Product) -> Unit,
     onBuyNowClick: (Product) -> Unit,
     onCartClick: () -> Unit,
@@ -50,9 +66,16 @@ fun HomeScreen(
     onViewAllCrops: () -> Unit = {},
     onViewAllBrands: () -> Unit = {},
     onViewAllProducts: () -> Unit = {},
+    onSearchClick: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val pagedProducts = viewModel.pagedProducts.collectAsLazyPagingItems()
+    
+    // Move notification logic to top level for stability
+    val notificationViewModel: NotificationViewModel = hiltViewModel()
+    val unreadCount by notificationViewModel.unreadCount.collectAsState(initial = 0)
+    
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var showLoginDialog by remember { mutableStateOf(false) }
@@ -80,7 +103,10 @@ fun HomeScreen(
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = uiState.isRefreshing,
-            onRefresh = { viewModel.refreshAll() },
+            onRefresh = { 
+                viewModel.refreshAll()
+                pagedProducts.refresh()
+            },
             state = pullToRefreshState,
             modifier = Modifier.padding(padding),
             indicator = {
@@ -98,11 +124,8 @@ fun HomeScreen(
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background)
             ) {
-                // Header
+                // Header, Search Bar, Suggestions, Sorting, Banners, Categories, Crops, Brands (Same as before)
                 item {
-                    val notificationViewModel: com.company.krishivishal.ui.notification.NotificationViewModel = hiltViewModel()
-                    val unreadCount by notificationViewModel.unreadCount.collectAsState(initial = 0)
-                    
                     HomeHeader(
                         cartCount = uiState.cartCount,
                         unreadNotifications = unreadCount,
@@ -112,28 +135,13 @@ fun HomeScreen(
                     )
                 }
 
-                // Search Bar
                 item {
                     SearchBarSection(
-                        query = uiState.searchQuery,
-                        onQueryChange = viewModel::onSearchQueryChange
+                        onSearchClick = onSearchClick
                     )
                 }
 
-                // Horizontal Search Suggestions
-                if (uiState.searchQuery.isNotEmpty()) {
-                    val searchResults = (uiState.products as? Resource.Success)?.data ?: emptyList()
-                    if (searchResults.isNotEmpty()) {
-                        item {
-                            SearchSuggestionsRow(
-                                products = searchResults,
-                                onProductClick = onProductClick
-                            )
-                        }
-                    }
-                }
 
-                // Sorting Options
                 item {
                     SortingSection(
                         selectedOrder = uiState.sortOrder,
@@ -142,71 +150,150 @@ fun HomeScreen(
                 }
 
                 if (uiState.searchQuery.isEmpty()) {
-                    // Banners
                     item {
-                        if (uiState.isLoadingFeed) {
-                            BannerShimmer()
-                        } else {
-                            BannerSection(Resource.Success(uiState.banners))
-                        }
+                        if (uiState.isLoadingFeed) BannerShimmer()
+                        else BannerSection(Resource.Success(uiState.banners))
                     }
 
-                    // Categories
                     item {
-                        SectionHeader(
-                            title = stringResource(R.string.top_categories),
-                            onViewAll = onViewAllCategories
-                        )
-                        if (uiState.isLoadingFeed) {
-                            CategoryRowShimmer()
-                        } else {
+                        SectionHeader(title = stringResource(R.string.top_categories), onViewAll = onViewAllCategories)
+                        if (uiState.isLoadingFeed) CategoryRowShimmer()
+                        else {
                             LazyRow(
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                items(uiState.categories, key = { it.id }) { category ->
-                                    HomeCategoryItem(
-                                        category = category,
-                                        onClick = { onCategoryClick(category) })
+                                items(uiState.categories, key = { it.id.ifEmpty { "cat_${it.name}" } }) { category ->
+                                    HomeCategoryItem(category = category, onClick = { onCategoryClick(category) })
                                 }
                             }
                         }
                     }
 
-                    // Crops
                     item {
-                        SectionHeader(
-                            title = stringResource(R.string.crops_label),
-                            onViewAll = onViewAllCrops
-                        )
-                        if (uiState.isLoadingFeed) {
-                            CategoryRowShimmer()
-                        } else {
+                        SectionHeader(title = stringResource(R.string.crops_label), onViewAll = onViewAllCrops)
+                        if (uiState.isLoadingFeed) CategoryRowShimmer()
+                        else {
                             LazyRow(
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                items(uiState.crops, key = { it.id }) { crop ->
+                                items(uiState.crops, key = { it.id.ifEmpty { "crop_${it.name}" } }) { crop ->
                                     HomeCropItem(crop = crop, onClick = { onCropClick(crop) })
                                 }
                             }
                         }
                     }
 
-                    // Brands
+                    // P1-4 Buy Again Section
+                    if (uiState.buyAgainProducts.isNotEmpty() && uiState.config?.ff_buy_again == true) {
+                        item {
+                            SectionHeader(title = stringResource(R.string.buy_again_title), onViewAll = {})
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(uiState.buyAgainProducts) { product ->
+                                    Box(modifier = Modifier.width(160.dp)) {
+                                        HomeProductItem(
+                                            product = product,
+                                            isWishlisted = uiState.wishlistItems.any { it.id == product.id },
+                                            onClick = { onProductClick(product) },
+                                            onAddToCart = { viewModel.addToCart(product) },
+                                            onBuyNow = { onBuyNowClick(product) },
+                                            onWishlistToggle = { viewModel.toggleWishlist(product) },
+                                            onShare = { ShareUtils.shareProduct(context, product) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // P2-1 Seasonal Picks
+                    if (uiState.seasonalProducts.isNotEmpty() && uiState.config?.ff_seasonal_recommendations == true) {
+                        item {
+                            SectionHeader(title = stringResource(R.string.seasonal_picks_title), onViewAll = {})
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(uiState.seasonalProducts) { product ->
+                                    Box(modifier = Modifier.width(160.dp)) {
+                                        HomeProductItem(
+                                            product = product,
+                                            isWishlisted = uiState.wishlistItems.any { it.id == product.id },
+                                            onClick = { onProductClick(product) },
+                                            onAddToCart = { viewModel.addToCart(product) },
+                                            onBuyNow = { onBuyNowClick(product) },
+                                            onWishlistToggle = { viewModel.toggleWishlist(product) },
+                                            onShare = { ShareUtils.shareProduct(context, product) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // P2-2 Recently Viewed
+                    if (uiState.recentlyViewedProducts.isNotEmpty() && uiState.config?.ff_personalized_home == true) {
+                        item {
+                            SectionHeader(title = stringResource(R.string.recently_viewed_title), onViewAll = {})
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(uiState.recentlyViewedProducts) { product ->
+                                    Box(modifier = Modifier.width(160.dp)) {
+                                        HomeProductItem(
+                                            product = product,
+                                            isWishlisted = uiState.wishlistItems.any { it.id == product.id },
+                                            onClick = { onProductClick(product) },
+                                            onAddToCart = { viewModel.addToCart(product) },
+                                            onBuyNow = { onBuyNowClick(product) },
+                                            onWishlistToggle = { viewModel.toggleWishlist(product) },
+                                            onShare = { ShareUtils.shareProduct(context, product) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // P2-2 Recommended for You
+                    if (uiState.personalizedProducts.isNotEmpty() && uiState.config?.ff_personalized_home == true) {
+                        item {
+                            SectionHeader(title = stringResource(R.string.recommended_for_you_title), onViewAll = {})
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(uiState.personalizedProducts) { product ->
+                                    Box(modifier = Modifier.width(160.dp)) {
+                                        HomeProductItem(
+                                            product = product,
+                                            isWishlisted = uiState.wishlistItems.any { it.id == product.id },
+                                            onClick = { onProductClick(product) },
+                                            onAddToCart = { viewModel.addToCart(product) },
+                                            onBuyNow = { onBuyNowClick(product) },
+                                            onWishlistToggle = { viewModel.toggleWishlist(product) },
+                                            onShare = { ShareUtils.shareProduct(context, product) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     item {
-                        SectionHeader(
-                            title = stringResource(R.string.popular_brands),
-                            onViewAll = onViewAllBrands
-                        )
-                        if (uiState.isLoadingFeed) {
-                            CategoryRowShimmer() // Reusing category shimmer for brands
-                        } else {
+                        SectionHeader(title = stringResource(R.string.popular_brands), onViewAll = onViewAllBrands)
+                        if (uiState.isLoadingFeed) CategoryRowShimmer()
+                        else {
                             LazyRow(
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                items(uiState.brands, key = { it.id }) { brand ->
+                                items(uiState.brands, key = { it.id.ifEmpty { "brand_${it.name}" } }) { brand ->
                                     BrandItem(brand = brand, onClick = { onBrandClick(brand.name) })
                                 }
                             }
@@ -214,7 +301,7 @@ fun HomeScreen(
                     }
                 }
 
-                // Products Section
+                // Products Section with Paging Support
                 item {
                     val title = if (uiState.searchQuery.isEmpty()) {
                         stringResource(R.string.recommended_products)
@@ -224,9 +311,80 @@ fun HomeScreen(
                     SectionHeader(title = title, onViewAll = onViewAllProducts)
                 }
 
-                when (val res = uiState.products) {
-                    is Resource.Loading -> item { ProductGridShimmer() }
-                    is Resource.Success -> {
+                if (uiState.searchQuery.isEmpty()) {
+                    // Optimized 2-column Grid for Paging3
+                    val itemCount = pagedProducts.itemCount
+                    
+                    items(
+                        count = (itemCount + 1) / 2,
+                        key = { index -> "row_$index" } // Added stable key for performance
+                    ) { rowIndex ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            val firstIndex = rowIndex * 2
+                            val secondIndex = firstIndex + 1
+                            
+                            // First Column
+                            val product1 = pagedProducts[firstIndex]
+                            if (product1 != null) {
+                                AnimatedProductItem(
+                                    product = product1,
+                                    isWishlisted = uiState.wishlistItems.any { it.id == product1.id },
+                                    onClick = { onProductClick(product1) },
+                                    onAddToCart = { viewModel.addToCart(product1) },
+                                    onBuyNow = { onBuyNowClick(product1) },
+                                    onWishlistToggle = { viewModel.toggleWishlist(product1) },
+                                    onShare = { ShareUtils.shareProduct(context, product1) }
+                                )
+                            } else if (firstIndex < itemCount) {
+                                Box(modifier = Modifier.weight(1f)) { ProductItemShimmer() }
+                            }
+
+                            // Second Column
+                            if (secondIndex < itemCount) {
+                                val product2 = pagedProducts[secondIndex]
+                                if (product2 != null) {
+                                    AnimatedProductItem(
+                                        product = product2,
+                                        isWishlisted = uiState.wishlistItems.any { it.id == product2.id },
+                                        onClick = { onProductClick(product2) },
+                                        onAddToCart = { viewModel.addToCart(product2) },
+                                        onBuyNow = { onBuyNowClick(product2) },
+                                        onWishlistToggle = { viewModel.toggleWishlist(product2) },
+                                        onShare = { ShareUtils.shareProduct(context, product2) }
+                                    )
+                                } else {
+                                    Box(modifier = Modifier.weight(1f)) { ProductItemShimmer() }
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+
+                    // Handle Loading & Error states for Paging
+                    when (pagedProducts.loadState.append) {
+                        is LoadState.Loading -> item { ProductGridShimmer() }
+                        is LoadState.Error -> item { 
+                            ErrorState(
+                                message = "Error loading more products",
+                                onRetry = { pagedProducts.retry() }
+                            )
+                        }
+                        else -> {}
+                    }
+                    
+                    if (pagedProducts.loadState.refresh is LoadState.Loading && pagedProducts.itemCount == 0) {
+                        item { ProductGridShimmer() }
+                    }
+                } else {
+                    // Search Results logic
+                    val res = uiState.products
+                    if (res is Resource.Success) {
                         val products = res.data ?: emptyList()
                         if (products.isEmpty()) {
                             item {
@@ -245,7 +403,7 @@ fun HomeScreen(
                                         .padding(horizontal = 16.dp, vertical = 8.dp),
                                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                                 ) {
-                                    row.forEach { product ->
+                                    for (product in row) {
                                         AnimatedProductItem(
                                             product = product,
                                             isWishlisted = uiState.wishlistItems.any { it.id == product.id },
@@ -256,20 +414,11 @@ fun HomeScreen(
                                             onShare = { ShareUtils.shareProduct(context, product) }
                                         )
                                     }
-                                    if (row.size == 1) {
-                                        Spacer(modifier = Modifier.weight(1f))
-                                    }
+                                    if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
                                 }
                             }
                         }
                     }
-                    is Resource.Error -> item { 
-                        ErrorState(
-                            message = res.message ?: stringResource(R.string.something_went_wrong),
-                            onRetry = { viewModel.refreshAll() }
-                        )
-                    }
-                    else -> {}
                 }
                 
                 item { Spacer(modifier = Modifier.height(20.dp)) }
@@ -360,24 +509,40 @@ fun HomeHeader(
 
 @Composable
 fun SearchBarSection(
-    query: String,
-    onQueryChange: (String) -> Unit
+    onSearchClick: () -> Unit
 ) {
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
+    OutlinedCard(
+        onClick = onSearchClick,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        placeholder = { Text(stringResource(R.string.search_products)) },
-        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
         shape = RoundedCornerShape(16.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = PrimaryGreen,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-        ),
-        singleLine = true
-    )
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.outlinedCardColors(containerColor = Color.Transparent)
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 14.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                tint = Color.Gray
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = "क्या खोज रहे हैं? (Search...)",
+                color = Color.Gray,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onSearchClick, modifier = Modifier.size(28.dp)) {
+                Icon(Icons.Default.Mic, contentDescription = "Voice Search", tint = PrimaryGreen)
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -391,7 +556,7 @@ fun SortingSection(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.padding(vertical = 4.dp)
     ) {
-        ProductSortOrder.entries.forEach { order ->
+        ProductSortOrder.values().forEach { order ->
             item {
                 FilterChip(
                     selected = selectedOrder == order,

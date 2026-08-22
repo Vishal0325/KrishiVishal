@@ -65,7 +65,7 @@ fun AdminDeliveryOrderCard(
         colors = CardDefaults.cardColors(containerColor = Color.White)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("Order #${order.id}", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("Order #${order.id.takeLast(6).uppercase()}", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             Text("Status: ${order.status}", color = Color.Gray)
 
             Spacer(modifier = Modifier.height(8.dp))

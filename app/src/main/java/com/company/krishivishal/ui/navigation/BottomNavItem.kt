@@ -39,7 +39,7 @@ sealed class BottomNavItem(
 
     object Orders : BottomNavItem(
         route = "orders",
-        title = "My Order",
+        title = "Orders",
         icon = Icons.Outlined.ShoppingBag,
         selectedIcon = Icons.Filled.ShoppingBag,
         index = 2

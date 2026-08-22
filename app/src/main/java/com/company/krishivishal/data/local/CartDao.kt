@@ -9,6 +9,9 @@ interface CartDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun addToCart(cartItem: CartItem)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCartItems(cartItems: List<CartItem>)
+
     @Update
     suspend fun updateCartItem(cartItem: CartItem)
 
@@ -30,6 +33,9 @@ interface CartDao {
 
     @Query("UPDATE cart_items SET isSelected = :isSelected WHERE userId = :userId")
     suspend fun selectAll(userId: String, isSelected: Boolean)
+
+    @Query("SELECT id FROM cart_items WHERE userId = :userId AND isSelected = 1")
+    suspend fun getSelectedCartItemIds(userId: String): List<String>
 
     @Query("DELETE FROM cart_items WHERE userId = :userId AND isSelected = 1")
     suspend fun deleteSelected(userId: String)

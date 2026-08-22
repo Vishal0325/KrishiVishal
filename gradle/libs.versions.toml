@@ -1,5 +1,5 @@
 [versions]
-agp = "8.9.1"
+agp = "8.7.3"
 kotlin = "2.0.21"
 compose-compiler = "2.0.21"
 compose-bom = "2024.12.01"
@@ -23,7 +23,7 @@ navigation = "2.8.5"
 hilt = "2.52"
 hiltNavigationCompose = "1.2.0"
 room = "2.8.4"
-retrofit = "2.9.0"
+retrofit = "2.11.0"
 okhttp = "4.12.0"
 firebaseBom = "32.8.0"
 googleServices = "4.4.4"
@@ -32,6 +32,7 @@ firebasePerfPlugin = "1.4.2"
 kotlinxCoroutinesPlayServices = "1.7.3"
 playServicesAuth = "21.0.0"
 playServicesAuthApiPhone = "18.0.2"
+playServicesLocation = "21.3.0"
 timber = "5.0.1"
 work = "2.9.1"
 hiltWork = "1.2.0"
@@ -105,12 +106,15 @@ firebase-auth = { group = "com.google.firebase", name = "firebase-auth-ktx" }
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore-ktx" }
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging-ktx" }
 firebase-storage = { group = "com.google.firebase", name = "firebase-storage-ktx" }
+firebase-functions = { group = "com.google.firebase", name = "firebase-functions-ktx" }
+firebase-appcheck = { group = "com.google.firebase", name = "firebase-appcheck-ktx" }
 firebase-appcheck-debug = { group = "com.google.firebase", name = "firebase-appcheck-debug" }
 firebase-appcheck-playintegrity = { group = "com.google.firebase", name = "firebase-appcheck-playintegrity" }
 firebase-crashlytics = { group = "com.google.firebase", name = "firebase-crashlytics-ktx" }
 firebase-perf = { group = "com.google.firebase", name = "firebase-perf" }
 play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "playServicesAuth" }
 play-services-auth-api-phone = { group = "com.google.android.gms", name = "play-services-auth-api-phone", version.ref = "playServicesAuthApiPhone" }
+play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "kotlinxCoroutinesPlayServices" }
 timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "timber" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }

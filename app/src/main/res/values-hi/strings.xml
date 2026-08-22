@@ -188,4 +188,28 @@
     <string name="download_print_invoice">डाउनलोड / प्रिंट बिल</string>
     <string name="expert_help">विशेषज्ञ सहायता</string>
     <string name="whatsapp_msg">नमस्ते कृषि विशाल, मुझे अपनी फसल के लिए विशेषज्ञ की सलाह चाहिए।</string>
+
+    <!-- Recommendations -->
+    <string name="same_technical_title">समान तकनीकी संरचना</string>
+    <string name="similar_products_title">समान उत्पाद</string>
+    <string name="related_products_title">संबंधित उत्पाद</string>
+    <string name="badge_same_technical">समान तकनीकी</string>
+    <string name="badge_similar">समान</string>
+    <string name="badge_popular">लोकप्रिय</string>
+    <string name="badge_featured">विशेष</string>
+    <string name="badge_matches_crop">फसल के अनुसार</string>
+    <string name="in_stock">स्टॉक में है</string>
+    <string name="not_available_short">उपलब्ध नहीं</string>
+    <string name="login_for_wishlist">विशलिस्ट में सहेजने के लिए लॉगिन करें</string>
+    <string name="added_to_cart">कार्ट में जोड़ा गया!</string>
+    <string name="notify_me_label">उपलब्ध होने पर मुझे सूचित करें</string>
+    <string name="notify_request_sent">सूचना अनुरोध भेज दिया गया</string>
+    <string name="notify_success_msg">सूचना अनुरोध सफलतापूर्वक भेज दिया गया!</string>
+
+    <!-- Sections -->
+    <string name="buy_again_title">दोबारा खरीदें</string>
+    <string name="recently_viewed_title">हाल ही में देखे गए</string>
+    <string name="seasonal_picks_title">सीजन के अनुसार</string>
+    <string name="recommended_for_you_title">आपकी फसल के लिए सुझाव</string>
+    <string name="compare_title">तुलना करें</string>
 </resources>

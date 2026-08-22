@@ -1,10 +1,8 @@
 package com.company.krishivishal
 
 import android.app.Application
-import android.os.StrictMode
 import com.company.krishivishal.analytics.AnalyticsTracker
 import com.company.krishivishal.analytics.CrashlyticsTree
-import com.company.krishivishal.BuildConfig
 import com.company.krishivishal.crashlytics.CrashlyticsErrorReporter
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
@@ -19,98 +17,88 @@ import coil.memory.MemoryCache
 import dagger.hilt.android.HiltAndroidApp
 import timber.log.Timber
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 @HiltAndroidApp
 class KrishiVishalApp : Application(), ImageLoaderFactory {
 
     @Inject
-    lateinit var analyticsTracker: AnalyticsTracker
+    lateinit var analyticsTracker: dagger.Lazy<AnalyticsTracker>
 
     @Inject
-    lateinit var errorReporter: CrashlyticsErrorReporter
+    lateinit var errorReporter: dagger.Lazy<CrashlyticsErrorReporter>
 
     @Inject
-    lateinit var crashlyticsTree: CrashlyticsTree
+    lateinit var crashlyticsTree: dagger.Lazy<CrashlyticsTree>
 
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.25) // Use 25% of available RAM
+                    .maxSizePercent(0.25)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(100L * 1024 * 1024) // 100MB Disk Cache
+                    .maxSizeBytes(100L * 1024 * 1024)
                     .build()
             }
-            .crossfade(true) // Smooth transitions
-            .respectCacheHeaders(false) // Force cache usage even if headers say otherwise
+            .crossfade(true)
+            .respectCacheHeaders(false)
             .build()
     }
 
     override fun onCreate() {
         super.onCreate()
 
-        // Initialize Firebase
-        FirebaseApp.initializeApp(this)
-
-        // Setup App Check (Temporarily disabled to fix startup browser redirect)
-        /*
-        if (BuildConfig.DEBUG) {
-            Firebase.appCheck.installAppCheckProviderFactory(
-                DebugAppCheckProviderFactory.getInstance()
-            )
-        } else {
-            Firebase.appCheck.installAppCheckProviderFactory(
-                PlayIntegrityAppCheckProviderFactory.getInstance()
-            )
+        // 1. Initialize Firebase (Main Thread Required)
+        // Note: google-services plugin usually handles this via ContentProvider, 
+        // but explicit init ensures it's ready before manual background tasks.
+        try {
+            FirebaseApp.initializeApp(this)
+        } catch (e: Exception) {
+            android.util.Log.e("KrishiVishalApp", "FirebaseApp init failed", e)
         }
-        */
-        
-        // Configure Crashlytics
-        configureCrashlytics()
 
-        // Setup Timber logging
+        // 2. Setup Timber & Crashlytics
         setupTimber()
+        
+        try {
+            FirebaseCrashlytics.getInstance().setCrashlyticsCollectionEnabled(!BuildConfig.DEBUG)
+        } catch (e: Exception) {
+            android.util.Log.e("KrishiVishalApp", "Crashlytics init failed", e)
+        }
 
-        // Track app launch
-        analyticsTracker.trackCustomEvent("app_launch", mapOf(
-            "build_type" to BuildConfig.BUILD_TYPE,
-            "version_code" to BuildConfig.VERSION_CODE.toString(),
-            "version_name" to BuildConfig.VERSION_NAME
-        ))
+        // 3. Setup App Check — Move to background to improve App Start Time
+        GlobalScope.launch(Dispatchers.Default) {
+            try {
+                val appCheck = Firebase.appCheck
+                if (BuildConfig.DEBUG) {
+                    appCheck.installAppCheckProviderFactory(
+                        DebugAppCheckProviderFactory.getInstance(),
+                    )
+                } else {
+                    appCheck.installAppCheckProviderFactory(
+                        PlayIntegrityAppCheckProviderFactory.getInstance(),
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("KrishiVishalApp", "App Check init failed", e)
+            }
+        }
 
         Timber.d("KrishiVishalApp initialized")
     }
 
-    /**
-     * Configure Firebase Crashlytics
-     */
-    private fun configureCrashlytics() {
-        try {
-            val crashlytics = FirebaseCrashlytics.getInstance()
-            
-            // Crash collection is enabled by default
-            Timber.d("Crashlytics configured")
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to configure Crashlytics")
-        }
-    }
-
-    /**
-     * Setup Timber logging with Crashlytics integration
-     */
     private fun setupTimber() {
         if (BuildConfig.DEBUG) {
-            // Debug build: only DebugTree
             Timber.plant(Timber.DebugTree())
-            Timber.d("Debug logging enabled")
         } else {
-            // Release build: Crashlytics tree
-            Timber.plant(crashlyticsTree)
-            Timber.d("Crashlytics logging enabled")
+            // Accessing .get() on Lazy to initialize when needed
+            Timber.plant(crashlyticsTree.get())
         }
     }
 }

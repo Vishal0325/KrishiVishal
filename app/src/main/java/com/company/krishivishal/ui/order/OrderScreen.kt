@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.ShoppingBag
@@ -53,9 +54,11 @@ fun OrderScreen(
     viewModel: OrderViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val appConfig by viewModel.appConfig.collectAsState()
     val cancelState = uiState.cancelOrderResource
     var selectedOrderId by remember { mutableStateOf<String?>(null) }
     var orderToCancel by remember { mutableStateOf<Order?>(null) }
+    var orderToReturn by remember { mutableStateOf<Order?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -84,10 +87,10 @@ fun OrderScreen(
                         if (selectedOrderId != null) selectedOrderId = null
                         else onBack()
                     }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
     ) { padding ->
@@ -95,7 +98,7 @@ fun OrderScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(Color(0xFFF8F9FA))
+                .background(MaterialTheme.colorScheme.background)
         ) {
             if (uiState.isLoading && uiState.orders.isEmpty()) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = PrimaryGreen)
@@ -119,10 +122,13 @@ fun OrderScreen(
                         OrderItemCard(
                             order = order,
                             isExpanded = selectedOrderId == order.id,
+                            appConfig = appConfig,
+                            viewModel = viewModel,
                             onExpandClick = {
                                 selectedOrderId = if (selectedOrderId == order.id) null else order.id
                             },
                             onCancelClick = { orderToCancel = it },
+                            onReturnClick = { orderToReturn = it },
                             onTrackClick = { onTrackClick(order.id) },
                             onViewBillClick = { onViewBillClick(order) }
                         )
@@ -132,13 +138,30 @@ fun OrderScreen(
         }
 
         if (orderToCancel != null) {
-            OrderCancellationDialog(
-                onDismiss = { orderToCancel = null },
-                onConfirm = { reason ->
-                    viewModel.cancelOrder(orderToCancel!!.id, reason)
-                    orderToCancel = null
-                }
-            )
+            val cancelOrder = orderToCancel
+            if (cancelOrder != null) {
+                OrderCancellationDialog(
+                    onDismiss = { orderToCancel = null },
+                    onConfirm = { reason ->
+                        viewModel.cancelOrder(cancelOrder.id, reason)
+                        orderToCancel = null
+                    }
+                )
+            }
+        }
+
+        if (orderToReturn != null) {
+            val returnOrder = orderToReturn
+            if (returnOrder != null) {
+                ReturnRequestDialog(
+                    order = returnOrder,
+                    onDismiss = { orderToReturn = null },
+                    onConfirm = { reason ->
+                        viewModel.requestReturn(returnOrder, reason)
+                        orderToReturn = null
+                    }
+                )
+            }
         }
     }
 }
@@ -147,8 +170,11 @@ fun OrderScreen(
 fun OrderItemCard(
     order: Order, 
     isExpanded: Boolean, 
+    appConfig: com.company.krishivishal.core.model.AppConfig,
+    viewModel: OrderViewModel,
     onExpandClick: () -> Unit, 
     onCancelClick: (Order) -> Unit,
+    onReturnClick: (Order) -> Unit,
     onTrackClick: () -> Unit,
     onViewBillClick: () -> Unit
 ) {
@@ -159,7 +185,7 @@ fun OrderItemCard(
             .fillMaxWidth()
             .clickable { onExpandClick() },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -170,7 +196,7 @@ fun OrderItemCard(
             ) {
                 Column {
                     Text(
-                        text = "Order #${order.id.take(8).uppercase()}",
+                        text = "Order #${order.id.takeLast(8).uppercase()}",
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
                     )
@@ -191,7 +217,7 @@ fun OrderItemCard(
                     AsyncImage(
                         model = order.items.firstOrNull()?.imageUrl,
                         contentDescription = null,
-                        modifier = Modifier.fillMaxSize().background(Color(0xFFF9F9F9), RoundedCornerShape(8.dp)),
+                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)),
                         contentScale = ContentScale.Fit
                     )
                 }
@@ -314,7 +340,7 @@ fun OrderItemCard(
 
                         val context = androidx.compose.ui.platform.LocalContext.current
                         Button(
-                            onClick = { com.company.krishivishal.utils.PrintHelper.printOrderInvoice(context, order) },
+                            onClick = { com.company.krishivishal.utils.PrintHelper.printOrderInvoice(context, order, appConfig) },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
                             shape = RoundedCornerShape(8.dp)
@@ -357,22 +383,42 @@ fun OrderItemCard(
                         }
                     }
 
-                    // Return System Placeholder
+                    // Return System Section
                     if (order.orderStatus == OrderStatus.DELIVERED) {
+                        val returnState by viewModel.uiState.collectAsState()
                         val context = androidx.compose.ui.platform.LocalContext.current
+
+                        LaunchedEffect(returnState.returnRequestResource) {
+                            if (returnState.returnRequestResource is Resource.Success) {
+                                android.widget.Toast.makeText(context, "Return request submitted successfully!", android.widget.Toast.LENGTH_LONG).show()
+                                viewModel.clearReturnState()
+                                viewModel.loadOrders()
+                            } else if (returnState.returnRequestResource is Resource.Error) {
+                                android.widget.Toast.makeText(context, "Error: ${returnState.returnRequestResource?.message}", android.widget.Toast.LENGTH_LONG).show()
+                                viewModel.clearReturnState()
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(16.dp))
                         OutlinedButton(
                             onClick = { 
-                                android.widget.Toast.makeText(context, "Return request initiated for Order #${order.id.take(8).uppercase()}", android.widget.Toast.LENGTH_LONG).show()
+                                onReturnClick(order) 
                             },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                            enabled = returnState.returnRequestResource !is Resource.Loading,
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = PrimaryGreen),
-                            border = BorderStroke(1.dp, PrimaryGreen),
+                            border = BorderStroke(1.5.dp, PrimaryGreen),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Return Items", fontWeight = FontWeight.Bold)
+                            if (returnState.returnRequestResource is Resource.Loading) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = PrimaryGreen)
+                            } else {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Return Items", fontWeight = FontWeight.ExtraBold)
+                            }
                         }
                     }
                 }
@@ -389,6 +435,60 @@ fun OrderItemCard(
             }
         }
     }
+}
+
+@Composable
+fun ReturnRequestDialog(
+    order: Order,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var selectedReason by remember { mutableStateOf("") }
+    val reasons = listOf("Defective/Damaged", "Wrong Item Received", "Quality not as expected", "Expired Product", "Changed my mind")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Request Return", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
+                Text("Why are you returning this?", fontSize = 14.sp, color = Color.Gray)
+                Spacer(modifier = Modifier.height(12.dp))
+                reasons.forEach { reason ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = (selectedReason == reason),
+                                onClick = { selectedReason = reason },
+                                role = Role.RadioButton
+                            )
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = (selectedReason == reason),
+                            onClick = null
+                        )
+                        Text(text = reason, modifier = Modifier.padding(start = 12.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(selectedReason) },
+                enabled = selectedReason.isNotEmpty(),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
+            ) {
+                Text("Submit Request")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -566,7 +666,7 @@ fun TimelineItem(
                 modifier = Modifier
                     .size(16.dp)
                     .background(
-                        color = if (isCompleted) PrimaryGreen else Color.LightGray,
+                        color = if (isCompleted) PrimaryGreen else MaterialTheme.colorScheme.outline,
                         shape = CircleShape
                     ),
                 contentAlignment = Alignment.Center
@@ -585,7 +685,7 @@ fun TimelineItem(
                     modifier = Modifier
                         .width(2.dp)
                         .height(30.dp)
-                        .background(if (isCompleted && !isActive) PrimaryGreen else Color.LightGray)
+                        .background(if (isCompleted && !isActive) PrimaryGreen else MaterialTheme.colorScheme.outline)
                 )
             }
         }
@@ -595,7 +695,7 @@ fun TimelineItem(
                 text = title,
                 fontWeight = if (isCompleted) FontWeight.Bold else FontWeight.Normal,
                 fontSize = 13.sp,
-                color = if (isCompleted) Color.Black else Color.Gray
+                color = if (isCompleted) MaterialTheme.colorScheme.onSurface else Color.Gray
             )
             Text(
                 text = description,

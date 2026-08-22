@@ -4,6 +4,7 @@ import com.company.krishivishal.core.model.Product
 
 object Constants {
     const val GUEST_USER_ID = "guest_user"
+    const val DEFAULT_GST_PERCENT = 5.0
 
     val PRODUCT_CATEGORIES = listOf(
         "Insecticide",

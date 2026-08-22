@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
@@ -35,7 +36,8 @@ import java.util.Locale
 fun OrderBillScreen(
     order: Order,
     onBack: () -> Unit,
-    template: String = "standard"
+    template: String = "standard",
+    appConfig: com.company.krishivishal.core.model.AppConfig = com.company.krishivishal.core.model.AppConfig()
 ) {
     val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()) }
@@ -46,15 +48,15 @@ fun OrderBillScreen(
                 title = { Text("Tax Invoice", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
-                    IconButton(onClick = { PrintHelper.printOrderInvoice(context, order) }) {
+                    IconButton(onClick = { PrintHelper.printOrderInvoice(context, order, appConfig) }) {
                         Icon(Icons.Default.Share, contentDescription = "Share")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
     ) { padding ->
@@ -62,21 +64,21 @@ fun OrderBillScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(if (template == "elegant") Color(0xFF1A1A1A) else Color.White)
+                .background(if (template == "elegant") Color(0xFF1A1A1A) else MaterialTheme.colorScheme.surface)
                 .verticalScroll(rememberScrollState())
         ) {
             when (template) {
-                "modern" -> ModernTemplate(order, dateFormat)
-                "compact" -> CompactTemplate(order, dateFormat)
-                "elegant" -> ElegantTemplate(order, dateFormat)
-                "detailed" -> DetailedTaxTemplate(order, dateFormat)
-                else -> StandardTemplate(order, dateFormat)
+                "modern" -> ModernTemplate(order, dateFormat, appConfig)
+                "compact" -> CompactTemplate(order, dateFormat, appConfig)
+                "elegant" -> ElegantTemplate(order, dateFormat, appConfig)
+                "detailed" -> DetailedTaxTemplate(order, dateFormat, appConfig)
+                else -> StandardTemplate(order, dateFormat, appConfig)
             }
             
             Spacer(modifier = Modifier.height(24.dp))
             
             Button(
-                onClick = { PrintHelper.printOrderInvoice(context, order) },
+                onClick = { PrintHelper.printOrderInvoice(context, order, appConfig) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (template == "elegant") Color.White else Color.Black,
@@ -93,26 +95,26 @@ fun OrderBillScreen(
 }
 
 @Composable
-fun StandardTemplate(order: Order, dateFormat: SimpleDateFormat) {
+fun StandardTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: com.company.krishivishal.core.model.AppConfig) {
     Column(modifier = Modifier.padding(24.dp)) {
         Text("KRISHI VISHAL", fontSize = 26.sp, fontWeight = FontWeight.Black, color = PrimaryGreen)
-        Text("GSTIN: 10AAAAA0000A1Z5 | Bihar (10)", fontSize = 11.sp, color = Color.Gray)
+        Text("GSTIN: ${appConfig.gstin.takeIf { it.isNotBlank() } ?: "PENDING"} | Bihar (10)", fontSize = 11.sp, color = Color.Gray)
         
         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), thickness = 0.5.dp)
         
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Billed To:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.Black)
+                Text("Billed To:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(order.address, fontSize = 12.sp, color = Color.DarkGray, lineHeight = 18.sp)
+                Text(order.address, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 18.sp)
             }
             Spacer(modifier = Modifier.width(24.dp))
             Column(horizontalAlignment = Alignment.End) {
-                Text("Invoice ID", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.Black)
-                Text("#${order.id.take(8).uppercase()}", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                Text("Invoice ID", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text("#${order.id.takeLast(6).uppercase()}", fontWeight = FontWeight.Medium, fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Date", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.Black)
-                Text(dateFormat.format(order.createdAt), fontSize = 12.sp, color = Color.DarkGray)
+                Text("Date", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text(dateFormat.format(order.createdAt), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         
@@ -120,7 +122,7 @@ fun StandardTemplate(order: Order, dateFormat: SimpleDateFormat) {
         TableSection(order)
         
         Spacer(modifier = Modifier.height(16.dp))
-        TaxSummary(order.totalAmount)
+        TaxSummary(order.totalAmount, appConfig.gstRate)
         
         Spacer(modifier = Modifier.height(24.dp))
         Text("Authorized Signatory", modifier = Modifier.align(Alignment.End), fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -128,12 +130,12 @@ fun StandardTemplate(order: Order, dateFormat: SimpleDateFormat) {
 }
 
 @Composable
-fun ModernTemplate(order: Order, dateFormat: SimpleDateFormat) {
+fun ModernTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: com.company.krishivishal.core.model.AppConfig) {
     Column(modifier = Modifier.padding(24.dp)) {
         Surface(color = PrimaryGreen, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(24.dp)) {
                 Text("TAX INVOICE", color = Color.White, fontWeight = FontWeight.Thin, fontSize = 34.sp)
-                Text("Krishi Vishal - Bihar Region", color = Color.White.copy(0.8f))
+                Text("GSTIN: ${appConfig.gstin.takeIf { it.isNotBlank() } ?: "PENDING"}", color = Color.White.copy(0.8f))
             }
         }
         Spacer(modifier = Modifier.height(24.dp))
@@ -146,7 +148,7 @@ fun ModernTemplate(order: Order, dateFormat: SimpleDateFormat) {
                      Text("Grand Total", fontSize = 14.sp, color = Color.Gray)
                      Text("₹${order.totalAmount}", fontSize = 24.sp, fontWeight = FontWeight.Black, color = PrimaryGreen)
                  }
-                 Surface(color = Color.White, shape = CircleShape) {
+                 Surface(color = MaterialTheme.colorScheme.surface, shape = CircleShape) {
                      Text(order.paymentStatus, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), color = PrimaryGreen, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                  }
              }
@@ -157,10 +159,10 @@ fun ModernTemplate(order: Order, dateFormat: SimpleDateFormat) {
 }
 
 @Composable
-fun CompactTemplate(order: Order, dateFormat: SimpleDateFormat) {
+fun CompactTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: com.company.krishivishal.core.model.AppConfig) {
     Column(modifier = Modifier.padding(12.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("KV-BIHAR", fontWeight = FontWeight.Black, fontSize = 16.sp, color = PrimaryGreen)
+            Text("KV-BIHAR (${appConfig.gstin.takeIf { it.isNotBlank() } ?: "GST PENDING"})", fontWeight = FontWeight.Black, fontSize = 16.sp, color = PrimaryGreen)
             Text("#${order.id.take(6).uppercase()}", fontWeight = FontWeight.Bold)
         }
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -180,9 +182,10 @@ fun CompactTemplate(order: Order, dateFormat: SimpleDateFormat) {
 }
 
 @Composable
-fun ElegantTemplate(order: Order, dateFormat: SimpleDateFormat) {
+fun ElegantTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: com.company.krishivishal.core.model.AppConfig) {
     Column(modifier = Modifier.padding(32.dp)) {
         Text("KRISHI VISHAL", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.ExtraLight)
+        Text("GSTIN: ${appConfig.gstin.takeIf { it.isNotBlank() } ?: "PENDING"}", color = Color.White.copy(0.6f), fontSize = 11.sp)
         Spacer(modifier = Modifier.height(48.dp))
         Text("CUSTOMER RECEIPT", color = Color.White.copy(0.5f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
@@ -193,8 +196,8 @@ fun ElegantTemplate(order: Order, dateFormat: SimpleDateFormat) {
 }
 
 @Composable
-fun DetailedTaxTemplate(order: Order, dateFormat: SimpleDateFormat) {
-    val taxableValue = order.totalAmount / 1.05 
+fun DetailedTaxTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: com.company.krishivishal.core.model.AppConfig) {
+    val taxableValue = order.totalAmount / (1 + (appConfig.gstRate / 100)) 
     val gstAmount = order.totalAmount - taxableValue
     val cgst = gstAmount / 2
     val sgst = gstAmount / 2
@@ -204,8 +207,8 @@ fun DetailedTaxTemplate(order: Order, dateFormat: SimpleDateFormat) {
         Text("State: Bihar | State Code: 10", fontSize = 13.sp, color = Color.Gray)
         Spacer(modifier = Modifier.height(24.dp))
         
-        Column(modifier = Modifier.border(1.dp, Color.Black)) {
-            Row(Modifier.background(Color(0xFFE9ECEF)).padding(8.dp)) {
+        Column(modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.onSurface)) {
+            Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(8.dp)) {
                 Text("Description", Modifier.weight(2.5f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 Text("HSN", Modifier.weight(1f), fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 Text("GST %", Modifier.weight(1f), fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
@@ -220,7 +223,7 @@ fun DetailedTaxTemplate(order: Order, dateFormat: SimpleDateFormat) {
                         }
                     }
                     Text("3101", Modifier.weight(1f), fontSize = 11.sp, textAlign = TextAlign.Center)
-                    Text("5%", Modifier.weight(1f), fontSize = 11.sp, textAlign = TextAlign.Center)
+                    Text("${appConfig.gstRate}%", Modifier.weight(1f), fontSize = 11.sp, textAlign = TextAlign.Center)
                     Text("₹${it.price * it.quantity}", Modifier.weight(1.5f), fontSize = 11.sp, textAlign = TextAlign.End)
                 }
             }
@@ -229,8 +232,8 @@ fun DetailedTaxTemplate(order: Order, dateFormat: SimpleDateFormat) {
         Spacer(modifier = Modifier.height(24.dp))
         Column(modifier = Modifier.align(Alignment.End)) {
             TotalBreakdownRow("Taxable Value", "₹${String.format("%.2f", taxableValue)}")
-            TotalBreakdownRow("CGST (2.5%)", "₹${String.format("%.2f", cgst)}")
-            TotalBreakdownRow("SGST (2.5%)", "₹${String.format("%.2f", sgst)}")
+            TotalBreakdownRow("CGST (${appConfig.gstRate / 2}%)", "₹${String.format("%.2f", cgst)}")
+            TotalBreakdownRow("SGST (${appConfig.gstRate / 2}%)", "₹${String.format("%.2f", sgst)}")
             HorizontalDivider(Modifier.width(200.dp).padding(vertical = 8.dp), thickness = 1.dp, color = Color.Black)
             Row(Modifier.width(200.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Total Amount", fontWeight = FontWeight.Black, fontSize = 18.sp)
@@ -249,11 +252,11 @@ fun TotalBreakdownRow(label: String, value: String) {
 }
 
 @Composable
-fun TaxSummary(total: Double) {
-    val taxable = total / 1.05
+fun TaxSummary(total: Double, gstRate: Double) {
+    val taxable = total / (1 + (gstRate / 100))
     val gst = total - taxable
     Column(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), horizontalAlignment = Alignment.End) {
-        Text("Includes estimated CGST & SGST (5%): ₹${String.format("%.2f", gst)}", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
+        Text("Includes estimated CGST & SGST ($gstRate%): ₹${String.format("%.2f", gst)}", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -283,11 +286,11 @@ fun TableSectionDark(order: Order) {
 
 @Composable
 fun TableSection(order: Order) {
-    Column(modifier = Modifier.border(0.5.dp, Color.LightGray)) {
+    Column(modifier = Modifier.border(0.5.dp, MaterialTheme.colorScheme.outline)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFFF8F9FA))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 .padding(12.dp)
         ) {
             Text("Description", modifier = Modifier.weight(3f), fontWeight = FontWeight.Bold, fontSize = 13.sp)

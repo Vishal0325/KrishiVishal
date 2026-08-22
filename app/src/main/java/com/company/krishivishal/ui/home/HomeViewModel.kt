@@ -38,7 +38,10 @@ class HomeViewModel @Inject constructor(
     private val cartRepository: CartRepository,
     private val authRepository: AuthRepository,
     private val wishlistRepository: WishlistRepository,
+    private val configRepository: ConfigRepository,
+    private val orderRepository: OrderRepository,
     private val analyticsTracker: AnalyticsTracker,
+    private val productDao: com.company.krishivishal.data.local.ProductDao,
     private val userDao: com.company.krishivishal.data.local.UserDao
 ) : ViewModel() {
 
@@ -92,6 +95,69 @@ class HomeViewModel @Inject constructor(
         getCurrentUser()
         observeCartCount()
         observeWishlist()
+        loadConfig()
+        observeRecentlyViewed()
+        observePersonalizedContent()
+    }
+
+    private fun loadConfig() {
+        viewModelScope.launch {
+            configRepository.getConfig().collect { resource ->
+                if (resource is Resource.Success) {
+                    _uiState.update { it.copy(config = resource.data) }
+                }
+            }
+        }
+    }
+
+    private fun observeRecentlyViewed() {
+        viewModelScope.launch {
+            _currentUser.collectLatest { user ->
+                val userId = user?.id ?: Constants.GUEST_USER_ID
+                productDao.getRecentlyViewedProducts(userId)
+                    .collectLatest { products ->
+                        _uiState.update { it.copy(recentlyViewedProducts = products) }
+                    }
+            }
+        }
+    }
+
+    private fun observePersonalizedContent() {
+        viewModelScope.launch {
+            _currentUser.collectLatest { user ->
+                if (user != null) {
+                    // Load Buy Again
+                    orderRepository.getSuccessfulProducts(user.id).collect { resource ->
+                        if (resource is Resource.Success) {
+                            _uiState.update { it.copy(buyAgainProducts = resource.data ?: emptyList()) }
+                        }
+                    }
+                    
+                    // Load Seasonal Recommendations based on current month
+                    val currentMonth = java.util.Calendar.getInstance().get(java.util.Calendar.MONTH)
+                    val seasonalCategory = when (currentMonth) {
+                        in 5..8 -> "Insecticide" // Monsoon: Pest control focus
+                        in 10..1 -> "Seeds" // Winter: Sowing focus
+                        else -> "Micro Nutrients" // Default: Nutrition focus
+                    }
+                    
+                    productRepository.getProductsByCategory(seasonalCategory).collect { resource ->
+                        if (resource is Resource.Success) {
+                            _uiState.update { it.copy(seasonalProducts = resource.data ?: emptyList()) }
+                        }
+                    }
+
+                    // Load Recommended for Your Crops (Personalized)
+                    if (user.interestedCategories.isNotEmpty()) {
+                        productRepository.getProductsByCategory(user.interestedCategories.first()).collect { resource ->
+                            if (resource is Resource.Success) {
+                                _uiState.update { it.copy(personalizedProducts = resource.data ?: emptyList()) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fun refreshAll() {
@@ -137,10 +203,12 @@ class HomeViewModel @Inject constructor(
     private fun getCurrentUser() {
         viewModelScope.launch {
             authRepository.getCurrentUser().collectLatest { user ->
-                if (user == null) {
-                    authRepository.signInAnonymously()
-                } else {
+                // Check if Firebase Auth has a real user (not anonymous)
+                val firebaseUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                if (firebaseUser != null && !firebaseUser.isAnonymous) {
                     _currentUser.value = user
+                } else {
+                    _currentUser.value = null
                 }
             }
         }

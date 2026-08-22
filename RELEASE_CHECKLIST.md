@@ -7,9 +7,21 @@
 - [ ] Verify that the release build is minified (ProGuard/R8 enabled).
 
 ## 2. API & Secrets
-- [ ] Replace placeholder `baseUrl` in `NetworkModule.kt` with production endpoint.
+- [ ] Ensure `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` are set in Secret Manager.
+- [ ] Configure `GSP_CLIENT_ID` and `GSP_CLIENT_SECRET` in Secret Manager.
 - [ ] Verify `google-services.json` is the production version.
 - [ ] Restrict API keys in Google Cloud Console (Package name + SHA-1).
+- [ ] **GSP Verification:** Run a successful e-Invoice test in Sandbox mode.
+- [ ] **GSP Production Guard:** Confirm `gsp.mode` is set to `PRODUCTION` and `activeProvider` is NOT `MOCK`.
+- [ ] **GSP Audit Check:** Verify that `gsp_requests` logs are sanitized and do not contain tokens.
+- [ ] **Finance Verification:** Reconcile `SALES` and `GST_PAYABLE` for a live test order.
+- [ ] **Ledger Idempotency:** Confirm `ledgerPosted` flag is correctly set on a test PAID order.
+- [ ] **Admin Security:** Verify normal users cannot access `/finance` or call `getFinanceSummary`.
+- [ ] **Offline Sync V2:** Verify `SyncWorker` retries with exponential backoff on network failure.
+- [ ] **GSP Real Integration:** Set `CLEARTAX_AUTH_TOKEN` in Secret Manager if using ClearTax.
+- [ ] **Performance:** Confirm `createOrder` cold-start latency is < 1s.
+- [ ] **AI Safety Check:** Verify AI cannot execute price changes without explicit `APPROVED` status.
+- [ ] **AI Audit:** Confirm `ai_activity_logs` captures all Supervisor interactions.
 
 ## 3. Play Store Assets
 - [ ] App Icon (Adaptive icons configured).

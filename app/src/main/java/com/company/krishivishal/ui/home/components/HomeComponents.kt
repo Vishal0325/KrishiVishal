@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -47,7 +49,7 @@ fun SectionHeader(title: String, onViewAll: () -> Unit) {
             text = title,
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold,
-            color = Color.Black
+            color = MaterialTheme.colorScheme.onBackground
         )
         Text(
             text = stringResource(R.string.view_all),
@@ -65,18 +67,20 @@ fun BannerSection(bannersResource: Resource<List<BannerItem>>) {
         is Resource.Success -> {
             val banners = res.data ?: emptyList()
             if (banners.isNotEmpty()) {
-                LazyRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(banners) { banner ->
+                val pagerState = rememberPagerState(pageCount = { banners.size })
+                
+                Column {
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        pageSpacing = 12.dp
+                    ) { page ->
+                        val banner = banners[page]
                         Card(
-                            modifier = Modifier
-                                .width(300.dp)
-                                .fillMaxHeight(),
+                            modifier = Modifier.fillMaxSize(),
                             shape = RoundedCornerShape(16.dp)
                         ) {
                             AsyncImage(
@@ -84,6 +88,26 @@ fun BannerSection(bannersResource: Resource<List<BannerItem>>) {
                                 contentDescription = null,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+                    
+                    // Page Indicator
+                    Row(
+                        modifier = Modifier
+                            .height(20.dp)
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        repeat(banners.size) { iteration ->
+                            val color = if (pagerState.currentPage == iteration) PrimaryGreen else Color.LightGray
+                            Box(
+                                modifier = Modifier
+                                    .padding(2.dp)
+                                    .clip(CircleShape)
+                                    .background(color)
+                                    .size(6.dp)
                             )
                         }
                     }
@@ -104,7 +128,10 @@ fun HomeProductItem(
     onWishlistToggle: () -> Unit,
     onShare: () -> Unit
 ) {
-    val isOutOfStock = product.stockQuantity <= 0 || !product.isActive
+    // Check variant-level stock too: if product has variants, consider in-stock if any variant has stock > 0
+    val hasVariantStock = product.variants.any { it.stock > 0 }
+    val effectiveStock = if (product.variants.isNotEmpty()) hasVariantStock else product.stockQuantity > 0
+    val isOutOfStock = !effectiveStock || !product.isActive
     val firstVariant = product.variants.firstOrNull()
     
     val sellingPrice = when {
@@ -129,9 +156,12 @@ fun HomeProductItem(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = !isOutOfStock) { onClick() },
+            .clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = if (isOutOfStock) Color(0xFFFAFAFA) else Color.White),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isOutOfStock) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) 
+            else MaterialTheme.colorScheme.surface
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column {
@@ -139,7 +169,8 @@ fun HomeProductItem(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(120.dp)
-                    .background(if (isOutOfStock) Color(0xFFF5F5F5) else Color.White)
+                    .background(if (isOutOfStock) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f) 
+                    else MaterialTheme.colorScheme.surface)
             ) {
                 AsyncImage(
                     model = product.imageUrl.ifEmpty { product.images.firstOrNull() },
@@ -167,7 +198,6 @@ fun HomeProductItem(
                         )
                     }
                 }
-// ... rest of Box content ...
 
                 // Out of stock overlay
                 if (isOutOfStock) {
@@ -317,7 +347,7 @@ fun HomeProductItem(
                             Text(
                                 text = displaySize,
                                 fontSize = 10.sp,
-                                color = Color.Black,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -399,7 +429,7 @@ fun HomeCategoryItem(category: Category, onClick: () -> Unit) {
             textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            color = Color.Black
+            color = MaterialTheme.colorScheme.onBackground
         )
     }
 }
@@ -438,7 +468,7 @@ fun HomeCropItem(crop: Crop, onClick: () -> Unit) {
             textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            color = Color.Black
+            color = MaterialTheme.colorScheme.onBackground
         )
     }
 }
@@ -451,7 +481,7 @@ fun BrandItem(brand: Brand, onClick: () -> Unit) {
             .height(60.dp)
             .clickable { onClick() },
         shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Box(

@@ -11,9 +11,9 @@ import kotlinx.coroutines.tasks.await
 
 class ProductPagingSource(
     private val firestore: FirebaseFirestore,
+    // Simplified query for stability
     private val query: Query = firestore.collection("products")
         .whereEqualTo("isActive", true)
-        .orderBy("createdAt", Query.Direction.DESCENDING)
 ) : PagingSource<QuerySnapshot, Product>() {
 
     override fun getRefreshKey(state: PagingState<QuerySnapshot, Product>): QuerySnapshot? {

@@ -33,16 +33,14 @@ class SearchRepositoryImpl @Inject constructor(
     override fun searchProducts(query: String): Flow<Resource<List<Product>>> = safeCall(ioDispatcher) {
         val q = query.lowercase()
         
-        // Fetch all active products once to perform fuzzy search on client side
-        // Note: For very large databases, Algolia or ElasticSearch is better.
-        // For current scale, client-side filtering on a small set or prefix matching works.
-        
+        // LIMIT fetch to prevent memory pressure on large catalogs
         val snapshot = firestore.collection("products")
             .whereEqualTo("isActive", true)
+            .limit(100) // Optimization: Don't fetch more than 100 products for client-side fuzzy search
             .get()
             .await()
             
-        val allProducts = snapshot.toObjects(Product::class.java)
+        val allProducts = snapshot.mapNotNull { it.toProduct() }
         
         // Smart fuzzy filtering: Name, Brand, Category, subCategory
         allProducts.filter { product ->

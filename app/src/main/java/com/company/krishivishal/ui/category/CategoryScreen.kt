@@ -43,7 +43,7 @@ fun CategoryScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Background)
+            .background(MaterialTheme.colorScheme.background)
     ) {
         TopAppBar(
             title = { Text("All Categories", fontWeight = FontWeight.Bold) },
@@ -52,7 +52,7 @@ fun CategoryScreen(
                     Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                 }
             },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
         )
 
         when (uiState) {
@@ -103,7 +103,7 @@ fun CategoryItem(category: Category, onClick: () -> Unit) {
             modifier = Modifier
                 .size(80.dp)
                 .clip(CircleShape)
-                .background(Color.White),
+                .background(MaterialTheme.colorScheme.surface),
             contentAlignment = Alignment.Center
         ) {
             AsyncImage(
@@ -125,7 +125,7 @@ fun CategoryItem(category: Category, onClick: () -> Unit) {
             textAlign = TextAlign.Center,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            color = Color.Black
+            color = MaterialTheme.colorScheme.onSurface
         )
     }
 }

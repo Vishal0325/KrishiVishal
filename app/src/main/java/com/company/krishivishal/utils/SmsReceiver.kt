@@ -7,39 +7,45 @@ import com.google.android.gms.auth.api.phone.SmsRetriever
 import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.Status
 
-import android.os.Build
-
+/**
+ * BroadcastReceiver to wait for SMS messages. This can be registered dynamically
+ * in the activity or fragment when an OTP is requested.
+ */
 class SmsReceiver : BroadcastReceiver() {
 
-    private var smsListener: SmsListener? = null
+    private var otpListener: OtpReceivedListener? = null
 
-    fun setSmsListener(listener: SmsListener) {
-        this.smsListener = listener
+    fun setOtpListener(receiver: OtpReceivedListener) {
+        this.otpListener = receiver
     }
 
-    override fun onReceive(context: Context?, intent: Intent?) {
-        if (SmsRetriever.SMS_RETRIEVED_ACTION == intent?.action) {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (SmsRetriever.SMS_RETRIEVED_ACTION == intent.action) {
             val extras = intent.extras
-            @Suppress("DEPRECATION")
             val status = extras?.get(SmsRetriever.EXTRA_STATUS) as? Status
 
-            if (status != null) {
-                when (status.statusCode) {
-                    CommonStatusCodes.SUCCESS -> {
-                        @Suppress("DEPRECATION")
-                        val message = extras?.get(SmsRetriever.EXTRA_SMS_MESSAGE) as? String
-                        message?.let { smsListener?.onSmsReceived(it) }
+            when (status?.statusCode) {
+                CommonStatusCodes.SUCCESS -> {
+                    // Get SMS message contents
+                    val message = extras.get(SmsRetriever.EXTRA_SMS_MESSAGE) as? String
+                    message?.let {
+                        // Extract 6-digit OTP using regex
+                        val pattern = Regex("\\d{6}")
+                        val match = pattern.find(it)
+                        match?.value?.let { otp ->
+                            otpListener?.onOtpReceived(otp)
+                        }
                     }
-                    CommonStatusCodes.TIMEOUT -> {
-                        smsListener?.onSmsTimeOut()
-                    }
+                }
+                CommonStatusCodes.TIMEOUT -> {
+                    otpListener?.onOtpTimeout()
                 }
             }
         }
     }
 
-    interface SmsListener {
-        fun onSmsReceived(message: String)
-        fun onSmsTimeOut()
+    interface OtpReceivedListener {
+        fun onOtpReceived(otp: String)
+        fun onOtpTimeout()
     }
 }

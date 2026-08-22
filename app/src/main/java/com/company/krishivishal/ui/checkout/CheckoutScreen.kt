@@ -36,14 +36,22 @@ import androidx.compose.ui.platform.LocalContext
 import android.app.Activity
 import android.widget.Toast
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import com.company.krishivishal.R
+import com.google.android.gms.location.LocationServices
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CheckoutScreen(
     source: CheckoutSource = CheckoutSource.CART,
     onBack: () -> Unit,
-    onOrderSuccess: () -> Unit,
+    onOrderSuccess: (String, String) -> Unit,
     viewModel: CheckoutViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -55,9 +63,7 @@ fun CheckoutScreen(
     }
 
     LaunchedEffect(uiState.checkoutResource) {
-        if (uiState.checkoutResource is Resource.Success) {
-            onOrderSuccess()
-        }
+        // No-op here, handled by uiEvent for better data passing
     }
 
     LaunchedEffect(Unit) {
@@ -72,6 +78,9 @@ fun CheckoutScreen(
                         userPhone = uiState.userPhone
                     )
                 }
+                is CheckoutUiEvent.OrderSuccess -> {
+                    onOrderSuccess(event.orderId, event.otp)
+                }
             }
         }
     }
@@ -85,7 +94,7 @@ fun CheckoutScreen(
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
         bottomBar = {
@@ -93,7 +102,7 @@ fun CheckoutScreen(
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shadowElevation = 8.dp,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.surface
                 ) {
                     Column(modifier = Modifier.padding(16.dp).navigationBarsPadding()) {
                         Row(
@@ -118,14 +127,50 @@ fun CheckoutScreen(
                             }
                         }
                         Spacer(modifier = Modifier.height(16.dp))
+                        val isPlacingOrder = uiState.checkoutResource is Resource.Loading
+                        val scope = rememberCoroutineScope()
+                        val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+                        
+                        val locationPermissionLauncher = rememberLauncherForActivityResult(
+                            ActivityResultContracts.RequestPermission()
+                        ) { isGranted ->
+                            if (isGranted) {
+                                scope.launch {
+                                    try {
+                                        val location = fusedLocationClient.lastLocation.await()
+                                        viewModel.placeOrder(location?.latitude ?: 0.0, location?.longitude ?: 0.0)
+                                    } catch (e: Exception) {
+                                        viewModel.placeOrder(0.0, 0.0)
+                                    }
+                                }
+                            } else {
+                                viewModel.placeOrder(0.0, 0.0)
+                            }
+                        }
+
                         Button(
-                            onClick = { viewModel.placeOrder() },
+                            onClick = { 
+                                if (!isPlacingOrder) {
+                                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                                        scope.launch {
+                                            try {
+                                                val location = fusedLocationClient.lastLocation.await()
+                                                viewModel.placeOrder(location?.latitude ?: 0.0, location?.longitude ?: 0.0)
+                                            } catch (e: Exception) {
+                                                viewModel.placeOrder(0.0, 0.0)
+                                            }
+                                        }
+                                    } else {
+                                        locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                                    }
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth().height(52.dp),
-                            enabled = uiState.checkoutResource !is Resource.Loading,
+                            enabled = !isPlacingOrder,
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
                         ) {
-                            if (uiState.checkoutResource is Resource.Loading) {
+                            if (isPlacingOrder) {
                                 CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
                             } else {
                                 Text("Confirm Order", fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -136,14 +181,14 @@ fun CheckoutScreen(
             }
         }
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding).background(Color(0xFFF8F9FA))) {
+        Box(modifier = Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background)) {
             when {
                 uiState.isCartLoading || uiState.isAddressesLoading -> {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = PrimaryGreen)
                 }
                 uiState.error != null -> {
                     ErrorState(
-                        message = uiState.error!!,
+                        message = uiState.error ?: "Something went wrong",
                         onRetry = { viewModel.clearError() },
                         modifier = Modifier.align(Alignment.Center)
                     )
@@ -296,18 +341,18 @@ fun OrderSummaryItem(
     onQuantityChange: (Int) -> Unit,
     onRemove: () -> Unit
 ) {
-    val sellingPrice = item.variant?.price ?: if (item.product.discountedPrice > 0) item.product.discountedPrice else if (item.product.price > 0) item.product.price else item.product.basePrice
+    val sellingPrice = item.variant?.price ?: if ((item.product?.discountedPrice ?: 0.0) > 0) item.product?.discountedPrice ?: 0.0 else if ((item.product?.price ?: 0.0) > 0) item.product?.price ?: 0.0 else item.product?.basePrice ?: 0.0
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFF1F3F5))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             AsyncImage(
-                model = item.product.images.firstOrNull() ?: item.product.imageUrl,
+                model = item.product?.images?.firstOrNull() ?: item.product?.imageUrl,
                 contentDescription = null,
                 modifier = Modifier
                     .size(52.dp)
@@ -321,7 +366,7 @@ fun OrderSummaryItem(
                 // Group Name and Variant for accessibility
                 Column(modifier = Modifier.semantics(mergeDescendants = true) {}) {
                     Text(
-                        text = item.product.name,
+                        text = item.product?.name ?: "Unknown Product",
                         maxLines = 1,
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
@@ -402,8 +447,8 @@ fun PaymentMethodItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onSelect() },
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, if (isSelected) PrimaryGreen else Color(0xFFF1F3F5))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, if (isSelected) PrimaryGreen else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -465,8 +510,8 @@ fun AddressRadioItem(address: Address, isSelected: Boolean, onSelect: () -> Unit
             .fillMaxWidth()
             .clickable { onSelect() },
         shape = RoundedCornerShape(12.dp),
-        color = Color.White,
-        border = if (isSelected) BorderStroke(2.dp, PrimaryGreen) else BorderStroke(1.dp, Color(0xFFF1F3F5))
+        color = MaterialTheme.colorScheme.surface,
+        border = if (isSelected) BorderStroke(2.dp, PrimaryGreen) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             RadioButton(selected = isSelected, onClick = onSelect, colors = RadioButtonDefaults.colors(selectedColor = PrimaryGreen))
@@ -475,12 +520,12 @@ fun AddressRadioItem(address: Address, isSelected: Boolean, onSelect: () -> Unit
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(address.fullName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Surface(color = Color(0xFFF1F3F5), shape = RoundedCornerShape(4.dp)) {
+                    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(4.dp)) {
                         Text(address.addressType, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                 }
-                Text("${address.houseNo}, ${address.street}, ${address.block}", fontSize = 12.sp, color = Color.Gray, maxLines = 1)
-                Text("${address.district}, ${address.state} - ${address.pincode}", fontSize = 12.sp, color = Color.Gray)
+                Text("${address.houseNo}, ${address.street}, ${address.block}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                Text("${address.district}, ${address.state} - ${address.pincode}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

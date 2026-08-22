@@ -46,7 +46,7 @@ fun AllProductsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Background)
+            .background(MaterialTheme.colorScheme.background)
     ) {
         TopAppBar(
             title = { Text("Recommended Products", fontWeight = FontWeight.Bold) },
@@ -55,7 +55,7 @@ fun AllProductsScreen(
                     Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                 }
             },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
         )
 
         Box(modifier = Modifier.fillMaxSize()) {

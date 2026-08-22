@@ -73,6 +73,14 @@ fun ProductDetailScreen(
         }
     }
 
+    LaunchedEffect(uiState.recommendations) {
+        if (uiState.recommendations.technical.isNotEmpty() || 
+            uiState.recommendations.similar.isNotEmpty() || 
+            uiState.recommendations.related.isNotEmpty()) {
+            viewModel.trackRecommendationImpression(uiState.recommendations)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -115,31 +123,57 @@ fun ProductDetailScreen(
                         Icon(
                             if (uiState.isWishlisted) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder, 
                             contentDescription = "Wishlist",
-                            tint = if (uiState.isWishlisted) Color.Red else Color.Black
+                            tint = if (uiState.isWishlisted) Color.Red else MaterialTheme.colorScheme.onSurface
                         ) 
                     }
                     IconButton(onClick = onCartClick) { Icon(Icons.Outlined.ShoppingCart, contentDescription = "Cart") }
+                    if (uiState.appConfig?.ff_product_compare == true) {
+                        IconButton(onClick = { viewModel.addToCompare() }) { 
+                            Icon(Icons.Default.CompareArrows, contentDescription = "Compare", tint = PrimaryGreen) 
+                        }
+                    }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
         bottomBar = {
-            if (uiState.product != null) {
-                val maxStock = uiState.selectedVariant?.stock ?: uiState.product!!.stockQuantity
+            val product = uiState.product
+            if (product != null) {
+                val maxStock = uiState.selectedVariant?.stock ?: product.stockQuantity
+                val isOutOfStock = (uiState.selectedVariant?.stock ?: product.stockQuantity) <= 0
                 BottomActions(
                     quantity = quantity,
                     maxStock = maxStock,
+                    isOutOfStock = isOutOfStock,
+                    isNotifyMeLoading = uiState.isNotifyMeLoading,
+                    notifyMeSuccess = uiState.notifyMeSuccess,
                     onQuantityChange = { if (it in 1..maxStock) quantity = it },
                     onAddToCart = { viewModel.addToCart(quantity) },
-                    onBuyNow = { viewModel.buyNow(quantity) }
+                    onBuyNow = { viewModel.buyNow(quantity) },
+                    onNotifyMe = { viewModel.requestStockNotification() }
                 )
+            }
+        },
+        floatingActionButton = {
+            if (uiState.compareList.isNotEmpty() && uiState.appConfig?.ff_product_compare == true) {
+                FloatingActionButton(
+                    onClick = { /* Navigate to CompareScreen with uiState.compareList */ },
+                    containerColor = PrimaryGreen,
+                    contentColor = Color.White
+                ) {
+                    Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Compare, null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Compare (${uiState.compareList.size})")
+                    }
+                }
             }
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize().background(Color.White)) {
+        Box(modifier = Modifier.padding(padding).fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             if (uiState.error != null && uiState.product == null) {
                 ErrorState(
-                    message = uiState.error!!,
+                    message = uiState.error ?: "Something went wrong",
                     onRetry = { viewModel.loadProduct(productId) },
                     modifier = Modifier.align(Alignment.Center)
                 )
@@ -193,21 +227,56 @@ fun ProductDetailScreen(
 
                     // 3. Variants Section
                     item {
+                        val product = uiState.product
                         if (uiState.isVariantsLoading && uiState.variants.isEmpty()) {
                             VariantsSkeleton()
-                        } else if (uiState.variants.isNotEmpty()) {
+                        } else if (uiState.variants.isNotEmpty() && product != null) {
                             VariantsSection(
                                 variants = uiState.variants,
                                 selectedVariant = uiState.selectedVariant,
                                 onVariantSelect = { viewModel.selectVariant(it) },
-                                product = uiState.product!!
+                                product = product
                             )
                         }
                     }
 
-                    if (uiState.product != null) {
-                        val product = uiState.product!!
-                        
+                    val product = uiState.product
+                    if (product != null) {
+                        // P0-1 Smart Substitutes Notice
+                        val config = uiState.appConfig
+                        if (config?.ff_smart_substitutes == true) {
+                            val isOutOfStock = (uiState.selectedVariant?.stock ?: product.stockQuantity) <= 0
+                            if (isOutOfStock || !product.isActive) {
+                                item {
+                                    Surface(
+                                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                        color = Color.Red.copy(alpha = 0.05f),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.2f))
+                                    ) {
+                                        Column(modifier = Modifier.padding(16.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Default.Error, null, tint = Color.Red, modifier = Modifier.size(20.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = if (!product.isActive) "Currently unavailable" else "Currently out of stock",
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.Red,
+                                                    fontSize = 16.sp
+                                                )
+                                            }
+                                            Text(
+                                                text = "You may consider these better alternatives:",
+                                                fontSize = 13.sp,
+                                                color = GrayText,
+                                                modifier = Modifier.padding(top = 4.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // 4. Composition Card
                         item {
                             CompositionCard(product.composition)
@@ -234,6 +303,55 @@ fun ProductDetailScreen(
                                 isReviewsLoading = uiState.isReviewsLoading
                             )
                         }
+
+                        // 8. Recommendation Sections
+                        if (uiState.isRecommendationsLoading) {
+                            item {
+                                Box(modifier = Modifier.fillMaxWidth().height(200.dp).padding(16.dp).shimmerEffect())
+                            }
+                        } else {
+                            if (uiState.recommendations.technical.isNotEmpty()) {
+                                item {
+                                    RecommendationSection(
+                                        title = stringResource(R.string.same_technical_title),
+                                        products = uiState.recommendations.technical,
+                                        onProductClick = { 
+                                            viewModel.trackRecommendationClick(it)
+                                            viewModel.loadProduct(it.id) 
+                                        },
+                                        onAddToCart = { viewModel.trackRecommendationAddToCart(it) }
+                                    )
+                                }
+                            }
+
+                            if (uiState.recommendations.similar.isNotEmpty()) {
+                                item {
+                                    RecommendationSection(
+                                        title = stringResource(R.string.similar_products_title),
+                                        products = uiState.recommendations.similar,
+                                        onProductClick = { 
+                                            viewModel.trackRecommendationClick(it)
+                                            viewModel.loadProduct(it.id) 
+                                        },
+                                        onAddToCart = { viewModel.trackRecommendationAddToCart(it) }
+                                    )
+                                }
+                            }
+
+                            if (uiState.recommendations.related.isNotEmpty()) {
+                                item {
+                                    RecommendationSection(
+                                        title = stringResource(R.string.related_products_title),
+                                        products = uiState.recommendations.related,
+                                        onProductClick = { 
+                                            viewModel.trackRecommendationClick(it)
+                                            viewModel.loadProduct(it.id) 
+                                        },
+                                        onAddToCart = { viewModel.trackRecommendationAddToCart(it) }
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     item { Spacer(modifier = Modifier.height(20.dp)) }
@@ -241,17 +359,18 @@ fun ProductDetailScreen(
             }
             
             // Snackbar for cart messages
-            uiState.cartMessage?.let { message ->
-                LaunchedEffect(message) {
+            val message = uiState.cartMessage ?: uiState.cartMessageRes?.let { stringResource(it) }
+            message?.let { msg ->
+                LaunchedEffect(msg) {
                     kotlinx.coroutines.delay(2000)
                     viewModel.clearCartMessage()
                 }
                 Surface(
                     modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
-                    color = Color.Black.copy(alpha = 0.8f),
+                    color = MaterialTheme.colorScheme.inverseSurface,
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text(message, color = Color.White, modifier = Modifier.padding(12.dp))
+                    Text(msg, color = MaterialTheme.colorScheme.inverseOnSurface, modifier = Modifier.padding(12.dp))
                 }
             }
 
@@ -263,12 +382,12 @@ fun ProductDetailScreen(
                 }
                 Surface(
                     modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
-                    color = Color.Black.copy(alpha = 0.8f),
+                    color = MaterialTheme.colorScheme.inverseSurface,
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = "Login to save items to your wishlist",
-                        color = Color.White,
+                        text = stringResource(R.string.login_for_wishlist),
+                        color = MaterialTheme.colorScheme.inverseOnSurface,
                         modifier = Modifier.padding(12.dp)
                     )
                 }

@@ -81,6 +81,17 @@ fun CategoryRowShimmer() {
 }
 
 @Composable
+fun ProductItemShimmer() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(200.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(shimmerBrush())
+    )
+}
+
+@Composable
 fun ProductGridShimmer() {
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
         repeat(2) {

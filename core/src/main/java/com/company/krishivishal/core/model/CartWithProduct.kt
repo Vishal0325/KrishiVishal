@@ -9,7 +9,7 @@ data class CartWithProduct(
         parentColumn = "productId",
         entityColumn = "id"
     )
-    val product: Product,
+    val product: Product?,
     
     @Relation(
         parentColumn = "variantId",

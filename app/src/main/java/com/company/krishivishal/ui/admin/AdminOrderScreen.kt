@@ -31,6 +31,7 @@ fun AdminOrderScreen(
     viewModel: OrderViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val appConfig by viewModel.appConfig.collectAsState()
 
     Scaffold(
         topBar = {
@@ -53,7 +54,7 @@ fun AdminOrderScreen(
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                     items(uiState.orders) { order ->
-                        AdminOrderCard(order) { newStatus ->
+                        AdminOrderCard(order, appConfig) { newStatus ->
                             viewModel.updateOrderStatus(order.id, newStatus)
                         }
                         Spacer(modifier = Modifier.height(8.dp))
@@ -65,7 +66,7 @@ fun AdminOrderScreen(
 }
 
 @Composable
-fun AdminOrderCard(order: Order, onStatusChange: (String) -> Unit) {
+fun AdminOrderCard(order: Order, appConfig: com.company.krishivishal.core.model.AppConfig, onStatusChange: (String) -> Unit) {
     var showStatusDialog by remember { mutableStateOf(false) }
     var showPrintDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -151,7 +152,7 @@ fun AdminOrderCard(order: Order, onStatusChange: (String) -> Unit) {
                         headlineContent = { Text("Tax Invoice") },
                         supportingContent = { Text("Full billing details for customer") },
                         modifier = Modifier.clickable {
-                            PrintHelper.printOrderInvoice(context, order)
+                            PrintHelper.printOrderInvoice(context, order, appConfig)
                             showPrintDialog = false
                         }
                     )

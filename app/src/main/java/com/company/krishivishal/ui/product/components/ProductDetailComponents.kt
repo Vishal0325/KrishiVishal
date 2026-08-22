@@ -4,6 +4,8 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -36,6 +38,7 @@ import com.company.krishivishal.ui.components.*
 import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 
 /**
  * Helper to validate size/weight values. Rejects "0", "0.0", negative numbers, and blank strings.
@@ -64,50 +67,88 @@ fun ProductImageSection(
         variant?.discountPercent ?: product.discountPercent
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(350.dp)
-            .background(Color.White)
-    ) {
-        AsyncImage(
-            model = product.imageUrl.ifEmpty { product.images.firstOrNull() },
-            contentDescription = product.name,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Fit
-        )
+    // Combine imageUrl and images list, avoiding duplicates
+    val allImages = remember(product.imageUrl, product.images) {
+        val list = mutableListOf<String>()
+        if (product.imageUrl.isNotBlank()) list.add(product.imageUrl)
+        product.images.forEach { if (!list.contains(it)) list.add(it) }
+        if (list.isEmpty()) list.add("") // Placeholder
+        list
+    }
+    
+    val pagerState = rememberPagerState(pageCount = { allImages.size })
 
-        // Discount Badge
-        if (discount > 0) {
-            Surface(
-                color = SecondaryOrange,
-                shape = RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp),
-                modifier = Modifier.padding(top = 16.dp).align(Alignment.TopStart)
-            ) {
-                Text(
-                    text = stringResource(R.string.discount_percent_format, discount),
-                    color = Color.White,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    fontFamily = PoppinsFamily
+    Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(350.dp)
+        ) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize()
+            ) { page ->
+                AsyncImage(
+                    model = allImages[page],
+                    contentDescription = product.name,
+                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                    contentScale = ContentScale.Fit
                 )
             }
-        }
 
-        // Top Right Actions - Heart and Share
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            CircleIconButton(
-                icon = if (isWishlisted) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                tint = if (isWishlisted) Color.Red else Color.Black,
-                onClick = onWishlistToggle
-            )
-            CircleIconButton(icon = Icons.Default.Share, onClick = onShare)
+            // Discount Badge
+            if (discount > 0) {
+                Surface(
+                    color = SecondaryOrange,
+                    shape = RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp),
+                    modifier = Modifier.padding(top = 16.dp).align(Alignment.TopStart)
+                ) {
+                    Text(
+                        text = stringResource(R.string.discount_percent_format, discount),
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        fontFamily = PoppinsFamily
+                    )
+                }
+            }
+
+            // Top Right Actions - Heart and Share
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                CircleIconButton(
+                    icon = if (isWishlisted) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    tint = if (isWishlisted) Color.Red else MaterialTheme.colorScheme.onSurface,
+                    onClick = onWishlistToggle
+                )
+                CircleIconButton(icon = Icons.Default.Share, onClick = onShare)
+            }
+        }
+        
+        // Page Indicator
+        if (allImages.size > 1) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                repeat(allImages.size) { iteration ->
+                    val color = if (pagerState.currentPage == iteration) PrimaryGreen else Color.LightGray
+                    Box(
+                        modifier = Modifier
+                            .padding(2.dp)
+                            .clip(CircleShape)
+                            .background(color)
+                            .size(6.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -121,7 +162,7 @@ fun CircleIconButton(
     Surface(
         modifier = Modifier.size(36.dp),
         shape = CircleShape,
-        color = Color.White,
+        color = MaterialTheme.colorScheme.surface,
         shadowElevation = 2.dp
     ) {
         IconButton(onClick = onClick) {
@@ -212,7 +253,13 @@ fun ProductInfoSection(product: Product, variant: Variant?) {
 
         // Price
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = "₹${sellingPrice.toInt()}", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.Black, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+            Text(
+                text = "₹${sellingPrice.toInt()}", 
+                fontSize = 24.sp, 
+                fontWeight = FontWeight.Bold, 
+                color = MaterialTheme.colorScheme.onSurface, 
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+            )
             
             if (finalMrp > sellingPrice) {
                 Spacer(modifier = Modifier.width(8.dp))
@@ -256,7 +303,7 @@ fun ProductInfoSection(product: Product, variant: Variant?) {
         }
 
         Surface(
-            color = Color(0xFFF5F5F5),
+            color = MaterialTheme.colorScheme.surfaceVariant,
             shape = RoundedCornerShape(4.dp),
             modifier = Modifier.padding(top = 12.dp)
         ) {
@@ -264,7 +311,7 @@ fun ProductInfoSection(product: Product, variant: Variant?) {
                 text = stringResource(R.string.size_label, displaySize),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.Black,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
             )
         }
@@ -274,35 +321,73 @@ fun ProductInfoSection(product: Product, variant: Variant?) {
 @Composable
 fun CompositionCard(composition: String) {
     Card(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = BorderStroke(1.dp, DividerColor),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         shape = RoundedCornerShape(12.dp)
     ) {
-        Box(modifier = Modifier.padding(16.dp)) {
-            Column {
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Science, null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Default.Science, 
+                        null, 
+                        tint = MaterialTheme.colorScheme.primary, 
+                        modifier = Modifier.size(20.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = stringResource(R.string.composition_label),
                         fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        fontFamily = PoppinsFamily
+                        fontSize = 16.sp,
+                        fontFamily = PoppinsFamily,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(text = composition, fontSize = 13.sp, color = Color.DarkGray, fontFamily = PoppinsFamily)
+                Text(
+                    text = composition, 
+                    fontSize = 14.sp, 
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, 
+                    fontFamily = PoppinsFamily,
+                    lineHeight = 20.sp
+                )
             }
             
-            // Diamond Icon Placeholder
-            Icon(
-                Icons.Default.Warning, 
-                contentDescription = null, 
-                tint = Color(0xFFFFEB3B), 
-                modifier = Modifier.size(24.dp).align(Alignment.TopEnd)
-            )
+            // Toxicity Diamond Icon - Even Larger as requested
+            Box(
+                modifier = Modifier
+                    .padding(start = 12.dp)
+                    .size(90.dp), // Massive size for impact
+                contentAlignment = Alignment.Center
+            ) {
+                // Background Diamond Shape (Rotated Square)
+                Surface(
+                    modifier = Modifier
+                        .size(64.dp) // Much larger diamond
+                        .rotate(45f),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(2.dp, Color.Gray.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(4.dp)
+                ) {}
+                
+                // Toxicity Icon (Inside the large diamond)
+                Icon(
+                    Icons.Default.Warning, 
+                    contentDescription = null, 
+                    tint = Color(0xFFFFB300), 
+                    modifier = Modifier.size(36.dp) // Large visible icon
+                )
+            }
         }
     }
 }
@@ -386,7 +471,7 @@ fun DeliveryInfoSection(location: String, date: String) {
                 text = if (date.isNotBlank()) stringResource(R.string.delivery_by_format, date) else stringResource(R.string.delivery_details_on_call), 
                 fontSize = 14.sp, 
                 fontWeight = FontWeight.Medium, 
-                color = Color.Black
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
         HorizontalDivider(modifier = Modifier.padding(top = 16.dp), color = DividerColor)
@@ -407,7 +492,7 @@ fun ProductTabsSection(
     Column {
         TabRow(
             selectedTabIndex = selectedTabIndex,
-            containerColor = Color.White,
+            containerColor = MaterialTheme.colorScheme.surface,
             contentColor = PrimaryGreen,
             indicator = { tabPositions ->
                 TabRowDefaults.Indicator(
@@ -427,6 +512,9 @@ fun ProductTabsSection(
                 Text(stringResource(R.string.technical_info), modifier = Modifier.padding(12.dp), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
             Tab(selected = selectedTabIndex == 3, onClick = { onTabClick(3) }) {
+                Text("Usage Guide", modifier = Modifier.padding(12.dp), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            }
+            Tab(selected = selectedTabIndex == 4, onClick = { onTabClick(4) }) {
                 Text("Reviews", modifier = Modifier.padding(12.dp), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
         }
@@ -457,11 +545,84 @@ fun ProductTabsSection(
                     TechnicalInfoTab(product)
                 }
                 3 -> {
+                    UsageGuideTab(product)
+                }
+                4 -> {
                     ReviewsTab(reviews, isReviewsLoading)
                 }
             }
         }
         HorizontalDivider(color = DividerColor)
+    }
+}
+
+@Composable
+fun UsageGuideTab(product: Product) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        // Product Information Section
+        TechnicalInfoCard(
+            title = "Product Information",
+            icon = Icons.Default.Assignment,
+            content = {
+                if (product.targetCrops.isNotEmpty()) {
+                    OverviewRow("🌾 Suitable Crops", product.targetCrops.joinToString(", "))
+                }
+                if (product.targetPests.isNotEmpty()) {
+                    OverviewRow("🐛 Target Pest", product.targetPests.joinToString(", "))
+                }
+                if (product.targetDiseases.isNotEmpty()) {
+                    OverviewRow("🦠 Target Disease", product.targetDiseases.joinToString(", "))
+                }
+                OverviewRow("🧪 Technical Name", product.technicalName.ifBlank { "N/A" })
+                OverviewRow("📦 Pack Size", product.weight.ifBlank { "N/A" })
+                OverviewRow("🏷️ Product Type", product.category)
+                OverviewRow("📋 HSN", product.hsnCode.ifBlank { "N/A" })
+                OverviewRow("🏭 Brand", product.brand)
+            }
+        )
+
+        // How to Use Section
+        TechnicalInfoCard(
+            title = "How to Use",
+            icon = Icons.Default.PlayCircle,
+            content = {
+                if (product.usageInstructionsField.isNotBlank()) {
+                    Text(product.usageInstructionsField, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Text("Usage information is not available yet.", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, fontSize = 13.sp, color = GrayText)
+                }
+                
+                if (product.applicationMethod.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Method: ${product.applicationMethod}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+
+                if (product.mixingCompatibility.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        color = Color.Yellow.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(0.5.dp, Color.Yellow.copy(alpha = 0.5f))
+                    ) {
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Warning, null, tint = Color(0xFF856404), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Compatibility: ${product.mixingCompatibility}", fontSize = 12.sp, color = Color(0xFF856404))
+                        }
+                    }
+                }
+            }
+        )
+
+        if (product.safetyNotes.isNotBlank()) {
+            TechnicalInfoCard(
+                title = "Safety Instructions",
+                icon = Icons.Default.Security,
+                content = {
+                    Text(product.safetyNotes, fontSize = 13.sp, color = Color.Red.copy(alpha = 0.8f))
+                }
+            )
+        }
     }
 }
 
@@ -538,9 +699,9 @@ fun TechnicalInfoTab(product: Product) {
 fun TechnicalInfoCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F9FA)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, Color(0xFFE9ECEF))
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -655,7 +816,11 @@ fun VariantCard(variant: Variant, isSelected: Boolean, onClick: () -> Unit, prod
         else -> DividerColor
     }
     val borderWidth = if (isSelected || variant.isBestSeller) 1.5.dp else 1.dp
-    val backgroundColor = if (variant.isBestSeller) Color(0xFFF1F8E9) else Color.White
+    val backgroundColor = if (variant.isBestSeller) {
+        if (isSystemInDarkTheme()) Color(0xFF1B3D1B) else Color(0xFFF1F8E9)
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
 
     Card(
         modifier = Modifier.width(120.dp).clickable { onClick() },
@@ -687,7 +852,7 @@ fun VariantCard(variant: Variant, isSelected: Boolean, onClick: () -> Unit, prod
                     Text(
                         text = "₹${variant.price.toInt()}", 
                         fontWeight = FontWeight.ExtraBold, 
-                        color = Color.Black, 
+                        color = MaterialTheme.colorScheme.onSurface, 
                         fontSize = 14.sp
                     )
                     if (variant.basePrice > variant.price) {
@@ -768,75 +933,108 @@ fun VariantCard(variant: Variant, isSelected: Boolean, onClick: () -> Unit, prod
 fun BottomActions(
     quantity: Int,
     maxStock: Int,
+    isOutOfStock: Boolean = false,
+    isNotifyMeLoading: Boolean = false,
+    notifyMeSuccess: Boolean = false,
     onQuantityChange: (Int) -> Unit,
     onAddToCart: () -> Unit,
-    onBuyNow: () -> Unit
+    onBuyNow: () -> Unit,
+    onNotifyMe: () -> Unit = {}
 ) {
     Surface(
-        color = Color.White,
+        color = MaterialTheme.colorScheme.surface,
         shadowElevation = 8.dp,
-        border = BorderStroke(0.5.dp, DividerColor)
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(modifier = Modifier.navigationBarsPadding().padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.quantity), fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                Spacer(modifier = Modifier.width(8.dp))
+            if (!isOutOfStock) {
                 Row(
-                    modifier = Modifier
-                        .border(1.dp, DividerColor, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 4.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = { onQuantityChange(quantity - 1) }, 
-                        modifier = Modifier.size(24.dp),
-                        enabled = quantity > 1
+                    Text(stringResource(R.string.quantity), fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.Default.Remove, 
-                            null, 
-                            modifier = Modifier.size(16.dp),
-                            tint = if (quantity > 1) Color.Black else Color.LightGray
+                        IconButton(
+                            onClick = { onQuantityChange(quantity - 1) }, 
+                            modifier = Modifier.size(24.dp),
+                            enabled = quantity > 1
+                        ) {
+                            Icon(
+                                Icons.Default.Remove, 
+                                null, 
+                                modifier = Modifier.size(16.dp),
+                                tint = if (quantity > 1) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline
+                            )
+                        }
+                        Text(
+                            "$quantity", 
+                            modifier = Modifier.padding(horizontal = 12.dp), 
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
                         )
-                    }
-                    Text(
-                        "$quantity", 
-                        modifier = Modifier.padding(horizontal = 12.dp), 
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                    IconButton(
-                        onClick = { onQuantityChange(quantity + 1) }, 
-                        modifier = Modifier.size(24.dp),
-                        enabled = quantity < maxStock
-                    ) {
-                        Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp), tint = if (quantity < maxStock) Color.Black else Color.LightGray)
+                        IconButton(
+                            onClick = { onQuantityChange(quantity + 1) }, 
+                            modifier = Modifier.size(24.dp),
+                            enabled = quantity < maxStock
+                        ) {
+                            Icon(
+                                Icons.Default.Add, 
+                                null, 
+                                modifier = Modifier.size(16.dp), 
+                                tint = if (quantity < maxStock) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline
+                            )
+                        }
                     }
                 }
+                
+                Spacer(modifier = Modifier.height(12.dp))
             }
             
-            Spacer(modifier = Modifier.height(12.dp))
-            
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(
-                    onClick = onAddToCart,
-                    modifier = Modifier.weight(1f).height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = SecondaryOrange),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(stringResource(R.string.add_to_cart), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                }
-                Button(
-                    onClick = onBuyNow,
-                    modifier = Modifier.weight(1f).height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(stringResource(R.string.buy_now), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                if (isOutOfStock) {
+                    Button(
+                        onClick = onNotifyMe,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (notifyMeSuccess) Color.Gray else PrimaryGreen
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        enabled = !isNotifyMeLoading && !notifyMeSuccess
+                    ) {
+                        if (isNotifyMeLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
+                        } else {
+                            Text(
+                                if (notifyMeSuccess) stringResource(R.string.notify_request_sent) else stringResource(R.string.notify_me_label),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                } else {
+                    Button(
+                        onClick = onAddToCart,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = SecondaryOrange),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(stringResource(R.string.add_to_cart), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                    Button(
+                        onClick = onBuyNow,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(stringResource(R.string.buy_now), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
                 }
             }
         }

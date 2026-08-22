@@ -9,6 +9,7 @@ import androidx.room.PrimaryKey
 import com.google.gson.annotations.SerializedName
 import com.google.firebase.firestore.IgnoreExtraProperties
 import com.google.firebase.firestore.PropertyName
+import com.google.firebase.firestore.Exclude
 import kotlinx.parcelize.Parcelize
 import com.google.firebase.Timestamp
 
@@ -53,6 +54,11 @@ data class Variant(
     @get:PropertyName("basePrice")
     @set:PropertyName("basePrice")
     var basePrice: Double = 0.0,
+
+    @androidx.room.Ignore
+    @get:Exclude
+    @set:Exclude
+    var costPrice: Double = 0.0,
 
     @ColumnInfo(name = "discountPercent")
     @SerializedName("discountPercent")

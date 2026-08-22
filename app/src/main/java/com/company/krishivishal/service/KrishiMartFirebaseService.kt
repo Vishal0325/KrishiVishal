@@ -56,7 +56,12 @@ class KrishiMartFirebaseService : FirebaseMessagingService() {
                 repository.saveNotification(notification)
             }
 
-            notificationHelper.showNotification(title, body)
+            // Handle specific navigation or UI updates for returns
+            if (type == "RETURN_UPDATE") {
+                notificationHelper.showNotification(title ?: "Return Update", body ?: "Aapka return request update hua hai.")
+            } else {
+                notificationHelper.showNotification(title ?: "Notification", body ?: "")
+            }
         }
     }
 }

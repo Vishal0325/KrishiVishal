@@ -11,6 +11,7 @@ captures/
 .cxx/
 *.log
 node_modules/
+.artifacts/
 dist/
 .env
 scripts/service-account-key.json

@@ -188,4 +188,28 @@
     <string name="download_print_invoice">Download / Print Invoice</string>
     <string name="expert_help">Expert Help</string>
     <string name="whatsapp_msg">Hello Krishi Vishal, I need expert advice on my crop.</string>
+
+    <!-- Recommendations -->
+    <string name="same_technical_title">Same Technical Composition</string>
+    <string name="similar_products_title">Similar Products</string>
+    <string name="related_products_title">Related Products</string>
+    <string name="badge_same_technical">Same Technical</string>
+    <string name="badge_similar">Similar</string>
+    <string name="badge_popular">Popular</string>
+    <string name="badge_featured">Featured</string>
+    <string name="badge_matches_crop">Matches Crop</string>
+    <string name="in_stock">In Stock</string>
+    <string name="not_available_short">N/A</string>
+    <string name="login_for_wishlist">Login to save items to your wishlist</string>
+    <string name="added_to_cart">Added to cart!</string>
+    <string name="notify_me_label">Notify Me When Available</string>
+    <string name="notify_request_sent">Notification Request Sent</string>
+    <string name="notify_success_msg">Notification request sent successfully!</string>
+
+    <!-- Sections -->
+    <string name="buy_again_title">Buy Again</string>
+    <string name="recently_viewed_title">Recently Viewed</string>
+    <string name="seasonal_picks_title">Seasonal Picks</string>
+    <string name="recommended_for_you_title">Recommended for Your Crops</string>
+    <string name="compare_title">Compare Products</string>
 </resources>

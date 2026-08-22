@@ -37,7 +37,11 @@ class AddressRepositoryImpl @Inject constructor(
             snapshot.toObjects(Address::class.java)
         },
         saveFetchResult = { addresses ->
-            // Clear old and insert new to keep in sync
+            // Purge local stale addresses that no longer exist in Firestore
+            val remoteIds = addresses.map { it.id }
+            userDao.deleteAddressesNotInList(userId, remoteIds)
+            
+            // Insert fresh addresses to keep in sync
             addresses.forEach { userDao.insertAddress(it) }
         },
         dispatcher = ioDispatcher

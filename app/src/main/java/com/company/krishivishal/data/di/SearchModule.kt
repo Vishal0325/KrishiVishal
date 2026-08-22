@@ -1,15 +1,10 @@
 package com.company.krishivishal.data.di
 
-import android.content.Context
-import androidx.room.Room
-import com.company.krishivishal.data.local.KrishiVishalDatabase
-import com.company.krishivishal.data.local.dao.RecentSearchDao
 import com.company.krishivishal.data.repository.ProductSearchRepository
 import com.google.firebase.firestore.FirebaseFirestore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
@@ -30,39 +25,10 @@ object SearchModule {
     @Provides
     @Singleton
     fun provideProductSearchRepository(
-        firestore: FirebaseFirestore
+        firestore: FirebaseFirestore,
+        productDao: com.company.krishivishal.data.local.ProductDao
     ): ProductSearchRepository {
-        return ProductSearchRepository(firestore)
-    }
-
-    /**
-     * Provide Recent Search DAO
-     * Manages local search history
-     */
-    @Provides
-    @Singleton
-    fun provideRecentSearchDao(
-        database: KrishiVishalDatabase
-    ): RecentSearchDao {
-        return database.recentSearchDao()
-    }
-
-    /**
-     * Provide KrishiVishalDatabase
-     * Room database singleton
-     */
-    @Provides
-    @Singleton
-    fun provideKrishiVishalDatabase(
-        @ApplicationContext context: Context
-    ): KrishiVishalDatabase {
-        return Room.databaseBuilder(
-            context,
-            KrishiVishalDatabase::class.java,
-            "krishivishal_db"
-        )
-            .fallbackToDestructiveMigration()
-            .build()
+        return ProductSearchRepository(firestore, productDao)
     }
 }
 

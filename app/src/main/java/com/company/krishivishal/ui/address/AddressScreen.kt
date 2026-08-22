@@ -55,14 +55,14 @@ fun AddressScreen(
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { showAddDialog = true },
                 containerColor = PrimaryGreen,
-                contentColor = Color.White,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
                 shape = RoundedCornerShape(16.dp),
                 icon = { Icon(Icons.Default.AddLocationAlt, contentDescription = null) },
                 text = { Text("Add New Farm/Home") }
@@ -73,7 +73,7 @@ fun AddressScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(Color(0xFFF5F5F5))
+                .background(MaterialTheme.colorScheme.background)
         ) {
             when (val res = addressesResource) {
                 is Resource.Loading -> {
@@ -99,7 +99,39 @@ fun AddressScreen(
                     }
                 }
                 is Resource.Error -> {
-                    Text(text = "Error: ${res.message}", modifier = Modifier.align(Alignment.Center), color = Color.Red)
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.ErrorOutline,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Address load nahi ho paya",
+                            fontWeight = FontWeight.Bold,
+                            color = Color.DarkGray
+                        )
+                        Text(
+                            text = res.message ?: "Kuch gadbad hui hai",
+                            fontSize = 13.sp,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(top = 4.dp, start = 32.dp, end = 32.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = { viewModel.loadAddresses() },
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Retry")
+                        }
+                    }
                 }
                 else -> {}
             }
@@ -135,7 +167,7 @@ fun AddressItem(address: Address, onDelete: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -176,28 +208,60 @@ fun AddressItem(address: Address, onDelete: () -> Unit) {
             }
             
             Spacer(modifier = Modifier.height(12.dp))
-            Text(address.fullName, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Text(address.mobileNumber, fontSize = 14.sp, color = Color.Gray)
+            if (address.fullName.isNotBlank()) {
+                Text(address.fullName, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+            if (address.mobileNumber.isNotBlank()) {
+                Text(address.mobileNumber, fontSize = 14.sp, color = Color.Gray)
+            }
             
             Divider(modifier = Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
             
-            Text(
-                "${address.houseNo}, ${address.street}",
-                fontSize = 14.sp,
-                color = Color.DarkGray
+            // Build address lines, filtering out empty parts
+            val line1Parts = listOfNotNull(
+                address.houseNo.ifBlank { null },
+                address.street.ifBlank { null }
             )
-            Text(
-                "${address.ward}, ${address.block}",
-                fontSize = 14.sp,
-                color = Color.DarkGray
-            )
-            Text(
-                "${address.district}, ${address.state} - ${address.pincode}",
-                fontSize = 14.sp,
-                color = Color.DarkGray
-            )
+            if (line1Parts.isNotEmpty()) {
+                Text(
+                    line1Parts.joinToString(", "),
+                    fontSize = 14.sp,
+                    color = Color.DarkGray
+                )
+            }
             
-            if (address.landmark.isNotEmpty()) {
+            val line2Parts = listOfNotNull(
+                address.ward.ifBlank { null },
+                address.block.ifBlank { null }
+            )
+            if (line2Parts.isNotEmpty()) {
+                Text(
+                    line2Parts.joinToString(", "),
+                    fontSize = 14.sp,
+                    color = Color.DarkGray
+                )
+            }
+            
+            val line3Parts = listOfNotNull(
+                address.district.ifBlank { null },
+                address.state.ifBlank { null }
+            )
+            val pincodeStr = address.pincode.ifBlank { null }
+            if (line3Parts.isNotEmpty() || pincodeStr != null) {
+                val districtState = line3Parts.joinToString(", ")
+                val fullLine = if (pincodeStr != null && districtState.isNotEmpty()) {
+                    "$districtState - $pincodeStr"
+                } else {
+                    districtState.ifEmpty { pincodeStr ?: "" }
+                }
+                Text(
+                    fullLine,
+                    fontSize = 14.sp,
+                    color = Color.DarkGray
+                )
+            }
+            
+            if (address.landmark.isNotBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text("Landmark: ${address.landmark}", fontSize = 12.sp, color = Color.Gray)
             }
@@ -240,7 +304,7 @@ fun AddAddressDialog(
                 .fillMaxWidth()
                 .fillMaxHeight(0.9f),
             shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
                 modifier = Modifier
@@ -317,9 +381,9 @@ fun AddressTypeChip(label: String, icon: ImageVector, isSelected: Boolean, onCli
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = if (isSelected) Color.White else Color.Gray)
+            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else Color.Gray)
             Spacer(modifier = Modifier.width(4.dp))
-            Text(label, color = if (isSelected) Color.White else Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(label, color = if (isSelected) MaterialTheme.colorScheme.onPrimary else Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
