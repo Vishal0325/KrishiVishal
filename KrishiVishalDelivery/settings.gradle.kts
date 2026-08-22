@@ -23,5 +23,9 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "KrishiVishalDelivery"
-include(":app")
-include(":core")
+
+include(":delivery-app")
+project(":delivery-app").projectDir = file("app")
+
+include(":delivery-core")
+project(":delivery-core").projectDir = file("core")

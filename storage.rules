@@ -4,66 +4,58 @@ service firebase.storage {
   match /b/{bucket}/o {
 
     // ============================================================
-    // HELPERS
+    // AUTHENTICATION / RBAC HELPERS
     // ============================================================
 
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    function userDocExists() {
-      return isAuthenticated() &&
-        firestore.exists(
-          /databases/(default)/documents/users/$(request.auth.uid)
-        );
-    }
-
+    // Canonical administrative roles.
+    // Viewer is intentionally NOT included because Viewer is read-only.
     function isAdmin() {
-      return isAuthenticated() && (
-        request.auth.token.admin == true ||
-        (
-          userDocExists() &&
-          firestore.get(
-            /databases/(default)/documents/users/$(request.auth.uid)
-          ).data.isAdmin == true
-        ) ||
-        (
-          userDocExists() &&
-          firestore.get(
-            /databases/(default)/documents/users/$(request.auth.uid)
-          ).data.role in ["ADMIN", "SuperAdmin"]
-        )
-      );
+      return isAuthenticated() &&
+        request.auth.token.role in [
+          "SuperAdmin",
+          "CatalogManager",
+          "OrderManager"
+        ];
     }
 
     function isRider() {
-      return isAuthenticated() && (
-        request.auth.token.role == "RIDER" ||
-        (
-          userDocExists() &&
-          firestore.get(
-            /databases/(default)/documents/users/$(request.auth.uid)
-          ).data.role == "RIDER"
-        )
-      );
+      return isAuthenticated() &&
+        request.auth.token.role == "Rider";
     }
+
+    // ============================================================
+    // FILE VALIDATION HELPERS
+    // ============================================================
 
     function isImage() {
       return request.resource.contentType.matches('image/.*');
     }
 
     function isValidImage() {
-      return isImage() && request.resource.size < 10 * 1024 * 1024;
+      return isImage() &&
+        request.resource.size < 10 * 1024 * 1024;
     }
 
     function isValidProfileImage() {
-      return isImage() && request.resource.size < 5 * 1024 * 1024;
+      return isImage() &&
+        request.resource.size < 5 * 1024 * 1024;
     }
 
     function isValidDocument() {
-      return (request.resource.contentType.matches('application/pdf') || isImage()) &&
-        request.resource.size < 15 * 1024 * 1024;
+      return (
+        request.resource.contentType.matches('application/pdf') ||
+        isImage()
+      ) &&
+      request.resource.size < 15 * 1024 * 1024;
     }
+
+    // ============================================================
+    // ORDER HELPERS
+    // ============================================================
 
     function orderExists(orderId) {
       return firestore.exists(
@@ -87,6 +79,10 @@ service firebase.storage {
         ).data.riderId == request.auth.uid;
     }
 
+    // ============================================================
+    // RETURN HELPERS
+    // ============================================================
+
     function returnExists(returnId) {
       return firestore.exists(
         /databases/(default)/documents/returns/$(returnId)
@@ -109,7 +105,6 @@ service firebase.storage {
         ).data.riderId == request.auth.uid;
     }
 
-
     // ============================================================
     // PUBLIC PRODUCT IMAGES
     // ============================================================
@@ -122,7 +117,6 @@ service firebase.storage {
 
       allow delete: if isAdmin();
     }
-
 
     // ============================================================
     // PUBLIC BANNERS
@@ -137,7 +131,6 @@ service firebase.storage {
       allow delete: if isAdmin();
     }
 
-
     // ============================================================
     // PUBLIC BRAND LOGOS
     // ============================================================
@@ -150,7 +143,6 @@ service firebase.storage {
 
       allow delete: if isAdmin();
     }
-
 
     // ============================================================
     // PUBLIC CATEGORY IMAGES
@@ -165,7 +157,6 @@ service firebase.storage {
       allow delete: if isAdmin();
     }
 
-
     // ============================================================
     // PUBLIC SUBCATEGORY IMAGES
     // ============================================================
@@ -178,7 +169,6 @@ service firebase.storage {
 
       allow delete: if isAdmin();
     }
-
 
     // ============================================================
     // USER PROFILE FILES
@@ -205,15 +195,10 @@ service firebase.storage {
         );
     }
 
-
     // ============================================================
     // PROOF OF DELIVERY
     // Structure:
     // pod/{orderId}/{fileName}
-    //
-    // Rider: Upload
-    // Customer: Read
-    // Admin: Full access
     // ============================================================
 
     match /pod/{orderId}/{fileName} {
@@ -222,22 +207,22 @@ service firebase.storage {
         isOrderOwner(orderId) ||
         isAssignedRider(orderId);
 
-      // (Correction 12) Only assigned rider can create, no overwrite/delete
+      // Assigned rider or admin can create.
+      // Existing evidence cannot be overwritten.
       allow create: if (isAdmin() || isAssignedRider(orderId)) &&
         isValidImage() &&
-        !exists(/b/$(bucket)/o/pod/$(orderId)/$(fileName));
+        !exists(
+          /b/$(bucket)/o/pod/$(orderId)/$(fileName)
+        );
 
-      // Rider cannot overwrite/delete evidence.
+      // Rider cannot modify/delete evidence.
       allow update, delete: if isAdmin();
     }
-
 
     // ============================================================
     // LEGACY ORDER FILES
     // Structure:
     // orders/{orderId}/...
-    //
-    // Keep secure in case existing app uses this path.
     // ============================================================
 
     match /orders/{orderId}/{allPaths=**} {
@@ -255,15 +240,10 @@ service firebase.storage {
       allow update, delete: if isAdmin();
     }
 
-
     // ============================================================
     // RETURN QC PHOTOS
     // Structure:
     // returns/{returnId}/{fileName}
-    //
-    // Assigned rider: Upload
-    // Customer: Read
-    // Admin: Full access
     // ============================================================
 
     match /returns/{returnId}/{fileName} {
@@ -272,15 +252,17 @@ service firebase.storage {
         isReturnOwner(returnId) ||
         isReturnRider(returnId);
 
-      // (Correction 12) Only assigned return rider can create, no overwrite/delete
+      // Assigned rider or admin can create.
+      // Existing evidence cannot be overwritten.
       allow create: if (isAdmin() || isReturnRider(returnId)) &&
         isValidImage() &&
-        !exists(/b/$(bucket)/o/returns/$(returnId)/$(fileName));
+        !exists(
+          /b/$(bucket)/o/returns/$(returnId)/$(fileName)
+        );
 
-      // Evidence cannot be changed by rider after upload.
+      // Rider cannot modify/delete evidence.
       allow update, delete: if isAdmin();
     }
-
 
     // ============================================================
     // EXPENSE ATTACHMENTS
@@ -289,15 +271,14 @@ service firebase.storage {
     // ============================================================
 
     match /expenses/{expenseId}/{fileName} {
+
       allow read: if isAdmin();
 
       allow create: if isAdmin() &&
         isValidDocument();
 
-      // No unauthorized delete or overwrite
       allow update, delete: if isAdmin();
     }
-
 
     // ============================================================
     // DEFAULT DENY

@@ -39,7 +39,11 @@ service cloud.firestore {
     // RBAC AUTHORITY: Determined by 'role' custom claim
     // Supported roles: SuperAdmin, CatalogManager, OrderManager, Rider, Customer, Viewer
     function isAdmin() {
-      return getRole() in ["SuperAdmin", "CatalogManager", "OrderManager", "Viewer"];
+      return getRole() in ["SuperAdmin", "CatalogManager", "OrderManager"];
+    }
+
+    function isViewer() {
+      return hasRole("Viewer");
     }
 
     function isRider() {
@@ -306,7 +310,7 @@ service cloud.firestore {
 
     match /users/{uId} {
 
-      allow read: if isOwner(uId) || isAdmin();
+      allow read: if isOwner(uId) || isAdmin() || isViewer();
 
 
       // User can create ONLY their own profile.
@@ -360,7 +364,8 @@ service cloud.firestore {
       // ----------------------------------------------------------
 
       match /addresses/{addressId} {
-        allow read, write: if isOwner(uId) || isAdmin();
+        allow read: if isOwner(uId) || isAdmin() || isViewer();
+        allow write: if isOwner(uId) || isAdmin();
       }
 
 
@@ -377,7 +382,7 @@ service cloud.firestore {
 
     match /riders/{riderId} {
 
-      allow read: if isAdmin() || isOwner(riderId);
+      allow read: if isAdmin() || isViewer() || isOwner(riderId);
 
       // Rider records managed by backend/admin only.
       allow write: if isAdmin();
