@@ -1,0 +1,17 @@
+build/
+.gradle/
+.idea/
+*.iml
+local.properties
+keystore.properties
+*.jks
+.kotlin/
+captures/
+.externalNativeBuild/
+.cxx/
+*.log
+node_modules/
+.artifacts/
+dist/
+.env
+scripts/service-account-key.json

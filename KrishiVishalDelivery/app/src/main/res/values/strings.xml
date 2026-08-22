@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">delivery</string>
+    <string name="delete_account_data">Delete My Account &amp; Data</string>
+    <string name="delete_account_confirm_title">Delete Account?</string>
+    <string name="delete_account_confirm_msg">Are you sure you want to delete your account? This action is permanent and all your data (orders, profile) will be lost.</string>
+    <string name="account_deleted_success">Account Deleted Successfully</string>
+    <string name="delete_account_reauth_error">Failed to delete account. For security reasons, please logout and login again, then try deleting.</string>
+    <string name="delete_account">Delete Account</string>
+    <string name="cancel">Cancel</string>
+    <string name="order_details">Order Details</string>
+    <string name="confirm_action">Confirm Action</string>
+    <string name="confirm_status_change">Are you sure you want to change the status to %s?</string>
+    <string name="confirm">Confirm</string>
+    <string name="order_not_found">Order not found or loading...</string>
+    <string name="customer_details">Customer Details</string>
+    <string name="call_customer">Call Customer</string>
+    <string name="delivery_location">Delivery Location</string>
+    <string name="open_in_maps">Open in Maps</string>
+    <string name="order_items">Order Items</string>
+    <string name="order_summary">Order Summary</string>
+    <string name="cash_to_collect">Cash to Collect: ₹%s</string>
+</resources>
