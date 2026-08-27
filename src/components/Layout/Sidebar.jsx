@@ -62,12 +62,21 @@ const Sidebar = () => {
         { icon: <LayoutDashboard size={17} />, label: "Dashboard", path: "/", roles: ["SuperAdmin", "CatalogManager", "OrderManager", "Viewer"] },
         { icon: <ShoppingCart size={17} />, label: "Orders", path: "/orders", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
         { icon: <QrCode size={17} />, label: "Packing Station", path: "/packing-station", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
-        { icon: <Headphones size={17} />, label: "Support Tickets", path: "/support-tickets", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
-        { icon: <AlertOctagon size={17} />, label: "Complaints", path: "/complaints", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
-        { icon: <Star size={17} />, label: "Customer Feedback", path: "/customer-feedback", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
         { icon: <CreditCard size={17} />, label: "Payments", path: "/payments", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
         { icon: <RefreshCcw size={17} />, label: "Returns", path: "/returns", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
-        { icon: <Users size={17} />, label: "Customers", path: "/customers", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
+      ]
+    },
+    {
+      id: "crm",
+      label: "Customer CRM",
+      icon: <Users size={16} className="text-teal-300" />,
+      roles: ["SuperAdmin", "OrderManager", "Viewer"],
+      items: [
+        { icon: <Activity size={17} />, label: "CRM Overview", path: "/crm-dashboard", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
+        { icon: <Users size={17} />, label: "Farmers (360°)", path: "/customers", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
+        { icon: <Headphones size={17} />, label: "Support Tickets", path: "/support-tickets", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
+        { icon: <AlertOctagon size={17} />, label: "Grievances", path: "/complaints", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
+        { icon: <Star size={17} />, label: "Customer Feedback", path: "/customer-feedback", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
       ]
     },
     {

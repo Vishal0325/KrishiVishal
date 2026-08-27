@@ -48,6 +48,7 @@ import FinancialStatements from "./pages/FinancialStatements";
 import SupportTickets from "./pages/SupportTickets";
 import Complaints from "./pages/Complaints";
 import CustomerFeedback from "./pages/CustomerFeedback";
+import CRMDashboard from "./pages/CRMDashboard";
 import { useAuth } from "./hooks/useAuth";
 import { auth } from "./firebase/config"; // Direct import
 import { signOut } from "firebase/auth";
@@ -128,6 +129,7 @@ function App() {
           <Route path="/support-tickets" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><SupportTickets /></RequireRole>} />
           <Route path="/complaints" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><Complaints /></RequireRole>} />
           <Route path="/customer-feedback" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><CustomerFeedback /></RequireRole>} />
+          <Route path="/crm-dashboard" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><CRMDashboard /></RequireRole>} />
           <Route path="/suppliers" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "CatalogManager", "Viewer"]}><Suppliers /></RequireRole>} />
           <Route path="/procurement" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><ProcurementQueue /></RequireRole>} />
           <Route path="/purchase-order/:id" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><PurchaseOrderDetail /></RequireRole>} />
