@@ -40,7 +40,8 @@ import {
   Sparkles,
   Truck,
   Sliders,
-  Headphones
+  Headphones,
+  AlertOctagon
 } from "lucide-react";
 import { auth } from "../../firebase/config";
 import { useAuth } from "../../hooks/useAuth";
@@ -61,6 +62,7 @@ const Sidebar = () => {
         { icon: <ShoppingCart size={17} />, label: "Orders", path: "/orders", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
         { icon: <QrCode size={17} />, label: "Packing Station", path: "/packing-station", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
         { icon: <Headphones size={17} />, label: "Support Tickets", path: "/support-tickets", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
+        { icon: <AlertOctagon size={17} />, label: "Complaints", path: "/complaints", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
         { icon: <CreditCard size={17} />, label: "Payments", path: "/payments", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
         { icon: <RefreshCcw size={17} />, label: "Returns", path: "/returns", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
         { icon: <Users size={17} />, label: "Customers", path: "/customers", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
