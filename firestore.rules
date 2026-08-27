@@ -494,6 +494,52 @@ service cloud.firestore {
 
 
     // ============================================================
+    // SUPPLIERS & PROCUREMENT (Phase 1 & 2)
+    // ============================================================
+
+    match /suppliers/{supplierId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /procurement_queue/{itemId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /purchase_orders/{poId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+      match /{document=**} {
+        allow read, write: if isAdmin();
+      }
+    }
+
+    match /goods_receipts/{grnId} {
+      allow read, write: if isAdmin();
+      match /{document=**} {
+        allow read, write: if isAdmin();
+      }
+    }
+
+    match /inventory_movements/{movementId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /supplier_ledger/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    match /customer_ledger/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    match /unit_economics/{orderId} {
+      allow read, write: if isAdmin();
+    }
+
+
+    // ============================================================
     // INTERNAL INFRASTRUCTURE
     // ============================================================
 
