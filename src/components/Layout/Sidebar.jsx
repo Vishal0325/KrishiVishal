@@ -161,6 +161,7 @@ const Sidebar = () => {
   // Expanded Categories State (defaults all to open, allows user toggle)
   const [expandedCategories, setExpandedCategories] = useState({
     operations: true,
+    crm: true,
     "supply-chain": true,
     catalog: true,
     fleet: true,
