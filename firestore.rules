@@ -538,6 +538,31 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // ============================================================
+    // CRM SYSTEM (Support, Complaints, Feedback)
+    // ============================================================
+
+    match /support_tickets/{ticketId} {
+      allow read, write: if isAuthenticated();
+      match /{document=**} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
+    match /complaints/{complaintId} {
+      allow read, write: if isAuthenticated();
+      match /{document=**} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
+    match /customer_feedback/{feedbackId} {
+      allow read, write: if isAuthenticated();
+      match /{document=**} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
 
     // ============================================================
     // INTERNAL INFRASTRUCTURE
