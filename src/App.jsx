@@ -45,6 +45,7 @@ import SupplierLedger from "./pages/SupplierLedger";
 import UnitEconomics from "./pages/UnitEconomics";
 import GSTReports from "./pages/GSTReports";
 import FinancialStatements from "./pages/FinancialStatements";
+import SupportTickets from "./pages/SupportTickets";
 import { useAuth } from "./hooks/useAuth";
 import { auth } from "./firebase/config"; // Direct import
 import { signOut } from "firebase/auth";
@@ -122,6 +123,7 @@ function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/orders" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><Orders /></RequireRole>} />
           <Route path="/packing-station" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><PackingStation /></RequireRole>} />
+          <Route path="/support-tickets" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><SupportTickets /></RequireRole>} />
           <Route path="/suppliers" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "CatalogManager", "Viewer"]}><Suppliers /></RequireRole>} />
           <Route path="/procurement" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><ProcurementQueue /></RequireRole>} />
           <Route path="/purchase-order/:id" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><PurchaseOrderDetail /></RequireRole>} />
