@@ -32,7 +32,10 @@ class HomeViewModelTest {
     private val authRepository: AuthRepository = mockk()
     private val wishlistRepository: WishlistRepository = mockk()
     private val analyticsTracker: com.company.krishivishal.analytics.AnalyticsTracker = mockk(relaxed = true)
-    private val userDao: UserDao = mockk()
+    private val configRepository: ConfigRepository = mockk(relaxed = true)
+    private val orderRepository: OrderRepository = mockk(relaxed = true)
+    private val productDao: com.company.krishivishal.data.local.ProductDao = mockk(relaxed = true)
+    private val userDao: UserDao = mockk(relaxed = true)
 
     @Before
     fun setup() {
@@ -51,7 +54,10 @@ class HomeViewModelTest {
             cartRepository = cartRepository,
             authRepository = authRepository,
             wishlistRepository = wishlistRepository,
+            configRepository = configRepository,
+            orderRepository = orderRepository,
             analyticsTracker = analyticsTracker,
+            productDao = productDao,
             userDao = userDao
         )
     }

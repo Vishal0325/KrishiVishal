@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.company.krishivishal.core.model.Order
-import com.company.krishivishaldelivery.ui.dashboard.DeliveryViewModel
+import com.company.krishivishaldelivery.ui.scanner.ScannerViewModel
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.Executors
@@ -38,7 +38,7 @@ import java.util.concurrent.Executors
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QRScannerScreen(
-    viewModel: DeliveryViewModel,
+    viewModel: ScannerViewModel,
     onOrderAccepted: (String) -> Unit,
     onNavigateBack: () -> Unit
 ) {
@@ -84,10 +84,10 @@ fun QRScannerScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF2E7D32),
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White,
-                    actionIconContentColor = Color.White
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
         }
@@ -255,7 +255,12 @@ fun OrderPreviewContent(order: Order, onAccept: () -> Unit, onCancel: () -> Unit
             .padding(16.dp)
             .padding(bottom = 32.dp)
     ) {
-        Text("Order Preview", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Color(0xFF2E7D32))
+        Text(
+            text = "Order Preview",
+            fontWeight = FontWeight.Bold,
+            fontSize = 20.sp,
+            color = MaterialTheme.colorScheme.primary
+        )
         Spacer(modifier = Modifier.height(16.dp))
         
         Text("Order #${order.id.takeLast(6)}", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
@@ -305,7 +310,7 @@ fun OrderPreviewContent(order: Order, onAccept: () -> Unit, onCancel: () -> Unit
                 onClick = onAccept,
                 modifier = Modifier.weight(1f).padding(start = 8.dp),
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
                 Text("Accept Order")
             }

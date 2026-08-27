@@ -1,5 +1,7 @@
 package com.company.krishivishal.utils
 
+import com.company.krishivishal.KrishiVishalApp
+import com.company.krishivishal.R
 import com.google.firebase.FirebaseException
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -14,9 +16,11 @@ import java.net.UnknownHostException
 object NetworkErrorHandler {
 
     fun asFriendlyError(throwable: Throwable): String {
+        val context = KrishiVishalApp.instance
+
         // 1. Prevent StackOverflow by checking for it first
         if (throwable is StackOverflowError) {
-            return "ऐप में तकनीकी समस्या आई है। कृपया इसे रिस्टार्ट करें।"
+            return context.getString(R.string.error_technical)
         }
 
         // 2. Log the full technical error to Logcat safely
@@ -28,21 +32,21 @@ object NetworkErrorHandler {
         
         return when (throwable) {
             is FirebaseAuthException -> when (throwable.errorCode) {
-                "ERROR_INVALID_VERIFICATION_CODE" -> "गलत ओटीपी! कृपया सही कोड डालें।"
-                "ERROR_SESSION_EXPIRED" -> "ओटीपी की समय सीमा समाप्त हो गई है।"
-                "ERROR_TOO_MANY_REQUESTS" -> "बहुत अधिक प्रयास! थोड़ी देर बाद कोशिश करें।"
-                else -> "लॉगिन एरर: ${throwable.errorCode}"
+                "ERROR_INVALID_VERIFICATION_CODE" -> context.getString(R.string.error_invalid_otp)
+                "ERROR_SESSION_EXPIRED" -> context.getString(R.string.error_otp_expired)
+                "ERROR_TOO_MANY_REQUESTS" -> context.getString(R.string.error_too_many_requests)
+                else -> context.getString(R.string.error_login_failed, throwable.errorCode)
             }
 
             is com.google.firebase.functions.FirebaseFunctionsException -> {
                 when (throwable.code) {
                     com.google.firebase.functions.FirebaseFunctionsException.Code.UNAUTHENTICATED ->
-                        "सेशन समाप्त हो गया है! कृपया दोबारा लॉगिन करें।"
+                        context.getString(R.string.error_session_expired)
                     com.google.firebase.functions.FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED ->
-                        "सर्वर पर अत्यधिक लोड है, कृपया कुछ समय पश्चात प्रयास करें।"
+                        context.getString(R.string.error_server_overload)
                     com.google.firebase.functions.FirebaseFunctionsException.Code.UNAVAILABLE ->
-                        "सर्वर उपलब्ध नहीं है, कृपया इंटरनेट जांचें।"
-                    else -> throwable.message ?: "सर्वर से संपर्क करने में समस्या आई।"
+                        context.getString(R.string.error_server_unavailable)
+                    else -> throwable.message ?: context.getString(R.string.error_server_contact)
                 }
             }
 
@@ -50,32 +54,35 @@ object NetworkErrorHandler {
                 when {
                     throwable.message?.contains("App Check", true) == true -> "App Check Blocked: Please use a real device."
                     throwable.message?.contains("quota", true) == true -> "SMS quota exceeded."
-                    throwable.message?.contains("UNAUTHENTICATED", true) == true -> "सेशन समाप्त हो गया है! कृपया दोबारा लॉगिन करें।"
-                    throwable.message?.contains("NOT_FOUND", ignoreCase = true) == true -> "सर्वर समस्या: सर्विस नहीं मिली।"
-                    throwable.message?.contains("out-of-resource", ignoreCase = true) == true -> "स्टॉक उपलब्ध नहीं है! कृपया संख्या कम करें।"
-                    else -> throwable.message ?: "Firebase Error"
+                    throwable.message?.contains("UNAUTHENTICATED", true) == true -> context.getString(R.string.error_session_expired)
+                    throwable.message?.contains("NOT_FOUND", ignoreCase = true) == true -> context.getString(R.string.error_not_found)
+                    throwable.message?.contains("out-of-resource", ignoreCase = true) == true -> context.getString(R.string.error_out_of_stock)
+                    else -> throwable.message ?: context.getString(R.string.error_firebase)
                 }
             }
 
             is UnknownHostException, is ConnectException -> 
-                "इंटरनेट कनेक्शन नहीं मिल रहा है! 🌾"
+                context.getString(R.string.error_no_internet)
             
             is SocketTimeoutException -> 
-                "सर्वर से संपर्क टूट गया, कृपया पुनः प्रयास करें।"
+                context.getString(R.string.error_timeout)
             
             is FirebaseFirestoreException -> {
                 when (throwable.code) {
-                    FirebaseFirestoreException.Code.PERMISSION_DENIED -> "डेटाबेस एक्सेस की अनुमति नहीं है।"
-                    FirebaseFirestoreException.Code.UNAVAILABLE -> "डेटाबेस सर्वर बंद है।"
-                    else -> "डेटाबेस समस्या: ${throwable.code}"
+                    FirebaseFirestoreException.Code.PERMISSION_DENIED -> context.getString(R.string.error_db_permission)
+                    FirebaseFirestoreException.Code.UNAVAILABLE -> context.getString(R.string.error_db_unavailable)
+                    else -> context.getString(R.string.error_db_generic, throwable.code.toString())
                 }
             }
-            
+
+            is java.util.concurrent.CancellationException ->
+                context.getString(R.string.error_task_cancelled)
+
             is java.io.IOException -> 
-                "नेटवर्क कनेक्शन फेल हो गया।"
+                context.getString(R.string.error_network_generic)
             
             else -> throwable.message?.takeIf { it.isNotBlank() }
-                ?: "कुछ गड़बड़ हुई [${throwable.javaClass.simpleName}], कृपया बाद में प्रयास करें। 🙏"
+                ?: context.getString(R.string.error_generic_with_code, throwable.javaClass.simpleName)
         }
     }
 }

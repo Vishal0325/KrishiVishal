@@ -43,7 +43,7 @@ fun SettingsScreen(
             currentLanguage = currentLocale,
             onDismiss = { showLanguageDialog = false },
             onLanguageSelected = { langCode ->
-                com.company.krishivishal.utils.LocaleManager.setLocale(context, langCode)
+                com.company.krishivishal.utils.LocaleManager.setLocale(langCode)
                 selectedLanguage = if (langCode == "hi") "Hindi (हिंदी)" else "English"
                 showLanguageDialog = false
             }

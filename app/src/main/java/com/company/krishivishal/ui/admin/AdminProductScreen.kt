@@ -308,8 +308,31 @@ fun EditProductContent(
     var brandExpanded by remember { mutableStateOf(false) }
     var cropExpanded by remember { mutableStateOf(false) }
 
+    var showError by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-        OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Product Name") }, modifier = Modifier.fillMaxWidth(), isError = name.isBlank())
+        if (showError) {
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    "Please fill all mandatory fields (Name, Brand, Category, Price)",
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(16.dp),
+                    fontSize = 14.sp
+                )
+            }
+        }
+
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it; if(it.isNotBlank()) showError = false },
+            label = { Text("Product Name*") },
+            modifier = Modifier.fillMaxWidth(),
+            isError = name.isBlank() && showError
+        )
         Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedTextField(value = composition, onValueChange = { composition = it }, label = { Text("Chemical Composition") }, modifier = Modifier.fillMaxWidth())
@@ -325,10 +348,11 @@ fun EditProductContent(
         ) {
             OutlinedTextField(
                 value = brand,
-                onValueChange = { brand = it },
-                label = { Text("Brand") },
+                onValueChange = { brand = it; if(it.isNotBlank()) showError = false },
+                label = { Text("Brand*") },
                 modifier = Modifier.fillMaxWidth().menuAnchor(),
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = brandExpanded) }
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = brandExpanded) },
+                isError = brand.isBlank() && showError
             )
             ExposedDropdownMenu(
                 expanded = brandExpanded,
@@ -354,10 +378,11 @@ fun EditProductContent(
         ) {
             OutlinedTextField(
                 value = category,
-                onValueChange = { category = it },
-                label = { Text("Category") },
+                onValueChange = { category = it; if(it.isNotBlank()) showError = false },
+                label = { Text("Category*") },
                 modifier = Modifier.fillMaxWidth().menuAnchor(),
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) }
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
+                isError = category.isBlank() && showError
             )
             ExposedDropdownMenu(
                 expanded = categoryExpanded,
@@ -500,14 +525,17 @@ fun EditProductContent(
                 onValueChange = { mrp = it }, 
                 label = { Text("MRP (Strike-through)") }, 
                 modifier = Modifier.weight(1f),
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                placeholder = { Text("0.0") }
             )
             OutlinedTextField(
                 value = basePrice, 
                 onValueChange = { basePrice = it }, 
-                label = { Text("Base Price") }, 
+                label = { Text("Base Price*") },
                 modifier = Modifier.weight(1f),
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                isError = (basePrice.toDoubleOrNull() ?: 0.0) <= 0.0 && showError,
+                placeholder = { Text("0.0") }
             )
         }
         
@@ -515,10 +543,12 @@ fun EditProductContent(
 
         OutlinedTextField(
             value = discountedPrice, 
-            onValueChange = { discountedPrice = it }, 
-            label = { Text("Final Selling Price") }, 
+            onValueChange = { discountedPrice = it; if((it.toDoubleOrNull() ?: 0.0) > 0) showError = false },
+            label = { Text("Final Selling Price*") },
             modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+            isError = (discountedPrice.toDoubleOrNull() ?: 0.0) <= 0.0 && showError,
+            placeholder = { Text("0.0") }
         )
         
         Spacer(modifier = Modifier.height(8.dp))
@@ -566,7 +596,7 @@ fun EditProductContent(
                 val parsedDiscountedPrice = discountedPrice.toDoubleOrNull() ?: 0.0
                 val finalImages = imageUrls.filter { it.isNotBlank() }
                 
-                if (name.isNotBlank()) {
+                if (name.isNotBlank() && brand.isNotBlank() && category.isNotBlank() && parsedDiscountedPrice > 0) {
                     onSave(product.copy(
                         name = name,
                         composition = composition,
@@ -582,7 +612,7 @@ fun EditProductContent(
                         imageUrl = finalImages.firstOrNull() ?: "",
                         images = finalImages,
                         isReturnable = isReturnable,
-                        mrp = parsedMrp,
+                        mrp = if (parsedMrp > 0) parsedMrp else parsedBasePrice,
                         basePrice = parsedBasePrice,
                         discountedPrice = parsedDiscountedPrice,
                         stockQuantity = stock.toIntOrNull() ?: 0,
@@ -590,10 +620,11 @@ fun EditProductContent(
                         description = description,
                         variants = variants
                     ))
+                } else {
+                    showError = true
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = name.isNotBlank(),
             colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
         ) {
             Text("Save Product")

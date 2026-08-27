@@ -18,14 +18,9 @@ class SmsResilienceManager @Inject constructor() {
     }
 
     fun canSendSms(): Boolean {
-        if (quotaExceeded) {
-            val now = System.currentTimeMillis()
-            if (now - lastFailureTime > coolDownTime) {
-                quotaExceeded = false
-                return true
-            }
-            return false
-        }
-        return true
+        val now = System.currentTimeMillis()
+        val hasReset = quotaExceeded && now - lastFailureTime > coolDownTime
+        if (hasReset) quotaExceeded = false
+        return !quotaExceeded || hasReset
     }
 }

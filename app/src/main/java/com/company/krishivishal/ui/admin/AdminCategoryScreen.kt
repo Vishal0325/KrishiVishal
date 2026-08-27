@@ -236,6 +236,7 @@ fun EditCategoryContent(
     var categoryName by remember(category.id) { mutableStateOf(category.name) }
     var categoryImageUrl by remember(category.id, category.imageUrl) { mutableStateOf(category.imageUrl) }
     var subCategories by remember(category.id, category.subCategories) { mutableStateOf(category.subCategories) }
+    var showError by remember(category.id) { mutableStateOf(false) }
 
     val categoryImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { onUploadImage(category.id, it, false) }
@@ -272,10 +273,15 @@ fun EditCategoryContent(
         Spacer(modifier = Modifier.height(16.dp))
         OutlinedTextField(
             value = categoryName, 
-            onValueChange = { categoryName = it }, 
-            label = { Text(stringResource(R.string.category_name_label)) }, 
-            modifier = Modifier.fillMaxWidth()
+            onValueChange = { categoryName = it; if(it.isNotBlank()) showError = false }, 
+            label = { Text(stringResource(R.string.category_name_label) + "*") }, 
+            modifier = Modifier.fillMaxWidth(),
+            isError = categoryName.isBlank() && showError
         )
+        
+        if (categoryName.isBlank() && showError) {
+            Text("Category name is required", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+        }
         
         Spacer(modifier = Modifier.height(24.dp))
         Text(stringResource(R.string.sub_categories), fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -319,16 +325,21 @@ fun EditCategoryContent(
         Spacer(modifier = Modifier.height(32.dp))
         Button(
             onClick = { 
-                onSave(
-                    Category(
-                        id = category.id,
-                        name = categoryName,
-                        imageUrl = categoryImageUrl,
-                        subCategories = subCategories
+                if (categoryName.isNotBlank()) {
+                    onSave(
+                        Category(
+                            id = category.id,
+                            name = categoryName.trim(),
+                            imageUrl = categoryImageUrl,
+                            subCategories = subCategories
+                        )
                     )
-                ) 
+                } else {
+                    showError = true
+                }
             },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            enabled = categoryName.isNotBlank()
         ) {
             Icon(Icons.Default.Save, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))

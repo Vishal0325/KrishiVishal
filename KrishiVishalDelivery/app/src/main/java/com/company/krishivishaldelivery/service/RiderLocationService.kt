@@ -6,13 +6,14 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.location.Location
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
 import com.company.krishivishaldelivery.R
-import com.company.krishivishaldelivery.data.repository.DeliveryRepository
+import com.company.krishivishaldelivery.data.repository.RiderRepository
 import com.google.android.gms.location.*
 import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.AndroidEntryPoint
@@ -26,7 +27,7 @@ import javax.inject.Inject
 class RiderLocationService : Service() {
 
     @Inject
-    lateinit var repository: DeliveryRepository
+    lateinit var riderRepository: RiderRepository
 
     @Inject
     lateinit var auth: FirebaseAuth
@@ -70,32 +71,51 @@ class RiderLocationService : Service() {
     @SuppressLint("MissingPermission")
     private fun startForegroundService(orderStatus: String) {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Delivery Mode Active")
-            .setContentText("Location shared for $orderStatus")
+            .setContentTitle("Krishi Vishal: Delivery Active")
+            .setContentText("Location tracking for $orderStatus")
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setOngoing(true)
             .build()
 
-        startForeground(NOTIFICATION_ID, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (_: SecurityException) {
+            stopSelf()
+            return
+        }
 
         fusedLocationClient.removeLocationUpdates(locationCallback)
 
         val (priority, intervalMs, minIntervalMs) = when (orderStatus) {
-            "PICKING_UP" -> Triple(Priority.PRIORITY_HIGH_ACCURACY, 30000L, 15000L)
-            "IN_TRANSIT" -> Triple(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 60000L, 30000L)
-            "AT_DELIVERY" -> Triple(Priority.PRIORITY_LOW_POWER, 120000L, 60000L)
-            else -> Triple(Priority.PRIORITY_PASSIVE, 300000L, 180000L)
+            "PICKING_UP", "PICKED_UP" -> Triple(Priority.PRIORITY_HIGH_ACCURACY, 30000L, 15000L)
+            "IN_TRANSIT", "OUT_FOR_DELIVERY" -> Triple(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 60000L, 30000L)
+            "AT_DELIVERY" -> Triple(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 120000L, 60000L)
+            else -> Triple(Priority.PRIORITY_LOW_POWER, 300000L, 180000L)
         }
 
         val locationRequest = LocationRequest.Builder(priority, intervalMs)
             .setMinUpdateIntervalMillis(minIntervalMs)
             .build()
 
-        fusedLocationClient.requestLocationUpdates(
-            locationRequest,
-            locationCallback,
-            Looper.getMainLooper()
-        )
+        try {
+            fusedLocationClient.requestLocationUpdates(
+                locationRequest,
+                locationCallback,
+                Looper.getMainLooper()
+            )
+        } catch (_: SecurityException) {
+            stopSelf()
+            return
+        }
         
         updateRiderStatus(true)
     }
@@ -103,14 +123,14 @@ class RiderLocationService : Service() {
     private fun updateLocation(location: Location) {
         val riderId = auth.currentUser?.uid ?: return
         serviceScope.launch {
-            repository.updateRiderLocation(riderId, location.latitude, location.longitude)
+            riderRepository.updateRiderLocation(riderId, location.latitude, location.longitude)
         }
     }
 
     private fun updateRiderStatus(isOnline: Boolean) {
         val riderId = auth.currentUser?.uid ?: return
         serviceScope.launch {
-            repository.updateRiderStatus(riderId, isOnline)
+            riderRepository.updateRiderStatus(riderId, isOnline)
         }
     }
 

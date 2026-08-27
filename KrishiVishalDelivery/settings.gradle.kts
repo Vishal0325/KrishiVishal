@@ -27,5 +27,5 @@ rootProject.name = "KrishiVishalDelivery"
 include(":delivery-app")
 project(":delivery-app").projectDir = file("app")
 
-include(":delivery-core")
-project(":delivery-core").projectDir = file("core")
+include(":core")
+project(":core").projectDir = file("../core")

@@ -2,6 +2,7 @@ package com.company.krishivishaldelivery.data.local
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.company.krishivishal.core.model.OrderItem
 
 @Entity(tableName = "delivery_orders")
 data class DeliveryOrderEntity(
@@ -9,7 +10,7 @@ data class DeliveryOrderEntity(
     val userId: String,
     val userName: String,
     val userPhone: String,
-    val itemsJson: String,
+    val items: List<OrderItem>,
     val totalAmount: Double,
     val address: String,
     val status: String,

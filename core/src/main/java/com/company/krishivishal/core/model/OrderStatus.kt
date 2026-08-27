@@ -3,6 +3,8 @@ package com.company.krishivishal.core.model
 enum class OrderStatus(val displayName: String) {
     PLACED("Placed"),
     CONFIRMED("Confirmed"),
+    ASSIGNED("Assigned to Rider"),
+    PICKED_UP("Picked Up"),
     SHIPPED("Shipped"),
     OUT_FOR_DELIVERY("Out for Delivery"),
     DELIVERED("Delivered"),

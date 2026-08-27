@@ -19,4 +19,20 @@
     <string name="order_items">Order Items</string>
     <string name="order_summary">Order Summary</string>
     <string name="cash_to_collect">Cash to Collect: ₹%s</string>
+    <string name="support_phone">+919876543210</string>
+    <string name="emergency_phone">+911122334455</string>
+
+    <!-- Login & Auth -->
+    <string name="delivery_app_name">Krishi Vishal Delivery</string>
+    <string name="delivery_boy_login">Delivery Partner Login</string>
+    <string name="enter_mobile_msg">Enter mobile number to continue</string>
+    <string name="mobile_number">Mobile Number</string>
+    <string name="send_otp">Send OTP</string>
+    <string name="verify_otp_title">Verify OTP</string>
+    <string name="otp_sent_msg">OTP sent to +91 %1$s</string>
+    <string name="digit_otp_label">6-digit OTP</string>
+    <string name="verify_login">Verify &amp; Login</string>
+    <string name="edit_number">Edit Number</string>
+    <string name="resend_in">Resend in %1$ds</string>
+    <string name="resend_otp">Resend OTP</string>
 </resources>

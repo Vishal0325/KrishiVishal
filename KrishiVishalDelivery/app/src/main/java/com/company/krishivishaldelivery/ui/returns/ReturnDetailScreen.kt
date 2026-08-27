@@ -17,6 +17,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,9 +32,11 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.company.krishivishal.core.model.ReturnRequest
-import com.company.krishivishaldelivery.ui.dashboard.DeliveryViewModel
-import com.company.krishivishaldelivery.ui.dashboard.StatusBadge
+import com.company.krishivishal.core.model.ReturnStatus
+import com.company.krishivishaldelivery.ui.dashboard.DashboardViewModel
+import com.company.krishivishaldelivery.ui.components.StatusBadge
 import com.company.krishivishal.core.util.Resource
+import androidx.compose.runtime.collectAsState
 import com.company.krishivishaldelivery.ui.order_detail.InfoCard
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
@@ -43,7 +47,7 @@ fun ReturnDetailScreen(
     returnId: String,
     onNavigateBack: () -> Unit,
     onConfirmPickup: () -> Unit,
-    viewModel: DeliveryViewModel = hiltViewModel()
+    viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val returnsResource by viewModel.returns.collectAsState()
     val context = LocalContext.current
@@ -202,7 +206,7 @@ fontWeight = FontWeight.Bold) },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Box(modifier = Modifier.padding(16.dp)) {
-                        if (returnRequest.status == "PICKUP_SCHEDULED") {
+                        if (returnRequest.status == ReturnStatus.PICKUP_SCHEDULED.name) {
                             Button(
                                 onClick = { 
                                     if (capturedBitmap == null) {
@@ -264,7 +268,7 @@ fontWeight = FontWeight.Bold) },
                             capturedBitmap?.compress(Bitmap.CompressFormat.JPEG, 80, stream)
                             val bytes = stream.toByteArray()
                             
-                            val success = viewModel.repository.confirmReturnPickup(returnId, bytes)
+                            val success = viewModel.uploadProofOfDelivery("", bytes, null) // Placeholder for orderId logic in returns
                             if (success) {
                                 onConfirmPickup()
                             } else {

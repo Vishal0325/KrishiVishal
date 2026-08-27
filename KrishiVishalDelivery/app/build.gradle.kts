@@ -3,12 +3,14 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt.plugin)
     alias(libs.plugins.google.services)
     alias(libs.plugins.kotlin.parcelize)
     alias(libs.plugins.kotlin.compose.compiler)
     alias(libs.plugins.ksp.plugin)
     alias(libs.plugins.firebase.crashlytics.plugin)
+    alias(libs.plugins.detekt)
 }
 
 android {
@@ -23,6 +25,14 @@ android {
         versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        val keystorePropertiesFile = rootProject.file("local.properties")
+        val keystoreProperties = Properties()
+        if (keystorePropertiesFile.exists()) {
+            keystoreProperties.load(keystorePropertiesFile.inputStream())
+        }
+        val mapsApiKey = keystoreProperties.getProperty("MAPS_API_KEY") ?: ""
+        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
 
     signingConfigs {
@@ -63,15 +73,29 @@ android {
     }
 }
 
+detekt {
+    toolVersion = libs.versions.detekt.get()
+    config.setFrom(file("../config/detekt/detekt.yml"))
+    buildUponDefaultConfig = true
+    allRules = false
+    reports {
+        html.required.set(true)
+        xml.required.set(true)
+        txt.required.set(false)
+        sarif.required.set(false)
+    }
+}
+
 dependencies {
     // Shared Core Module
-    implementation(project(":delivery-core"))
+    implementation(project(":core"))
 
     // Core
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
+    implementation(libs.kotlinx.serialization.json)
 
     // Lifecycle
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
@@ -96,6 +120,9 @@ dependencies {
     implementation(libs.firebase.messaging)
     implementation(libs.firebase.storage)
     implementation(libs.firebase.functions)
+    implementation(libs.firebase.appcheck)
+    implementation(libs.firebase.appcheck.debug)
+    implementation(libs.firebase.appcheck.playintegrity)
     implementation(libs.firebase.crashlytics)
     implementation(libs.kotlinx.coroutines.play.services)
 
@@ -105,7 +132,7 @@ dependencies {
     // WorkManager
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.hilt.work)
-    ksp(libs.hilt.compiler)
+    ksp("androidx.hilt:hilt-compiler:1.2.0")
 
     // Coil
     implementation(libs.coil.compose)

@@ -8,4 +8,5 @@ plugins {
     alias(libs.plugins.kotlin.compose.compiler) apply false
     alias(libs.plugins.ksp.plugin) apply false
     alias(libs.plugins.firebase.crashlytics.plugin) apply false
+    alias(libs.plugins.detekt) apply false
 }

@@ -17,13 +17,13 @@ import androidx.compose.ui.text.TextStyle
 
 @Composable
 fun BarChart(
-    data: Map<String, Int>,
+    data: Map<String, Double>,
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.primary
 ) {
     val textMeasurer = rememberTextMeasurer()
     val items = data.toList()
-    val maxValue = items.maxOfOrNull { it.second } ?: 1
+    val maxValue = items.maxOfOrNull { it.second } ?: 1.0
 
     Canvas(modifier = modifier) {
         val barWidth = size.width / (items.size * 1.5f)
@@ -31,7 +31,7 @@ fun BarChart(
 
         items.forEachIndexed { index, pair ->
             val x = (index * (barWidth + space)) + space
-            val barHeight = (pair.second.toFloat() / maxValue) * size.height
+            val barHeight = ((pair.second / maxValue) * size.height.toDouble()).toFloat()
             
             drawRect(
                 color = color,

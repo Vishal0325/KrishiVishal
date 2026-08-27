@@ -3,7 +3,7 @@ package com.company.krishivishal.data.paging
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.company.krishivishal.core.model.Product
-import com.company.krishivishal.data.repository.toProduct
+import com.company.krishivishal.data.mapper.toProduct
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot

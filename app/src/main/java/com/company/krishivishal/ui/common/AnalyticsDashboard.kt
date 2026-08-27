@@ -29,6 +29,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
+import java.util.Locale
+
 /**
  * Analytics Dashboard Component
  * Displays key analytics metrics and health status
@@ -77,7 +79,7 @@ fun AnalyticsDashboard(
         MetricsRow(
             metric1 = MetricCardData(
                 title = "Total Revenue",
-                value = "₹${String.format("%.0f", totalRevenue)}",
+                value = "₹${String.format(Locale.US, "%.0f", totalRevenue)}",
                 icon = Icons.Default.CheckCircle,
                 backgroundColor = MaterialTheme.colorScheme.tertiaryContainer
             ),

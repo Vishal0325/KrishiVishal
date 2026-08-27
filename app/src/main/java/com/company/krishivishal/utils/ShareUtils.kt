@@ -40,7 +40,7 @@ object ShareUtils {
             *Price:* ₹${product.price.toInt()}
             
             Download Krishi Vishal App for more exciting deals!
-            🔗 https://play.google.com/store/apps/details?id=com.company.krishivishal
+            🔗 https://play.google.com/store/apps/details?id=${context.packageName}
         """.trimIndent()
 
         val intent = Intent(Intent.ACTION_SEND).apply {
@@ -60,7 +60,7 @@ object ShareUtils {
             Seeds, Pesticides, Fertilizers and more at best prices.
             
             Download the app now:
-            🔗 https://play.google.com/store/apps/details?id=com.company.krishivishal
+            🔗 https://play.google.com/store/apps/details?id=${context.packageName}
             
             Grow more, Grow better! 🚜🌱
         """.trimIndent()

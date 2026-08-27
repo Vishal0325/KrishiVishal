@@ -49,27 +49,7 @@ class BrandRepositoryImpl @Inject constructor(
         }
         .flowOn(ioDispatcher)
 
-    private suspend fun seedBrands() {
-        com.company.krishivishal.core.util.Constants.SAMPLE_BRANDS.forEach { brand ->
-            firestore.collection("brands").document(brand.id).set(brand).await()
-        }
-    }
 
-    private suspend fun fetchBrandsFromFirestore(): List<Brand> {
-        val snapshot = firestore.collection("brands")
-            .whereEqualTo("isActive", true)
-            .get()
-            .await()
-        
-        return snapshot.documents.mapNotNull { doc ->
-            Brand(
-                id = doc.id,
-                name = doc.getString("name") ?: "",
-                imageUrl = doc.getString("imageUrl") ?: "",
-                isActive = doc.getBoolean("isActive") ?: true
-            )
-        }
-    }
 
     override suspend fun saveBrand(brand: Brand): Flow<Resource<Unit>> = flow {
         emit(Resource.Loading())

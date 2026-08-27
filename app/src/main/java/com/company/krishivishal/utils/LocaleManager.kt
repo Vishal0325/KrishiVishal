@@ -8,7 +8,7 @@ import androidx.core.os.LocaleListCompat
 import java.util.Locale
 
 object LocaleManager {
-    fun setLocale(context: Context, langCode: String) {
+    fun setLocale(langCode: String) {
         val appLocale: LocaleListCompat = LocaleListCompat.forLanguageTags(langCode)
         AppCompatDelegate.setApplicationLocales(appLocale)
     }

@@ -35,10 +35,10 @@
 -keep class * implements com.google.gson.TypeAdapter
 -keep @com.google.gson.annotations.SerializedName class * { *; }
 
-# Firebase
--keep class com.google.firebase.** { *; }
+# Firebase & GMS (Modern SDKs have internal consumer rules, keep only if needed for specific logic)
+# -keep class com.google.firebase.** { *; }
+# -keep class com.google.android.gms.** { *; }
 -dontwarn com.google.firebase.**
--keep class com.google.android.gms.** { *; }
 -dontwarn com.google.android.gms.**
 
 # Razorpay
@@ -62,3 +62,23 @@
 -dontwarn android.window.**
 -dontwarn android.view.TranslationResponse
 -dontwarn android.view.translation.ViewTranslationResponse
+
+# Paging 3
+-keep class androidx.paging.PagingSource { *; }
+-dontwarn androidx.paging.**
+
+# Coil
+-keep class coil.** { *; }
+-dontwarn coil.**
+
+# Lottie
+-keep class com.airbnb.lottie.** { *; }
+-dontwarn com.airbnb.lottie.**
+
+# Firebase App Check
+-keep class com.google.firebase.appcheck.** { *; }
+-dontwarn com.google.firebase.appcheck.**
+
+# Encrypted SharedPreferences
+-keep class androidx.security.crypto.** { *; }
+-dontwarn androidx.security.crypto.**

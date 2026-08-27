@@ -9,7 +9,6 @@ import com.company.krishivishal.utils.networkBoundResource
 import com.company.krishivishal.utils.safeCall
 import com.company.krishivishal.core.util.Constants
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.Filter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flowOn
@@ -19,166 +18,14 @@ import javax.inject.Singleton
 import java.util.UUID
 import com.company.krishivishal.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
-import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.QuerySnapshot
-import com.google.firebase.Timestamp
-import com.company.krishivishal.core.model.ReviewItem
 import androidx.paging.PagingData
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import com.company.krishivishal.data.paging.ProductPagingSource
 import com.google.firebase.functions.FirebaseFunctions
 import com.company.krishivishal.core.model.RecommendationResult
-
-fun DocumentSnapshot.toProduct(): Product? {
-    val data = this.data ?: return null
-    return try {
-        Product().apply {
-            id = this@toProduct.id
-            name = (data["name"] ?: data["title"] ?: data["productName"] ?: "").toString()
-            brand = (data["brand"] ?: data["brandName"] ?: "").toString()
-            description = (data["description"] ?: data["desc"] ?: "").toString()
-            composition = (data["composition"] ?: data["technicalContent"] ?: data["technical_content"] ?: data["chemicalComposition"] ?: "").toString()
-            category = (data["category"] ?: "").toString()
-            cropId = (data["cropId"] ?: "").toString()
-            cropName = (data["cropName"] ?: "").toString()
-            associatedCropIds = (data["associatedCropIds"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
-            associatedCropNames = (data["associatedCropNames"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
-            isAllCrops = (data["isAllCrops"] ?: false).toString().toBoolean()
-
-            classification = (data["classification"] ?: data["classification_type"] ?: "").toString()
-            subCategory = (data["subCategory"] ?: "").toString()
-            
-            val firebaseUrl = (data["imageUrl"] ?: data["image"] ?: data["thumb"] ?: "").toString().trim()
-            val firebaseImages = (data["images"] as? List<*>)?.mapNotNull { it?.toString() } 
-                ?: (data["imageUrls"] as? List<*>)?.mapNotNull { it?.toString() }
-                ?: (data["gallery"] as? List<*>)?.mapNotNull { it?.toString() }
-                ?: emptyList()
-            
-            // Clean up potentially weird string "null" from Firestore
-            imageUrl = if (firebaseUrl == "null") "" else firebaseUrl
-            images = firebaseImages.filter { it.isNotBlank() && it != "null" }
-            
-            if (imageUrl.isBlank() && images.isNotEmpty()) {
-                imageUrl = images.first()
-            }
-            // Ensure imageUrl is in the images list if not already there
-            if (imageUrl.isNotBlank() && !images.contains(imageUrl)) {
-                images = listOf(imageUrl) + images
-            }
-            
-            mrp = (data["mrp"] ?: data["basePrice"] ?: data["price"] ?: 0.0).toString().toDoubleOrNull() ?: 0.0
-            basePrice = (data["basePrice"] ?: data["mrp"] ?: data["price"] ?: 0.0).toString().toDoubleOrNull() ?: 0.0
-            discountedPrice = (data["discountedPrice"] ?: data["offerPrice"] ?: data["salePrice"] ?: data["price"] ?: 0.0).toString().toDoubleOrNull() ?: 0.0
-            
-            // Logic to ensure price > 0
-            if (discountedPrice > 0) {
-                price = discountedPrice
-                if (mrp <= 0) mrp = if (basePrice > 0) basePrice else discountedPrice
-            } else if (basePrice > 0) {
-                price = basePrice
-                discountedPrice = basePrice
-                if (mrp <= 0) mrp = basePrice
-            } else {
-                val p = (data["price"] ?: 0.0).toString().toDoubleOrNull() ?: 0.0
-                price = p
-                discountedPrice = p
-                if (mrp <= 0) mrp = p
-            }
-
-            discountPercent = (data["discountPercent"] ?: data["discount"] ?: 0).toString().toIntOrNull() ?: 0
-            savedPrice = (data["savedPrice"] ?: (mrp - price).coerceAtLeast(0.0)).toString().toDoubleOrNull() ?: 0.0
-            
-            rating = (data["rating"] ?: 0.0).toString().toFloatOrNull() ?: 0f
-            reviewsCount = (data["reviewsCount"] ?: data["reviewCount"] ?: 0).toString().toIntOrNull() ?: 0
-            
-            deliveryLocation = (data["deliveryLocation"] ?: "").toString()
-            deliveryDate = (data["deliveryDate"] ?: "").toString()
-            weight = (data["weight"] ?: data["size"] ?: data["packSize"] ?: data["pack_size"] ?: data["pack_weight"] ?: data["net_quantity"] ?: data["quantity"] ?: "").toString().removeSuffix(".0")
-            unit = (data["unit"] ?: "").toString()
-            
-            mfgDate = data["mfgDate"] as? Timestamp
-            expiryDate = data["expiryDate"] as? Timestamp
-            stockQuantity = (data["stockQuantity"] ?: data["stockCount"] ?: data["stock"] ?: 10).toString().toIntOrNull() ?: 10
-            
-            val featuresData = data["features"] as? List<*>
-            features = featuresData?.mapNotNull { it?.toString() } ?: emptyList()
-
-            // Robust Variants parsing
-            val variantsData = data["variants"] as? List<*>
-            variants = variantsData?.mapNotNull { item ->
-                val vMap = item as? Map<*, *> ?: return@mapNotNull null
-                try {
-                    val vPrice = (vMap["price"] ?: vMap["discountedPrice"] ?: vMap["sellingPrice"] ?: 0.0).toString().toDoubleOrNull() ?: 0.0
-                    val vBasePrice = (vMap["basePrice"] ?: vMap["mrp"] ?: vPrice).toString().toDoubleOrNull() ?: vPrice
-                    val calculatedDiscount = if (vBasePrice > vPrice && vBasePrice > 0) {
-                        (((vBasePrice - vPrice) / vBasePrice) * 100).toInt()
-                    } else 0
-                    val vDiscount = (vMap["discountPercent"] ?: vMap["discount"] ?: calculatedDiscount).toString().toIntOrNull() ?: calculatedDiscount
-                    val vLabel = (vMap["label"] ?: vMap["size"] ?: vMap["weight"] ?: "").toString()
-                    val vSize = (vMap["size"] ?: vMap["weight"] ?: vMap["packSize"] ?: vLabel).toString()
-                    val vStock = (vMap["stock"] ?: vMap["stockQuantity"] ?: vMap["stockCount"] ?: 10).toString().toIntOrNull() ?: 10
-
-                    Variant(
-                        id = (vMap["id"] ?: UUID.randomUUID().toString()).toString(),
-                        productId = this@toProduct.id,
-                        size = vSize,
-                        weight = (vMap["weight"] ?: "").toString(),
-                        unit = (vMap["unit"] ?: "").toString(),
-                        price = vPrice,
-                        basePrice = vBasePrice,
-                        discountPercent = vDiscount,
-                        isBestSeller = (vMap["isBestSeller"] ?: false).toString().toBoolean(),
-                        stock = vStock,
-                        label = vLabel,
-                        mfgDate = vMap["mfgDate"] as? Timestamp,
-                        expiryDate = vMap["expiryDate"] as? Timestamp
-                    )
-                } catch (e: Exception) { null }
-            } ?: emptyList()
-
-            // Restore Reviews parsing
-            val reviewsData = data["reviews"] as? List<*>
-            reviewItems = reviewsData?.mapNotNull { item ->
-                val rMap = item as? Map<*, *> ?: return@mapNotNull null
-                try {
-                    ReviewItem(
-                        authorName = rMap["authorName"]?.toString() ?: "",
-                        location = rMap["location"]?.toString() ?: "",
-                        rating = (rMap["rating"] ?: 0.0).toString().toFloatOrNull() ?: 0f,
-                        text = rMap["text"]?.toString() ?: "",
-                        date = rMap["date"] as? Timestamp
-                    )
-                } catch (e: Exception) { null }
-            } ?: emptyList()
-
-            isActive = (data["isActive"] ?: true).toString().toBoolean()
-            isReturnable = (data["isReturnable"] ?: true).toString().toBoolean()
-
-            technicalName = (data["technicalName"] ?: "").toString()
-            technicalNameNormalized = (data["technicalNameNormalized"] ?: "").toString()
-            priceBand = (data["priceBand"] ?: "").toString()
-            packSizeBand = (data["packSizeBand"] ?: "").toString()
-            salesCount = (data["salesCount"] ?: 0).toString().toIntOrNull() ?: 0
-            salesCount90d = (data["salesCount90d"] ?: 0).toString().toIntOrNull() ?: 0
-            viewCount = (data["viewCount"] ?: 0).toString().toIntOrNull() ?: 0
-            searchCount = (data["searchCount"] ?: 0).toString().toIntOrNull() ?: 0
-            tags = (data["tags"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
-            targetPestIds = (data["targetPestIds"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
-
-            usageInstructionsField = (data["usageInstructions"] ?: "").toString()
-            targetCrops = (data["targetCrops"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
-            targetPests = (data["targetPests"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
-            targetDiseases = (data["targetDiseases"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
-            applicationMethod = (data["applicationMethod"] ?: "").toString()
-            safetyNotes = (data["safetyNotes"] ?: "").toString()
-            mixingCompatibility = (data["mixingCompatibility"] ?: "").toString()
-        }
-    } catch (e: Exception) {
-        android.util.Log.e("ProductRepo", "Error mapping product ${this.id}: ${e.message}")
-        null
-    }
-}
+import com.company.krishivishal.data.mapper.toProduct
 
 interface ProductRepository {
     fun getProducts(): Flow<Resource<List<Product>>>
@@ -205,6 +52,29 @@ class ProductRepositoryImpl @Inject constructor(
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : ProductRepository {
 
+    private suspend fun saveProductsToLocal(products: List<Product>) {
+        if (products.isEmpty()) return
+
+        productDao.insertProducts(products)
+
+        // Sync Crop Junction Table for fast indexed lookups
+        val cropRefs = products.flatMap { product ->
+            product.associatedCropIds.map { cropId ->
+                com.company.krishivishal.core.model.ProductCropCrossRef(product.id, cropId)
+            }
+        }
+        if (cropRefs.isNotEmpty()) {
+            productDao.insertProductCropCrossRefs(cropRefs)
+        }
+
+        val allVariants = products.flatMap { p ->
+            p.variants.onEach { v -> if (v.productId.isEmpty()) v.productId = p.id }
+        }
+        if (allVariants.isNotEmpty()) {
+            productDao.insertVariants(allVariants)
+        }
+    }
+
     override fun getProducts(): Flow<Resource<List<Product>>> = networkBoundResource(
         query = { 
             productDao.getAllProducts().map { products ->
@@ -215,27 +85,15 @@ class ProductRepositoryImpl @Inject constructor(
             }
         },
         fetch = {
-            firestore.collection("products").get().await().mapNotNull { it.toProduct() }
+            firestore.collection("products")
+                .whereEqualTo("isActive", true)
+                .limit(50)
+                .get()
+                .await()
+                .mapNotNull { it.toProduct() }
         },
         saveFetchResult = { products ->
-            productDao.insertProducts(products)
-            
-            // Sync Crop Junction Table for fast indexed lookups
-            val cropRefs = products.flatMap { product ->
-                product.associatedCropIds.map { cropId ->
-                    com.company.krishivishal.core.model.ProductCropCrossRef(product.id, cropId)
-                }
-            }
-            if (cropRefs.isNotEmpty()) {
-                productDao.insertProductCropCrossRefs(cropRefs)
-            }
-
-            val allVariants = products.flatMap { p -> 
-                p.variants.onEach { v -> if (v.productId.isEmpty()) v.productId = p.id } 
-            }
-            if (allVariants.isNotEmpty()) {
-                productDao.insertVariants(allVariants)
-            }
+            saveProductsToLocal(products)
         },
         dispatcher = ioDispatcher
     )
@@ -263,24 +121,7 @@ class ProductRepositoryImpl @Inject constructor(
             firestore.collection("products").whereEqualTo("category", category).get().await().mapNotNull { it.toProduct() }
         },
         saveFetchResult = { products ->
-            productDao.insertProducts(products)
-            
-            // Sync Crop Junction Table for fast indexed lookups
-            val cropRefs = products.flatMap { product ->
-                product.associatedCropIds.map { cropId ->
-                    com.company.krishivishal.core.model.ProductCropCrossRef(product.id, cropId)
-                }
-            }
-            if (cropRefs.isNotEmpty()) {
-                productDao.insertProductCropCrossRefs(cropRefs)
-            }
-
-            val allVariants = products.flatMap { p -> 
-                p.variants.onEach { v -> if (v.productId.isEmpty()) v.productId = p.id } 
-            }
-            if (allVariants.isNotEmpty()) {
-                productDao.insertVariants(allVariants)
-            }
+            saveProductsToLocal(products)
         },
         dispatcher = ioDispatcher
     )
@@ -298,24 +139,7 @@ class ProductRepositoryImpl @Inject constructor(
             firestore.collection("products").whereEqualTo("brand", brand).get().await().mapNotNull { it.toProduct() }
         },
         saveFetchResult = { products ->
-            productDao.insertProducts(products)
-            
-            // Sync Crop Junction Table for fast indexed lookups
-            val cropRefs = products.flatMap { product ->
-                product.associatedCropIds.map { cropId ->
-                    com.company.krishivishal.core.model.ProductCropCrossRef(product.id, cropId)
-                }
-            }
-            if (cropRefs.isNotEmpty()) {
-                productDao.insertProductCropCrossRefs(cropRefs)
-            }
-
-            val allVariants = products.flatMap { p -> 
-                p.variants.onEach { v -> if (v.productId.isEmpty()) v.productId = p.id } 
-            }
-            if (allVariants.isNotEmpty()) {
-                productDao.insertVariants(allVariants)
-            }
+            saveProductsToLocal(products)
         },
         dispatcher = ioDispatcher
     )
@@ -333,24 +157,7 @@ class ProductRepositoryImpl @Inject constructor(
             firestore.collection("products").whereArrayContains("associatedCropIds", cropId).get().await().mapNotNull { it.toProduct() }
         },
         saveFetchResult = { products ->
-            productDao.insertProducts(products)
-            
-            // Sync Crop Junction Table for fast indexed lookups
-            val cropRefs = products.flatMap { product ->
-                product.associatedCropIds.map { cropId ->
-                    com.company.krishivishal.core.model.ProductCropCrossRef(product.id, cropId)
-                }
-            }
-            if (cropRefs.isNotEmpty()) {
-                productDao.insertProductCropCrossRefs(cropRefs)
-            }
-
-            val allVariants = products.flatMap { p -> 
-                p.variants.onEach { v -> if (v.productId.isEmpty()) v.productId = p.id } 
-            }
-            if (allVariants.isNotEmpty()) {
-                productDao.insertVariants(allVariants)
-            }
+            saveProductsToLocal(products)
         },
         dispatcher = ioDispatcher
     )
@@ -369,11 +176,7 @@ class ProductRepositoryImpl @Inject constructor(
         },
         saveFetchResult = { product ->
             product?.let {
-                productDao.insertProducts(listOf(it))
-                if (it.variants.isNotEmpty()) {
-                    it.variants.forEach { v -> if (v.productId.isEmpty()) v.productId = it.id }
-                    productDao.insertVariants(it.variants)
-                }
+                saveProductsToLocal(listOf(it))
             }
         },
         dispatcher = ioDispatcher
@@ -437,10 +240,7 @@ class ProductRepositoryImpl @Inject constructor(
                 variantsCollection.document(variant.id).set(variant).await()
             }
 
-            productDao.insertProducts(listOf(product))
-            if (product.variants.isNotEmpty()) {
-                productDao.insertVariants(product.variants)
-            }
+            saveProductsToLocal(listOf(product))
             emit(Resource.Success(Unit))
         } catch (e: Exception) {
             emit(Resource.Error(e.message ?: "Error saving product"))
@@ -588,4 +388,3 @@ class ProductRepositoryImpl @Inject constructor(
         }
     }.flowOn(ioDispatcher)
 }
-

@@ -64,7 +64,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // 1. Preload Razorpay on Main thread (Required for WebView initialization)
+        // 1. Preload Razorpay (Must be on UI thread for WebView initialization)
         lifecycleScope.launch {
             try {
                 Checkout.preload(applicationContext)
@@ -107,7 +107,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                 val lang = languageState.value
                 val currentLocale = AppCompatDelegate.getApplicationLocales().toLanguageTags()
                 if (currentLocale != lang) {
-                    LocaleManager.setLocale(this@MainActivity, lang)
+                    LocaleManager.setLocale(lang)
                 }
             } */
 

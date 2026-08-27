@@ -209,7 +209,7 @@ class AuthViewModel @Inject constructor(
     private fun startResendTimer() {
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
-            _uiState.update { it.copy(resendTimer = 60, isResendEnabled = false) }
+            _uiState.update { it.copy(resendTimer = 120, isResendEnabled = false) }
             while (_uiState.value.resendTimer > 0) {
                 delay(1000)
                 _uiState.update { it.copy(resendTimer = it.resendTimer - 1) }

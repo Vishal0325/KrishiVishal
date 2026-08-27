@@ -21,10 +21,6 @@ import javax.inject.Singleton
 class ImageCacheManager @Inject constructor(context: Context) {
 
     companion object {
-        // Cache sizes
-        private const val MEMORY_CACHE_SIZE_MB = 128  // 128 MB in-memory cache
-        private const val DISK_CACHE_SIZE_MB = 512    // 512 MB disk cache
-        
         // Cache validity
         private const val IMAGE_CACHE_MAX_AGE_DAYS = 30
     }

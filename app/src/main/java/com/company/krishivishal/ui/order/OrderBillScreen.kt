@@ -68,10 +68,10 @@ fun OrderBillScreen(
                 .verticalScroll(rememberScrollState())
         ) {
             when (template) {
-                "modern" -> ModernTemplate(order, dateFormat, appConfig)
-                "compact" -> CompactTemplate(order, dateFormat, appConfig)
-                "elegant" -> ElegantTemplate(order, dateFormat, appConfig)
-                "detailed" -> DetailedTaxTemplate(order, dateFormat, appConfig)
+                "modern" -> ModernTemplate(order, appConfig)
+                "compact" -> CompactTemplate(order, appConfig)
+                "elegant" -> ElegantTemplate(order, appConfig)
+                "detailed" -> DetailedTaxTemplate(order, appConfig)
                 else -> StandardTemplate(order, dateFormat, appConfig)
             }
             
@@ -130,7 +130,7 @@ fun StandardTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: com.
 }
 
 @Composable
-fun ModernTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: com.company.krishivishal.core.model.AppConfig) {
+fun ModernTemplate(order: Order, appConfig: com.company.krishivishal.core.model.AppConfig) {
     Column(modifier = Modifier.padding(24.dp)) {
         Surface(color = PrimaryGreen, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(24.dp)) {
@@ -159,7 +159,7 @@ fun ModernTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: com.co
 }
 
 @Composable
-fun CompactTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: com.company.krishivishal.core.model.AppConfig) {
+fun CompactTemplate(order: Order, appConfig: com.company.krishivishal.core.model.AppConfig) {
     Column(modifier = Modifier.padding(12.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("KV-BIHAR (${appConfig.gstin.takeIf { it.isNotBlank() } ?: "GST PENDING"})", fontWeight = FontWeight.Black, fontSize = 16.sp, color = PrimaryGreen)
@@ -182,7 +182,7 @@ fun CompactTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: com.c
 }
 
 @Composable
-fun ElegantTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: com.company.krishivishal.core.model.AppConfig) {
+fun ElegantTemplate(order: Order, appConfig: com.company.krishivishal.core.model.AppConfig) {
     Column(modifier = Modifier.padding(32.dp)) {
         Text("KRISHI VISHAL", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.ExtraLight)
         Text("GSTIN: ${appConfig.gstin.takeIf { it.isNotBlank() } ?: "PENDING"}", color = Color.White.copy(0.6f), fontSize = 11.sp)
@@ -196,7 +196,7 @@ fun ElegantTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: com.c
 }
 
 @Composable
-fun DetailedTaxTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: com.company.krishivishal.core.model.AppConfig) {
+fun DetailedTaxTemplate(order: Order, appConfig: com.company.krishivishal.core.model.AppConfig) {
     val taxableValue = order.totalAmount / (1 + (appConfig.gstRate / 100)) 
     val gstAmount = order.totalAmount - taxableValue
     val cgst = gstAmount / 2
@@ -231,9 +231,9 @@ fun DetailedTaxTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: c
         
         Spacer(modifier = Modifier.height(24.dp))
         Column(modifier = Modifier.align(Alignment.End)) {
-            TotalBreakdownRow("Taxable Value", "₹${String.format("%.2f", taxableValue)}")
-            TotalBreakdownRow("CGST (${appConfig.gstRate / 2}%)", "₹${String.format("%.2f", cgst)}")
-            TotalBreakdownRow("SGST (${appConfig.gstRate / 2}%)", "₹${String.format("%.2f", sgst)}")
+            TotalBreakdownRow("Taxable Value", "₹${String.format(Locale.US, "%.2f", taxableValue)}")
+            TotalBreakdownRow("CGST (${appConfig.gstRate / 2}%)", "₹${String.format(Locale.US, "%.2f", cgst)}")
+            TotalBreakdownRow("SGST (${appConfig.gstRate / 2}%)", "₹${String.format(Locale.US, "%.2f", sgst)}")
             HorizontalDivider(Modifier.width(200.dp).padding(vertical = 8.dp), thickness = 1.dp, color = Color.Black)
             Row(Modifier.width(200.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Total Amount", fontWeight = FontWeight.Black, fontSize = 18.sp)
@@ -256,7 +256,7 @@ fun TaxSummary(total: Double, gstRate: Double) {
     val taxable = total / (1 + (gstRate / 100))
     val gst = total - taxable
     Column(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), horizontalAlignment = Alignment.End) {
-        Text("Includes estimated CGST & SGST ($gstRate%): ₹${String.format("%.2f", gst)}", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
+        Text("Includes estimated CGST & SGST ($gstRate%): ₹${String.format(Locale.US, "%.2f", gst)}", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
     }
 }
 

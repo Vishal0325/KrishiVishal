@@ -1,0 +1,61 @@
+build:
+  maxIssues: 100
+  excludeCorrectable: false
+
+complexity:
+  active: true
+  ComplexCondition:
+    active: true
+    threshold: 4
+  LongMethod:
+    active: false
+  TooManyFunctions:
+    active: false
+  CyclomaticComplexMethod:
+    active: true
+    threshold: 30
+  LongParameterList:
+    active: false
+  LargeClass:
+    active: true
+    threshold: 1000
+  NestedBlockDepth:
+    active: false
+
+naming:
+  active: true
+  FunctionNaming:
+    active: false # Disabled to support Compose naming conventions
+  ConstructorParameterNaming:
+    active: false
+  PackageNaming:
+    active: false
+
+style:
+  active: true
+  MagicNumber:
+    active: false
+  UnusedPrivateMember:
+    active: true
+  UnusedPrivateProperty:
+    active: true
+  WildcardImport:
+    active: false
+  MaxLineLength:
+    active: false
+
+potential-bugs:
+  active: true
+  DuplicateCaseInWhenExpression:
+    active: true
+  EqualsAlwaysReturnsTrueOrFalse:
+    active: true
+
+exceptions:
+  active: true
+  TooGenericExceptionCaught:
+    active: false
+  TooGenericExceptionThrown:
+    active: false
+  SwallowedException:
+    active: false

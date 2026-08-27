@@ -1,8 +1,8 @@
 plugins {
-    alias(libs.plugins.android.application) apply false // Ensure AGP is available
-    id("com.android.library")
+    alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.parcelize)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp.plugin)
 }
 
@@ -43,6 +43,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
+    implementation(libs.kotlinx.serialization.json)
 
     // Firebase (for models using Timestamp etc)
     implementation(platform(libs.firebase.bom))

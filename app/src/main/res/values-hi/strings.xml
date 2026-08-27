@@ -212,4 +212,30 @@
     <string name="seasonal_picks_title">सीजन के अनुसार</string>
     <string name="recommended_for_you_title">आपकी फसल के लिए सुझाव</string>
     <string name="compare_title">तुलना करें</string>
+
+    <!-- Network & Firebase Errors -->
+    <string name="error_technical">ऐप में तकनीकी समस्या आई है। कृपया इसे रिस्टार्ट करें।</string>
+    <string name="error_invalid_otp">गलत ओटीपी! कृपया सही कोड डालें।</string>
+    <string name="error_otp_expired">ओटीपी की समय सीमा समाप्त हो गई है।</string>
+    <string name="error_too_many_requests">बहुत अधिक प्रयास! थोड़ी देर बाद कोशिश करें।</string>
+    <string name="error_login_failed">लॉगिन एरर: %1$s</string>
+    <string name="error_session_expired">सेशन समाप्त हो गया है! कृपया दोबारा लॉगिन करें।</string>
+    <string name="error_server_overload">सर्वर पर अत्यधिक लोड है, कृपया कुछ समय पश्चात प्रयास करें।</string>
+    <string name="error_server_unavailable">सर्वर उपलब्ध नहीं है, कृपया इंटरनेट जांचें।</string>
+    <string name="error_server_contact">सर्वर से संपर्क करने में समस्या आई।</string>
+    <string name="error_not_found">सर्वर समस्या: सर्विस नहीं मिली।</string>
+    <string name="error_out_of_stock">स्टॉक उपलब्ध नहीं है! कृपया संख्या कम करें।</string>
+    <string name="error_firebase">फ़ायरबेस त्रुटि</string>
+    <string name="error_no_internet">इंटरनेट कनेक्शन नहीं मिल रहा है! 🌾</string>
+    <string name="error_timeout">सर्वर से संपर्क टूट गया, कृपया पुनः प्रयास करें।</string>
+    <string name="error_db_permission">डेटाबेस एक्सेस की अनुमति नहीं है।</string>
+    <string name="error_db_unavailable">डेटाबेस सर्वर बंद है।</string>
+    <string name="error_db_generic">डेटाबेस समस्या: %1$s</string>
+    <string name="error_task_cancelled">टास्क रद्द कर दिया गया।</string>
+    <string name="error_network_generic">नेटवर्क कनेक्शन फेल हो गया।</string>
+    <string name="error_generic_with_code">कुछ गड़बड़ हुई [%1$s], कृपया बाद में प्रयास करें। 🙏</string>
+
+    <string name="currently_unavailable">वर्तमान में उपलब्ध नहीं है</string>
+    <string name="currently_out_of_stock">वर्तमान में स्टॉक में नहीं है</string>
+    <string name="better_alternatives_msg">आप इन बेहतर विकल्पों पर विचार कर सकते हैं:</string>
 </resources>

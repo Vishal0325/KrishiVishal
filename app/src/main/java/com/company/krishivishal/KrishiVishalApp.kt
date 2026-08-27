@@ -20,9 +20,27 @@ import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
+import android.app.ActivityManager
+import androidx.core.content.getSystemService
 
 @HiltAndroidApp
-class KrishiVishalApp : Application(), ImageLoaderFactory {
+class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provider {
+
+    @Inject
+    lateinit var workerFactory: HiltWorkerFactory
+
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .build()
+
+    companion object {
+        private var _instance: KrishiVishalApp? = null
+        val instance: KrishiVishalApp
+            get() = _instance ?: throw IllegalStateException("App not initialized")
+    }
 
     @Inject
     lateinit var analyticsTracker: dagger.Lazy<AnalyticsTracker>
@@ -34,10 +52,14 @@ class KrishiVishalApp : Application(), ImageLoaderFactory {
     lateinit var crashlyticsTree: dagger.Lazy<CrashlyticsTree>
 
     override fun newImageLoader(): ImageLoader {
+        val activityManager = getSystemService<ActivityManager>()
+        val isLowRam = activityManager?.isLowRamDevice ?: false
+        val memoryCachePercent = if (isLowRam) 0.15 else 0.25
+
         return ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)
+                    .maxSizePercent(memoryCachePercent)
                     .build()
             }
             .diskCache {
@@ -53,6 +75,7 @@ class KrishiVishalApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        _instance = this
 
         // 1. Initialize Firebase (Main Thread Required)
         // Note: google-services plugin usually handles this via ContentProvider, 

@@ -19,7 +19,8 @@ import com.company.krishivishal.ui.theme.PrimaryGreen
 fun ErrorState(
     message: String,
     onRetry: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    buttonText: String = stringResource(R.string.retry)
 ) {
     Column(
         modifier = modifier
@@ -39,7 +40,7 @@ fun ErrorState(
             onClick = onRetry,
             colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
         ) {
-            Text(stringResource(R.string.retry))
+            Text(buttonText)
         }
     }
 }

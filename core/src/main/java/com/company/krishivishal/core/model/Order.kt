@@ -8,6 +8,8 @@ import com.google.firebase.firestore.Exclude
 import com.google.firebase.firestore.IgnoreExtraProperties
 import com.google.gson.annotations.SerializedName
 import kotlinx.parcelize.Parcelize
+import com.company.krishivishal.core.util.DateSerializer
+import kotlinx.serialization.Serializable
 import java.util.Date
 
 /**
@@ -23,6 +25,7 @@ import java.util.Date
  * - New orders: both fields populated from variant selection
  */
 @Parcelize
+@Serializable
 data class OrderItem(
     @SerializedName("productId") val productId: String = "",
     @SerializedName("productName") val productName: String = "",
@@ -38,10 +41,12 @@ data class OrderItem(
     @SerializedName("hsnCode") val hsnCode: String = "",
     @SerializedName("gstRate") val gstRate: Double = 0.0,
     @SerializedName("gstAmount") val gstAmount: Double = 0.0,
-    @SerializedName("taxableAmount") val taxableAmount: Double = 0.0
+    @SerializedName("taxableAmount") val taxableAmount: Double = 0.0,
+    @SerializedName("costPrice") val costPrice: Double = 0.0
 ) : Parcelable
 
 @Parcelize
+@Serializable
 @IgnoreExtraProperties
 @Entity(
     tableName = "orders",
@@ -87,10 +92,12 @@ data class Order(
 
     @ColumnInfo(name = "createdAt")
     @SerializedName("createdAt")
+    @Serializable(with = DateSerializer::class)
     val createdAt: Date = Date(),
 
     @ColumnInfo(name = "expectedDelivery")
     @SerializedName("expectedDelivery")
+    @Serializable(with = DateSerializer::class)
     val expectedDelivery: Date = Date(),
 
     // Delivery Specific Fields

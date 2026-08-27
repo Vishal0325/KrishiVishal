@@ -11,6 +11,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,8 +25,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.res.stringResource
 import com.company.krishivishaldelivery.R
 import com.company.krishivishal.core.model.Order
-import com.company.krishivishaldelivery.ui.dashboard.DeliveryViewModel
-import com.company.krishivishaldelivery.ui.dashboard.StatusBadge
+import com.company.krishivishal.core.model.OrderStatus
+import com.company.krishivishaldelivery.ui.dashboard.DashboardViewModel
+import com.company.krishivishaldelivery.ui.components.StatusBadge
 import com.company.krishivishal.core.util.Resource
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,7 +36,7 @@ fun OrderDetailScreen(
     orderId: String,
     onNavigateBack: () -> Unit,
     onDeliverClick: () -> Unit,
-    viewModel: DeliveryViewModel = hiltViewModel()
+    viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val ordersResource by viewModel.orders.collectAsState()
     val context = LocalContext.current
@@ -50,7 +53,7 @@ fun OrderDetailScreen(
                 Button(
                     onClick = {
                         val nextStatus = showConfirmDialog!!
-                        if (nextStatus == "DELIVERED") {
+                        if (nextStatus == OrderStatus.DELIVERED.name) {
                             onDeliverClick()
                         } else {
                             viewModel.updateStatus(orderId, nextStatus)
@@ -287,16 +290,16 @@ fun ActionBottomBar(order: Order, onDeliverClick: () -> Unit, onStatusChange: (S
     ) {
         Box(modifier = Modifier.padding(16.dp)) {
             val (buttonText, nextStatus) = when (order.status) {
-                "ASSIGNED" -> "START PICKUP" to "PICKED_UP"
-                "PICKED_UP" -> "OUT FOR DELIVERY" to "OUT_FOR_DELIVERY"
-                "OUT_FOR_DELIVERY" -> "MARK DELIVERED" to "DELIVERED"
+                OrderStatus.ASSIGNED.name -> "START PICKUP" to OrderStatus.PICKED_UP.name
+                OrderStatus.PICKED_UP.name -> "OUT FOR DELIVERY" to OrderStatus.OUT_FOR_DELIVERY.name
+                OrderStatus.OUT_FOR_DELIVERY.name -> "MARK DELIVERED" to OrderStatus.DELIVERED.name
                 else -> "COMPLETED" to ""
             }
 
             if (nextStatus.isNotEmpty()) {
                 Button(
                     onClick = { 
-                        if (nextStatus == "DELIVERED") {
+                        if (nextStatus == OrderStatus.DELIVERED.name) {
                             onDeliverClick()
                         } else {
                             onStatusChange(nextStatus)

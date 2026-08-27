@@ -65,6 +65,7 @@ class CheckoutViewModel @Inject constructor(
     private val analyticsTracker: AnalyticsTracker,
     private val paymentHandler: PaymentHandler,
     private val orderRepository: OrderRepository,
+    private val paymentResilienceManager: com.company.krishivishal.performance.PaymentResilienceManager,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -157,14 +158,35 @@ class CheckoutViewModel @Inject constructor(
                         CheckoutSource.CART -> {
                             cartRepository.getCartWithProducts(userId).collectLatest { resource ->
                                 if (resource is Resource.Success) {
-                                    val allItems = resource.data ?: emptyList()
-                                    val selectedItems = allItems.filter { it.cartItem.isSelected }
+                                    var allItems = resource.data ?: emptyList()
+                                    var selectedItems = allItems.filter { it.cartItem.isSelected }
+
+                                    // If user just logged in and user-specific cart is empty, seamlessly migrate guest cart
+                                    if (selectedItems.isEmpty() && userId != "guest_user" && userId.isNotBlank()) {
+                                        val guestCart = cartRepository.getCartWithProducts("guest_user").firstOrNull()
+                                        val guestData = guestCart?.data
+                                        if (guestCart is Resource.Success && !guestData.isNullOrEmpty()) {
+                                            val guestItems = guestData.filter { it.cartItem.isSelected }
+                                            if (guestItems.isNotEmpty()) {
+                                                guestItems.forEach { gItem ->
+                                                    cartRepository.addToCart(gItem.cartItem.copy(
+                                                        id = java.util.UUID.randomUUID().toString(),
+                                                        userId = userId
+                                                    )).collectLatest { }
+                                                }
+                                                cartRepository.clearCart("guest_user").collectLatest { }
+                                                return@collectLatest
+                                            }
+                                        }
+                                    }
+
                                     val totals = calculateCartTotalsUseCase(selectedItems)
                                     _uiState.update { 
                                         it.copy(
                                             isCartLoading = false,
                                             checkoutItems = selectedItems,
-                                            totals = totals
+                                            totals = totals,
+                                            error = if (selectedItems.isNotEmpty()) null else it.error
                                         ) 
                                     }
                                 }
@@ -279,6 +301,11 @@ class CheckoutViewModel @Inject constructor(
     }
 
     fun placeOrder(lat: Double = 0.0, lng: Double = 0.0) {
+        if (!paymentResilienceManager.canAttemptPayment()) {
+            val waitTime = paymentResilienceManager.getRemainingCooldownMinutes()
+            _uiState.update { it.copy(error = "System maintenance chal rahi hai. Kripya $waitTime min baad prayas karein.") }
+            return
+        }
         val currentState = _uiState.value
 
         val validation = validateCheckoutUseCase(currentState.checkoutItems, currentState.selectedAddress)
@@ -320,6 +347,7 @@ class CheckoutViewModel @Inject constructor(
                 when (resource) {
                     is Resource.Loading -> { } // Already set above
                     is Resource.Success -> {
+                        paymentResilienceManager.recordSuccess()
                         resource.data?.let { data ->
                             pendingOrderId = data.first
                             pendingOrderOtp = data.third
@@ -332,7 +360,15 @@ class CheckoutViewModel @Inject constructor(
                         }
                     }
                     is Resource.Error -> {
-                        _uiState.update { it.copy(checkoutResource = Resource.Error(resource.message ?: "Failed"), error = resource.message) }
+                        paymentResilienceManager.recordFailure()
+                        val isSessionExpired = resource.message?.contains("login again", ignoreCase = true) == true
+                        _uiState.update {
+                            it.copy(
+                                checkoutResource = Resource.Error(resource.message ?: "Failed"),
+                                error = resource.message,
+                                isSessionExpired = isSessionExpired
+                            )
+                        }
                     }
                     else -> Unit
                 }
@@ -382,9 +418,11 @@ class CheckoutViewModel @Inject constructor(
                         ).collect { resource ->
                             when (resource) {
                                 is Resource.Success -> {
+                                    paymentResilienceManager.recordSuccess()
                                     onOrderCompletionSuccess(_uiState.value.totals.grandTotal)
                                 }
                                 is Resource.Error -> {
+                                    paymentResilienceManager.recordFailure()
                                     _uiState.update { it.copy(error = "Verification failed: ${resource.message}") }
                                 }
                                 else -> Unit
@@ -392,6 +430,7 @@ class CheckoutViewModel @Inject constructor(
                         }
                     }
                     is PaymentResult.Error -> {
+                        paymentResilienceManager.recordFailure()
                         _uiState.update { it.copy(error = "Payment failed: ${result.description}") }
                     }
                 }
@@ -400,7 +439,7 @@ class CheckoutViewModel @Inject constructor(
     }
 
     fun clearError() {
-        _uiState.update { it.copy(error = null) }
+        _uiState.update { it.copy(error = null, isSessionExpired = false) }
     }
 }
 
@@ -416,6 +455,7 @@ data class CheckoutUiState(
     val selectedPaymentMethod: PaymentMethod = PaymentMethod.COD,
     val checkoutResource: Resource<Unit>? = null,
     val error: String? = null,
+    val isSessionExpired: Boolean = false,
     val userEmail: String? = null,
     val userPhone: String? = null
 )

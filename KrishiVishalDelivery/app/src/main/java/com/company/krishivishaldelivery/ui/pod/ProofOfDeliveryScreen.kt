@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,13 +36,15 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.company.krishivishal.core.model.Order
-import com.company.krishivishaldelivery.ui.dashboard.DeliveryViewModel
+import com.company.krishivishal.core.model.OrderStatus
+import com.company.krishivishaldelivery.ui.dashboard.DashboardViewModel
 import com.company.krishivishal.core.util.Resource
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
@@ -53,7 +57,7 @@ fun ProofOfDeliveryScreen(
     orderId: String,
     onNavigateBack: () -> Unit,
     onSuccess: () -> Unit,
-    viewModel: DeliveryViewModel = hiltViewModel()
+    viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val orderState by viewModel.orders.collectAsState()
     val order = (orderState as? Resource.Success)?.data?.find { it.id == orderId }
@@ -133,10 +137,12 @@ fun ProofOfDeliveryScreen(
 
             // Signature Pad
             Text("Customer Signature", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            var signatureSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(200.dp),
+                    .height(200.dp)
+                    .onGloballyPositioned { signatureSize = it.size },
                 color = Color.White,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 shape = RoundedCornerShape(8.dp)
@@ -199,7 +205,11 @@ fun ProofOfDeliveryScreen(
                     scope.launch {
                         isUploading = true
                         val photoBytes = capturedPhoto?.let { bitmapToByteArray(it) }
-                        val signatureBitmap = createSignatureBitmap(signaturePoints, 400, 200)
+                        val signatureBitmap = if (signatureSize.width > 0 && signatureSize.height > 0) {
+                            createSignatureBitmap(signaturePoints, signatureSize.width, signatureSize.height)
+                        } else {
+                            createSignatureBitmap(signaturePoints, 400, 200)
+                        }
                         val signatureBytes = signatureBitmap?.let { bitmapToByteArray(it) }
                         
                         // 1. Upload POD

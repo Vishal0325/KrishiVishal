@@ -146,20 +146,36 @@ fun MainScreen(
         }
     }
     
-    LaunchedEffect(currentUser) {
-        // If no user OR user is anonymous, send to Login
+    val initialAuthUser = remember { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }
+    val initialRoute = remember {
+        if (initialAuthUser != null && !initialAuthUser.isAnonymous) Screen.Home.route else Screen.Login.route
+    }
+
+    val profileViewModel: ProfileViewModel = hiltViewModel()
+    val isAdmin by profileViewModel.isAdmin.collectAsState()
+
+    LaunchedEffect(currentUser, currentRoute, isAdmin) {
+        if (currentRoute == null) return@LaunchedEffect
+
+        // 1. Auth Guard
         if ((currentUser == null || currentUser?.isAnonymous == true) && currentRoute != Screen.Login.route) {
             if (currentUser?.isAnonymous == true) {
                 com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
             }
             navController.navigate(Screen.Login.route) {
-                // Keep the backstack but remove everything up to Home to prevent loop
-                popUpTo(Screen.Home.route) { inclusive = true }
+                popUpTo(0) { inclusive = true }
             }
         } else if (currentUser != null && currentUser?.isAnonymous == false && currentRoute == Screen.Login.route) {
-            // Auto-navigate to Home if user just logged in
             navController.navigate(Screen.Home.route) {
                 popUpTo(Screen.Login.route) { inclusive = true }
+            }
+        }
+
+        // 2. Admin Guard
+        val isAdminRoute = currentRoute.startsWith("admin")
+        if (isAdminRoute && !isAdmin) {
+            navController.navigate(Screen.Home.route) {
+                popUpTo(Screen.Home.route) { inclusive = true }
             }
         }
     }
@@ -175,9 +191,11 @@ fun MainScreen(
         }
     }
 
+    var consumedDeepLink by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(initialProductId) {
-        initialProductId?.let {
-            navController.navigate(Screen.ProductDetail.createRoute(it))
+        if (initialProductId != null && initialProductId != consumedDeepLink) {
+            navController.navigate(Screen.ProductDetail.createRoute(initialProductId))
+            consumedDeepLink = initialProductId
         }
     }
     
@@ -244,7 +262,7 @@ fun MainScreen(
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Screen.Home.route,
+            startDestination = initialRoute,
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Home.route) {
@@ -351,6 +369,12 @@ fun MainScreen(
                     onOrderSuccess = { orderId, otp ->
                         navController.navigate(Screen.OrderSuccess.createRoute(otp, orderId)) {
                             popUpTo(Screen.Home.route)
+                        }
+                    },
+                    onLoginRequired = {
+                        com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+                        navController.navigate(Screen.Login.route) {
+                            popUpTo(0) { inclusive = true }
                         }
                     }
                 )

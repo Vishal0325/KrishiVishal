@@ -19,16 +19,10 @@ class MapsResilienceManager @Inject constructor() {
     }
 
     fun isMapsHealthy(): Boolean {
-        if (failureCount >= threshold) {
-            val now = System.currentTimeMillis()
-            if (now - lastFailureTime > resetTimeout) {
-                // Half-open state reset
-                failureCount = 0
-                return true
-            }
-            return false
-        }
-        return true
+        val now = System.currentTimeMillis()
+        val hasReset = failureCount >= threshold && now - lastFailureTime > resetTimeout
+        if (hasReset) failureCount = 0
+        return failureCount < threshold || hasReset
     }
 
     fun reset() {

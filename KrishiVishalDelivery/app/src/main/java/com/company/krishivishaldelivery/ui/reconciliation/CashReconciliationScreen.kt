@@ -9,6 +9,8 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -16,19 +18,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.company.krishivishaldelivery.ui.dashboard.DeliveryViewModel
+import com.company.krishivishaldelivery.ui.dashboard.DashboardViewModel
 import com.company.krishivishal.core.util.Resource
+import com.company.krishivishal.core.model.OrderStatus
+import androidx.compose.runtime.collectAsState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CashReconciliationScreen(
     onNavigateBack: () -> Unit,
-    viewModel: DeliveryViewModel = hiltViewModel()
+    viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val ordersResource by viewModel.orders.collectAsState()
     val orders = (ordersResource as? Resource.Success)?.data ?: emptyList()
     
-    val pendingCashOrders = orders.filter { it.isCOD && it.status == "DELIVERED" && !it.isCashDeposited }
+    val pendingCashOrders = orders.filter { it.isCOD && it.status == OrderStatus.DELIVERED.name && !it.isCashDeposited }
     val totalPendingAmount = pendingCashOrders.sumOf { it.codAmount }
     
     var isLoading by remember { mutableStateOf(false) }

@@ -26,6 +26,9 @@
 @rem Set local scope for the variables with windows NT shell
 if "%OS%"=="Windows_NT" setlocal
 
+@rem Fix for AGP "Several environment variables contain different paths" error
+set ANDROID_PREFS_ROOT=
+
 set DIRNAME=%~dp0
 if "%DIRNAME%"=="" set DIRNAME=.
 @rem This is normally unused

@@ -17,6 +17,7 @@ object DatabaseModule {
 
     @Provides
     @Singleton
+    @Suppress("SpreadOperator")
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
         return Room.databaseBuilder(
             context,
@@ -24,7 +25,7 @@ object DatabaseModule {
             "krishi_vishal_db"
         )
             .addMigrations(*DatabaseMigrations.ALL_MIGRATIONS)
-            .fallbackToDestructiveMigration()
+            .fallbackToDestructiveMigrationOnDowngrade()
             .build()
     }
 
@@ -65,16 +66,7 @@ object DatabaseModule {
     fun provideReturnDao(database: AppDatabase): ReturnDao = database.returnDao()
 
     @Provides
-    @Singleton
-    fun provideKrishiVishalDatabase(@ApplicationContext context: Context): KrishiVishalDatabase {
-        return Room.databaseBuilder(
-            context,
-            KrishiVishalDatabase::class.java,
-            "krishi_vishal_search_db"
-        ).fallbackToDestructiveMigration().build()
-    }
-
-    @Provides
-    fun provideRecentSearchDao(database: KrishiVishalDatabase): com.company.krishivishal.data.local.dao.RecentSearchDao =
+    fun provideRecentSearchDao(database: AppDatabase): com.company.krishivishal.data.local.dao.RecentSearchDao =
         database.recentSearchDao()
 }
+

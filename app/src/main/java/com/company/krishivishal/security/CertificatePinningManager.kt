@@ -36,10 +36,8 @@ class CertificatePinningManager @Inject constructor(context: Context) {
      */
     fun createPinnedOkHttpClient(): OkHttpClient {
         val pinner = CertificatePinner.Builder()
-            // TODO (PRODUCTION): Replace with real SHA-256 fingerprints before release
-            // .add("*.googleapis.com", "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
-            // .add("*.firebaseio.com", "sha256/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=")
-            // .add("api.krishivishal.com", "sha256/CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=")
+            // IMPORTANT: Add real SHA-256 fingerprints here before release.
+            // Example: .add("firestore.googleapis.com", "sha256/...")
             .build()
 
         return OkHttpClient.Builder()

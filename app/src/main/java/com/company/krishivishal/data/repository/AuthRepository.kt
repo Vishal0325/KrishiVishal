@@ -204,6 +204,7 @@ class AuthRepositoryImpl @Inject constructor(
             val productIds = localItems.map { it.productId }
             
             // Sync with Firestore using arrayUnion to avoid duplicates
+            @Suppress("SpreadOperator")
             firestore.collection("users").document(userId)
                 .update("wishlist", com.google.firebase.firestore.FieldValue.arrayUnion(*productIds.toTypedArray()))
                 .await()

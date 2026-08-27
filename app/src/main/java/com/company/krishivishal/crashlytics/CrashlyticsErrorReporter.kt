@@ -188,7 +188,6 @@ class CrashlyticsErrorReporter @Inject constructor() {
      * Report performance issue
      */
     fun reportPerformanceIssue(
-        message: String,
         operationName: String,
         durationMs: Long
     ) {
@@ -253,7 +252,7 @@ class CrashlyticsErrorReporter @Inject constructor() {
     /**
      * Enable/disable crash reporting
      */
-    fun setCrashReportingEnabled(enabled: Boolean) {
+    fun setCrashReportingEnabled() {
         try {
             // Crash reporting is enabled by default in Crashlytics
             Timber.d("Crash reporting configured")

@@ -23,7 +23,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.company.krishivishaldelivery.R
-import com.company.krishivishaldelivery.ui.dashboard.DeliveryViewModel
+import com.company.krishivishaldelivery.ui.dashboard.DashboardViewModel
+import com.company.krishivishaldelivery.ui.profile.ProfileViewModel
 import com.company.krishivishal.core.util.Resource
 import com.google.firebase.auth.FirebaseAuth
 
@@ -32,7 +33,7 @@ import com.google.firebase.auth.FirebaseAuth
 fun ProfileScreen(
     onLogout: () -> Unit,
     onSettingsClick: () -> Unit,
-    viewModel: DeliveryViewModel = hiltViewModel()
+    viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val auth = FirebaseAuth.getInstance()
     val riderResource by viewModel.riderProfile.collectAsState()

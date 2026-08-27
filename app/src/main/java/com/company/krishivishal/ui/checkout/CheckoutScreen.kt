@@ -37,6 +37,7 @@ import android.app.Activity
 import android.widget.Toast
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import androidx.compose.ui.res.stringResource
 import com.company.krishivishal.R
 import com.google.android.gms.location.LocationServices
 import android.Manifest
@@ -52,6 +53,7 @@ fun CheckoutScreen(
     source: CheckoutSource = CheckoutSource.CART,
     onBack: () -> Unit,
     onOrderSuccess: (String, String) -> Unit,
+    onLoginRequired: () -> Unit = {},
     viewModel: CheckoutViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -186,10 +188,19 @@ fun CheckoutScreen(
                 uiState.isCartLoading || uiState.isAddressesLoading -> {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = PrimaryGreen)
                 }
-                uiState.error != null -> {
+                uiState.error != null && uiState.checkoutItems.isEmpty() -> {
                     ErrorState(
                         message = uiState.error ?: "Something went wrong",
-                        onRetry = { viewModel.clearError() },
+                        buttonText = if (uiState.isSessionExpired) "Login" else stringResource(R.string.retry),
+                        onRetry = {
+                            if (uiState.isSessionExpired) {
+                                viewModel.clearError()
+                                onLoginRequired()
+                            } else {
+                                viewModel.clearError()
+                                viewModel.setSource(source)
+                            }
+                        },
                         modifier = Modifier.align(Alignment.Center)
                     )
                 }
@@ -299,16 +310,31 @@ fun CheckoutScreen(
             
             // Error Snackbar
             uiState.error?.let { msg ->
-                LaunchedEffect(msg) {
-                    kotlinx.coroutines.delay(3000)
-                    viewModel.clearError()
-                }
-                Surface(
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 120.dp, start = 16.dp, end = 16.dp),
-                    color = Color.Black.copy(alpha = 0.9f),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(msg, color = Color.White, modifier = Modifier.padding(12.dp), fontSize = 14.sp)
+                if (uiState.checkoutItems.isNotEmpty()) {
+                    LaunchedEffect(msg) {
+                        kotlinx.coroutines.delay(5000)
+                        viewModel.clearError()
+                    }
+                    Surface(
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 120.dp, start = 16.dp, end = 16.dp),
+                        color = Color.Black.copy(alpha = 0.9f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(msg, color = Color.White, modifier = Modifier.weight(1f), fontSize = 14.sp)
+                            if (uiState.isSessionExpired) {
+                                TextButton(onClick = {
+                                    viewModel.clearError()
+                                    onLoginRequired()
+                                }) {
+                                    Text("Login", color = PrimaryGreen, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

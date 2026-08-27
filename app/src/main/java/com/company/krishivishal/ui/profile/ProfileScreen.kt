@@ -38,6 +38,7 @@ fun ProfileScreen(
     val defaultAddress by profileViewModel.defaultAddress.collectAsState()
     val totalOrders by profileViewModel.totalOrdersCount.collectAsState()
     val wishlistItems by profileViewModel.wishlistItemsCount.collectAsState()
+    val isAdmin by profileViewModel.isAdmin.collectAsState()
 
     LazyColumn(
         modifier = modifier
@@ -60,9 +61,8 @@ fun ProfileScreen(
         }
 
         item {
-            MenuOptionsList(
-                navController = navController,
-                items = listOf(
+            val menuItems = remember(isAdmin) {
+                val baseItems = mutableListOf(
                     MenuOption("Orders", Icons.Default.Inventory, Screen.Orders.route),
                     MenuOption("My Returns", Icons.Default.Refresh, Screen.MyReturns.route),
                     MenuOption("Saved Addresses", Icons.Default.LocationOn, Screen.Address.route),
@@ -71,6 +71,14 @@ fun ProfileScreen(
                     MenuOption("Help & Support", Icons.AutoMirrored.Filled.Help, Screen.Support.route),
                     MenuOption("Settings", Icons.Default.Settings, Screen.Settings.route)
                 )
+                if (isAdmin) {
+                    baseItems.add(0, MenuOption("Admin Control Panel", Icons.Default.AdminPanelSettings, Screen.AdminPanel.route))
+                }
+                baseItems
+            }
+            MenuOptionsList(
+                navController = navController,
+                items = menuItems
             )
         }
 

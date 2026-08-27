@@ -24,6 +24,9 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.flow.collectLatest
 
+import androidx.compose.ui.res.stringResource
+import com.company.krishivishaldelivery.R
+
 fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
@@ -41,6 +44,7 @@ fun LoginScreen(
     var isOtpSent by remember { mutableStateOf(false) }
     
     val isLoading by viewModel.isLoading.collectAsState()
+    val resendTimer by viewModel.resendTimer.collectAsState()
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -74,7 +78,7 @@ fun LoginScreen(
             )
             
             Text(
-                text = "Krishi Vishal Delivery",
+                text = stringResource(R.string.delivery_app_name),
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF2E7D32)
@@ -84,7 +88,7 @@ fun LoginScreen(
             
             if (!isOtpSent) {
                 Text(
-                    text = "Delivery Boy Login",
+                    text = stringResource(R.string.delivery_boy_login),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -92,7 +96,7 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 Text(
-                    text = "Enter mobile number to continue",
+                    text = stringResource(R.string.enter_mobile_msg),
                     fontSize = 14.sp,
                     color = Color.Gray
                 )
@@ -102,7 +106,7 @@ fun LoginScreen(
                 OutlinedTextField(
                     value = phoneNumber,
                     onValueChange = { if (it.length <= 10) phoneNumber = it },
-                    label = { Text("Mobile Number") },
+                    label = { Text(stringResource(R.string.mobile_number)) },
                     modifier = Modifier.fillMaxWidth(),
                     prefix = { Text("+91 ") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
@@ -130,12 +134,12 @@ fun LoginScreen(
                     if (isLoading) {
                         CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
                     } else {
-                        Text("Send OTP", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text(stringResource(R.string.send_otp), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                 }
             } else {
                 Text(
-                    text = "Verify OTP",
+                    text = stringResource(R.string.verify_otp_title),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -143,7 +147,7 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 Text(
-                    text = "OTP sent to +91 $phoneNumber",
+                    text = stringResource(R.string.otp_sent_msg, phoneNumber),
                     fontSize = 14.sp,
                     color = Color.Gray
                 )
@@ -153,7 +157,7 @@ fun LoginScreen(
                 OutlinedTextField(
                     value = otp,
                     onValueChange = { if (it.length <= 6) otp = it },
-                    label = { Text("6-digit OTP") },
+                    label = { Text(stringResource(R.string.digit_otp_label)) },
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
@@ -178,14 +182,42 @@ fun LoginScreen(
                     if (isLoading) {
                         CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
                     } else {
-                        Text("Verify & Login", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text(stringResource(R.string.verify_login), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                 }
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                TextButton(onClick = { isOtpSent = false }) {
-                    Text("Edit Number", color = Color(0xFF2E7D32))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = { isOtpSent = false }) {
+                        Text(stringResource(R.string.edit_number), color = Color(0xFF2E7D32))
+                    }
+                    
+                    TextButton(
+                        onClick = { 
+                            val activity = context.findActivity()
+                            if (activity != null) {
+                                viewModel.sendOtp("+91$phoneNumber", activity, isResend = true) 
+                            }
+                        },
+                        enabled = resendTimer == 0
+                    ) {
+                        if (resendTimer > 0) {
+                            val minutes = resendTimer / 60
+                            val seconds = resendTimer % 60
+                            val timeStr = "${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
+                            Text(
+                                text = "Resend in $timeStr",
+                                color = Color.Gray
+                            )
+                        } else {
+                            Text(stringResource(R.string.resend_otp), color = Color(0xFF2E7D32))
+                        }
+                    }
                 }
             }
         }

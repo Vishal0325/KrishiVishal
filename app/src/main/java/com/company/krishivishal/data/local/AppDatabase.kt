@@ -23,7 +23,8 @@ import com.company.krishivishal.core.model.*
         Notification::class,
         ProductCropCrossRef::class,
         ProductRecommendationCrossRef::class,
-        RecentlyViewedProduct::class
+        RecentlyViewedProduct::class,
+        RecentSearch::class
     ],
     version = 48,
     exportSchema = false
@@ -42,4 +43,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun wishlistDao(): WishlistDao
     abstract fun notificationDao(): NotificationDao
     abstract fun returnDao(): ReturnDao
+    abstract fun recentSearchDao(): com.company.krishivishal.data.local.dao.RecentSearchDao
 }
+

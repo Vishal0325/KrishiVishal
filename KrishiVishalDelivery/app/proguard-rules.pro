@@ -40,3 +40,29 @@
 # Coroutines
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
 -dontwarn kotlinx.coroutines.**
+
+# CameraX
+-keep class androidx.camera.core.** { *; }
+-keep class androidx.camera.camera2.** { *; }
+-keep class androidx.camera.lifecycle.** { *; }
+-keep class androidx.camera.view.** { *; }
+-dontwarn androidx.camera.**
+
+# ML Kit Barcode Scanning
+-keep class com.google.mlkit.vision.barcode.** { *; }
+-keep class com.google.android.gms.vision.** { *; }
+-dontwarn com.google.mlkit.**
+
+# Firebase App Check (Future proofing)
+-keep class com.google.firebase.appcheck.** { *; }
+-dontwarn com.google.firebase.appcheck.**
+
+# WorkManager & Hilt Workers
+-keep class androidx.work.** { *; }
+-keep class * extends androidx.work.ListenableWorker {
+    <init>(android.content.Context, androidx.work.WorkerParameters);
+}
+-keepnames class * extends androidx.work.ListenableWorker
+-keepclassmembers class * extends androidx.work.ListenableWorker {
+    @dagger.assisted.AssistedInject <init>(...);
+}

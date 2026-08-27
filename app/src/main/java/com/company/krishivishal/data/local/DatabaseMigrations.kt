@@ -114,6 +114,29 @@ object DatabaseMigrations {
     }
 
     /**
+     * Migration from 38 to 42
+     * Bridge migration ensuring 'returns' base table and schema consistency across versions 38-42.
+     */
+    val MIGRATION_38_42 = object : Migration(38, 42) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `returns` (
+                    `id` TEXT NOT NULL,
+                    `orderId` TEXT NOT NULL,
+                    `userId` TEXT NOT NULL,
+                    `reason` TEXT NOT NULL,
+                    `status` TEXT NOT NULL,
+                    `createdAt` INTEGER NOT NULL,
+                    `updatedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`id`)
+                )
+                """.trimIndent()
+            )
+        }
+    }
+
+    /**
      * Migration from 42 to 43
      * Expands the 'returns' table with logistics, QC, and refund fields.
      */
@@ -132,13 +155,85 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * Migration from 43 to 48
+     * Covers structural changes for recommendations, recently viewed, and product analytics.
+     */
+    val MIGRATION_43_48 = object : Migration(43, 48) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // 1. Create product_recommendations table
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `product_recommendations` (
+                    `sourceProductId` TEXT NOT NULL,
+                    `recommendedProductId` TEXT NOT NULL,
+                    `type` TEXT NOT NULL,
+                    `score` INTEGER NOT NULL DEFAULT 0,
+                    `position` INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(`sourceProductId`, `recommendedProductId`, `type`)
+                )
+                """.trimIndent()
+            )
+
+            // 2. Create recently_viewed table
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `recently_viewed` (
+                    `userId` TEXT NOT NULL,
+                    `productId` TEXT NOT NULL,
+                    `timestamp` INTEGER NOT NULL,
+                    PRIMARY KEY(`userId`, `productId`)
+                )
+                """.trimIndent()
+            )
+
+            // 3. Create recent_searches table (Consolidated from KrishiVishalDatabase)
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `recent_searches` (
+                    `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    `query` TEXT NOT NULL,
+                    `searchedAt` INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+
+            // 4. Update products table with missing analytics and technical columns
+            // SQLite ALTER TABLE doesn't support multiple columns at once
+            db.execSQL("ALTER TABLE products ADD COLUMN technicalName TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE products ADD COLUMN technicalNameNormalized TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE products ADD COLUMN priceBand TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE products ADD COLUMN packSizeBand TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE products ADD COLUMN salesCount INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE products ADD COLUMN salesCount90d INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE products ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE products ADD COLUMN searchCount INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE products ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
+            db.execSQL("ALTER TABLE products ADD COLUMN targetPestIds TEXT NOT NULL DEFAULT '[]'")
+            db.execSQL("ALTER TABLE products ADD COLUMN usageInstructions TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE products ADD COLUMN targetCrops TEXT NOT NULL DEFAULT '[]'")
+            db.execSQL("ALTER TABLE products ADD COLUMN targetPests TEXT NOT NULL DEFAULT '[]'")
+            db.execSQL("ALTER TABLE products ADD COLUMN targetDiseases TEXT NOT NULL DEFAULT '[]'")
+            db.execSQL("ALTER TABLE products ADD COLUMN applicationMethod TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE products ADD COLUMN safetyNotes TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE products ADD COLUMN mixingCompatibility TEXT NOT NULL DEFAULT ''")
+
+            // 5. Create indexes for performance
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_products_technicalNameNormalized` ON `products` (`technicalNameNormalized`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_products_isActive` ON `products` (`isActive`)")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_33_34,
         MIGRATION_34_35,
         MIGRATION_35_36,
         MIGRATION_36_37,
         MIGRATION_37_38,
-        MIGRATION_42_43
+        MIGRATION_38_42,
+        MIGRATION_42_43,
+        MIGRATION_43_48
     )
 }
+
 

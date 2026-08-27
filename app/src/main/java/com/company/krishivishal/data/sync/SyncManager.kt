@@ -15,7 +15,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import org.json.JSONObject
+import com.company.krishivishal.performance.SyncResilienceManager
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import androidx.work.*
+import com.company.krishivishal.worker.SyncWorker
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,11 +34,13 @@ class SyncManager @Inject constructor(
     private val database: AppDatabase,
     private val firestore: FirebaseFirestore,
     private val connectivityObserver: ConnectivityObserver,
-    @dagger.hilt.android.qualifiers.ApplicationContext context: Context,
+    private val syncResilienceManager: SyncResilienceManager,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
     @param:com.company.krishivishal.di.IoDispatcher private val dispatcher: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.IO
 ) {
     private val syncScope = CoroutineScope(dispatcher + SupervisorJob())
     private val syncOperationDao = database.syncOperationDao()
+    private val gson = Gson()
     
     private companion object {
         const val MAX_RETRY_ATTEMPTS = 3
@@ -65,12 +71,7 @@ class SyncManager @Inject constructor(
         try {
             val jsonPayload = when (payload) {
                 is String -> payload
-                is Map<*, *> -> JSONObject(payload as Map<*, *>).toString()
-                else -> try {
-                    com.google.gson.Gson().toJson(payload)
-                } catch (e: Exception) {
-                    payload.toString()
-                }
+                else -> gson.toJson(payload)
             }
 
             val operation = SyncOperation(
@@ -83,6 +84,22 @@ class SyncManager @Inject constructor(
 
             syncOperationDao.insert(operation)
             Timber.d("Operation queued: $operationType for $entityType:$entityId")
+            
+            // Trigger background sync
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+                
+            val syncRequest = OneTimeWorkRequestBuilder<SyncWorker>()
+                .setConstraints(constraints)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, java.util.concurrent.TimeUnit.MINUTES)
+                .build()
+                
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "sync_pending_ops",
+                ExistingWorkPolicy.REPLACE,
+                syncRequest
+            )
         } catch (e: Exception) {
             Timber.e(e, "Failed to queue operation: $operationType")
         }
@@ -96,9 +113,20 @@ class SyncManager @Inject constructor(
             connectivityObserver.observe().collect { status ->
                 when (status) {
                     ConnectivityObserver.Status.Available -> {
-                        Timber.d("Network available, starting sync")
-                        delay(1000) // Wait for network to stabilize
-                        syncPendingOperations()
+                        Timber.d("Network available, triggering WorkManager sync")
+                        val constraints = Constraints.Builder()
+                            .setRequiredNetworkType(NetworkType.CONNECTED)
+                            .build()
+                            
+                        val syncRequest = OneTimeWorkRequestBuilder<SyncWorker>()
+                            .setConstraints(constraints)
+                            .build()
+                            
+                        WorkManager.getInstance(context).enqueueUniqueWork(
+                            "sync_on_connectivity",
+                            ExistingWorkPolicy.KEEP,
+                            syncRequest
+                        )
                     }
                     else -> {
                         Timber.d("Network unavailable: $status")
@@ -111,7 +139,12 @@ class SyncManager @Inject constructor(
     /**
      * Sync all pending operations
      */
-    private suspend fun syncPendingOperations() {
+    internal suspend fun syncPendingOperations() {
+        if (syncResilienceManager.shouldDelaySync()) {
+            Timber.d("Sync delayed by circuit breaker (failures: ${syncResilienceManager.getFailureCount()})")
+            return
+        }
+
         try {
             val pendingOps = syncOperationDao.getPendingOperations().firstOrNull() ?: emptyList()
             
@@ -159,7 +192,8 @@ class SyncManager @Inject constructor(
      */
     private suspend fun executeRemoteOperation(operation: SyncOperation): Boolean {
         return try {
-            val payload = JSONObject(operation.payload)
+            val type = object : TypeToken<Map<String, Any?>>() {}.type
+            val payload: Map<String, Any?> = gson.fromJson(operation.payload, type)
 
             when (operation.operationType.uppercase()) {
                 "ADD_TO_CART" -> {
@@ -167,7 +201,7 @@ class SyncManager @Inject constructor(
                         .document(operation.userId)
                         .collection("cart")
                         .document(operation.entityId)
-                        .set(payload.toMap())
+                        .set(payload)
                         .await()
                     Timber.d("Cart item added to Firestore")
                     true
@@ -177,7 +211,7 @@ class SyncManager @Inject constructor(
                         .document(operation.userId)
                         .collection("cart")
                         .document(operation.entityId)
-                        .update(payload.toMap())
+                        .update(payload)
                         .await()
                     Timber.d("Cart item updated in Firestore")
                     true
@@ -210,7 +244,7 @@ class SyncManager @Inject constructor(
                         .document(operation.userId)
                         .collection("wishlist")
                         .document(operation.entityId)
-                        .set(payload.toMap())
+                        .set(payload)
                         .await()
                     Timber.d("Wishlist item added to Firestore")
                     true
@@ -228,14 +262,14 @@ class SyncManager @Inject constructor(
                 "UPDATE_ORDER" -> {
                     firestore.collection("orders")
                         .document(operation.entityId)
-                        .update(payload.toMap())
+                        .update(payload)
                         .await()
                     true
                 }
                 "CREATE_ORDER" -> {
                     firestore.collection("orders")
                         .document(operation.entityId)
-                        .set(payload.toMap())
+                        .set(payload)
                         .await()
                     Timber.d("Offline order synced to Firestore: ${operation.entityId}")
                     true
@@ -247,6 +281,12 @@ class SyncManager @Inject constructor(
             }
         } catch (e: FirebaseFirestoreException) {
             Timber.e(e, "Firestore error: ${e.code}")
+            // Permanent failures shouldn't retry (Permission Denied, Not Found)
+            if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED || 
+                e.code == FirebaseFirestoreException.Code.NOT_FOUND) {
+                syncOperationDao.markAsSynced(operation.id) // Skip from queue
+                return true
+            }
             false
         } catch (e: Exception) {
             Timber.e(e, "Error executing remote operation")
@@ -297,34 +337,4 @@ class SyncManager @Inject constructor(
      * Get count of pending operations
      */
     fun getPendingOperationCount() = syncOperationDao.getPendingOperationCount()
-
-    private fun JSONObject.toMap(): Map<String, Any?> {
-        val map = mutableMapOf<String, Any?>()
-        val keys = keys()
-        while (keys.hasNext()) {
-            val key = keys.next()
-            map[key] = when (val value = get(key)) {
-                is JSONObject -> value.toMap()
-                is org.json.JSONArray -> value.toList()
-                JSONObject.NULL -> null
-                else -> value
-            }
-        }
-        return map
-    }
-
-    private fun org.json.JSONArray.toList(): List<Any?> {
-        val list = mutableListOf<Any?>()
-        for (i in 0 until length()) {
-            list.add(
-                when (val value = get(i)) {
-                    is JSONObject -> value.toMap()
-                    is org.json.JSONArray -> value.toList()
-                    JSONObject.NULL -> null
-                    else -> value
-                }
-            )
-        }
-        return list
-    }
 }

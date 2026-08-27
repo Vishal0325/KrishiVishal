@@ -29,6 +29,3 @@ include(":core")
 // Rider Delivery App Modules
 include(":delivery-app")
 project(":delivery-app").projectDir = file("KrishiVishalDelivery/app")
-
-include(":delivery-core")
-project(":delivery-core").projectDir = file("KrishiVishalDelivery/core")

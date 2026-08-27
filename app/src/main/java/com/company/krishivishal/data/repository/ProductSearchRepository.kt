@@ -7,6 +7,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.tasks.await
+import com.company.krishivishal.data.mapper.toProduct
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton

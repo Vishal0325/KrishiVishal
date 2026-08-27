@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -20,13 +21,14 @@ import androidx.compose.ui.unit.sp
 
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.company.krishivishal.core.model.Order
-import com.company.krishivishaldelivery.ui.dashboard.DeliveryViewModel
+import com.company.krishivishal.core.model.OrderStatus
+import com.company.krishivishaldelivery.ui.dashboard.DashboardViewModel
 import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.core.model.AppConfig
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EarningsScreen(viewModel: DeliveryViewModel = hiltViewModel()) {
+fun EarningsScreen(viewModel: EarningsViewModel = hiltViewModel()) {
     val ordersResource by viewModel.orders.collectAsState()
     val appConfigResource by viewModel.appConfig.collectAsState()
     val payoutsResource by viewModel.payouts.collectAsState()
@@ -51,11 +53,11 @@ fun EarningsScreen(viewModel: DeliveryViewModel = hiltViewModel()) {
 
     // Logic for Cash to Deposit
     val cashToDeposit = orders
-        .filter { it.isCOD && it.status == "DELIVERED" && !it.isCashDeposited } 
+        .filter { it.isCOD && it.status == OrderStatus.DELIVERED.name && !it.isCashDeposited }
         .sumOf { it.codAmount }
     
     val totalEarningsPotential = filteredOrders
-        .filter { it.status == "DELIVERED" }
+        .filter { it.status == OrderStatus.DELIVERED.name }
         .sumOf { config.commissionPerOrder }
 
     val settledAmount = payoutLogs.sumOf { (it["amount"] as? Number)?.toDouble() ?: 0.0 }
@@ -66,8 +68,8 @@ fun EarningsScreen(viewModel: DeliveryViewModel = hiltViewModel()) {
             TopAppBar(
                 title = { Text("Earnings & History", fontWeight = FontWeight.Bold) },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF2E7D32),
-                    titleContentColor = Color.White
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
         }
@@ -122,8 +124,10 @@ fun EarningsScreen(viewModel: DeliveryViewModel = hiltViewModel()) {
 
             item {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard("Orders", "125", Icons.Default.History, Modifier.weight(1f))
-                    StatCard("Avg Pay", "₹240", Icons.Default.Payments, Modifier.weight(1f))
+                    val deliveredCount = filteredOrders.count { it.status == OrderStatus.DELIVERED.name }
+                    val avgPay = if (deliveredCount != 0) totalEarningsPotential / deliveredCount else 0.0
+                    StatCard("Orders", deliveredCount.toString(), Icons.Default.History, Modifier.weight(1f))
+                    StatCard("Avg Pay", "₹${avgPay.toInt()}", Icons.Default.Payments, Modifier.weight(1f))
                 }
             }
 
@@ -131,7 +135,7 @@ fun EarningsScreen(viewModel: DeliveryViewModel = hiltViewModel()) {
                 Text("Recent Deliveries", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
 
-            val deliveredOrders = filteredOrders.filter { it.status == "DELIVERED" }
+            val deliveredOrders = filteredOrders.filter { it.status == OrderStatus.DELIVERED.name }
             if (deliveredOrders.isEmpty()) {
                 item {
                     Text("No delivered orders in this period.", color = Color.Gray, fontSize = 14.sp)
@@ -254,10 +258,22 @@ fun HistoryItem(order: Order, commission: Double) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text("Order #${order.id.takeLast(6)}", fontWeight = FontWeight.Medium)
-                Text(order.createdAt.toString(), color = Color.Gray, fontSize = 12.sp)
+                Text(
+                    text = "Order #${order.id.takeLast(6)}",
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = order.createdAt.toString(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp
+                )
             }
-            Text("₹$commission", fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+            Text(
+                text = "₹$commission",
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }

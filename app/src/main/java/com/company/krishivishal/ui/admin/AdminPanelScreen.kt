@@ -88,10 +88,8 @@ fun AdminPanelScreen(
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("Revenue (Daily)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(modifier = Modifier.height(16.dp))
-                            // Note: revenueByDay values are Double, but BarChart expects Int for simplicity here.
-                            // Mapping to Int for visual trend.
                             BarChart(
-                                data = stats.revenueByDay.mapValues { it.value.toInt() },
+                                data = stats.revenueByDay,
                                 modifier = Modifier.fillMaxSize().padding(bottom = 20.dp)
                             )
                         }

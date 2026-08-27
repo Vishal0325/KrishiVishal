@@ -18,6 +18,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,10 +30,13 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.company.krishivishal.core.model.Order
+import com.company.krishivishal.core.model.OrderStatus
 import com.company.krishivishal.core.model.ReturnRequest
+import com.company.krishivishal.core.model.ReturnStatus
 import com.company.krishivishaldelivery.data.model.IncentiveProgress
 import com.company.krishivishaldelivery.service.RiderLocationService
 import com.company.krishivishal.core.util.Resource
+import com.company.krishivishaldelivery.ui.components.StatusBadge
 import com.company.krishivishaldelivery.ui.theme.PrimaryGreen
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -40,7 +45,7 @@ fun DashboardScreen(
     onOrderClick: (String) -> Unit,
     onReturnClick: (String) -> Unit,
     onScanClick: () -> Unit,
-    viewModel: DeliveryViewModel = hiltViewModel()
+    viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val ordersResource by viewModel.orders.collectAsState()
     val returnsResource by viewModel.returns.collectAsState()
@@ -49,7 +54,6 @@ fun DashboardScreen(
     val incentiveProgress by viewModel.incentiveProgress.collectAsState()
     
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var isOnline by remember { mutableStateOf(false) }
     var showSOSDialog by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -59,8 +63,7 @@ fun DashboardScreen(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         if (permissions.entries.all { it.value }) {
-            isOnline = true
-            startLocationService(context)
+            isOnline = startLocationService(context)
         } else {
             isOnline = false
         }
@@ -86,7 +89,10 @@ fun DashboardScreen(
                                         stopLocationService(context)
                                     }
                                 },
-                                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF81C784))
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
+                                )
                             )
                         }
                     },
@@ -111,8 +117,8 @@ fun DashboardScreen(
                 }
                 
                 AnimatedVisibility(visible = !isConnected) {
-                    Box(modifier = Modifier.fillMaxWidth().background(Color.Red).padding(4.dp), contentAlignment = Alignment.Center) {
-                        Text("Offline - changes will sync automatically", color = Color.White, fontSize = 12.sp)
+                    Box(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.error).padding(4.dp), contentAlignment = Alignment.Center) {
+                        Text("Offline - changes will sync automatically", color = MaterialTheme.colorScheme.onError, fontSize = 12.sp)
                     }
                 }
             }
@@ -121,8 +127,8 @@ fun DashboardScreen(
             Column(horizontalAlignment = Alignment.End) {
                 FloatingActionButton(
                     onClick = { showSOSDialog = true },
-                    containerColor = Color.Red,
-                    contentColor = Color.White,
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
                     shape = CircleShape,
                     modifier = Modifier.size(64.dp)
                 ) {
@@ -131,8 +137,8 @@ fun DashboardScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 FloatingActionButton(
                     onClick = onScanClick,
-                    containerColor = Color(0xFF2E7D32),
-                    contentColor = Color.White,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.height(64.dp).widthIn(min = 160.dp)
                 ) {
                     Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -231,7 +237,7 @@ fun DashboardScreen(
                             LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 items(returns) { request ->
                                     ReturnPickupCard(request, onClick = { onReturnClick(request.id) }) {
-                                        viewModel.updateReturnStatus(request.id, "PICKED_UP")
+                                        viewModel.updateReturnStatus(request.id, ReturnStatus.PICKED_UP.name)
                                     }
                                 }
                             }
@@ -253,11 +259,11 @@ fun DashboardScreen(
                 Button(onClick = {
                     viewModel.triggerSOS(0.0, 0.0, null)
                     showSOSDialog = false
-                }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("CONFIRM SOS") }
+                }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("CONFIRM SOS") }
             },
             dismissButton = {
                 OutlinedButton(onClick = {
-                    context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:+911122334455")))
+                    context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${context.getString(com.company.krishivishaldelivery.R.string.emergency_phone)}")))
                     showSOSDialog = false
                 }) { Text("CALL EMERGENCY") }
             }
@@ -329,7 +335,7 @@ fun OrderCard(order: Order, onStatusClick: (String) -> Unit, onNavigateClick: ()
                 Button(
                     onClick = onNavigateClick,
                     modifier = Modifier.height(48.dp).weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
                 ) {
                     Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(4.dp))
@@ -339,9 +345,13 @@ fun OrderCard(order: Order, onStatusClick: (String) -> Unit, onNavigateClick: ()
                 Button(
                     onClick = { onStatusClick(getNextStatus(order.status)) },
                     modifier = Modifier.height(48.dp).weight(1.2f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) { 
-                    Text(when(order.status) { "ASSIGNED" -> "Pick Up"; "PICKED_UP" -> "Start Delivery"; else -> "Mark Delivered" })
+                    Text(when(order.status) {
+                        OrderStatus.ASSIGNED.name -> "Pick Up"
+                        OrderStatus.PICKED_UP.name -> "Start Delivery"
+                        else -> "Mark Delivered"
+                    })
                 }
             }
         }
@@ -361,11 +371,10 @@ fun ReturnPickupCard(request: ReturnRequest, onClick: () -> Unit, onPickup: () -
             Spacer(modifier = Modifier.height(12.dp))
             Button(
                 onClick = { 
-                    // Stop event propagation if needed, but here we want to either click card or button
                     onPickup()
                 },
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
             ) {
                 Text("Quick Pickup", fontWeight = FontWeight.Bold)
             }
@@ -373,22 +382,25 @@ fun ReturnPickupCard(request: ReturnRequest, onClick: () -> Unit, onPickup: () -
     }
 }
 
-private fun getNextStatus(status: String) = when(status) { "ASSIGNED" -> "PICKED_UP"; "PICKED_UP" -> "OUT_FOR_DELIVERY"; else -> "DELIVERED" }
-
-@Composable
-fun StatusBadge(status: String) {
-    val color = when(status) { "ASSIGNED" -> Color(0xFFFFA000); "PICKED_UP" -> Color(0xFF1976D2); "OUT_FOR_DELIVERY" -> Color(0xFF7B1FA2); else -> Color(0xFF2E7D32) }
-    Surface(color = color.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)) {
-        Text(status, color = color, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-    }
+private fun getNextStatus(status: String) = when(status) {
+    OrderStatus.ASSIGNED.name -> OrderStatus.PICKED_UP.name
+    OrderStatus.PICKED_UP.name -> OrderStatus.OUT_FOR_DELIVERY.name
+    else -> OrderStatus.DELIVERED.name
 }
 
-private fun startLocationService(context: android.content.Context) {
+private fun startLocationService(context: android.content.Context): Boolean {
     val intent = Intent(context, RiderLocationService::class.java).apply { action = RiderLocationService.ACTION_START }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        ContextCompat.startForegroundService(context, intent)
-    } else {
-        context.startService(intent)
+    return try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.startForegroundService(context, intent)
+        } else {
+            context.startService(intent)
+        }
+        true
+    } catch (_: SecurityException) {
+        false
+    } catch (_: IllegalStateException) {
+        false
     }
 }
 

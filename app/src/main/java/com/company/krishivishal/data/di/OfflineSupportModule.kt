@@ -3,6 +3,7 @@ package com.company.krishivishal.data.di
 import android.content.Context
 import com.company.krishivishal.data.local.AppDatabase
 import com.company.krishivishal.data.sync.SyncManager
+import com.company.krishivishal.performance.SyncResilienceManager
 import com.company.krishivishal.utils.ConnectivityObserver
 import com.company.krishivishal.utils.NetworkConnectivityObserver
 import com.google.firebase.firestore.FirebaseFirestore
@@ -33,11 +34,13 @@ object OfflineSupportModule {
         database: AppDatabase,
         firestore: FirebaseFirestore,
         connectivityObserver: ConnectivityObserver,
+        syncResilienceManager: SyncResilienceManager,
         @ApplicationContext context: Context
     ): SyncManager = SyncManager(
         database = database,
         firestore = firestore,
         connectivityObserver = connectivityObserver,
+        syncResilienceManager = syncResilienceManager,
         context = context,
         dispatcher = Dispatchers.IO
     )

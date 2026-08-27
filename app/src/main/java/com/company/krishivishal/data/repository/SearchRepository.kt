@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.company.krishivishal.data.mapper.toProduct
 import com.company.krishivishal.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 
@@ -25,7 +26,6 @@ interface SearchRepository {
 @Singleton
 class SearchRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
-    private val productDao: ProductDao,
     private val historyDao: HistoryDao,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : SearchRepository {

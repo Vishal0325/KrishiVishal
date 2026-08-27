@@ -94,7 +94,7 @@ private fun SyncStatusIndicator(pendingCount: Int) {
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                color = Color(0xFFFFF3CD),
+                color = warningContainer,
                 shape = RoundedCornerShape(4.dp)
             )
             .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -105,13 +105,13 @@ private fun SyncStatusIndicator(pendingCount: Int) {
             imageVector = Icons.Default.SyncAlt,
             contentDescription = "Syncing",
             modifier = Modifier.size(20.dp),
-            tint = Color(0xFF664D03)
+            tint = onWarningContainer
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = "$pendingCount item${if (pendingCount > 1) "s" else ""} waiting to sync",
             style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFF664D03)
+            color = onWarningContainer
         )
     }
 }
@@ -122,8 +122,7 @@ private fun SyncStatusIndicator(pendingCount: Int) {
 @Composable
 fun NetworkErrorMessage(
     message: String,
-    modifier: Modifier = Modifier,
-    onDismiss: () -> Unit = {}
+    modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier

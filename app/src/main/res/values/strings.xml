@@ -212,4 +212,30 @@
     <string name="seasonal_picks_title">Seasonal Picks</string>
     <string name="recommended_for_you_title">Recommended for Your Crops</string>
     <string name="compare_title">Compare Products</string>
+
+    <!-- Network & Firebase Errors -->
+    <string name="error_technical">A technical error occurred. Please restart the app.</string>
+    <string name="error_invalid_otp">Invalid OTP! Please enter the correct code.</string>
+    <string name="error_otp_expired">OTP has expired.</string>
+    <string name="error_too_many_requests">Too many attempts! Please try again later.</string>
+    <string name="error_login_failed">Login error: %1$s</string>
+    <string name="error_session_expired">Session expired! Please login again.</string>
+    <string name="error_server_overload">Server overloaded, please try again after some time.</string>
+    <string name="error_server_unavailable">Server unavailable, please check your internet.</string>
+    <string name="error_server_contact">Problem contacting the server.</string>
+    <string name="error_not_found">Server issue: Service not found.</string>
+    <string name="error_out_of_stock">Stock not available! Please reduce the quantity.</string>
+    <string name="error_firebase">Firebase Error</string>
+    <string name="error_no_internet">No internet connection! 🌾</string>
+    <string name="error_timeout">Lost contact with the server, please try again.</string>
+    <string name="error_db_permission">No permission to access the database.</string>
+    <string name="error_db_unavailable">Database server is closed.</string>
+    <string name="error_db_generic">Database issue: %1$s</string>
+    <string name="error_task_cancelled">Task cancelled.</string>
+    <string name="error_network_generic">Network connection failed.</string>
+    <string name="error_generic_with_code">Something went wrong [%1$s], please try again later. 🙏</string>
+
+    <string name="currently_unavailable">Currently unavailable</string>
+    <string name="currently_out_of_stock">Currently out of stock</string>
+    <string name="better_alternatives_msg">You may consider these better alternatives:</string>
 </resources>

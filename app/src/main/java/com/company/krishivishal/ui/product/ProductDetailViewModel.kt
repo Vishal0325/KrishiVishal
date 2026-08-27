@@ -448,15 +448,17 @@ class ProductDetailViewModel @Inject constructor(
     }
 
     fun addToCompare() {
-        val product = _uiState.value.product ?: return
-        val currentList = _uiState.value.compareList.toMutableList()
-        if (currentList.any { it.id == product.id }) return
+        val product = _uiState.value.product
+        val currentList = _uiState.value.compareList
+        
+        if (product == null || currentList.any { it.id == product.id }) return
+        
         if (currentList.size >= 3) {
             _uiState.update { it.copy(cartMessage = "Max 3 products allowed for comparison") }
-            return
+        } else {
+            val newList = currentList.toMutableList().apply { add(product) }
+            _uiState.update { it.copy(compareList = newList, cartMessage = "Added to comparison list") }
         }
-        currentList.add(product)
-        _uiState.update { it.copy(compareList = currentList, cartMessage = "Added to comparison list") }
     }
 
     fun removeFromCompare(productId: String) {

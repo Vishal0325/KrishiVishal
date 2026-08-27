@@ -74,7 +74,9 @@ fun LoginScreen(
             override fun onOtpReceived(otp: String) {
                 viewModel.onOtpReceived(otp)
             }
-            override fun onOtpTimeout() {}
+            override fun onOtpTimeout() {
+                // SMS retrieval timed out, user can still enter OTP manually
+            }
         })
         
         // Registering the receiver to listen for the SMS Retriever broadcast
@@ -87,12 +89,14 @@ fun LoginScreen(
         onDispose {
             try {
                 context.unregisterReceiver(smsReceiver)
-            } catch (e: Exception) {}
+            } catch (ignored: Exception) {
+                // Receiver might not be registered
+            }
         }
     }
 
     // UI state to show input form vs initial welcome state
-    var showLoginForm by remember { mutableStateOf(false) }
+    var showLoginForm by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         viewModel.uiEvent.collectLatest { event ->
@@ -107,261 +111,193 @@ fun LoginScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0D1B2A)) // Deep dark blue background
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        // Background Image/Gradient
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.6f)
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color(0xFF1B263B), Color(0xFF0D1B2A))
-                    )
-                )
-        ) {
-            // Decorative elements to match image
-            AsyncImage(
-                model = "https://images.unsplash.com/photo-1593113598332-cd288d649433?q=80&w=2070&auto=format&fit=crop", // Smart home/Farmer theme image
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                alpha = 0.4f,
-                contentScale = ContentScale.Crop
-            )
-        }
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(modifier = Modifier.height(40.dp))
-            
-            // Welcome Text
-            Text(
-                text = "Welcome to",
-                color = Color.White.copy(alpha = 0.8f),
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Normal
-            )
-            Text(
-                text = "KrishiVishal\nSystem",
-                color = Color.White,
-                fontSize = 42.sp,
-                fontWeight = FontWeight.Bold,
-                lineHeight = 48.sp
-            )
 
-            Spacer(modifier = Modifier.weight(1f))
-
-            // Main Action Area (The white rounded section from the image)
-            AnimatedVisibility(
-                visible = !showLoginForm && !uiState.isOtpSent,
-                enter = fadeIn() + slideInVertically(),
-                exit = fadeOut() + slideOutVertically()
+            // Branding Header
+            Surface(
+                shape = CircleShape,
+                color = PrimaryGreen.copy(alpha = 0.1f),
+                modifier = Modifier.size(90.dp)
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    // Decorative image/avatar floating
-                    Box(
-                        modifier = Modifier
-                            .size(120.dp)
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(Color.White.copy(alpha = 0.1f))
-                            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Agriculture,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(60.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(40.dp))
-
-                    Button(
-                        onClick = { showLoginForm = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(80.dp),
-                        shape = RoundedCornerShape(40.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White)
-                    ) {
-                        Text(
-                            text = "Let's start",
-                            color = Color.Black,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-
-            // Input Form Area
-            AnimatedVisibility(
-                visible = showLoginForm || uiState.isOtpSent,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
-            ) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 20.dp),
-                    shape = RoundedCornerShape(32.dp),
-                    color = Color.White,
-                    shadowElevation = 8.dp
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End
-                        ) {
-                            IconButton(onClick = {
-                                if (uiState.isOtpSent) {
-                                    // Properly reset state when going back from OTP screen
-                                    viewModel.onPhoneNumberChange("")
-                                    // Use reflection or a new method to reset isOtpSent if needed,
-                                    // or just navigate back. For now, we'll just close.
-                                    onBack()
-                                } else {
-                                    showLoginForm = false
-                                }
-                            }) {
-                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.Gray)
-                            }
-                        }
-
-                        if (!uiState.isOtpSent) {
-                            Text(
-                                text = "Login with Phone",
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0D1B2A)
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            OutlinedTextField(
-                                value = uiState.phoneNumber,
-                                onValueChange = viewModel::onPhoneNumberChange,
-                                label = { Text("Mobile Number") },
-                                modifier = Modifier.fillMaxWidth(),
-                                prefix = { Text("+91 ", fontWeight = FontWeight.Bold) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                                singleLine = true,
-                                shape = RoundedCornerShape(16.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = PrimaryGreen,
-                                    focusedLabelColor = PrimaryGreen
-                                )
-                            )
-
-                            Spacer(modifier = Modifier.height(24.dp))
-
-                            Button(
-                                onClick = {
-                                    if (uiState.phoneNumber.length == 10) {
-                                        focusManager.clearFocus()
-                                        val activity = context.findActivity()
-                                        if (activity != null) {
-                                            viewModel.sendOtp("+91${uiState.phoneNumber}", activity)
-                                        }
-                                    }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(56.dp),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
-                                enabled = uiState.phoneNumber.length == 10 && !uiState.isLoading
-                            ) {
-                                if (uiState.isLoading) {
-                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                                } else {
-                                    Text("Send OTP", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        } else {
-                            Text(
-                                text = "Verify OTP",
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0D1B2A)
-                            )
-                            Text(
-                                text = "Sent to +91 ${uiState.phoneNumber}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.Gray,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
-                            Spacer(modifier = Modifier.height(24.dp))
-
-                            OtpTextField(
-                                otpText = uiState.otp,
-                                onOtpTextChange = {
-                                    viewModel.onOtpChange(it)
-                                    if (it.length == 6) {
-                                        viewModel.verifyOtp()
-                                    }
-                                }
-                            )
-
-                            Spacer(modifier = Modifier.height(32.dp))
-
-                            Button(
-                                onClick = { viewModel.verifyOtp() },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(56.dp),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
-                                enabled = uiState.otp.length == 6 && !uiState.isLoading
-                            ) {
-                                if (uiState.isLoading) {
-                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                                } else {
-                                    Text("Verify & Continue", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Footer
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Don't have account?",
-                    color = Color.White.copy(alpha = 0.6f),
-                    fontSize = 14.sp
-                )
-
-                Surface(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .clickable { /* Navigate to register or show register form */ },
-                    color = Color(0xFF3A86FF) // Sky blue color from image
-                ) {
-                    Text(
-                        text = "Register now",
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.Agriculture,
+                        contentDescription = "KrishiVishal",
+                        tint = PrimaryGreen,
+                        modifier = Modifier.size(52.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "KrishiVishal",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
+                color = PrimaryGreen
+            )
+
+            Text(
+                text = "Kisaan Ka Apna Store",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // Main Card Form
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (!uiState.isOtpSent) {
+                        Text(
+                            text = "Login with Mobile",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Enter 10 digit number to continue",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        OutlinedTextField(
+                            value = uiState.phoneNumber,
+                            onValueChange = { if (it.length <= 10) viewModel.onPhoneNumberChange(it) },
+                            label = { Text("Mobile Number") },
+                            modifier = Modifier.fillMaxWidth(),
+                            prefix = { Text("+91 ", fontWeight = FontWeight.Bold) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PrimaryGreen,
+                                focusedLabelColor = PrimaryGreen
+                            )
+                        )
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Button(
+                            onClick = {
+                                if (uiState.phoneNumber.length == 10) {
+                                    focusManager.clearFocus()
+                                    val activity = context.findActivity()
+                                    if (activity != null) {
+                                        viewModel.sendOtp("+91${uiState.phoneNumber}", activity)
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                            enabled = uiState.phoneNumber.length == 10 && !uiState.isLoading
+                        ) {
+                            if (uiState.isLoading) {
+                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("Send OTP", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = "Verify OTP",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "OTP sent to +91 ${uiState.phoneNumber}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        OtpTextField(
+                            otpText = uiState.otp,
+                            onOtpTextChange = {
+                                viewModel.onOtpChange(it)
+                                if (it.length == 6) {
+                                    viewModel.verifyOtp()
+                                }
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.height(28.dp))
+
+                        Button(
+                            onClick = { viewModel.verifyOtp() },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                            enabled = uiState.otp.length == 6 && !uiState.isLoading
+                        ) {
+                            if (uiState.isLoading) {
+                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("Verify & Login", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        TextButton(
+                            onClick = {
+                                val activity = context.findActivity()
+                                if (activity != null) {
+                                    viewModel.sendOtp("+91${uiState.phoneNumber}", activity)
+                                }
+                            },
+                            enabled = uiState.isResendEnabled && !uiState.isLoading
+                        ) {
+                            if (!uiState.isResendEnabled) {
+                                val minutes = uiState.resendTimer / 60
+                                val seconds = uiState.resendTimer % 60
+                                val timeStr = "${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
+                                Text(
+                                    text = "Resend OTP in $timeStr",
+                                    color = Color.Gray,
+                                    fontSize = 14.sp
+                                )
+                            } else {
+                                Text(
+                                    text = "Resend OTP",
+                                    color = PrimaryGreen,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(30.dp))
         }
 
         // Snackbar for errors

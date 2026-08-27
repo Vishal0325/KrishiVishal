@@ -129,17 +129,55 @@ fun CouponDialog(coupon: Coupon, onDismiss: () -> Unit, onSave: (Coupon) -> Unit
     var discount by remember { mutableStateOf(coupon.discountPercent.toString()) }
     var minOrder by remember { mutableStateOf(coupon.minOrderValue.toString()) }
     var maxDiscount by remember { mutableStateOf(coupon.maxDiscount.toString()) }
+    val discountValue = discount.toIntOrNull()
+    val minOrderValue = minOrder.toDoubleOrNull()
+    val maxDiscountValue = maxDiscount.toDoubleOrNull()
+    val isValid = code.isNotBlank() &&
+        discountValue != null && discountValue in 1..100 &&
+        minOrderValue != null && minOrderValue >= 0.0 &&
+        maxDiscountValue != null && maxDiscountValue > 0.0
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (coupon.code.isEmpty()) "Add Coupon" else "Edit Coupon") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = code, onValueChange = { code = it }, label = { Text("Coupon Code") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    value = code, 
+                    onValueChange = { code = it.uppercase() }, 
+                    label = { Text("Coupon Code*") }, 
+                    modifier = Modifier.fillMaxWidth(),
+                    isError = code.isBlank()
+                )
                 OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = discount, onValueChange = { discount = it }, label = { Text("Discount %") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = minOrder, onValueChange = { minOrder = it }, label = { Text("Min Order Value") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = maxDiscount, onValueChange = { maxDiscount = it }, label = { Text("Max Discount Amount") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    value = discount, 
+                    onValueChange = { discount = it }, 
+                    label = { Text("Discount %*") }, 
+                    modifier = Modifier.fillMaxWidth(), 
+                    isError = discountValue == null || discountValue !in 1..100,
+                    placeholder = { Text("1-100") }
+                )
+                OutlinedTextField(
+                    value = minOrder, 
+                    onValueChange = { minOrder = it }, 
+                    label = { Text("Min Order Value*") }, 
+                    modifier = Modifier.fillMaxWidth(), 
+                    isError = minOrderValue == null || minOrderValue < 0.0,
+                    placeholder = { Text("0.0") }
+                )
+                OutlinedTextField(
+                    value = maxDiscount, 
+                    onValueChange = { maxDiscount = it }, 
+                    label = { Text("Max Discount Amount*") }, 
+                    modifier = Modifier.fillMaxWidth(), 
+                    isError = maxDiscountValue == null || maxDiscountValue <= 0.0,
+                    placeholder = { Text("0.0") }
+                )
+                
+                if (!isValid) {
+                    Text("Please fill all mandatory fields with valid values.", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                }
             }
         },
         confirmButton = {
@@ -147,11 +185,11 @@ fun CouponDialog(coupon: Coupon, onDismiss: () -> Unit, onSave: (Coupon) -> Unit
                 onSave(coupon.copy(
                     code = code,
                     description = description,
-                    discountPercent = discount.toIntOrNull() ?: 0,
-                    minOrderValue = minOrder.toDoubleOrNull() ?: 0.0,
-                    maxDiscount = maxDiscount.toDoubleOrNull() ?: 0.0
+                    discountPercent = discountValue ?: 0,
+                    minOrderValue = minOrderValue ?: 0.0,
+                    maxDiscount = maxDiscountValue ?: 0.0
                 ))
-            }, enabled = code.isNotEmpty()) {
+            }, enabled = isValid) {
                 Text("Save")
             }
         },

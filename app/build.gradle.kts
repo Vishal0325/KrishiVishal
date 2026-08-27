@@ -11,6 +11,7 @@ plugins {
     alias(libs.plugins.ksp.plugin)
     alias(libs.plugins.firebase.crashlytics.plugin)
     alias(libs.plugins.firebase.perf.plugin)
+    alias(libs.plugins.detekt)
 }
 
 android {
@@ -36,7 +37,7 @@ android {
         
         val rzpKey = keystoreProperties.getProperty("razorpayKey") ?: "rzp_test_default"
         buildConfigField("String", "RAZORPAY_KEY", "\"$rzpKey\"")
-        buildConfigField("String", "FUNCTIONS_BASE_URL", "\"https://us-central1-krishivishal-a9ed7.cloudfunctions.net/\"")
+        buildConfigField("String", "FUNCTIONS_BASE_URL", "\"https://asia-south1-krishivishal-a9ed7.cloudfunctions.net/\"")
         manifestPlaceholders["razorpayKey"] = rzpKey
     }
 
@@ -73,15 +74,17 @@ android {
         jvmTarget = "17"
     }
     buildFeatures {
-        viewBinding = true
-        dataBinding = true
+        viewBinding = false
+        dataBinding = false
         buildConfig = true
         compose = true
     }
     lint {
-        abortOnError = false
-        checkReleaseBuilds = false
+        abortOnError = true
+        checkReleaseBuilds = true
         disable += "RememberInComposition"
+        disable += "FlowOperatorInvokedInComposition"
+        disable += "FrequentlyChangingValue"
     }
     packaging {
         jniLibs {
@@ -90,10 +93,20 @@ android {
     }
 }
 
-tasks.matching { it.name.startsWith("lint") || it.name.startsWith("lintAnalyze") || it.name.startsWith("lintReport") || it.name.startsWith("lintFix") }
-    .configureEach {
-        enabled = false
+detekt {
+    toolVersion = libs.versions.detekt.get()
+    config.setFrom(file("../config/detekt/detekt.yml"))
+    buildUponDefaultConfig = true
+    allRules = false
+    reports {
+        html.required.set(true)
+        xml.required.set(true)
+        txt.required.set(false)
+        sarif.required.set(false)
     }
+}
+
+// Lint tasks are now handled by the standard android { lint { ... } } block
 
 dependencies {
     // Core Module
@@ -174,6 +187,11 @@ dependencies {
 
     // Startup
     implementation(libs.androidx.startup)
+
+    // WorkManager
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.hilt.work)
+    ksp(libs.hilt.compiler)
 
     // Google Maps
     implementation("com.google.maps.android:maps-compose:6.1.2")

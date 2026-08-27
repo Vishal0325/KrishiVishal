@@ -49,27 +49,7 @@ class CropRepositoryImpl @Inject constructor(
         }
         .flowOn(ioDispatcher)
 
-    private suspend fun seedCrops() {
-        com.company.krishivishal.core.util.Constants.SAMPLE_CROPS.forEach { crop ->
-            firestore.collection("crops").document(crop.id).set(crop).await()
-        }
-    }
 
-    private suspend fun fetchCropsFromFirestore(): List<Crop> {
-        val snapshot = firestore.collection("crops")
-            .whereEqualTo("isActive", true)
-            .get()
-            .await()
-        
-        return snapshot.documents.mapNotNull { doc ->
-            Crop(
-                id = doc.id,
-                name = doc.getString("name") ?: "",
-                imageUrl = doc.getString("imageUrl") ?: "",
-                isActive = doc.getBoolean("isActive") ?: true
-            )
-        }
-    }
 
     override suspend fun saveCrop(crop: Crop): Flow<Resource<Unit>> = flow {
         emit(Resource.Loading())

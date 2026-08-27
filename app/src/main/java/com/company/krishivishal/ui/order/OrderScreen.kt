@@ -154,7 +154,6 @@ fun OrderScreen(
             val returnOrder = orderToReturn
             if (returnOrder != null) {
                 ReturnRequestDialog(
-                    order = returnOrder,
                     onDismiss = { orderToReturn = null },
                     onConfirm = { reason ->
                         viewModel.requestReturn(returnOrder, reason)
@@ -439,7 +438,6 @@ fun OrderItemCard(
 
 @Composable
 fun ReturnRequestDialog(
-    order: Order,
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
@@ -580,6 +578,8 @@ val OrderStatus.color: Color
     get() = when (this) {
         OrderStatus.PLACED -> Color(0xFF2196F3)
         OrderStatus.CONFIRMED -> Color(0xFF4CAF50)
+        OrderStatus.ASSIGNED -> Color(0xFF4CAF50)
+        OrderStatus.PICKED_UP -> Color(0xFFFF9800)
         OrderStatus.SHIPPED -> Color(0xFFFF9800)
         OrderStatus.OUT_FOR_DELIVERY -> Color(0xFF9C27B0)
         OrderStatus.DELIVERED -> PrimaryGreen

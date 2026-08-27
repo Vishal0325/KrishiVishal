@@ -40,6 +40,10 @@ class ProductDetailViewModelTest {
     private val cartRepository = mockk<CartRepository>()
     private val checkoutSessionRepository = mockk<CheckoutSessionRepository>()
     private val wishlistRepository = mockk<com.company.krishivishal.data.repository.WishlistRepository>()
+    private val productRepository = mockk<com.company.krishivishal.data.repository.ProductRepository>(relaxed = true)
+    private val configRepository = mockk<com.company.krishivishal.data.repository.ConfigRepository>(relaxed = true)
+    private val productDao = mockk<com.company.krishivishal.data.local.ProductDao>(relaxed = true)
+    private val userDao = mockk<com.company.krishivishal.data.local.UserDao>(relaxed = true)
     private val analyticsTracker = mockk<com.company.krishivishal.analytics.AnalyticsTracker>(relaxed = true)
 
     private val testProduct = Product(id = "p1", name = "Test Product")
@@ -60,6 +64,10 @@ class ProductDetailViewModelTest {
             cartRepository,
             checkoutSessionRepository,
             wishlistRepository,
+            productRepository,
+            configRepository,
+            productDao,
+            userDao,
             analyticsTracker
         )
     }

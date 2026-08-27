@@ -259,14 +259,14 @@ fun ProductDetailScreen(
                                                 Icon(Icons.Default.Error, null, tint = Color.Red, modifier = Modifier.size(20.dp))
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
-                                                    text = if (!product.isActive) "Currently unavailable" else "Currently out of stock",
+                                                    text = if (!product.isActive) stringResource(R.string.currently_unavailable) else stringResource(R.string.currently_out_of_stock),
                                                     fontWeight = FontWeight.Bold,
                                                     color = Color.Red,
                                                     fontSize = 16.sp
                                                 )
                                             }
                                             Text(
-                                                text = "You may consider these better alternatives:",
+                                                text = stringResource(R.string.better_alternatives_msg),
                                                 fontSize = 13.sp,
                                                 color = GrayText,
                                                 modifier = Modifier.padding(top = 4.dp)

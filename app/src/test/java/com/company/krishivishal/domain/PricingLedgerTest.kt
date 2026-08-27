@@ -12,7 +12,6 @@ class PricingLedgerTest {
         val price = 100.0
         val gstRate = 18.0
         val expectedGst = 18.0
-        val expectedTaxable = 100.0
         
         val actualGst = (price * gstRate) / 100.0
         assertEquals(expectedGst, actualGst, 0.01)

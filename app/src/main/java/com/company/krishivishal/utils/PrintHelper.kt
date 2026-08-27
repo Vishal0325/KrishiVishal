@@ -108,8 +108,8 @@ object PrintHelper {
                 </td>
                 <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: center;">${item.hsnCode.ifBlank { "N/A" }}</td>
                 <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: center;">${item.quantity}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">₹${String.format("%.2f", item.price)}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">₹${String.format("%.2f", item.price * item.quantity)}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">₹${String.format(Locale.US, "%.2f", item.price)}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">₹${String.format(Locale.US, "%.2f", item.price * item.quantity)}</td>
             </tr>
             """.trimIndent()
         }
@@ -179,51 +179,51 @@ object PrintHelper {
             <div class="totals-box">
                 <div class="total-row">
                     <span>Subtotal (MRP):</span>
-                    <span>₹${String.format("%.2f", order.subtotal)}</span>
+                    <span>₹${String.format(Locale.US, "%.2f", order.subtotal)}</span>
                 </div>
                 ${if (order.totalDiscount > 0) """
                 <div class="total-row" style="color: #2e7d32;">
                     <span>Product Discount:</span>
-                    <span>-₹${String.format("%.2f", order.totalDiscount)}</span>
+                    <span>-₹${String.format(Locale.US, "%.2f", order.totalDiscount)}</span>
                 </div>
                 """.trimIndent() else ""}
                 <div class="total-row">
                     <span>Taxable Value:</span>
-                    <span>₹${String.format("%.2f", order.taxableTotal)}</span>
+                    <span>₹${String.format(Locale.US, "%.2f", order.taxableTotal)}</span>
                 </div>
                 ${if (cgst > 0) """
                 <div class="total-row" style="color: #666; font-size: 12px;">
                     <span>CGST (Bihar):</span>
-                    <span>₹${String.format("%.2f", cgst)}</span>
+                    <span>₹${String.format(Locale.US, "%.2f", cgst)}</span>
                 </div>
                 """.trimIndent() else ""}
                 ${if (sgst > 0) """
                 <div class="total-row" style="color: #666; font-size: 12px;">
                     <span>SGST (Bihar):</span>
-                    <span>₹${String.format("%.2f", sgst)}</span>
+                    <span>₹${String.format(Locale.US, "%.2f", sgst)}</span>
                 </div>
                 """.trimIndent() else ""}
                 
                 <div class="total-row" style="font-weight: bold; margin-top: 5px;">
                     <span>Total Tax:</span>
-                    <span>+₹${String.format("%.2f", totalTax)}</span>
+                    <span>+₹${String.format(Locale.US, "%.2f", totalTax)}</span>
                 </div>
 
                 <div class="total-row">
                     <span>Delivery Charges:</span>
-                    <span>${if (order.deliveryCharges > 0) "₹" + String.format("%.2f", order.deliveryCharges) else "FREE"}</span>
+                    <span>${if (order.deliveryCharges > 0) "₹" + String.format(Locale.US, "%.2f", order.deliveryCharges) else "FREE"}</span>
                 </div>
 
                 ${if (order.platformFee > 0) """
                 <div class="total-row" style="font-size: 11px; color: #777;">
                     <span>Platform Fee:</span>
-                    <span>₹${String.format("%.2f", order.platformFee)}</span>
+                    <span>₹${String.format(Locale.US, "%.2f", order.platformFee)}</span>
                 </div>
                 """.trimIndent() else ""}
 
                 <div class="total-row grand-total">
                     <span>Grand Total:</span>
-                    <span>₹${String.format("%.2f", order.totalAmount)}</span>
+                    <span>₹${String.format(Locale.US, "%.2f", order.totalAmount)}</span>
                 </div>
                 <p style="font-size: 10px; color: #999; margin-top: 15px; font-style: italic;">
                     Amount in words: ${convertAmountToWords(order.totalAmount)} Rupees Only
