@@ -1,12 +1,13 @@
-import { doc, setDoc, updateDoc, deleteDoc, collection, getDocs, Timestamp, query, where } from "firebase/firestore";
+import { doc, setDoc, updateDoc, deleteDoc, collection, getDocs, Timestamp, query, where, writeBatch } from "firebase/firestore";
 import { db } from "../firebase/config";
 
 /**
- * Fetches all users who have the role of RIDER.
+ * Fetches all users who have the role of Rider.
+ * NOTE: role is written as "Rider" (not "RIDER") by the Delivery App's AuthViewModel.
  */
 export async function getAllRiders() {
   try {
-    const q = query(collection(db, "users"), where("role", "==", "RIDER"));
+    const q = query(collection(db, "riders"));
     const snapshot = await getDocs(q);
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   } catch (error) {
@@ -73,15 +74,33 @@ export async function searchUserByQuery(searchQuery) {
 }
 
 /**
- * Promotes a regular user to a RIDER.
+ * Promotes a regular user to a Rider.
+ * Writes to both 'users' (role) and 'riders' (live fleet) collections atomically.
+ * Uses "Rider" (capitalized) to match the Delivery App's AuthViewModel convention.
  */
-export async function makeUserRider(uid) {
+export async function makeUserRider(uid, phone = "", name = "") {
   try {
-    const userRef = doc(db, "users", uid);
-    await updateDoc(userRef, {
-      role: "RIDER",
-      updatedAt: Timestamp.now(),
+    const batch = writeBatch(db);
+    const now = Timestamp.now();
+
+    // Update users collection
+    batch.update(doc(db, "users", uid), {
+      role: "Rider",
+      updatedAt: now,
     });
+
+    // Upsert riders collection so Admin Live Fleet shows the rider immediately
+    batch.set(doc(db, "riders", uid), {
+      id: uid,
+      phone,
+      name,
+      role: "Rider",
+      status: "ACTIVE",
+      online: false,
+      updatedAt: now,
+    }, { merge: true });
+
+    await batch.commit();
     return { success: true };
   } catch (error) {
     console.error("Error making user rider:", error);
@@ -90,15 +109,26 @@ export async function makeUserRider(uid) {
 }
 
 /**
- * Revokes RIDER role from a user, setting them back to CUSTOMER.
+ * Revokes Rider role from a user, setting them back to CUSTOMER.
+ * Also marks their riders document as INACTIVE.
  */
 export async function revokeRiderAccess(uid) {
   try {
-    const userRef = doc(db, "users", uid);
-    await updateDoc(userRef, {
+    const batch = writeBatch(db);
+    const now = Timestamp.now();
+
+    batch.update(doc(db, "users", uid), {
       role: "CUSTOMER",
-      updatedAt: Timestamp.now(),
+      updatedAt: now,
     });
+
+    batch.update(doc(db, "riders", uid), {
+      status: "INACTIVE",
+      online: false,
+      updatedAt: now,
+    });
+
+    await batch.commit();
     return { success: true };
   } catch (error) {
     console.error("Error revoking rider access:", error);
