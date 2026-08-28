@@ -123,7 +123,7 @@ function App() {
       <Toaster position="top-right" />
       <Routes>
         <Route path="/" element={<Layout />}>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "CatalogManager", "Viewer"]}><Dashboard /></RequireRole>} />
           <Route path="/orders" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><Orders /></RequireRole>} />
           <Route path="/packing-station" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><PackingStation /></RequireRole>} />
           <Route path="/support-tickets" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><SupportTickets /></RequireRole>} />
@@ -156,10 +156,10 @@ function App() {
           <Route path="/tracking" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><Tracking /></RequireRole>} />
           <Route path="/audit-logs" element={<RequireRole allowedRoles={["SuperAdmin"]}><AuditLogs /></RequireRole>} />
           <Route path="/ai-control" element={<RequireRole allowedRoles={["SuperAdmin"]}><AIControlRoom /></RequireRole>} />
-          <Route path="/unit-economics" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager"]}><UnitEconomics /></RequireRole>} />
-          <Route path="/supplier-ledger" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager"]}><SupplierLedger /></RequireRole>} />
-          <Route path="/gst-reports" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager"]}><GSTReports /></RequireRole>} />
-          <Route path="/financial-statements" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager"]}><FinancialStatements /></RequireRole>} />
+          <Route path="/unit-economics" element={<RequireRole allowedRoles={["SuperAdmin"]}><UnitEconomics /></RequireRole>} />
+          <Route path="/supplier-ledger" element={<RequireRole allowedRoles={["SuperAdmin"]}><SupplierLedger /></RequireRole>} />
+          <Route path="/gst-reports" element={<RequireRole allowedRoles={["SuperAdmin"]}><GSTReports /></RequireRole>} />
+          <Route path="/financial-statements" element={<RequireRole allowedRoles={["SuperAdmin"]}><FinancialStatements /></RequireRole>} />
           <Route path="/finance" element={<RequireRole allowedRoles={["SuperAdmin"]}><Finance /></RequireRole>} />
           <Route path="/expenses" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><Expenses /></RequireRole>} />
           <Route path="/expenses/new" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager"]}><ExpenseForm /></RequireRole>} />
@@ -174,6 +174,7 @@ function App() {
           <Route path="/trips" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><Trips /></RequireRole>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
+
       </Routes>
     </>
   );

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { auth, db } from '../firebase/config';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { setDoc, doc } from 'firebase/firestore';
+import { auth } from '../firebase/config';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import { ShieldCheck, Mail, Lock, Loader2 } from 'lucide-react';
 
 const Login = () => {
@@ -9,7 +8,6 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [isNewUser, setIsNewUser] = useState(false);
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -17,21 +15,17 @@ const Login = () => {
     setError('');
 
     try {
-      if (isNewUser) {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        await setDoc(doc(db, 'users', userCredential.user.uid), {
-          email: email,
-          isAdmin: false,
-          name: email.split('@')[0],
-          createdAt: new Date(),
-          role: 'admin_request'
-        });
-        setError('Request submitted. Ask super admin to enable access for UID: ' + userCredential.user.uid);
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
-      }
+      await signInWithEmailAndPassword(auth, email.trim(), password);
     } catch (err) {
-      setError(err.message.includes('auth/user-not-found') ? 'Account not found. Create request?' : err.message);
+      console.error("Login authentication error:", err);
+      const code = err.code || '';
+      if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+        setError('Invalid email or password. Please check your credentials.');
+      } else if (code === 'auth/too-many-requests') {
+        setError('Too many failed login attempts. Please try again in a few minutes.');
+      } else {
+        setError(err.message || 'Authentication failed. Please contact your Super Administrator.');
+      }
     } finally {
       setLoading(false);
     }
@@ -50,7 +44,7 @@ const Login = () => {
 
         <form onSubmit={handleAuth} className="space-y-6">
           <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-400 uppercase ml-1">Email Address</label>
+            <label className="text-xs font-bold text-gray-400 uppercase ml-1">Admin Email Address</label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
               <input
@@ -60,6 +54,7 @@ const Login = () => {
                 className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all font-medium"
                 placeholder="admin@krishivishal.com"
                 required
+                autoComplete="email"
               />
             </div>
           </div>
@@ -75,6 +70,7 @@ const Login = () => {
                 className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all font-medium"
                 placeholder="••••••••"
                 required
+                autoComplete="current-password"
               />
             </div>
           </div>
@@ -88,28 +84,14 @@ const Login = () => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-[#2e7d32] text-white py-3.5 rounded-xl hover:bg-[#1b5e20] transition-all font-bold text-sm shadow-lg shadow-green-100 flex items-center justify-center space-x-2 active:scale-[0.98] disabled:opacity-70"
+            className="w-full bg-[#2e7d32] text-white py-3.5 rounded-xl hover:bg-[#1b5e20] transition-all font-bold text-sm shadow-lg shadow-green-100 flex items-center justify-center space-x-2 active:scale-[0.98] disabled:opacity-70 cursor-pointer"
           >
-            {loading ? <Loader2 className="animate-spin" size={20} /> : (isNewUser ? 'Create Admin Request' : 'Access Dashboard')}
-          </button>
-
-          <div className="relative flex py-2 items-center">
-            <div className="flex-grow border-t border-gray-200"></div>
-            <span className="flex-shrink mx-4 text-gray-400 text-[10px] font-bold uppercase">OR</span>
-            <div className="flex-grow border-t border-gray-200"></div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setIsNewUser(!isNewUser)}
-            className="w-full text-gray-500 hover:text-green-700 text-xs font-bold transition-colors"
-          >
-            {isNewUser ? 'Back to Login' : 'Request Admin Access?'}
+            {loading ? <Loader2 className="animate-spin" size={20} /> : 'Access Dashboard'}
           </button>
         </form>
 
         <p className="mt-8 text-center text-gray-400 text-[10px] font-medium leading-relaxed uppercase">
-          Authorized Personnel Only.<br />All activity is monitored and logged.
+          Authorized Personnel Only.<br />All access events are monitored and logged.
         </p>
       </div>
     </div>
@@ -117,3 +99,4 @@ const Login = () => {
 };
 
 export default Login;
+

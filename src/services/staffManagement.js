@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from "firebase/auth";
-import { doc, setDoc, updateDoc, collection, getDocs, Timestamp } from "firebase/firestore";
+import { doc, setDoc, updateDoc, collection, getDocs, query, where, serverTimestamp } from "firebase/firestore";
 import { db, firebaseConfig } from "../firebase/config";
 
 // Initialize a secondary Firebase app instance
@@ -35,8 +35,8 @@ export async function createStaffMember(email, password, name, role) {
       role: role,
       isAdmin: true, // They are part of the admin panel
       isActive: true, // Active by default
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     });
 
     return { success: true, uid: user.uid };
@@ -54,7 +54,7 @@ export async function updateStaffDetails(uid, updates) {
     const userRef = doc(db, "users", uid);
     await updateDoc(userRef, {
       ...updates,
-      updatedAt: Timestamp.now(),
+      updatedAt: serverTimestamp(),
     });
     return { success: true };
   } catch (error) {
@@ -64,16 +64,16 @@ export async function updateStaffDetails(uid, updates) {
 }
 
 /**
- * Fetches all admin users (staff).
+ * ADM-4: Fetches admin staff users with targeted Firestore query instead of full collection scan.
  */
 export async function getAllStaff() {
   try {
-    const usersSnapshot = await getDocs(collection(db, "users"));
-    return usersSnapshot.docs
-      .map(doc => ({ id: doc.id, ...doc.data() }))
-      .filter(u => u.isAdmin === true || String(u.isAdmin).toLowerCase() === "true");
+    const staffQuery = query(collection(db, "users"), where("isAdmin", "==", true));
+    const usersSnapshot = await getDocs(staffQuery);
+    return usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   } catch (error) {
     console.error("Error fetching staff:", error);
     throw error;
   }
 }
+

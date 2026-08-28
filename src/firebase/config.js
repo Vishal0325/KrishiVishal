@@ -23,11 +23,17 @@ const app = initializeApp(firebaseConfig);
 
 // Initialize App Check with reCAPTCHA Enterprise
 if (typeof window !== "undefined") {
-  initializeAppCheck(app, {
-    provider: new ReCaptchaEnterpriseProvider("6LedsXMtAAAAACuRJBugHB610wgPZ9ILlD4BFUcl"),
-    isTokenAutoRefreshEnabled: true
-  });
+  const recaptchaKey = import.meta.env.VITE_RECAPTCHA_ENTERPRISE_KEY || "6LedsXMtAAAAACuRJBugHB610wgPZ9ILlD4BFUcl";
+  try {
+    initializeAppCheck(app, {
+      provider: new ReCaptchaEnterpriseProvider(recaptchaKey),
+      isTokenAutoRefreshEnabled: true
+    });
+  } catch (err) {
+    console.warn("Firebase AppCheck initialization skipped or already active:", err.message);
+  }
 }
+
 
 export const auth = getAuth(app);
 
