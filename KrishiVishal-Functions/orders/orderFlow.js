@@ -32,19 +32,23 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
         }
     }
 
-    // H2: Validate address
-    if (!address || typeof address !== 'object') {
-        throw new HttpsError('invalid-argument', 'Invalid delivery address object.');
+    // H2: Validate address (supports formatted string from Android app or structured object)
+    if (!address) {
+        throw new HttpsError('invalid-argument', 'Delivery address is required.');
     }
-    const requiredAddressFields = ['line1', 'city', 'state', 'postalCode'];
-    for (const field of requiredAddressFields) {
-        if (!address[field] || typeof address[field] !== 'string' || address[field].trim().length === 0) {
-            throw new HttpsError('invalid-argument', `Missing or invalid address field: ${field}`);
+    if (typeof address === 'string') {
+        if (address.trim().length < 5 || address.length > 500) {
+            throw new HttpsError('invalid-argument', 'Invalid address string length.');
         }
-    }
-    const cleanPostal = (address.postalCode || '').trim();
-    if (cleanPostal.length !== 6 || !/^\d{6}$/.test(cleanPostal)) {
-        throw new HttpsError('invalid-argument', 'Invalid postal code (must be 6 digits).');
+    } else if (typeof address === 'object') {
+        const requiredAddressFields = ['line1', 'city', 'state'];
+        for (const field of requiredAddressFields) {
+            if (!address[field] || typeof address[field] !== 'string' || address[field].trim().length === 0) {
+                throw new HttpsError('invalid-argument', `Missing or invalid address field: ${field}`);
+            }
+        }
+    } else {
+        throw new HttpsError('invalid-argument', 'Invalid delivery address format.');
     }
 
     // H2: Validate payment method

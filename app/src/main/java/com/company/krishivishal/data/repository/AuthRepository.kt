@@ -25,6 +25,9 @@ import android.app.Activity
 import com.google.android.gms.auth.api.phone.SmsRetriever
 import com.google.firebase.auth.PhoneAuthCredential
 import com.company.krishivishal.performance.SmsResilienceManager
+import com.company.krishivishal.security.SecureStorage
+import com.company.krishivishal.security.TokenManager
+import com.company.krishivishal.session.SessionManager
 
 interface AuthRepository {
     fun getCurrentUser(): Flow<User?>
@@ -46,8 +49,28 @@ class AuthRepositoryImpl @Inject constructor(
     private val userDao: UserDao,
     private val wishlistDao: com.company.krishivishal.data.local.WishlistDao,
     private val smsResilienceManager: SmsResilienceManager,
+    private val secureStorage: SecureStorage,
+    private val tokenManager: TokenManager,
+    private val sessionManager: SessionManager,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : AuthRepository {
+
+    companion object {
+        private const val TAG = "AuthRepo"
+
+        fun normalizePhone(phone: String): String {
+            val digits = phone.replace(Regex("\\D"), "")
+            val clean10 = if (digits.startsWith("91") && digits.length > 10) digits.substring(2) else digits
+            return if (clean10.length == 10) "+91$clean10" else phone.trim()
+        }
+
+        fun maskPhone(phone: String): String {
+            val digits = phone.replace(Regex("\\D"), "")
+            return if (digits.length >= 10) {
+                "+91******" + digits.takeLast(4)
+            } else "****"
+        }
+    }
 
     override fun getCurrentUser(): Flow<User?> = callbackFlow {
         // Use an auth state listener so the flow stays alive and reacts to login/logout
@@ -97,15 +120,16 @@ class AuthRepositoryImpl @Inject constructor(
 
     override suspend fun signInAnonymously(): Resource<User> = withContext(ioDispatcher) {
         try {
-            android.util.Log.d("AuthRepo", "Starting anonymous sign in...")
+            android.util.Log.d(TAG, "Starting anonymous sign in...")
             val result = auth.signInAnonymously().await()
             val firebaseUser = result.user ?: throw Exception("Anonymous sign in failed")
-            android.util.Log.d("AuthRepo", "Anonymous sign in SUCCESS: ${firebaseUser.uid}")
+            android.util.Log.d(TAG, "Anonymous sign in SUCCESS")
             val user = User(id = firebaseUser.uid, name = "Guest User")
             userDao.insertUser(user)
+            sessionManager.startSession(firebaseUser.uid)
             Resource.Success(user)
         } catch (e: Exception) {
-            android.util.Log.e("AuthRepo", "Anonymous sign in ERROR: ${e.message}")
+            android.util.Log.e(TAG, "Anonymous sign in ERROR: ${e.message}")
             Resource.Error(e.message ?: "Anonymous Login Error")
         }
     }
@@ -118,6 +142,7 @@ class AuthRepositoryImpl @Inject constructor(
         val user = userDoc.toObject(User::class.java) ?: throw Exception("User data not found")
         
         userDao.insertUser(user)
+        sessionManager.startSession(firebaseUser.uid)
         user
     }
 
@@ -133,22 +158,47 @@ class AuthRepositoryImpl @Inject constructor(
         
         firestore.collection("users").document(user.id).set(user).await()
         userDao.insertUser(user)
+        sessionManager.startSession(firebaseUser.uid)
         user
     }
 
+    /**
+     * A3: Comprehensive token and session eviction on logout
+     */
     override suspend fun logout() {
         withContext(ioDispatcher) {
-            auth.signOut()
+            try {
+                auth.signOut()
+                sessionManager.endSession()
+                tokenManager.clearTokens()
+                secureStorage.clearAllData()
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "Error during logout cleanup: ${e.message}", e)
+            }
         }
     }
 
+    /**
+     * A1, A2, A5: Phone normalization, masked logging, and sliding window rate limiting
+     */
     override fun startPhoneVerification(
         phoneNumber: String,
         activity: Activity,
         callbacks: PhoneAuthProvider.OnVerificationStateChangedCallbacks
     ) {
-        if (!smsResilienceManager.canSendSms()) {
-            callbacks.onVerificationFailed(com.google.firebase.FirebaseException("SMS quota exceeded. Please try again later."))
+        val normalizedPhone = normalizePhone(phoneNumber)
+        val clean10 = normalizedPhone.replace("+91", "").trim()
+        if (clean10.length != 10 || !clean10.all { it.isDigit() } || clean10.first() !in '6'..'9') {
+            callbacks.onVerificationFailed(
+                com.google.firebase.FirebaseException("Kripya sahi 10-digit mobile number enter karein.")
+            )
+            return
+        }
+
+        if (!smsResilienceManager.canSendSms(normalizedPhone)) {
+            val cooldown = smsResilienceManager.getRemainingCooldownSeconds(normalizedPhone)
+            val msg = if (cooldown > 0) "OTP limit exceed. Kripya ${cooldown}s baad prayas karein." else "SMS quota exceeded. Please try again later."
+            callbacks.onVerificationFailed(com.google.firebase.FirebaseException(msg))
             return
         }
 
@@ -157,13 +207,13 @@ class AuthRepositoryImpl @Inject constructor(
         client.startSmsRetriever()
         
         val options = PhoneAuthOptions.newBuilder(auth)
-            .setPhoneNumber(phoneNumber)
+            .setPhoneNumber(normalizedPhone)
             .setTimeout(60L, java.util.concurrent.TimeUnit.SECONDS)
             .setActivity(activity)
             .setCallbacks(callbacks)
             .build()
         
-        android.util.Log.d("AuthRepo", "Starting SMS verification for: $phoneNumber with SMS Retriever")
+        android.util.Log.d(TAG, "Starting SMS verification for: ${maskPhone(normalizedPhone)} with SMS Retriever")
         PhoneAuthProvider.verifyPhoneNumber(options)
     }
 
@@ -171,7 +221,7 @@ class AuthRepositoryImpl @Inject constructor(
         val result = auth.signInWithCredential(credential).await()
         val firebaseUser = result.user ?: throw Exception("Sign in failed")
 
-        android.util.Log.d("AuthRepo", "Credential sign-in succeeded for uid=${firebaseUser.uid}")
+        android.util.Log.d(TAG, "Credential sign-in succeeded")
 
         val userDoc = firestore.collection("users").document(firebaseUser.uid).get().await()
         var user = userDoc.toObject(User::class.java)
@@ -184,11 +234,11 @@ class AuthRepositoryImpl @Inject constructor(
                 email = firebaseUser.email ?: "",
                 phone = firebaseUser.phoneNumber
             )
-            android.util.Log.d("AuthRepo", "Creating a missing profile for ${firebaseUser.uid}")
             firestore.collection("users").document(user.id).set(user).await()
         }
 
         userDao.insertUser(user)
+        sessionManager.startSession(firebaseUser.uid)
         user
     }
 
@@ -215,6 +265,9 @@ class AuthRepositoryImpl @Inject constructor(
         Unit
     }
 
+    /**
+     * A3: Comprehensive token, session, and local storage eviction on account deletion
+     */
     override fun deleteAccount(): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
         val firebaseUser = auth.currentUser ?: throw Exception("User not logged in")
         val userId = firebaseUser.uid
@@ -228,9 +281,12 @@ class AuthRepositoryImpl @Inject constructor(
         // 3. Clear local database
         userDao.deleteUserById(userId)
         
-        // 4. Local Sign out just in case
-        auth.signOut()
+        // 4. Clear tokens & end session
+        sessionManager.endSession()
+        tokenManager.clearTokens()
+        secureStorage.clearAllData()
         
         Unit
     }
 }
+

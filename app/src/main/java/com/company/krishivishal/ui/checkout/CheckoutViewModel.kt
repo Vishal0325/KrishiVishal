@@ -120,9 +120,10 @@ class CheckoutViewModel @Inject constructor(
         _uiState.update { 
             it.copy(
                 paymentOptions = options,
-                selectedPaymentMethod = PaymentMethod.COD // Force COD for testing reliability
+                selectedPaymentMethod = if (isOnlineEnabled) PaymentMethod.ONLINE else PaymentMethod.COD
             ) 
         }
+
     }
 
     fun setSource(source: CheckoutSource) {

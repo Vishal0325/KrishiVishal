@@ -158,7 +158,7 @@ class OrderRepositoryImpl @Inject constructor(
                 }
                 val customerOTP = resultMap["customerOTP"] as? String ?: ""
 
-                android.util.Log.d("OrderRepo", "Order Success! ID: $orderId, PIN: $customerOTP")
+                android.util.Log.d("OrderRepo", "Order Success! ID: $orderId")
                 emit(Resource.Success(Triple(orderId, totalAmount, customerOTP)))
                 return@flow
             } catch (e: Exception) {
@@ -174,83 +174,17 @@ class OrderRepositoryImpl @Inject constructor(
                         android.util.Log.e("OrderRepo", "Retry token refresh also failed: ${tokenEx.message}")
                     }
                 } else if (attempt == 1) {
-                    break // Non-auth errors should not be retried
+                    // Retry with small backoff for transient network errors
+                    kotlinx.coroutines.delay(1000)
                 }
             }
         }
 
-        // Fallback: If Cloud Function call failed due to UNAUTHENTICATED or network, execute transactional order creation in Firestore
-        try {
-            android.util.Log.d("OrderRepo", "Executing Direct Firestore Transaction Order Fallback...")
-            val orderId = firestore.collection("orders").document().id
-            var subtotal = 0.0
-            var totalDiscount = 0.0
-            var totalTax = 0.0
-            val customerOTP = (100000..999999).random().toString()
-
-            val calculatedTotal = firestore.runTransaction { transaction ->
-                val itemsList = mutableListOf<Map<String, Any>>()
-                for (item in cartItems) {
-                    val prodRef = firestore.collection("products").document(item.productId)
-                    val prodSnap = transaction.get(prodRef)
-                    if (!prodSnap.exists()) throw Exception("Product not found: ${item.productId}")
-                    
-                    val price = prodSnap.getDouble("discountedPrice") ?: prodSnap.getDouble("price") ?: prodSnap.getDouble("basePrice") ?: 0.0
-                    val mrp = prodSnap.getDouble("basePrice") ?: prodSnap.getDouble("mrp") ?: price
-                    val stock = prodSnap.getLong("stockQuantity")?.toInt() ?: 0
-                    
-                    if (stock < item.quantity) throw Exception("Out of stock: ${prodSnap.getString("name") ?: item.productId}")
-                    transaction.update(prodRef, "stockQuantity", stock - item.quantity)
-                    
-                    val gstRate = prodSnap.getDouble("gstRate") ?: 5.0
-                    val itemTax = (price * item.quantity * gstRate) / 100.0
-                    subtotal += mrp * item.quantity
-                    totalDiscount += (mrp - price) * item.quantity
-                    totalTax += itemTax
-                    
-                    itemsList.add(mapOf(
-                        "productId" to item.productId,
-                        "productName" to (prodSnap.getString("name") ?: ""),
-                        "quantity" to item.quantity,
-                        "price" to price,
-                        "mrp" to mrp,
-                        "gstAmount" to itemTax
-                    ))
-                }
-
-                val finalAmount = (subtotal - totalDiscount) + totalTax + 50.0
-                val orderMap = hashMapOf<String, Any>(
-                    "id" to orderId,
-                    "userId" to currentUser.uid,
-                    "userName" to userName,
-                    "userPhone" to userPhone,
-                    "address" to address,
-                    "items" to itemsList,
-                    "totalAmount" to finalAmount,
-                    "paymentMethod" to paymentMethod,
-                    "paymentStatus" to "PENDING",
-                    "status" to "PLACED",
-                    "createdAt" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
-                    "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
-                )
-
-                transaction.set(firestore.collection("orders").document(orderId), orderMap)
-                transaction.set(
-                    firestore.collection("orders").document(orderId).collection("internal").document("otp"),
-                    mapOf("value" to customerOTP)
-                )
-                finalAmount
-            }.await()
-
-            android.util.Log.d("OrderRepo", "Direct Firestore Order Success! ID: $orderId, Amount: $calculatedTotal, OTP: $customerOTP")
-            emit(Resource.Success(Triple(orderId, calculatedTotal, customerOTP)))
-            return@flow
-        } catch (fallbackError: Exception) {
-            android.util.Log.e("OrderRepo", "Fallback order creation also failed: ${fallbackError.message}")
-            val friendlyMsg = com.company.krishivishal.utils.NetworkErrorHandler.asFriendlyError(fallbackError)
-            emit(Resource.Error(friendlyMsg))
-        }
+        // Emit clear friendly error if all attempts fail
+        val friendlyMsg = com.company.krishivishal.utils.NetworkErrorHandler.asFriendlyError(lastException ?: Exception("Order creation failed."))
+        emit(Resource.Error(friendlyMsg))
     }.flowOn(ioDispatcher)
+
 
 
     override fun verifyPayment(
