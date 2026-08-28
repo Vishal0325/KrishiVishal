@@ -408,23 +408,35 @@ async function getRelatedSection(db, product, productId, pins) {
     return [...pinnedDocs, ...diverseAlgos];
 }
 
+const RECOMMENDATION_CACHE_TTL_HOURS = 24;
+
 exports.getRecommendations = onCall({ region: REGION }, async (request) => {
     const data = request.data || {};
     const { productId } = data;
-    if (!productId) throw new HttpsError('invalid-argument', 'Missing productId');
 
-    const productDoc = await db.collection("products").doc(productId).get();
-    if (!productDoc.exists) throw new HttpsError('not-found', 'Product not found');
+    // M1: Input validation
+    if (!productId || typeof productId !== 'string' || productId.trim().length === 0 || productId.length > 100) {
+        throw new HttpsError('invalid-argument', 'Invalid or missing productId.');
+    }
+
+    const cleanProductId = productId.trim();
+    const productDoc = await db.collection("products").doc(cleanProductId).get();
+    if (!productDoc.exists) throw new HttpsError('not-found', 'Product not found.');
 
     const product = productDoc.data();
+    if (product.isActive === false) {
+        throw new HttpsError('not-found', 'Product is currently not available.');
+    }
 
-    if (product.recommendationCache &&
-        product.recommendationCache.expiresAt.toDate() > new Date()) {
-        return product.recommendationCache.results;
+    // L4: Validate cache against configurable TTL
+    if (product.recommendationCache && product.recommendationCache.expiresAt && product.recommendationCache.expiresAt.toDate) {
+        if (product.recommendationCache.expiresAt.toDate() > new Date()) {
+            return product.recommendationCache.results;
+        }
     }
 
     const pins = product.recommendationPins || {};
-    const productWithId = { ...product, id: productId };
+    const productWithId = { ...product, id: cleanProductId };
 
     const [technical, similar, related] = await Promise.all([
         product.technicalNameNormalized
@@ -437,7 +449,7 @@ exports.getRecommendations = onCall({ region: REGION }, async (request) => {
             sectionKey: "similar",
             filters: { category: product.category }
         }, pins),
-        getRelatedSection(db, product, productId, pins)
+        getRelatedSection(db, product, cleanProductId, pins)
     ]);
 
     const sections = { technical, similar, related };
@@ -445,7 +457,8 @@ exports.getRecommendations = onCall({ region: REGION }, async (request) => {
     const sanitizedSections = JSON.parse(JSON.stringify(sections));
     const cacheData = {
         results: sanitizedSections,
-        expiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000))
+        expiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + RECOMMENDATION_CACHE_TTL_HOURS * 60 * 60 * 1000)),
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
     };
 
     const cacheSize = Buffer.byteLength(JSON.stringify(cacheData));
@@ -455,3 +468,4 @@ exports.getRecommendations = onCall({ region: REGION }, async (request) => {
 
     return sections;
 });
+

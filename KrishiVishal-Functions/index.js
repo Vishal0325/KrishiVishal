@@ -3,6 +3,14 @@
  * Consolidated and simplified exports for reliable Firebase deployment.
  */
 
+// L3: Startup environment variable configuration verification
+const REQUIRED_ENV_VARS = ['RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'QR_HMAC_SECRET'];
+for (const envVar of REQUIRED_ENV_VARS) {
+    if (!process.env[envVar]) {
+        console.warn(`[CONFIG WARNING] Missing environment variable: ${envVar}. Some features may run with fallback or restricted functionality.`);
+    }
+}
+
 const orders = require('./orders/orderFlow');
 const orderTriggers = require('./orders/orderTriggers');
 const razorpay = require('./finance/razorpay');

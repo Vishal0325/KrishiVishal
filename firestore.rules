@@ -143,27 +143,31 @@ service cloud.firestore {
     // ============================================================
 
     match /product_costs/{id} {
-      allow read, write: if isAdmin();
+      allow read, write: if canViewFinance();
     }
 
     match /ledger/{id} {
-      allow read: if isAdmin();
+      allow read: if canViewFinance();
       allow write: if false;
     }
 
     match /finance/{document=**} {
-      allow read: if isAdmin();
+      allow read: if canViewFinance();
       allow write: if false;
     }
 
     match /accounts/{accountId} {
-      allow read: if isAdmin();
+      allow read: if canViewFinance();
       allow write: if false;
     }
 
     match /expenses/{id} {
       allow read: if canViewFinance();
-      allow create: if canViewFinance() && request.resource.data.createdBy == request.auth.uid;
+      allow create: if canViewFinance() &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.keys().hasAll(['amount', 'category', 'description', 'date']) &&
+        request.resource.data.amount > 0 &&
+        request.resource.data.amount <= 10000000;
       allow update: if canViewFinance() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['expenseNumber', 'createdBy']);
       allow delete: if isSuperAdmin();
     }
@@ -250,14 +254,11 @@ service cloud.firestore {
         (
           isRider() &&
           resource.data.riderId == request.auth.uid &&
-          // Blocker 7: strictly prohibit manual DELIVERED status bypass
-          request.resource.data.status != "DELIVERED" &&
+          // C2: Strictly prohibit rider direct status mutation (transitions handled via Cloud Functions)
           request.resource.data
             .diff(resource.data)
             .affectedKeys()
             .hasOnly([
-              'status',
-              'riderId',
               'deliveryStatus',
               'deliveryLocation',
               'deliveryProof',
@@ -399,9 +400,11 @@ service cloud.firestore {
         allow read, write: if isOwner(uId) || isAdmin();
       }
 
-      // Blocker 7: allow riders to send notifications to users
+      // Blocker 7 & H3: allow riders to send delivery notifications with validated schema
       match /notifications/{notifId} {
-        allow create: if isRider();
+        allow create: if isRider() &&
+          request.resource.data.keys().hasOnly(['orderId', 'type', 'message', 'createdAt']) &&
+          request.resource.data.type in ['DELIVERY_STARTED', 'DELIVERY_NEAR', 'DELIVERY_COMPLETED', 'RIDER_ASSIGNED'];
         allow read: if isOwner(uId) || isAdmin();
       }
 
@@ -533,25 +536,46 @@ service cloud.firestore {
     }
 
     // ============================================================
-    // CRM SYSTEM (Support, Complaints, Feedback)
+    // CRM SYSTEM (Support, Complaints, Feedback) - M3
     // ============================================================
 
     match /support_tickets/{ticketId} {
-      allow read, write: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'message', 'updatedAt']));
+      allow delete: if isAdmin();
       match /{document=**} {
         allow read, write: if isAuthenticated();
       }
     }
 
     match /complaints/{complaintId} {
-      allow read, write: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'description', 'updatedAt']));
+      allow delete: if isAdmin();
       match /{document=**} {
         allow read, write: if isAuthenticated();
       }
     }
 
     match /customer_feedback/{feedbackId} {
-      allow read, write: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'comment', 'updatedAt']));
+      allow delete: if isAdmin();
       match /{document=**} {
         allow read, write: if isAuthenticated();
       }
@@ -567,13 +591,14 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       // Only admin can create or delete whitelist entries
       allow create, delete: if isAdmin();
-      // Admin can update any field; authenticated rider can only self-update registration fields
+      // H6: Admin can update any field; authenticated rider can only self-update registration fields for their own UID
       allow update: if isAdmin() ||
         (
           isAuthenticated() &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'status', 'uid', 'riderIdDisplay', 'registeredAt'
-          ])
+          ]) &&
+          (request.resource.data.uid == request.auth.uid || request.resource.data.uid == resource.data.uid)
         );
     }
 

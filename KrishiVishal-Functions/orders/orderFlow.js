@@ -6,7 +6,7 @@ const { checkFeatureFlag, addToOutbox, isAdminRequest } = require("../core/utils
 const REGION = 'asia-south1';
 
 /**
- * createOrder: Full logic with inventory and transactional safety.
+ * createOrder: Full logic with inventory, thorough input validation (H2), and transactional safety.
  */
 exports.createOrder = onCall({ region: REGION }, async (request) => {
     const data = request.data || {};
@@ -14,6 +14,53 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
 
     if (!context.auth) throw new HttpsError('unauthenticated', 'Login required.');
     const { cartItems, address, paymentMethod, userName, userPhone } = data;
+
+    // H2: Validate cartItems
+    if (!Array.isArray(cartItems) || cartItems.length === 0) {
+        throw new HttpsError('invalid-argument', 'Cart cannot be empty.');
+    }
+    if (cartItems.length > 100) {
+        throw new HttpsError('invalid-argument', 'Cart exceeds maximum items (100).');
+    }
+
+    for (const item of cartItems) {
+        if (!item.productId || typeof item.productId !== 'string' || item.productId.length > 100) {
+            throw new HttpsError('invalid-argument', 'Invalid product ID in cart.');
+        }
+        if (!Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 1000) {
+            throw new HttpsError('invalid-argument', `Invalid quantity for product ${item.productId}`);
+        }
+    }
+
+    // H2: Validate address
+    if (!address || typeof address !== 'object') {
+        throw new HttpsError('invalid-argument', 'Invalid delivery address object.');
+    }
+    const requiredAddressFields = ['line1', 'city', 'state', 'postalCode'];
+    for (const field of requiredAddressFields) {
+        if (!address[field] || typeof address[field] !== 'string' || address[field].trim().length === 0) {
+            throw new HttpsError('invalid-argument', `Missing or invalid address field: ${field}`);
+        }
+    }
+    const cleanPostal = (address.postalCode || '').trim();
+    if (cleanPostal.length !== 6 || !/^\d{6}$/.test(cleanPostal)) {
+        throw new HttpsError('invalid-argument', 'Invalid postal code (must be 6 digits).');
+    }
+
+    // H2: Validate payment method
+    const validPaymentMethods = ['COD', 'RAZORPAY_ONLINE', 'WALLET'];
+    if (!validPaymentMethods.includes(paymentMethod)) {
+        throw new HttpsError('invalid-argument', 'Invalid payment method.');
+    }
+
+    // H2: Validate user details
+    if (!userName || typeof userName !== 'string' || userName.trim().length === 0 || userName.length > 100) {
+        throw new HttpsError('invalid-argument', 'Invalid user name.');
+    }
+    const cleanPhone = (userPhone || '').replace(/\D/g, '');
+    if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+        throw new HttpsError('invalid-argument', 'Invalid Indian phone number (10 digits starting with 6-9).');
+    }
 
     try {
         const orderId = db.collection("orders").doc().id;
@@ -27,7 +74,10 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
             for (const item of cartItems) {
                 const productRef = db.collection("products").doc(item.productId);
                 const productSnap = await transaction.get(productRef);
-                if (!productSnap.exists) throw new Error(`Product not found: ${item.productId}`);
+                if (!productSnap.exists) {
+                    // L1: Generic identifier without unvalidated name reflection
+                    throw new Error(`Product not found: ${item.productId}`);
+                }
                 const product = productSnap.data();
 
                 let itemPrice = product.discountedPrice || product.price || product.basePrice || 0;
@@ -53,7 +103,8 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
                     });
                 } else {
                     // SELF_STOCK: enforce inventory reservation
-                    if (stock < item.quantity) throw new Error(`Out of stock: ${product.name}`);
+                    // L1: Safe error message
+                    if (stock < item.quantity) throw new Error(`Out of stock: product ${item.productId}`);
                     transaction.update(productRef, { stockQuantity: admin.firestore.FieldValue.increment(-item.quantity) });
                 }
 
@@ -80,8 +131,8 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
             const order = {
                 id: orderId,
                 userId: context.auth.uid,
-                userName,
-                userPhone,
+                userName: userName.trim(),
+                userPhone: `+91${cleanPhone}`,
                 address,
                 items,
                 totalAmount,
@@ -94,9 +145,12 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
             };
             transaction.set(db.collection("orders").doc(orderId), order);
             const otp = crypto.randomInt(100000, 999999).toString();
-            transaction.set(db.collection("orders").doc(orderId).collection("internal").doc("otp"), { value: otp });
+            transaction.set(db.collection("orders").doc(orderId).collection("internal").doc("otp"), {
+                value: otp,
+                attempts: 0,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
             addToOutbox(transaction, "ORDER_CREATED", { orderId, userId: context.auth.uid, status: initialStatus });
-            // Store OTP reference so we can return it after transaction
             orderOtp = otp;
         });
         const finalAmount = (subtotal - totalDiscount) + totalTax + 50;
@@ -110,21 +164,145 @@ exports.cancelOrder = onCall({ region: REGION }, async (request) => {
 
     if (!context.auth) throw new HttpsError('unauthenticated', 'Login required.');
     const { orderId, reason } = data;
-    await db.collection("orders").doc(orderId).update({ status: "CANCELLED", cancellationReason: reason, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    if (!orderId || typeof orderId !== 'string') {
+        throw new HttpsError('invalid-argument', 'Invalid orderId.');
+    }
+
+    const orderRef = db.collection("orders").doc(orderId);
+    const orderSnap = await orderRef.get();
+    if (!orderSnap.exists) throw new HttpsError('not-found', 'Order not found.');
+
+    const orderData = orderSnap.data();
+    const isOwner = orderData.userId === context.auth.uid;
+    const isAdmin = await isAdminRequest(context);
+
+    if (!isOwner && !isAdmin) {
+        throw new HttpsError('permission-denied', 'You do not have permission to cancel this order.');
+    }
+
+    // Only allow cancellation if order has not reached out for delivery / delivered
+    if (['OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'].includes(orderData.status) && !isAdmin) {
+        throw new HttpsError('failed-precondition', `Cannot cancel order in ${orderData.status} state.`);
+    }
+
+    await orderRef.update({
+        status: "CANCELLED",
+        cancellationReason: reason || "User requested cancellation",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    addToOutbox(null, "ORDER_CANCELLED", { orderId, userId: context.auth.uid });
     return { success: true };
 });
 
+/**
+ * C1: Hardened verifyDeliveryOTP with rate limiting, expiry, timing safety, and transactional protection.
+ */
 exports.verifyDeliveryOTP = onCall({ region: REGION }, async (request) => {
     const data = request.data || {};
     const context = { auth: request.auth };
 
     if (!context.auth) throw new HttpsError('unauthenticated', 'Login required.');
     const { orderId, otp } = data;
-    const otpSnap = await db.collection("orders").doc(orderId).collection("internal").doc("otp").get();
-    if (!otpSnap.exists || otpSnap.data().value !== otp) throw new HttpsError('permission-denied', 'Invalid OTP.');
-    await db.collection("orders").doc(orderId).update({ status: "DELIVERED", deliveredAt: admin.firestore.FieldValue.serverTimestamp() });
-    addToOutbox(null, "ORDER_DELIVERED", { orderId, userId: context.auth.uid });
-    return { success: true };
+
+    if (!orderId || typeof orderId !== 'string') {
+        throw new HttpsError('invalid-argument', 'Invalid orderId.');
+    }
+    if (!otp || typeof otp !== 'string' || otp.length !== 6 || !/^\d{6}$/.test(otp)) {
+        throw new HttpsError('invalid-argument', 'OTP must be a 6-digit string.');
+    }
+
+    try {
+        await db.runTransaction(async (transaction) => {
+            const orderRef = db.collection("orders").doc(orderId);
+            const orderSnap = await transaction.get(orderRef);
+
+            if (!orderSnap.exists) {
+                throw new Error('Order not found.');
+            }
+
+            const orderData = orderSnap.data();
+            const isAdmin = await isAdminRequest(context);
+            const isAssignedRider = orderData.riderId === context.auth.uid;
+
+            // Verify caller is assigned rider or admin
+            if (!isAssignedRider && !isAdmin) {
+                throw new Error('Only the assigned delivery rider or admin can verify OTP.');
+            }
+
+            // Verify order state
+            if (!['OUT_FOR_DELIVERY', 'RIDER_ACCEPTED'].includes(orderData.status) && !isAdmin) {
+                throw new Error(`Order cannot be marked delivered from ${orderData.status} state.`);
+            }
+
+            const otpRef = orderRef.collection("internal").doc("otp");
+            const otpSnap = await transaction.get(otpRef);
+
+            if (!otpSnap.exists) {
+                throw new Error('Delivery OTP not found or has expired.');
+            }
+
+            const otpData = otpSnap.data();
+            const attempts = otpData.attempts || 0;
+
+            // Enforce max 3 attempts
+            if (attempts >= 3) {
+                transaction.delete(otpRef);
+                throw new Error('Maximum OTP verification attempts (3) exceeded. Please generate a new OTP or contact support.');
+            }
+
+            // Enforce 15 minutes expiry if createdAt exists
+            if (otpData.createdAt && otpData.createdAt.toMillis) {
+                const ageMs = Date.now() - otpData.createdAt.toMillis();
+                if (ageMs > 15 * 60 * 1000) {
+                    transaction.delete(otpRef);
+                    throw new Error('Delivery OTP has expired (15 minutes limit).');
+                }
+            }
+
+            // Constant-time timing-safe comparison
+            const otpVal = String(otpData.value || '');
+            let isValid = false;
+            try {
+                isValid = crypto.timingSafeEqual(
+                    Buffer.from(otp, 'utf8'),
+                    Buffer.from(otpVal, 'utf8')
+                );
+            } catch (e) {
+                isValid = false;
+            }
+
+            if (!isValid) {
+                transaction.update(otpRef, {
+                    attempts: admin.firestore.FieldValue.increment(1),
+                    lastFailedAttemptAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                const remaining = 2 - attempts;
+                throw new Error(`Invalid OTP. ${remaining > 0 ? remaining + ' attempt(s) remaining.' : 'Attempts exceeded.'}`);
+            }
+
+            // OTP verified successfully: delete OTP and update order
+            transaction.delete(otpRef);
+
+            transaction.update(orderRef, {
+                status: "DELIVERED",
+                deliveryStatus: "DELIVERED",
+                deliveredAt: admin.firestore.FieldValue.serverTimestamp(),
+                otpVerifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            addToOutbox(transaction, "ORDER_DELIVERED", {
+                orderId,
+                riderId: context.auth.uid,
+                userId: orderData.userId,
+                deliveredAt: new Date().toISOString()
+            });
+        });
+
+        return { success: true, message: 'Delivery OTP verified and order marked DELIVERED.' };
+    } catch (error) {
+        throw new HttpsError('invalid-argument', error.message);
+    }
 });
 
 /**
@@ -146,7 +324,7 @@ const ALLOWED_TRANSITIONS = {
 };
 
 /**
- * updateOrderStatus: Secure status progression
+ * H1: updateOrderStatus - Validates order ownership and status progression.
  */
 exports.updateOrderStatus = onCall({ region: REGION }, async (request) => {
     const data = request.data || {};
@@ -155,20 +333,39 @@ exports.updateOrderStatus = onCall({ region: REGION }, async (request) => {
     if (!context.auth) throw new HttpsError('unauthenticated', 'Login required.');
     const { orderId, targetStatus, note, riderId } = data;
 
+    if (!orderId || typeof orderId !== 'string') {
+        throw new HttpsError('invalid-argument', 'Invalid orderId.');
+    }
+    if (!targetStatus || typeof targetStatus !== 'string') {
+        throw new HttpsError('invalid-argument', 'Invalid targetStatus.');
+    }
+
     const orderRef = db.collection("orders").doc(orderId);
     const orderSnap = await orderRef.get();
     if (!orderSnap.exists) throw new HttpsError('not-found', 'Order not found.');
 
-    const currentStatus = orderSnap.data().status || 'PLACED';
+    const orderData = orderSnap.data();
+    const isOwner = orderData.userId === context.auth.uid;
+    const isAssignedRider = orderData.riderId === context.auth.uid;
+    const isAdmin = await isAdminRequest(context);
+
+    if (!isOwner && !isAssignedRider && !isAdmin) {
+        throw new HttpsError('permission-denied', 'No permission to update this order.');
+    }
+
+    const currentStatus = orderData.status || 'PLACED';
     const allowed = ALLOWED_TRANSITIONS[currentStatus] || [];
 
-    // Allow Admin override or check allowed transition
+    if (!allowed.includes(targetStatus) && !isAdmin) {
+        throw new HttpsError('invalid-argument', `Cannot transition from ${currentStatus} to ${targetStatus}.`);
+    }
+
     const updatePayload = {
         status: targetStatus,
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
     };
 
-    if (riderId !== undefined) {
+    if (riderId !== undefined && isAdmin) {
         updatePayload.riderId = riderId;
     }
 

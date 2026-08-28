@@ -1,12 +1,13 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const crypto = require("crypto");
 const { db, admin } = require("../core/admin");
 const { isAdminRequest } = require("../core/utils");
 
 const REGION = 'asia-south1';
 
 /**
- * AI Supervisor Orchestrator.
+ * AI Supervisor Orchestrator with sanitized logging (M4).
  */
 exports.aiSupervisor = onCall({ region: REGION }, async (request) => {
     const context = { auth: request.auth };
@@ -18,10 +19,19 @@ exports.aiSupervisor = onCall({ region: REGION }, async (request) => {
     const { prompt, agentType } = data;
 
     try {
+        // M4: Hash PII and sanitize prompt
+        const email = context.auth.token?.email || context.auth.uid || "unknown";
+        const emailHash = crypto.createHash('sha256').update(email).digest('hex');
+        const rawPrompt = typeof prompt === 'string' ? prompt : '';
+        const sanitizedPrompt = rawPrompt
+            .substring(0, 500)
+            .replace(/\b\d{12,16}\b/g, '****');
+
         await db.collection("ai_activity_logs").add({
-            prompt,
-            agentType,
-            requestedBy: context.auth.token.email,
+            promptLength: rawPrompt.length,
+            promptSanitized: sanitizedPrompt,
+            agentType: agentType || 'GENERAL',
+            requestedByHash: emailHash,
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
         });
 

@@ -1,3 +1,9 @@
+/**
+ * L2: Offline Maintenance Script
+ * Purpose: Standalone Node.js utility script for manual emergency rider account repair/backfill.
+ * NOTE: This file is NOT part of the deployed Cloud Functions entry points (index.js).
+ */
+
 const admin = require('firebase-admin');
 
 // Initialize with your Project ID
