@@ -3,6 +3,12 @@ package com.company.krishivishal.session
 import com.company.krishivishal.crashlytics.CrashlyticsErrorReporter
 import com.company.krishivishal.security.SecureStorage
 import com.company.krishivishal.security.TokenManager
+import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import java.util.Timer
 import java.util.TimerTask
@@ -17,7 +23,8 @@ import javax.inject.Singleton
 class SessionManager @Inject constructor(
     private val secureStorage: SecureStorage,
     private val tokenManager: TokenManager,
-    private val errorReporter: CrashlyticsErrorReporter
+    private val errorReporter: CrashlyticsErrorReporter,
+    private val firebaseAuth: FirebaseAuth
 ) {
 
     companion object {
@@ -30,7 +37,9 @@ class SessionManager @Inject constructor(
     private var sessionTimer: Timer? = null
     private var tokenCheckTimer: Timer? = null
     private var lastActivityTime = System.currentTimeMillis()
-    
+    // Coroutine scope for background Firebase token refresh tasks
+    private val refreshScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     private var sessionTimeoutListener: ((reason: SessionTimeoutReason) -> Unit)? = null
 
     enum class SessionTimeoutReason {
@@ -178,13 +187,42 @@ class SessionManager @Inject constructor(
     }
 
     /**
-     * Check if token has expired
+     * Check if token has expired.
+     * Attempts a silent Firebase refresh first; only logs out if Firebase session is genuinely gone.
      */
     private fun checkTokenExpiry() {
-        if (secureStorage.isTokenExpired()) {
-            Timber.w("Token expired")
+        val user = firebaseAuth.currentUser
+        if (user == null) {
+            // Firebase session is gone — genuine logout required
+            Timber.w("Firebase user is null — ending session")
             endSession()
             sessionTimeoutListener?.invoke(SessionTimeoutReason.TOKEN_EXPIRED)
+            return
+        }
+
+        if (secureStorage.isTokenExpired()) {
+            Timber.d("Local token expired — attempting silent Firebase refresh")
+            refreshScope.launch {
+                try {
+                    val result = user.getIdToken(true).await()
+                    val newToken = result.token
+                    if (newToken != null) {
+                        val expiryTime = System.currentTimeMillis() + (60 * 60 * 1000L) // 1 hour
+                        secureStorage.saveAuthToken(newToken)
+                        secureStorage.saveTokenExpiry(expiryTime)
+                        Timber.d("Silent Firebase token refresh successful")
+                    } else {
+                        Timber.w("Silent refresh returned null token — ending session")
+                        endSession()
+                        sessionTimeoutListener?.invoke(SessionTimeoutReason.TOKEN_EXPIRED)
+                    }
+                } catch (e: Exception) {
+                    errorReporter.reportAuthError(e)
+                    Timber.e(e, "Silent Firebase token refresh failed — ending session")
+                    endSession()
+                    sessionTimeoutListener?.invoke(SessionTimeoutReason.TOKEN_EXPIRED)
+                }
+            }
         } else {
             val timeToExpiry = tokenManager.getTimeToExpiry()
             Timber.d("Token expires in: ${timeToExpiry}s")

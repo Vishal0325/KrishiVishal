@@ -196,6 +196,26 @@ service firebase.storage {
     }
 
     // ============================================================
+    // KYC DOCUMENTS
+    // Structure:
+    // kyc/{userId}/{fileName}   (driving licence, RC, aadhaar, etc.)
+    // ============================================================
+
+    match /kyc/{userId}/{fileName} {
+
+      allow read: if isAdmin() ||
+        (isAuthenticated() && request.auth.uid == userId);
+
+      // Rider can upload their own KYC documents (images or PDFs, max 15 MB)
+      allow create, update: if isAuthenticated() &&
+        request.auth.uid == userId &&
+        isValidDocument();
+
+      // Only admin can delete KYC evidence
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
     // PROOF OF DELIVERY
     // Structure:
     // pod/{orderId}/{fileName}

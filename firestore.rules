@@ -74,10 +74,6 @@ service cloud.firestore {
       );
     }
 
-    function isAssignedRider(riderId) {
-      return isRider() &&
-        riderId == request.auth.uid;
-    }
 
 
     // ============================================================
@@ -303,8 +299,9 @@ service cloud.firestore {
       }
 
       // Task 2.1: Secure internal subcollection for OTP and other server-side secrets
+      // Only Admin (Cloud Functions / Admin SDK) can read/write delivery OTP secrets
       match /internal/{document=**} {
-        allow read, write: if isAdmin() || isAuthenticated();
+        allow read, write: if isAdmin();
       }
     }
 
@@ -418,10 +415,7 @@ service cloud.firestore {
     // RIDERS & WHITELIST
     // ============================================================
 
-    match /whitelisted_riders/{phone} {
-      allow read: if isAuthenticated() || isAdmin();
-      allow write: if isAdmin() || isAuthenticated();
-    }
+    // NOTE: canonical whitelisted_riders rule is defined below in INTERNAL INFRASTRUCTURE section
 
     match /riders/{riderId} {
       allow read: if isAuthenticated() || isAdmin() || isViewer();
@@ -569,12 +563,18 @@ service cloud.firestore {
     // ============================================================
 
     match /whitelisted_riders/{phone} {
+      // Any authenticated user (rider during login) may read to check whitelist status
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
-      allow update: if isAuthenticated() &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'uid', 'riderIdDisplay', 'registeredAt'
-        ]);
+      // Only admin can create or delete whitelist entries
+      allow create, delete: if isAdmin();
+      // Admin can update any field; authenticated rider can only self-update registration fields
+      allow update: if isAdmin() ||
+        (
+          isAuthenticated() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'uid', 'riderIdDisplay', 'registeredAt'
+          ])
+        );
     }
 
     match /notification_logs/{id} {
