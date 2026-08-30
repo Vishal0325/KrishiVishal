@@ -1,13 +1,13 @@
 const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const crypto = require("crypto");
 const { db, admin } = require("../core/admin");
-const { CircuitBreaker } = require("../core/utils");
+const Razorpay = require("razorpay");
 
 const REGION = 'asia-south1';
 
 /**
- * C4: Hardened verifyPayment with input validation, order ownership, status checks,
- * double payment prevention, atomic ledger entries, and audit logging.
+ * C-RP1, C-RP2: Hardened verifyPayment with server-side reconciliation,
+ * signature binding, and Razorpay API verification.
  */
 exports.verifyPayment = onCall({ region: REGION }, async (request) => {
     const data = request.data || {};
@@ -20,26 +20,21 @@ exports.verifyPayment = onCall({ region: REGION }, async (request) => {
     const { orderId, razorpayPaymentId, razorpayOrderId, razorpaySignature } = data;
 
     // Validate inputs
-    if (!orderId || typeof orderId !== 'string') {
-        throw new HttpsError('invalid-argument', 'Invalid orderId.');
-    }
-    if (!razorpayPaymentId || typeof razorpayPaymentId !== 'string') {
-        throw new HttpsError('invalid-argument', 'Invalid razorpayPaymentId.');
-    }
-    if (!razorpayOrderId || typeof razorpayOrderId !== 'string') {
-        throw new HttpsError('invalid-argument', 'Invalid razorpayOrderId.');
-    }
-    if (!razorpaySignature || typeof razorpaySignature !== 'string') {
-        throw new HttpsError('invalid-argument', 'Invalid razorpaySignature.');
+    if (!orderId || typeof orderId !== 'string' || !razorpayPaymentId || !razorpayOrderId || !razorpaySignature) {
+        throw new HttpsError('invalid-argument', 'Missing mandatory payment details.');
     }
 
+    const keyId = process.env.RAZORPAY_KEY_ID;
     const secret = process.env.RAZORPAY_KEY_SECRET;
-    if (!secret) {
-        throw new HttpsError('internal', 'Payment secret (RAZORPAY_KEY_SECRET) is not configured.');
+
+    if (!keyId || !secret) {
+        throw new HttpsError('internal', 'Razorpay credentials not configured.');
     }
+
+    const rzp = new Razorpay({ key_id: keyId, key_secret: secret });
 
     try {
-        // Constant-time timing-safe signature comparison
+        // 1. Signature Verification (HMAC)
         const generatedSignature = crypto
             .createHmac("sha256", secret)
             .update(`${razorpayOrderId}|${razorpayPaymentId}`)
@@ -59,31 +54,54 @@ exports.verifyPayment = onCall({ region: REGION }, async (request) => {
             throw new HttpsError('invalid-argument', 'Invalid payment signature.');
         }
 
-        // Run transaction to verify order state and record ledger entry
+        // 2. Razorpay API Reconciliation (Fetch payment details from server)
+        const rzpPayment = await rzp.payments.fetch(razorpayPaymentId);
+
+        if (rzpPayment.status !== 'captured') {
+            throw new Error(`Payment not captured. Current status: ${rzpPayment.status}`);
+        }
+
+        if (rzpPayment.order_id !== razorpayOrderId) {
+            throw new Error('Payment mismatch: Razorpay Order ID does not match payment record.');
+        }
+
+        // 3. Transactional Business Logic Reconciliation
         await db.runTransaction(async (transaction) => {
             const orderRef = db.collection("orders").doc(orderId);
             const orderSnap = await transaction.get(orderRef);
 
             if (!orderSnap.exists) {
-                throw new Error('Order not found.');
+                throw new Error('Internal Order not found.');
             }
 
             const orderData = orderSnap.data();
 
+            // C-RP1: Verify client-provided Razorpay Order ID matches stored one
+            if (orderData.razorpayOrderId !== razorpayOrderId) {
+                throw new Error('Security Breach: Razorpay Order ID binding mismatch.');
+            }
+
             // Verify order ownership
             if (orderData.userId !== context.auth.uid) {
-                throw new Error('You do not have permission to verify payment for this order.');
+                throw new Error('Permission denied: Order ownership mismatch.');
             }
 
             // Verify valid state for payment confirmation
-            const validPaymentStates = ['PLACED', 'PAYMENT_PENDING', 'PENDING'];
-            if (!validPaymentStates.includes(orderData.status) && !validPaymentStates.includes(orderData.paymentStatus)) {
-                throw new Error(`Cannot verify payment for order in status: ${orderData.status}`);
+            const validStates = ['PLACED', 'PAYMENT_PENDING', 'PENDING'];
+            if (!validStates.includes(orderData.status) && !validStates.includes(orderData.paymentStatus)) {
+                // If already PAID, we can return success (idempotency)
+                if (orderData.paymentStatus === 'PAID') return;
+                throw new Error(`Order in status ${orderData.status} cannot be verified.`);
             }
 
-            // Prevent double-payment verification
-            if (orderData.paymentStatus === 'PAID' && orderData.razorpayPaymentId) {
-                throw new Error('Payment has already been verified for this order.');
+            // C-RP2: Verify amount reconciliation (Razorpay amount is in paise)
+            const expectedAmountPaise = Math.round((orderData.totalAmount || 0) * 100);
+            if (rzpPayment.amount !== expectedAmountPaise) {
+                throw new Error(`Amount Mismatch: Expected ${expectedAmountPaise}, Received ${rzpPayment.amount}`);
+            }
+
+            if (rzpPayment.currency !== 'INR') {
+                throw new Error(`Currency Mismatch: Expected INR, Received ${rzpPayment.currency}`);
             }
 
             // Update order atomically
@@ -91,70 +109,75 @@ exports.verifyPayment = onCall({ region: REGION }, async (request) => {
                 paymentStatus: "PAID",
                 status: "CONFIRMED",
                 razorpayPaymentId,
-                razorpayOrderId,
                 paymentVerifiedAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             });
 
-            // Create ledger entry in same transaction
-            const ledgerRef = db.collection("finance").doc("ledger").collection("entries").doc();
+            // Create ledger entry using standard accounting logic (Liability/Revenue Account)
+            const ledgerRef = db.collection("ledger").doc();
+            const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
             transaction.set(ledgerRef, {
                 id: ledgerRef.id,
-                type: "PAYMENT_RECEIVED",
-                orderId,
-                userId: orderData.userId,
-                amount: orderData.totalAmount || 0,
-                gstAmount: orderData.totalTax || 0,
-                paymentMethod: "RAZORPAY_ONLINE",
-                razorpayPaymentId,
-                razorpayOrderId,
-                status: "POSTED",
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
+                account: "SALES", // Revenue increases with Credit
+                type: "CREDIT",
+                amount: (orderData.totalAmount || 0) - (orderData.totalTax || 0),
+                referenceId: orderId,
+                description: `Payment Verified for Order #${orderId}`,
+                createdAt: timestamp,
+                timestamp: timestamp
             });
 
-            // Create audit log
+            // Post GST liability
+            if (orderData.totalTax > 0) {
+                const gstRef = db.collection("ledger").doc();
+                transaction.set(gstRef, {
+                    account: "GST_PAYABLE",
+                    type: "CREDIT",
+                    amount: orderData.totalTax,
+                    referenceId: orderId,
+                    description: `GST for Order #${orderId}`,
+                    createdAt: timestamp,
+                    timestamp: timestamp
+                });
+            }
+
+            // Record Audit Log
             const auditRef = db.collection("audit_logs").doc();
             transaction.set(auditRef, {
-                id: auditRef.id,
                 event: "PAYMENT_VERIFIED",
-                userId: context.auth.uid,
-                orderId,
-                razorpayPaymentId,
-                amount: orderData.totalAmount || 0,
-                timestamp: admin.firestore.FieldValue.serverTimestamp()
+                actorId: context.auth.uid,
+                targetId: orderId,
+                amount: orderData.totalAmount,
+                paymentId: razorpayPaymentId,
+                timestamp: timestamp
             });
         });
 
         return { success: true, orderId, message: 'Payment verified and order confirmed successfully.' };
     } catch (error) {
-        console.error("Payment verification error:", error);
-        throw new HttpsError('invalid-argument', error.message);
+        console.error("CRITICAL: Payment verification failure:", error.message);
+        throw new HttpsError('failed-precondition', error.message);
     }
 });
 
 /**
- * C3: Hardened razorpayWebhook with config checks, timing-safe validation, and error guards.
+ * C-RP3 to C-RP8: Hardened razorpayWebhook with idempotency, amount verification,
+ * order binding, and transactional integrity.
  */
 exports.razorpayWebhook = onRequest({ region: REGION }, async (req, res) => {
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
-    // Validate webhook secret configuration
     if (!secret) {
         console.error("CRITICAL: RAZORPAY_WEBHOOK_SECRET is not configured.");
         return res.status(500).json({ error: 'Webhook configuration error.' });
     }
 
-    // Validate signature header
     const signature = req.headers["x-razorpay-signature"];
-    if (!signature || typeof signature !== 'string') {
-        console.warn("Missing or invalid x-razorpay-signature header.");
-        return res.status(400).json({ error: 'Missing signature.' });
-    }
+    const eventId = req.headers["x-razorpay-event-id"]; // C-RP3: For idempotency
 
-    // Validate raw body
-    if (!req.rawBody) {
-        console.warn("Missing raw body in webhook request.");
-        return res.status(400).json({ error: 'Missing request body.' });
+    if (!signature || !req.rawBody || !eventId) {
+        return res.status(400).json({ error: 'Missing security headers/body.' });
     }
 
     try {
@@ -163,50 +186,83 @@ exports.razorpayWebhook = onRequest({ region: REGION }, async (req, res) => {
             .update(req.rawBody)
             .digest("hex");
 
-        let isSignatureValid = false;
-        try {
-            isSignatureValid = crypto.timingSafeEqual(
-                Buffer.from(signature, 'utf8'),
-                Buffer.from(expectedSignature, 'utf8')
-            );
-        } catch (e) {
-            isSignatureValid = false;
-        }
-
-        if (!isSignatureValid) {
+        if (!crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expectedSignature, 'utf8'))) {
             console.warn("Webhook signature mismatch.");
             return res.status(400).json({ error: 'Invalid webhook signature.' });
         }
 
         const body = req.body || {};
-        if (body.event === "payment.captured") {
-            const payment = body.payload?.payment?.entity;
-            if (!payment) {
-                console.warn("Missing payment entity in captured event payload.");
-                return res.status(400).json({ error: 'Invalid payment payload.' });
-            }
-
-            const orderId = payment.notes?.orderId;
-            if (!orderId || typeof orderId !== 'string') {
-                console.warn("Missing or invalid orderId in payment notes.");
-                return res.status(400).json({ error: 'Invalid orderId in notes.' });
-            }
-
-            // Update order
-            await db.collection("orders").doc(orderId).update({
-                paymentStatus: "PAID",
-                razorpayPaymentId: payment.id,
-                paymentMethod: "RAZORPAY_ONLINE",
-                webhookReceivedAt: admin.firestore.FieldValue.serverTimestamp(),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
-            });
-
-            console.info(`Payment successfully captured and recorded for order: ${orderId}`);
+        if (body.event !== "payment.captured") {
+            return res.status(200).json({ status: 'ignored' });
         }
 
+        const payment = body.payload?.payment?.entity;
+        const orderId = payment?.notes?.orderId;
+
+        if (!orderId || typeof orderId !== 'string') {
+            console.warn("Webhook Error: orderId missing in payment notes.");
+            return res.status(400).json({ error: 'orderId missing in notes.' });
+        }
+
+        // C-RP3: Implement idempotency and C-RP4-8 verification in a transaction
+        await db.runTransaction(async (transaction) => {
+            // 1. Idempotency Check
+            const eventRef = db.collection("razorpay_webhook_events").doc(eventId);
+            const eventSnap = await transaction.get(eventRef);
+            if (eventSnap.exists) {
+                console.log(`Duplicate Webhook Event: ${eventId}. Skipping.`);
+                return;
+            }
+
+            // 2. Order Integrity Check
+            const orderRef = db.collection("orders").doc(orderId);
+            const orderSnap = await transaction.get(orderRef);
+            if (!orderSnap.exists) {
+                throw new Error(`Order ${orderId} not found.`);
+            }
+
+            const orderData = orderSnap.data();
+
+            // C-RP4: Verify Razorpay Order ID binding
+            if (payment.order_id !== orderData.razorpayOrderId) {
+                throw new Error(`Integrity Fail: Payment Order ID ${payment.order_id} does not match stored ${orderData.razorpayOrderId}`);
+            }
+
+            // C-RP5: Verify Amount
+            const expectedAmountPaise = Math.round((orderData.totalAmount || 0) * 100);
+            if (payment.amount !== expectedAmountPaise) {
+                throw new Error(`Amount Mismatch: Razorpay ${payment.amount}, Expected ${expectedAmountPaise}`);
+            }
+
+            // C-RP7: Order State Validation
+            if (['CANCELLED', 'DELIVERED', 'REFUNDED'].includes(orderData.status)) {
+                throw new Error(`Invalid Transition: Cannot mark ${orderData.status} order as PAID.`);
+            }
+
+            // 3. Commit Updates
+            transaction.set(eventRef, {
+                processedAt: admin.firestore.FieldValue.serverTimestamp(),
+                orderId,
+                paymentId: payment.id,
+                amount: payment.amount
+            });
+
+            if (orderData.paymentStatus !== 'PAID') {
+                transaction.update(orderRef, {
+                    paymentStatus: "PAID",
+                    status: "CONFIRMED", // C-RP6: Only if all checks pass
+                    razorpayPaymentId: payment.id,
+                    paymentMethod: "RAZORPAY_ONLINE",
+                    webhookReceivedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        });
+
+        console.info(`Webhook successfully processed for order: ${orderId}`);
         return res.status(200).json({ status: 'ok' });
     } catch (error) {
-        console.error("Webhook processing exception:", error);
-        return res.status(500).json({ error: 'Webhook processing error.' });
+        console.error("Webhook processing exception:", error.message);
+        return res.status(500).json({ error: error.message });
     }
 });
