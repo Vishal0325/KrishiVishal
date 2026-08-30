@@ -49,8 +49,9 @@ object SecurityPerformanceModule {
     fun provideSessionManager(
         secureStorage: SecureStorage,
         tokenManager: TokenManager,
-        errorReporter: com.company.krishivishal.crashlytics.CrashlyticsErrorReporter
-    ): SessionManager = SessionManager(secureStorage, tokenManager, errorReporter)
+        errorReporter: com.company.krishivishal.crashlytics.CrashlyticsErrorReporter,
+        firebaseAuth: FirebaseAuth
+    ): SessionManager = SessionManager(secureStorage, tokenManager, errorReporter, firebaseAuth)
 
     // ==================== PERFORMANCE ====================
 
