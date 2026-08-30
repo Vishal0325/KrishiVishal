@@ -108,6 +108,13 @@ detekt {
 
 // Lint tasks are now handled by the standard android { lint { ... } } block
 
+// Room schema export — required so migrations can be verified against real
+// schema snapshots via androidx.room:room-testing MigrationTestHelper.
+// Commit the generated JSON files under app/schemas/ to version control.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     // Core Module
     implementation(project(":core"))

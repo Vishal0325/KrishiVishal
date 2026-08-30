@@ -42,7 +42,7 @@ object SecurityPerformanceModule {
     @Singleton
     fun provideCertificatePinningManager(
         @ApplicationContext context: Context
-    ): CertificatePinningManager = CertificatePinningManager(context)
+    ): CertificatePinningManager = CertificatePinningManager(context, com.company.krishivishal.BuildConfig.DEBUG)
 
     @Provides
     @Singleton

@@ -17,8 +17,9 @@ import coil.memory.MemoryCache
 import dagger.hilt.android.HiltAndroidApp
 import timber.log.Timber
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
@@ -27,6 +28,14 @@ import androidx.core.content.getSystemService
 
 @HiltAndroidApp
 class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provider {
+
+    /**
+     * Application-scoped coroutine scope, tied to the process lifecycle.
+     * Replaces GlobalScope for fire-and-forget startup work (e.g. App Check init)
+     * so cancellation semantics are explicit and testable, and misuse elsewhere
+     * in the codebase can't silently reuse an unscoped GlobalScope launch.
+     */
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
@@ -96,7 +105,7 @@ class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provide
         }
 
         // 3. Setup App Check — Move to background to improve App Start Time
-        GlobalScope.launch(Dispatchers.Default) {
+        applicationScope.launch {
             try {
                 val appCheck = Firebase.appCheck
                 if (BuildConfig.DEBUG) {
