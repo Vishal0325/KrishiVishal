@@ -147,19 +147,29 @@ exports.onOrderDeliveryUpdate = onDocumentUpdated({ document: "orders/{orderId}"
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             };
 
-            stats.totalOrders += 1;
-            if (newData.status === 'DELIVERED') {
-                stats.deliveredCount += 1;
-            } else if (newData.status === 'CANCELLED') {
-                stats.cancelledCount += 1;
-            } else if (newData.status === 'RETURNED') {
-                stats.returnedCount += 1;
+            const oldStatus = oldData.status;
+            const newStatus = newData.status;
+            const FINAL_STATES = ['DELIVERED', 'CANCELLED', 'RETURNED'];
+
+            // 1. If it's the FIRST time entering any final state
+            if (!FINAL_STATES.includes(oldStatus)) {
+                stats.totalOrders += 1;
+            } else {
+                // 2. Adjust previous final state counts (e.g., DELIVERED -> RETURNED)
+                if (oldStatus === 'DELIVERED') stats.deliveredCount -= 1;
+                if (oldStatus === 'CANCELLED') stats.cancelledCount -= 1;
+                if (oldStatus === 'RETURNED') stats.returnedCount -= 1;
             }
+
+            // 3. Apply new state count
+            if (newStatus === 'DELIVERED') stats.deliveredCount += 1;
+            if (newStatus === 'CANCELLED') stats.cancelledCount += 1;
+            if (newStatus === 'RETURNED') stats.returnedCount += 1;
 
             stats.updatedAt = admin.firestore.FieldValue.serverTimestamp();
             transaction.set(perfRef, stats, { merge: true });
         });
-        console.log(`Rider performance updated for: ${riderId}`);
+        console.log(`Rider performance synchronized for: ${riderId} (${oldData.status} -> ${newData.status})`);
     } catch (error) {
         console.error("CRITICAL: Failed to update rider performance:", error);
         throw error; // Retry
