@@ -120,7 +120,13 @@ exports.onOrderPaidLedger = onDocumentUpdated({ document: "orders/{orderId}", re
                 }
 
                 const paymentMethod = newData.paymentMethod || 'CASH';
-                const assetAccount = paymentMethod === 'WALLET' ? 'WALLET_BALANCE' : 'CASH_IN_HAND';
+                let assetAccount = 'CASH_IN_HAND';
+
+                if (paymentMethod === 'WALLET') {
+                    assetAccount = 'WALLET_BALANCE';
+                } else if (paymentMethod === 'RAZORPAY_ONLINE') {
+                    assetAccount = 'BANK_ACCOUNT';
+                }
 
                 postLedgerEntry(transaction, {
                     account: assetAccount,
