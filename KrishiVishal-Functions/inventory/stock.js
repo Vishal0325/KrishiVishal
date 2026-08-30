@@ -40,8 +40,7 @@ exports.onReturnStockSync = onDocumentUpdated({ document: "returns/{returnId}", 
                 const productSnap = await transaction.get(productRef);
 
                 if (!productSnap.exists) {
-                    console.error(`Product ${productId} not found for return ${returnId}`);
-                    return;
+                    throw new Error(`Product ${productId} not found for return ${returnId}`);
                 }
 
                 const productData = productSnap.data();
@@ -54,21 +53,24 @@ exports.onReturnStockSync = onDocumentUpdated({ document: "returns/{returnId}", 
                         transaction.update(variantRef, {
                             stock: admin.firestore.FieldValue.increment(quantity)
                         });
+                    } else {
+                        // C-ORD6: Fail loudly to ensure retry if variant is missing but ID was provided
+                        throw new Error(`Variant ${variantId} not found in product ${productId}`);
                     }
 
-                    const updatedVariants = (productData.variants || []).map(v => {
-                        if (v.id === variantId) return { ...v, stock: (v.stock || 0) + quantity };
-                        return v;
-                    });
+                    // Only update aggregate stock and metadata in parent doc.
+                    // Redundant variants[] array update removed to ensure subcollection is source of truth.
                     transaction.update(productRef, {
-                        variants: updatedVariants,
                         stockQuantity: admin.firestore.FieldValue.increment(quantity),
-                        stock: admin.firestore.FieldValue.increment(quantity)
+                        stock: admin.firestore.FieldValue.increment(quantity),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
                     });
                 } else {
+                    // Base product stock restoration
                     transaction.update(productRef, {
                         stockQuantity: admin.firestore.FieldValue.increment(quantity),
-                        stock: admin.firestore.FieldValue.increment(quantity)
+                        stock: admin.firestore.FieldValue.increment(quantity),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
                     });
                 }
 
@@ -79,7 +81,7 @@ exports.onReturnStockSync = onDocumentUpdated({ document: "returns/{returnId}", 
             });
             console.log(`Stock restored for Product ${productId} via Return ${returnId}`);
         } catch (error) {
-            console.error(`Failed to restore stock for return ${returnId}:`, error);
+            console.error(`CRITICAL: Failed to restore stock for return ${returnId}:`, error.message);
             throw error; // Trigger Cloud Function retry
         }
     }

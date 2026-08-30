@@ -28,6 +28,7 @@ exports.verifyDeliveryOTP = orders.verifyDeliveryOTP;
 exports.cancelOrder = orders.cancelOrder;
 exports.onOrderStatusUpdate = orderTriggers.onOrderStatusUpdate;
 exports.onReturnRequestCreated = orderTriggers.onReturnRequestCreated;
+exports.onOrderDeliveryUpdate = orderTriggers.onOrderDeliveryUpdate;
 
 // --- FINANCE & PAYMENTS ---
 exports.verifyPayment = razorpay.verifyPayment;

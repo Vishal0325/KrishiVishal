@@ -115,3 +115,54 @@ exports.onReturnRequestCreated = onDocumentCreated({ document: "returns/{returnI
         return null;
     }
 });
+
+/**
+ * onOrderDeliveryUpdate: Calculates and updates rider_performance metrics.
+ * Triggered when an order reaches a final state.
+ */
+exports.onOrderDeliveryUpdate = onDocumentUpdated({ document: "orders/{orderId}", region: REGION }, async (event) => {
+    const change = event.data;
+    const newData = change.after.data();
+    const oldData = change.before.data();
+
+    if (!newData || !oldData || newData.status === oldData.status) return null;
+
+    const FINAL_STATES = ['DELIVERED', 'CANCELLED', 'RETURNED'];
+    if (!FINAL_STATES.includes(newData.status)) return null;
+
+    const riderId = newData.riderId;
+    if (!riderId) return null;
+
+    try {
+        await db.runTransaction(async (transaction) => {
+            const perfRef = db.collection("rider_performance").doc(riderId);
+            const perfSnap = await transaction.get(perfRef);
+
+            const stats = perfSnap.exists ? perfSnap.data() : {
+                riderId,
+                totalOrders: 0,
+                deliveredCount: 0,
+                cancelledCount: 0,
+                returnedCount: 0,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            };
+
+            stats.totalOrders += 1;
+            if (newData.status === 'DELIVERED') {
+                stats.deliveredCount += 1;
+            } else if (newData.status === 'CANCELLED') {
+                stats.cancelledCount += 1;
+            } else if (newData.status === 'RETURNED') {
+                stats.returnedCount += 1;
+            }
+
+            stats.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+            transaction.set(perfRef, stats, { merge: true });
+        });
+        console.log(`Rider performance updated for: ${riderId}`);
+    } catch (error) {
+        console.error("CRITICAL: Failed to update rider performance:", error);
+        throw error; // Retry
+    }
+    return null;
+});
