@@ -43,10 +43,19 @@ async function checkFeatureFlag(flagName) {
     return !!flags[flagName];
 }
 
-async function isAdminRequest(context) {
-    if (!context.auth) return false;
-    if (context.auth.token && context.auth.token.admin === true) return true;
-    const userDoc = await db.collection("users").doc(context.auth.uid).get();
+async function isAdminRequest(obj) {
+    // Support both v1 (context) and v2 (request/obj) patterns
+    const auth = obj.auth || obj;
+    if (!auth || !auth.uid) return false;
+
+    // 1. Check Custom Claims (High Performance)
+    if (auth.token && (auth.token.admin === true || auth.token.isAdmin === true ||
+        ["ADMIN", "SuperAdmin", "CatalogManager", "OrderManager"].includes(auth.token.role))) {
+        return true;
+    }
+
+    // 2. Fallback to DB check (Security)
+    const userDoc = await db.collection("users").doc(auth.uid).get();
     const d = userDoc.data() || {};
     return d.isAdmin === true || ["ADMIN", "SuperAdmin"].includes(d.role);
 }

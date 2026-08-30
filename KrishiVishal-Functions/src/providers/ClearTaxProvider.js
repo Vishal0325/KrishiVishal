@@ -16,24 +16,20 @@ class ClearTaxProvider {
     }
 
     async authenticate() {
-        // ClearTax uses static auth tokens passed in headers
         return true;
     }
 
-    /**
-     * Generates an e-Invoice (IRN) via ClearTax API
-     */
     async generateEInvoice(orderData) {
         try {
             console.log(`[ClearTax] Generating E-Invoice for order: ${orderData.id}`);
-            const payload = [this._mapOrderToEInvoicePayload(orderData)]; // ClearTax expects an array for E-Invoice
+            const payload = [this._mapOrderToEInvoicePayload(orderData)];
 
             const response = await axios.post(`${this.baseUrl}/einvoice/generate`, payload, {
                 headers: {
                     'x-cleartax-auth-token': this.token,
                     'Content-Type': 'application/json'
                 },
-                timeout: 10000 // 10s timeout
+                timeout: 10000
             });
 
             const result = response.data[0];
@@ -55,9 +51,6 @@ class ClearTaxProvider {
         }
     }
 
-    /**
-     * Generates an e-Way Bill via ClearTax API
-     */
     async generateEWayBill(orderData) {
         try {
             console.log(`[ClearTax] Generating E-Way Bill for order: ${orderData.id}`);
@@ -109,19 +102,14 @@ class ClearTaxProvider {
     }
 
     _mapOrderToEInvoicePayload(order) {
+        const gstin = process.env.STORE_GSTIN;
+        if (!gstin && this.mode === 'PRODUCTION') throw new Error("STORE_GSTIN secret is required for Production compliance.");
+
         return {
-            transactionDetails: {
-                taxSch: "GST",
-                supTyp: "B2C", // Farmer usually B2C
-                regRev: "N"
-            },
-            documentDetails: {
-                typ: "INV",
-                no: order.id.slice(-16),
-                dt: new Date(order.createdAt?.toMillis() || Date.now()).toLocaleDateString('en-GB')
-            },
+            transactionDetails: { taxSch: "GST", supTyp: "B2C", regRev: "N" },
+            documentDetails: { typ: "INV", no: order.id.slice(-16), dt: new Date(order.createdAt?.toMillis() || Date.now()).toLocaleDateString('en-GB') },
             sellerDetails: {
-                gstin: process.env.STORE_GSTIN || "10AAAAA0000A1Z5",
+                gstin: gstin || "10AAAAA0000A1Z5", // Sandbox fallback
                 lglNm: "Krishi Vishal",
                 addr1: "Main Road, Near Block Chowk",
                 loc: "Purnea",
@@ -162,9 +150,10 @@ class ClearTaxProvider {
     }
 
     _mapOrderToEWayBillPayload(order) {
-        // Validation check for E-Way Bill mandatory fields
-        if (!order.vehicleNo && this.mode === 'PRODUCTION') {
-            throw new Error("Vehicle Number is mandatory for E-Way Bill generation in Production.");
+        const gstin = process.env.STORE_GSTIN;
+        if (this.mode === 'PRODUCTION') {
+            if (!order.vehicleNo) throw new Error("Vehicle Number is mandatory for Production E-Way Bill.");
+            if (!gstin) throw new Error("STORE_GSTIN secret is required for Production compliance.");
         }
 
         return {
@@ -173,7 +162,7 @@ class ClearTaxProvider {
             documentType: "INV",
             documentNumber: order.id.slice(-16),
             documentDate: new Date(order.createdAt?.toMillis() || Date.now()).toLocaleDateString('en-GB'),
-            fromGstin: process.env.STORE_GSTIN || "10AAAAA0000A1Z5",
+            fromGstin: gstin || "10AAAAA0000A1Z5",
             fromTrdName: "Krishi Vishal",
             fromAddr1: "Main Road, Near Block Chowk",
             fromPlace: "Purnea",
@@ -199,7 +188,7 @@ class ClearTaxProvider {
             })),
             totalValue: order.totalAmount,
             mainHsnCode: parseInt(order.items[0]?.hsnCode) || 3101,
-            transDistance: order.transDistance || 20, // Should be calculated or provided
+            transDistance: order.transDistance || 50,
             transMode: 1,
             vehicleNo: order.vehicleNo || "BR11TEST",
             vehicleType: "R"

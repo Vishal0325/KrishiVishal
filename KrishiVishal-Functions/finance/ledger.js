@@ -37,7 +37,15 @@ function postLedgerEntry(transaction, entry) {
     const ledgerRef = db.collection("ledger").doc();
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
-    // Define account types for correct balance calculation
+    // Define valid accounts to prevent arbitrary collection updates
+    const VALID_ACCOUNTS = [
+        'CASH_IN_HAND', 'BANK_ACCOUNT', 'WALLET_BALANCE',
+        'GST_PAYABLE', 'SALES', 'ACCOUNTS_PAYABLE', 'INVENTORY_VALUE'
+    ];
+    if (!VALID_ACCOUNTS.includes(entry.account)) {
+        throw new Error(`Invalid Ledger Account: ${entry.account}`);
+    }
+
     const ASSET_ACCOUNTS = ['CASH_IN_HAND', 'BANK_ACCOUNT', 'INVENTORY_VALUE'];
     const liabilityAccounts = ['WALLET_BALANCE', 'GST_PAYABLE', 'SALES', 'ACCOUNTS_PAYABLE']; // Sales is Revenue, GST is Liability
 
