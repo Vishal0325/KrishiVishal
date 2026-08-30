@@ -160,6 +160,7 @@ exports.onOrderPaidLedger = onDocumentUpdated({ document: "orders/{orderId}", re
             });
         } catch (error) {
             console.error("CRITICAL: Financial transaction failed for order:", orderId, error);
+            throw error; // Trigger Cloud Function retry
         }
     }
     return null;

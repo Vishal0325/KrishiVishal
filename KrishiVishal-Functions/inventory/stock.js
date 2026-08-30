@@ -80,6 +80,7 @@ exports.onReturnStockSync = onDocumentUpdated({ document: "returns/{returnId}", 
             console.log(`Stock restored for Product ${productId} via Return ${returnId}`);
         } catch (error) {
             console.error(`Failed to restore stock for return ${returnId}:`, error);
+            throw error; // Trigger Cloud Function retry
         }
     }
     return null;
