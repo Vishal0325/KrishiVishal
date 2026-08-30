@@ -140,6 +140,7 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
                 address,
                 items,
                 totalAmount,
+                totalTax,
                 paymentMethod,
                 paymentStatus: "PENDING",
                 status: initialStatus,

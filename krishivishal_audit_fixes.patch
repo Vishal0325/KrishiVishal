@@ -1,0 +1,187 @@
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 5661da5..29ef2e1 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -108,6 +108,13 @@ detekt {
+ 
+ // Lint tasks are now handled by the standard android { lint { ... } } block
+ 
++// Room schema export — required so migrations can be verified against real
++// schema snapshots via androidx.room:room-testing MigrationTestHelper.
++// Commit the generated JSON files under app/schemas/ to version control.
++ksp {
++    arg("room.schemaLocation", "$projectDir/schemas")
++}
++
+ dependencies {
+     // Core Module
+     implementation(project(":core"))
+diff --git a/app/src/main/java/com/company/krishivishal/KrishiVishalApp.kt b/app/src/main/java/com/company/krishivishal/KrishiVishalApp.kt
+index 231b3e3..4c0df8f 100644
+--- a/app/src/main/java/com/company/krishivishal/KrishiVishalApp.kt
++++ b/app/src/main/java/com/company/krishivishal/KrishiVishalApp.kt
+@@ -17,8 +17,9 @@ import coil.memory.MemoryCache
+ import dagger.hilt.android.HiltAndroidApp
+ import timber.log.Timber
+ import javax.inject.Inject
++import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.Dispatchers
+-import kotlinx.coroutines.GlobalScope
++import kotlinx.coroutines.SupervisorJob
+ import kotlinx.coroutines.launch
+ import androidx.hilt.work.HiltWorkerFactory
+ import androidx.work.Configuration
+@@ -28,6 +29,14 @@ import androidx.core.content.getSystemService
+ @HiltAndroidApp
+ class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provider {
+ 
++    /**
++     * Application-scoped coroutine scope, tied to the process lifecycle.
++     * Replaces GlobalScope for fire-and-forget startup work (e.g. App Check init)
++     * so cancellation semantics are explicit and testable, and misuse elsewhere
++     * in the codebase can't silently reuse an unscoped GlobalScope launch.
++     */
++    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
++
+     @Inject
+     lateinit var workerFactory: HiltWorkerFactory
+ 
+@@ -96,7 +105,7 @@ class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provide
+         }
+ 
+         // 3. Setup App Check — Move to background to improve App Start Time
+-        GlobalScope.launch(Dispatchers.Default) {
++        applicationScope.launch {
+             try {
+                 val appCheck = Firebase.appCheck
+                 if (BuildConfig.DEBUG) {
+diff --git a/app/src/main/java/com/company/krishivishal/data/di/SecurityPerformanceModule.kt b/app/src/main/java/com/company/krishivishal/data/di/SecurityPerformanceModule.kt
+index bdf21de..68dacb3 100644
+--- a/app/src/main/java/com/company/krishivishal/data/di/SecurityPerformanceModule.kt
++++ b/app/src/main/java/com/company/krishivishal/data/di/SecurityPerformanceModule.kt
+@@ -42,7 +42,7 @@ object SecurityPerformanceModule {
+     @Singleton
+     fun provideCertificatePinningManager(
+         @ApplicationContext context: Context
+-    ): CertificatePinningManager = CertificatePinningManager(context)
++    ): CertificatePinningManager = CertificatePinningManager(context, com.company.krishivishal.BuildConfig.DEBUG)
+ 
+     @Provides
+     @Singleton
+diff --git a/app/src/main/java/com/company/krishivishal/data/local/AppDatabase.kt b/app/src/main/java/com/company/krishivishal/data/local/AppDatabase.kt
+index 5fc8dd7..7dac5b3 100644
+--- a/app/src/main/java/com/company/krishivishal/data/local/AppDatabase.kt
++++ b/app/src/main/java/com/company/krishivishal/data/local/AppDatabase.kt
+@@ -27,7 +27,7 @@ import com.company.krishivishal.core.model.*
+         RecentSearch::class
+     ],
+     version = 48,
+-    exportSchema = false
++    exportSchema = true
+ )
+ @TypeConverters(AppConverters::class)
+ abstract class AppDatabase : RoomDatabase() {
+diff --git a/app/src/main/java/com/company/krishivishal/security/CertificatePinningManager.kt b/app/src/main/java/com/company/krishivishal/security/CertificatePinningManager.kt
+index 970063a..115299c 100644
+--- a/app/src/main/java/com/company/krishivishal/security/CertificatePinningManager.kt
++++ b/app/src/main/java/com/company/krishivishal/security/CertificatePinningManager.kt
+@@ -15,40 +15,81 @@ import javax.net.ssl.X509TrustManager
+  * SSL Certificate pinning for secure communication.
+  * Prevents MITM attacks by pinning certificates.
+  *
+- * TODO (Pre-release): Add real certificate pins.
+- * Run the following against each Firebase endpoint to obtain pins:
+- *   openssl s_client -connect firestore.googleapis.com:443 < /dev/null 2>/dev/null \
+- *     | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der \
+- *     | openssl dgst -sha256 -binary | base64
+- * Then add them via CertificatePinner.Builder().add("domain", "sha256/...").
++ * SETUP (required before release):
++ * 1. For each domain in PINNED_DOMAINS, run:
++ *      openssl s_client -connect <domain>:443 < /dev/null 2>/dev/null \
++ *        | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der \
++ *        | openssl dgst -sha256 -binary | base64
++ * 2. Get pins for BOTH the current leaf cert AND its issuing intermediate/root
++ *    (Google Trust Services), so pinning survives routine leaf-cert rotation.
++ * 3. Put them in gradle.properties (gitignored, not committed) as:
++ *      PIN_FIRESTORE_PRIMARY=sha256/xxxxx
++ *      PIN_FIRESTORE_BACKUP=sha256/yyyyy
++ *    ...and surface them via BuildConfig fields (see app/build.gradle.kts),
++ *    same pattern already used for RAZORPAY_KEY in this file's defaultConfig.
++ * 4. Pass the resolved pins into providePins() below instead of emptyMap().
+  *
+- * Current state: placeholder pins have been removed to prevent runtime SSL failures.
+- * OkHttpClient uses the Android system trust store (safe, but unpinned).
++ * FAIL-SAFE: on release builds, createPinnedOkHttpClient() throws if any
++ * PINNED_DOMAINS entry has no pin configured, instead of silently shipping
++ * an unpinned client (which is what happened before this fix — an empty
++ * CertificatePinner.Builder() falls back to the system trust store with
++ * no MITM protection at all). Debug builds only log a warning, so local
++ * development against emulators/test endpoints isn't blocked.
+  */
+ @Singleton
+-class CertificatePinningManager @Inject constructor(context: Context) {
++class CertificatePinningManager @Inject constructor(
++    private val context: Context,
++    private val isDebugBuild: Boolean
++) {
+ 
+-    private val context = context
++    companion object {
++        /** Domains that must be pinned before a release build ships. */
++        val PINNED_DOMAINS = listOf(
++            "firestore.googleapis.com",
++            "firebasestorage.googleapis.com",
++        )
++    }
+ 
+     /**
+-     * Returns an OkHttpClient using the system trust store.
+-     * Replace with certificate-pinned client once real pins are obtained.
++     * Resolve configured pins per domain. Wire this to BuildConfig fields
++     * once real SHA-256 values are generated (see class doc above).
++     * Returns primary + backup pin list per domain; empty list = not configured.
++     */
++    private fun providePins(): Map<String, List<String>> = emptyMap()
++
++    /**
++     * Returns a certificate-pinned OkHttpClient.
++     * Throws IllegalStateException on release builds if pins are missing —
++     * this is intentional: an app must not ship to production silently unpinned.
+      */
+     fun createPinnedOkHttpClient(): OkHttpClient {
+-        val pinner = CertificatePinner.Builder()
+-            // IMPORTANT: Add real SHA-256 fingerprints here before release.
+-            // Example: .add("firestore.googleapis.com", "sha256/...")
+-            .build()
++        val configuredPins = providePins()
++        val missingDomains = PINNED_DOMAINS.filter { configuredPins[it].isNullOrEmpty() }
++
++        if (missingDomains.isNotEmpty()) {
++            val message = "Certificate pinning not configured for: $missingDomains"
++            if (isDebugBuild) {
++                Timber.w("$message (allowed in debug builds only)")
++            } else {
++                Timber.e(message)
++                error("$message — cannot build a release OkHttpClient without pins. See CertificatePinningManager doc.")
++            }
++        }
++
++        val pinnerBuilder = CertificatePinner.Builder()
++        configuredPins.forEach { (domain, pins) ->
++            pins.forEach { pin -> pinnerBuilder.add(domain, pin) }
++        }
+ 
+         return OkHttpClient.Builder()
+-            .certificatePinner(pinner)
++            .certificatePinner(pinnerBuilder.build())
+             .connectTimeout(30, TimeUnit.SECONDS)
+             .readTimeout(30, TimeUnit.SECONDS)
+             .writeTimeout(30, TimeUnit.SECONDS)
+             .retryOnConnectionFailure(true)
+             .build()
+             .also {
+-                Timber.d("OkHttpClient configured with certificate pinner structure (actual pins pending)")
++                Timber.d("OkHttpClient configured with certificate pinning for ${configuredPins.keys}")
+             }
+     }
+ 

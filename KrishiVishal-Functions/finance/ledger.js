@@ -28,26 +28,23 @@ exports.deleteExpenseAttachment = onCall({ region: REGION }, async (request) => 
 });
 
 /**
- * Helper to post a double-entry ledger record.
+ * Helper to post a double-entry ledger record within a transaction.
  */
-async function postLedgerEntry(entry) {
+function postLedgerEntry(transaction, entry) {
     const ledgerRef = db.collection("ledger").doc();
-    const batch = db.batch();
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
-    batch.set(ledgerRef, {
+    transaction.set(ledgerRef, {
         ...entry,
         timestamp: timestamp,
         createdAt: timestamp,
     });
 
     const accountRef = db.collection("accounts").doc(entry.account);
-    batch.set(accountRef, {
+    transaction.set(accountRef, {
         balance: admin.firestore.FieldValue.increment(entry.type === 'CREDIT' ? entry.amount : -entry.amount),
         lastUpdated: timestamp,
     }, { merge: true });
-
-    return batch.commit();
 }
 
 /**
@@ -63,77 +60,81 @@ exports.onOrderPaidLedger = onDocumentUpdated({ document: "orders/{orderId}", re
     if (!newData || !oldData) return null;
 
     if (newData.paymentStatus === 'PAID' && oldData.paymentStatus !== 'PAID') {
-        const existingEntries = await db.collection("ledger")
-            .where("referenceId", "==", orderId)
-            .where("account", "==", "SALES")
-            .limit(1)
-            .get();
-
-        if (!existingEntries.empty) {
-            console.log(`Ledger entry already exists for Order: ${orderId}. Skipping.`);
-            return null;
-        }
-
-        const totalAmount = newData.totalAmount || 0;
-        const totalTax = newData.totalTax || 0;
-        const netSales = totalAmount - totalTax;
-
         try {
-            await postLedgerEntry({
-                account: 'SALES',
-                type: 'CREDIT',
-                amount: netSales,
-                description: `Order #${orderId} Sales Revenue`,
-                referenceId: orderId,
-                metadata: { orderId }
-            });
+            await db.runTransaction(async (transaction) => {
+                // 1. Check for duplicate ledger entries (READ)
+                const existingEntries = await transaction.get(
+                    db.collection("ledger")
+                        .where("referenceId", "==", orderId)
+                        .where("account", "==", "SALES")
+                        .limit(1)
+                );
 
-            if (totalTax > 0) {
-                await postLedgerEntry({
-                    account: 'GST_PAYABLE',
+                if (!existingEntries.empty) {
+                    console.log(`Ledger entry already exists for Order: ${orderId}. Skipping.`);
+                    return;
+                }
+
+                const totalAmount = newData.totalAmount || 0;
+                const totalTax = newData.totalTax || 0;
+                const netSales = totalAmount - totalTax;
+
+                // 2. Post Ledger Entries (WRITES)
+                postLedgerEntry(transaction, {
+                    account: 'SALES',
                     type: 'CREDIT',
-                    amount: totalTax,
-                    description: `Order #${orderId} GST Component`,
+                    amount: netSales,
+                    description: `Order #${orderId} Sales Revenue`,
                     referenceId: orderId,
                     metadata: { orderId }
                 });
-            }
 
-            const paymentMethod = newData.paymentMethod || 'CASH';
-            const assetAccount = paymentMethod === 'WALLET' ? 'WALLET_BALANCE' : 'CASH_IN_HAND';
+                if (totalTax > 0) {
+                    postLedgerEntry(transaction, {
+                        account: 'GST_PAYABLE',
+                        type: 'CREDIT',
+                        amount: totalTax,
+                        description: `Order #${orderId} GST Component`,
+                        referenceId: orderId,
+                        metadata: { orderId }
+                    });
+                }
 
-            await postLedgerEntry({
-                account: assetAccount,
-                type: 'DEBIT',
-                amount: totalAmount,
-                description: `Order #${orderId} Payment Received (${paymentMethod})`,
-                referenceId: orderId,
-                metadata: { orderId }
-            });
+                const paymentMethod = newData.paymentMethod || 'CASH';
+                const assetAccount = paymentMethod === 'WALLET' ? 'WALLET_BALANCE' : 'CASH_IN_HAND';
 
-            const items = newData.items || [];
-            const bulkWriter = db.bulkWriter();
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-
-            for (const item of items) {
-                const productId = item.productId;
-                const quantity = item.quantity || 1;
-
-                bulkWriter.update(db.collection("products").doc(productId), {
-                    salesCount: admin.firestore.FieldValue.increment(quantity)
+                postLedgerEntry(transaction, {
+                    account: assetAccount,
+                    type: 'DEBIT',
+                    amount: totalAmount,
+                    description: `Order #${orderId} Payment Received (${paymentMethod})`,
+                    referenceId: orderId,
+                    metadata: { orderId }
                 });
 
-                const statId = `${productId}_${today.toISOString().split('T')[0]}`;
-                bulkWriter.set(db.collection("sales_stats").doc(statId), {
-                    productId,
-                    date: admin.firestore.Timestamp.fromDate(today),
-                    quantity: admin.firestore.FieldValue.increment(quantity)
-                }, { merge: true });
-            }
-            await bulkWriter.close();
+                // 3. Update Product Stats (WRITES)
+                const items = newData.items || [];
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+
+                for (const item of items) {
+                    const productId = item.productId;
+                    const quantity = item.quantity || 1;
+
+                    transaction.update(db.collection("products").doc(productId), {
+                        salesCount: admin.firestore.FieldValue.increment(quantity)
+                    });
+
+                    const statId = `${productId}_${today.toISOString().split('T')[0]}`;
+                    transaction.set(db.collection("sales_stats").doc(statId), {
+                        productId,
+                        date: admin.firestore.Timestamp.fromDate(today),
+                        quantity: admin.firestore.FieldValue.increment(quantity)
+                    }, { merge: true });
+                }
+            });
         } catch (error) {
-            console.error("Error posting ledger/stats for order:", error);
+            console.error("CRITICAL: Financial transaction failed for order:", orderId, error);
         }
     }
     return null;
@@ -152,43 +153,46 @@ exports.onReturnCompletedLedger = onDocumentUpdated({ document: "returns/{return
     if (!newData || !oldData) return null;
 
     if (newData.status === 'COMPLETED' && oldData.status !== 'COMPLETED') {
-        const existingEntries = await db.collection("ledger")
-            .where("referenceId", "==", returnId)
-            .where("account", "==", "SALES")
-            .limit(1)
-            .get();
-
-        if (!existingEntries.empty) {
-            console.log(`Ledger entry already exists for Return: ${returnId}. Skipping.`);
-            return null;
-        }
-
-        const refundAmount = newData.refundAmount || 0;
-        const orderId = newData.orderId;
-
         try {
-            await postLedgerEntry({
-                account: 'SALES',
-                type: 'DEBIT',
-                amount: refundAmount,
-                description: `Return #${returnId} Refund (Order #${orderId})`,
-                referenceId: returnId,
-                metadata: { returnId, orderId }
-            });
+            await db.runTransaction(async (transaction) => {
+                const existingEntries = await transaction.get(
+                    db.collection("ledger")
+                        .where("referenceId", "==", returnId)
+                        .where("account", "==", "SALES")
+                        .limit(1)
+                );
 
-            const refundMethod = newData.refundMethod || 'WALLET';
-            const assetAccount = refundMethod === 'WALLET' ? 'WALLET_BALANCE' : 'CASH_IN_HAND';
+                if (!existingEntries.empty) {
+                    console.log(`Ledger entry already exists for Return: ${returnId}. Skipping.`);
+                    return;
+                }
 
-            await postLedgerEntry({
-                account: assetAccount,
-                type: 'CREDIT',
-                amount: refundAmount,
-                description: `Return #${returnId} Refund Payout`,
-                referenceId: returnId,
-                metadata: { returnId, orderId }
+                const refundAmount = newData.refundAmount || 0;
+                const orderId = newData.orderId;
+
+                postLedgerEntry(transaction, {
+                    account: 'SALES',
+                    type: 'DEBIT',
+                    amount: refundAmount,
+                    description: `Return #${returnId} Refund (Order #${orderId})`,
+                    referenceId: returnId,
+                    metadata: { returnId, orderId }
+                });
+
+                const refundMethod = newData.refundMethod || 'WALLET';
+                const assetAccount = refundMethod === 'WALLET' ? 'WALLET_BALANCE' : 'CASH_IN_HAND';
+
+                postLedgerEntry(transaction, {
+                    account: assetAccount,
+                    type: 'CREDIT',
+                    amount: refundAmount,
+                    description: `Return #${returnId} Refund Payout`,
+                    referenceId: returnId,
+                    metadata: { returnId, orderId }
+                });
             });
         } catch (error) {
-            console.error("Error posting ledger for return:", error);
+            console.error("CRITICAL: Financial transaction failed for return:", returnId, error);
         }
     }
     return null;

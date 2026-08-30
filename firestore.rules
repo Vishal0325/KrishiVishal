@@ -418,12 +418,11 @@ service cloud.firestore {
     // RIDERS & WHITELIST
     // ============================================================
 
-    // NOTE: canonical whitelisted_riders rule is defined below in INTERNAL INFRASTRUCTURE section
-
     match /riders/{riderId} {
       allow read: if isAuthenticated() || isAdmin() || isViewer();
-      allow create, update: if isAuthenticated() || isAdmin() || isOwner(riderId);
-      allow delete: if isAdmin() || isOwner(riderId);
+      // Only Admin or the Rider themselves can manage the profile
+      allow create, update: if isAdmin() || isOwner(riderId);
+      allow delete: if isAdmin();
     }
 
 
@@ -453,7 +452,7 @@ service cloud.firestore {
     // ============================================================
 
     match /settings/{allPaths=**} {
-      allow read: if true;
+      allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
 
@@ -549,7 +548,8 @@ service cloud.firestore {
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'message', 'updatedAt']));
       allow delete: if isAdmin();
       match /{document=**} {
-        allow read, write: if isAuthenticated();
+        allow read, write: if isAuthenticated() &&
+          (get(/databases/$(database)/documents/support_tickets/$(ticketId)).data.userId == request.auth.uid || isAdmin());
       }
     }
 
@@ -563,7 +563,8 @@ service cloud.firestore {
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'description', 'updatedAt']));
       allow delete: if isAdmin();
       match /{document=**} {
-        allow read, write: if isAuthenticated();
+        allow read, write: if isAuthenticated() &&
+          (get(/databases/$(database)/documents/complaints/$(complaintId)).data.userId == request.auth.uid || isAdmin());
       }
     }
 
@@ -577,7 +578,8 @@ service cloud.firestore {
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'comment', 'updatedAt']));
       allow delete: if isAdmin();
       match /{document=**} {
-        allow read, write: if isAuthenticated();
+        allow read, write: if isAuthenticated() &&
+          (get(/databases/$(database)/documents/customer_feedback/$(feedbackId)).data.userId == request.auth.uid || isAdmin());
       }
     }
 
