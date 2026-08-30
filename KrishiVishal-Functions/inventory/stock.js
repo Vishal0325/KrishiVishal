@@ -17,6 +17,7 @@ exports.onReturnStockSync = onDocumentUpdated({ document: "returns/{returnId}", 
 
     if (newData.status === 'COMPLETED' &&
         newData.qcStatus === 'PASSED' &&
+        oldData.qcStatus !== 'PASSED' &&
         newData.stockRestored !== true) {
 
         const productId = newData.productId;

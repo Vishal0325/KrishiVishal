@@ -87,9 +87,42 @@ exports.processAiAction = onDocumentUpdated({ document: "ai_action_requests/{req
 
         try {
             if (action === 'UPDATE_PRICE') {
-                await db.collection("products").doc(params.productId).update({
-                    price: params.newPrice,
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                const { productId, newPrice } = params;
+
+                if (!productId || typeof newPrice !== 'number' || newPrice <= 0) {
+                    throw new Error("Invalid Product ID or Price amount.");
+                }
+
+                await db.runTransaction(async (transaction) => {
+                    const productRef = db.collection("products").doc(productId);
+                    const pSnap = await transaction.get(productRef);
+                    if (!pSnap.exists) throw new Error("Product does not exist.");
+
+                    const oldPrice = pSnap.data().price || 0;
+
+                    // Business Rule: Guard against extreme price fluctuations (> 80% change)
+                    const percentChange = Math.abs((newPrice - oldPrice) / oldPrice);
+                    if (percentChange > 0.8 && oldPrice > 0) {
+                        throw new Error(`Price change too extreme (${Math.round(percentChange * 100)}%). Manual intervention required.`);
+                    }
+
+                    transaction.update(productRef, {
+                        price: newPrice,
+                        oldPrice: oldPrice,
+                        priceUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    // Log Audit for AI Action
+                    const auditRef = db.collection("audit_logs").doc();
+                    transaction.set(auditRef, {
+                        action: "AI_PRICE_UPDATE",
+                        productId,
+                        oldPrice,
+                        newPrice,
+                        approvedBy: newData.approvedBy || "Admin",
+                        timestamp: admin.firestore.FieldValue.serverTimestamp()
+                    });
                 });
             }
 

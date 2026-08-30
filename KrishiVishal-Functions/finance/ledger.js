@@ -215,9 +215,17 @@ exports.onReturnCompletedLedger = onDocumentUpdated({ document: "returns/{return
                     referenceId: returnId,
                     metadata: { returnId, orderId }
                 });
+
+                // Mark document as ledger posted for retry safety
+                transaction.update(change.after.ref, {
+                    ledgerPosted: true,
+                    ledgerPostedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
             });
         } catch (error) {
             console.error("CRITICAL: Financial transaction failed for return:", returnId, error);
+            // Re-throw or use Outbox for retry logic in production
+            throw error;
         }
     }
     return null;
