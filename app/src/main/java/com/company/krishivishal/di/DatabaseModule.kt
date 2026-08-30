@@ -25,7 +25,6 @@ object DatabaseModule {
             "krishi_vishal_db"
         )
             .addMigrations(*DatabaseMigrations.ALL_MIGRATIONS)
-            .fallbackToDestructiveMigrationOnDowngrade()
             .build()
     }
 

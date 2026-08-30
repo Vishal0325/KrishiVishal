@@ -44,7 +44,7 @@ object PrintHelper {
     }
 
     private fun generateShippingLabelHtml(order: Order): String {
-        val df = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+        val df = SimpleDateFormat("dd MMM yyyy", Locale.US)
         val itemsList = order.items.joinToString(", ") { "${it.productName} (x${it.quantity})" }
 
         return """
@@ -98,7 +98,7 @@ object PrintHelper {
     }
 
     private fun generateInvoiceHtml(order: Order, appConfig: com.company.krishivishal.core.model.AppConfig): String {
-        val df = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+        val df = SimpleDateFormat("dd MMM yyyy", Locale.US)
         val itemsHtml = order.items.joinToString("") { item ->
             """
             <tr>

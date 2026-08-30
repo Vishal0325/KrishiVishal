@@ -289,6 +289,7 @@ exports.verifyDeliveryOTP = onCall({ region: REGION }, async (request) => {
 
             transaction.update(orderRef, {
                 status: "DELIVERED",
+                paymentStatus: "PAID",
                 deliveryStatus: "DELIVERED",
                 deliveredAt: admin.firestore.FieldValue.serverTimestamp(),
                 otpVerifiedAt: admin.firestore.FieldValue.serverTimestamp(),

@@ -40,7 +40,7 @@ fun OrderBillScreen(
     appConfig: com.company.krishivishal.core.model.AppConfig = com.company.krishivishal.core.model.AppConfig()
 ) {
     val context = LocalContext.current
-    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()) }
+    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.US) }
 
     Scaffold(
         topBar = {

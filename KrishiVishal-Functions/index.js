@@ -4,7 +4,7 @@
  */
 
 // L3: Startup environment variable configuration verification
-const REQUIRED_ENV_VARS = ['RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'QR_HMAC_SECRET'];
+const REQUIRED_ENV_VARS = ['RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'QR_HMAC_SECRET', 'CLEARTAX_AUTH_TOKEN'];
 for (const envVar of REQUIRED_ENV_VARS) {
     if (!process.env[envVar]) {
         console.warn(`[CONFIG WARNING] Missing environment variable: ${envVar}. Some features may run with fallback or restricted functionality.`);
@@ -49,6 +49,37 @@ exports.backfillProductMetadata = recommendations.backfillProductMetadata;
 exports.aiSupervisor = adminTools.aiSupervisor;
 exports.processAiAction = adminTools.processAiAction;
 exports.monitorOrderSLA = sla.monitorOrderSLA;
+
+// --- COMPLIANCE (GSP) ---
+const { getGSPProvider } = require('./src/providers/GSPFactory');
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { isAdminRequest } = require("./core/utils");
+
+exports.generateEWayBill = onCall({ region: 'asia-south1' }, async (request) => {
+    if (!(await isAdminRequest({ auth: request.auth }))) {
+        throw new HttpsError('permission-denied', 'Admin only.');
+    }
+
+    const { orderId } = request.data || {};
+    if (!orderId) throw new HttpsError('invalid-argument', 'Missing orderId.');
+
+    const { db } = require('./core/admin');
+    const orderSnap = await db.collection("orders").doc(orderId).get();
+    if (!orderSnap.exists) throw new HttpsError('not-found', 'Order not found.');
+
+    const provider = await getGSPProvider();
+    const result = await provider.generateEWayBill({ ...orderSnap.data(), id: orderId });
+
+    if (result.status === 'SUCCESS') {
+        await db.collection("gsp_requests").doc(`${orderId}_EWB`).set(result);
+        await orderSnap.ref.update({
+            ewayBillNo: result.providerReferenceId,
+            ewayBillGeneratedAt: require("firebase-admin").firestore.FieldValue.serverTimestamp()
+        });
+    }
+
+    return result;
+});
 
 // --- MESSAGING ---
 exports.processOutbox = messaging.processOutbox;

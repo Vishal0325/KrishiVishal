@@ -46,6 +46,7 @@ import com.company.krishivishal.utils.SmsReceiver
 import com.google.android.gms.auth.api.phone.SmsRetriever
 import kotlinx.coroutines.flow.collectLatest
 import android.content.IntentFilter
+import timber.log.Timber
 
 // Helper to find Activity from Context
 fun Context.findActivity(): Activity? = when (this) {
@@ -75,7 +76,7 @@ fun LoginScreen(
                 viewModel.onOtpReceived(otp)
             }
             override fun onOtpTimeout() {
-                // SMS retrieval timed out, user can still enter OTP manually
+                Timber.d("SMS retrieval timed out, user can still enter OTP manually")
             }
         })
         
@@ -89,8 +90,8 @@ fun LoginScreen(
         onDispose {
             try {
                 context.unregisterReceiver(smsReceiver)
-            } catch (ignored: Exception) {
-                // Receiver might not be registered
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to unregister SMS receiver")
             }
         }
     }
