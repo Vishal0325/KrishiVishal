@@ -19,28 +19,13 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && (
         request.auth.token.admin == true ||
-        (
-          userDocExists() &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid))
-            .data.isAdmin == true
-        ) ||
-        (
-          userDocExists() &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid))
-            .data.role in ["ADMIN", "SuperAdmin", "CatalogManager", "OrderManager"]
-        )
+        request.auth.token.isAdmin == true ||
+        request.auth.token.role in ["ADMIN", "SuperAdmin", "CatalogManager", "OrderManager"]
       );
     }
 
     function isSuperAdmin() {
-      return isAuthenticated() && (
-        request.auth.token.role == "SuperAdmin" ||
-        (
-          userDocExists() &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid))
-            .data.role == "SuperAdmin"
-        )
-      );
+      return isAuthenticated() && request.auth.token.role == "SuperAdmin";
     }
 
     function canViewFinance() {
@@ -48,14 +33,7 @@ service cloud.firestore {
     }
 
     function isViewer() {
-      return isAuthenticated() && (
-        request.auth.token.role == "Viewer" ||
-        (
-          userDocExists() &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid))
-            .data.role == "Viewer"
-        )
-      );
+      return isAuthenticated() && request.auth.token.role == "Viewer";
     }
 
     function isOwner(userId) {
@@ -64,14 +42,7 @@ service cloud.firestore {
     }
 
     function isRider() {
-      return isAuthenticated() && (
-        request.auth.token.role == "Rider" ||
-        (
-          userDocExists() &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid))
-            .data.role == "Rider"
-        )
-      );
+      return isAuthenticated() && request.auth.token.role == "Rider";
     }
 
 
@@ -382,6 +353,7 @@ service cloud.firestore {
             .diff(resource.data)
             .affectedKeys()
             .hasAny([
+              'role',
               'isAdmin',
               'walletBalance',
               'rewardPoints',
