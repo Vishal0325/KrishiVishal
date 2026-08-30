@@ -159,7 +159,7 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
             orderOtp = otp;
         });
         const finalAmount = (subtotal - totalDiscount) + totalTax + 50;
-        return { orderId, totalAmount: finalAmount, customerOTP: orderOtp };
+        return { orderId, totalAmount: finalAmount };
     } catch (error) { throw new HttpsError('internal', error.message); }
 });
 

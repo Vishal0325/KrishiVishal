@@ -424,7 +424,7 @@ service cloud.firestore {
     // ============================================================
 
     match /settings/{allPaths=**} {
-      allow read: if isAuthenticated();
+      allow read: if isAdmin();
       allow write: if isAdmin();
     }
 

@@ -29,10 +29,29 @@ exports.deleteExpenseAttachment = onCall({ region: REGION }, async (request) => 
 
 /**
  * Helper to post a double-entry ledger record within a transaction.
+ * Follows standard accounting principles:
+ * - Assets/Expenses: DEBIT increases, CREDIT decreases.
+ * - Liabilities/Equity/Revenue: CREDIT increases, DEBIT decreases.
  */
 function postLedgerEntry(transaction, entry) {
     const ledgerRef = db.collection("ledger").doc();
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
+    // Define account types for correct balance calculation
+    const ASSET_ACCOUNTS = ['CASH_IN_HAND', 'BANK_ACCOUNT', 'INVENTORY_VALUE'];
+    const liabilityAccounts = ['WALLET_BALANCE', 'GST_PAYABLE', 'SALES', 'ACCOUNTS_PAYABLE']; // Sales is Revenue, GST is Liability
+
+    const isAsset = ASSET_ACCOUNTS.includes(entry.account);
+
+    // Calculate increment amount based on account type
+    // Asset: Debit (+), Credit (-)
+    // Others: Credit (+), Debit (-)
+    let increment = 0;
+    if (isAsset) {
+        increment = (entry.type === 'DEBIT' ? entry.amount : -entry.amount);
+    } else {
+        increment = (entry.type === 'CREDIT' ? entry.amount : -entry.amount);
+    }
 
     transaction.set(ledgerRef, {
         ...entry,
@@ -42,7 +61,7 @@ function postLedgerEntry(transaction, entry) {
 
     const accountRef = db.collection("accounts").doc(entry.account);
     transaction.set(accountRef, {
-        balance: admin.firestore.FieldValue.increment(entry.type === 'CREDIT' ? entry.amount : -entry.amount),
+        balance: admin.firestore.FieldValue.increment(increment),
         lastUpdated: timestamp,
     }, { merge: true });
 }
