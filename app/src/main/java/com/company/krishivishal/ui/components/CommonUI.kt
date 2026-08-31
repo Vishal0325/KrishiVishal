@@ -74,3 +74,70 @@ fun EmptyState(
         )
     }
 }
+
+@Composable
+fun StitchFilterChip(
+    text: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        shape = androidx.compose.foundation.shape.CircleShape,
+        color = if (isSelected) com.company.krishivishal.ui.theme.StitchPrimary else com.company.krishivishal.ui.theme.StitchSurfaceContainer,
+        contentColor = if (isSelected) Color.White else com.company.krishivishal.ui.theme.StitchOnSurface,
+        border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, com.company.krishivishal.ui.theme.StitchOutlineVariant),
+        modifier = modifier.height(36.dp)
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        ) {
+            Text(
+                text = text,
+                fontSize = 13.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+fun StitchRatingBadge(
+    rating: Double,
+    reviewCount: Int = 0,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+        color = com.company.krishivishal.ui.theme.StitchSurfaceLow,
+        modifier = modifier
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = "★",
+                color = com.company.krishivishal.ui.theme.StitchSecondaryOrange,
+                fontSize = 12.sp
+            )
+            Spacer(modifier = Modifier.width(3.dp))
+            Text(
+                text = String.format(java.util.Locale.US, "%.1f", rating),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = com.company.krishivishal.ui.theme.StitchOnSurface
+            )
+            if (reviewCount > 0) {
+                Spacer(modifier = Modifier.width(3.dp))
+                Text(
+                    text = "($reviewCount)",
+                    fontSize = 11.sp,
+                    color = com.company.krishivishal.ui.theme.StitchOnSurfaceVariant
+                )
+            }
+        }
+    }
+}

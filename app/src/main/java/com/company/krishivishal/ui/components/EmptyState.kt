@@ -12,7 +12,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.company.krishivishal.ui.theme.PrimaryGreen
+import com.company.krishivishal.ui.theme.*
 
 @Composable
 fun EmptyState(
@@ -26,21 +26,22 @@ fun EmptyState(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(horizontal = 24.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Surface(
-            modifier = Modifier.size(100.dp),
-            shape = RoundedCornerShape(24.dp),
-            color = Color(0xFFF1F3F5)
+            modifier = Modifier.size(112.dp),
+            shape = RoundedCornerShape(28.dp),
+            color = StitchSurfaceLow,
+            shadowElevation = 2.dp
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = Color.Gray
+                    modifier = Modifier.size(52.dp),
+                    tint = StitchPrimary
                 )
             }
         }
@@ -49,9 +50,9 @@ fun EmptyState(
         
         Text(
             text = title,
-            fontSize = 18.sp,
+            fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
-            color = Color.Black,
+            color = StitchOnSurface,
             textAlign = TextAlign.Center
         )
         
@@ -60,20 +61,30 @@ fun EmptyState(
         Text(
             text = description,
             fontSize = 14.sp,
-            color = Color.Gray,
+            color = StitchOnSurfaceVariant,
             textAlign = TextAlign.Center,
-            lineHeight = 20.sp
+            lineHeight = 22.sp
         )
         
         if (actionText != null) {
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(28.dp))
             Button(
                 onClick = onActionClick,
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.height(48.dp).padding(horizontal = 16.dp)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = StitchPrimary,
+                    contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .height(48.dp)
+                    .fillMaxWidth(0.65f),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
             ) {
-                Text(text = actionText, fontWeight = FontWeight.Bold)
+                Text(
+                    text = actionText,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
             }
         }
     }
