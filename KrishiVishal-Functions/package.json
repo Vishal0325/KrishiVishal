@@ -2,6 +2,7 @@
   "name": "krishivishal-functions",
   "scripts": {
     "lint": "eslint .",
+    "test": "node tests/idempotency.test.js && node tests/ledger.test.js && node tests/security_remediation.test.js && node tests/v4_audit_verification.js",
     "serve": "firebase emulators:start --only functions",
     "shell": "firebase functions:shell",
     "start": "firebase emulators:start",

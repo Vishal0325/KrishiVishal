@@ -85,8 +85,11 @@ const VALID_TRANSITIONS = {
 };
 
 function validateOrderTransition(oldStatus, newStatus, obj) {
-    if (obj && obj.auth && obj.auth.token.role === 'SuperAdmin') {
-        return true;
+    if (obj && obj.auth && obj.auth.token) {
+        const token = obj.auth.token;
+        if (token.admin === true || token.isAdmin === true || ['ADMIN', 'SuperAdmin', 'OrderManager'].includes(token.role)) {
+            return true;
+        }
     }
 
     if (!VALID_TRANSITIONS[oldStatus]) {

@@ -27,7 +27,7 @@ class HomeViewModelTest {
     // Mocks
     private val getHomeFeedUseCase: GetHomeFeedUseCase = mockk()
     private val getFilteredProductsUseCase: GetFilteredProductsUseCase = mockk()
-    private val productRepository: ProductRepository = mockk()
+    private val productRepository: ProductRepository = mockk(relaxed = true)
     private val cartRepository: CartRepository = mockk()
     private val authRepository: AuthRepository = mockk()
     private val wishlistRepository: WishlistRepository = mockk()

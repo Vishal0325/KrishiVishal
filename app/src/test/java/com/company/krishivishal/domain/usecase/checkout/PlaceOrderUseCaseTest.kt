@@ -43,7 +43,7 @@ class PlaceOrderUseCaseTest {
             orderRepository.createOrderViaFunction(
                 cartItems = match { it.size == 1 && it[0].productId == "p1" },
                 address = "John Doe, 123, Street, W1, B1, D1, S1 - 123456",
-                paymentMethod = "CASH_ON_DELIVERY",
+                paymentMethod = "COD",
                 userName = "John Doe",
                 userPhone = "9876543210"
             )

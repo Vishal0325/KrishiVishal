@@ -58,18 +58,19 @@ class CalculateCartTotalsUseCase @Inject constructor() {
 
         val grandTotal = netAmount + gstAmount + deliveryCharges + platformFee + handlingCharge + packagingFee
 
-        // Return rounded totals to prevent floating-point display issues (e.g., 99.999999)
+        fun round2(v: Double): Double = (kotlin.math.round(v * 100.0)) / 100.0
+
         return CartTotals(
-            subtotal = kotlin.math.round(subtotal),
-            totalDiscount = kotlin.math.round(totalSavings),
-            gstAmount = kotlin.math.round(gstAmount),
-            deliveryCharges = deliveryCharges,
+            subtotal = round2(subtotal),
+            totalDiscount = round2(totalSavings),
+            gstAmount = round2(gstAmount),
+            deliveryCharges = round2(deliveryCharges),
             platformFee = platformFee,
             handlingCharge = handlingCharge,
             packagingFee = packagingFee,
-            grandTotal = kotlin.math.round(grandTotal),
+            grandTotal = round2(grandTotal),
             totalQuantity = totalQuantity,
-            totalSavings = kotlin.math.round(totalSavings)
+            totalSavings = round2(totalSavings)
         )
     }
 }

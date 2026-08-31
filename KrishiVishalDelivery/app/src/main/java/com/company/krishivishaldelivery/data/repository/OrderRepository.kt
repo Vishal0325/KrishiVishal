@@ -73,18 +73,11 @@ class OrderRepository @Inject constructor(
         try {
             deliveryDao.updateOrderStatus(orderId, newStatus, true)
 
-            val doc = firestore.collection("orders").document(orderId).get().await()
-            val serverStatus = doc.getString("status") ?: ""
-
-            if (isStatusAdvanced(serverStatus, newStatus)) {
-                deliveryDao.updateOrderStatus(orderId, serverStatus, false)
-                return
-            }
-
-            firestore.collection("orders").document(orderId).update(
-                "status", newStatus,
-                "updatedAt", FieldValue.serverTimestamp()
-            ).await()
+            val data = hashMapOf(
+                "orderId" to orderId,
+                "targetStatus" to newStatus
+            )
+            functions.getHttpsCallable("updateOrderStatus").call(data).await()
 
             deliveryDao.updateSyncStatus(orderId, false)
         } catch (e: Exception) {
@@ -119,15 +112,12 @@ class OrderRepository @Inject constructor(
         val pending = deliveryDao.getPendingSyncOrders()
         pending.forEach { entity ->
             try {
-                val doc = firestore.collection("orders").document(entity.id).get().await()
-                if (doc.exists()) {
-                    val serverStatus = doc.getString("status") ?: ""
-                    if (!isStatusAdvanced(serverStatus, entity.status)) {
-                        firestore.collection("orders").document(entity.id).update(
-                            "status", entity.status,
-                            "updatedAt", FieldValue.serverTimestamp()
-                        ).await()
-                    }
+                if (entity.status != OrderStatus.DELIVERED.name) {
+                    val data = hashMapOf(
+                        "orderId" to entity.id,
+                        "targetStatus" to entity.status
+                    )
+                    functions.getHttpsCallable("updateOrderStatus").call(data).await()
                 }
 
                 if (entity.status == OrderStatus.DELIVERED.name) {

@@ -203,9 +203,13 @@ class HomeViewModel @Inject constructor(
     private fun getCurrentUser() {
         viewModelScope.launch {
             authRepository.getCurrentUser().collectLatest { user ->
-                // Check if Firebase Auth has a real user (not anonymous)
-                val firebaseUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
-                if (firebaseUser != null && !firebaseUser.isAnonymous) {
+                val isAnon = try {
+                    val firebaseUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                    firebaseUser == null || firebaseUser.isAnonymous
+                } catch (e: Exception) {
+                    user == null
+                }
+                if (user != null && !isAnon) {
                     _currentUser.value = user
                 } else {
                     _currentUser.value = null

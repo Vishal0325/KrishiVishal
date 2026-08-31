@@ -399,12 +399,16 @@ exports.generateSignedQRPayload = onCall({ region: REGION }, async (request) => 
     if (!orderSnap.exists) throw new HttpsError('not-found', 'Order not found.');
 
     const orderData = orderSnap.data();
-    const salt = crypto.randomBytes(16).toString('hex');
-    const timestamp = Date.now();
-    const hmacSecret = process.env.QR_HMAC_SECRET || 'KV_MASTER_QR_SECRET_PURNEA_2026';
+    const hmacSecret = process.env.QR_HMAC_SECRET;
+    if (!hmacSecret) {
+        if (process.env.NODE_ENV === 'production' || process.env.FUNCTIONS_EMULATOR !== 'true') {
+            console.warn("QR_HMAC_SECRET is not set in environment. Falling back to local default for sandbox testing.");
+        }
+    }
+    const secretToUse = hmacSecret || 'KV_MASTER_QR_SECRET_PURNEA_2026';
 
     const rawPayload = `${orderId}|${orderData.totalAmount || 0}|${salt}|${timestamp}`;
-    const hash = crypto.createHmac('sha256', hmacSecret).update(rawPayload).digest('hex');
+    const hash = crypto.createHmac('sha256', secretToUse).update(rawPayload).digest('hex');
 
     const qrPayload = {
         orderId,
