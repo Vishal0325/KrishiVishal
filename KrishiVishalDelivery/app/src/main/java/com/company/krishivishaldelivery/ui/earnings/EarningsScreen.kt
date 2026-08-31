@@ -39,29 +39,50 @@ fun EarningsScreen(viewModel: EarningsViewModel = hiltViewModel()) {
     
     var selectedFilter by remember { mutableStateOf("All Time") }
 
-    val filteredOrders = when(selectedFilter) {
-        "Last 7 Days" -> {
-            val sevenDaysAgo = System.currentTimeMillis() - (7 * 24 * 60 * 60 * 1000)
-            orders.filter { it.createdAt.time >= sevenDaysAgo }
+    // ⚡ Bolt: Memoize filtered orders to prevent re-running list allocations on unrelated re-renders
+    val filteredOrders = remember(orders, selectedFilter) {
+        when (selectedFilter) {
+            "Last 7 Days" -> {
+                val sevenDaysAgo = System.currentTimeMillis() - (7 * 24 * 60 * 60 * 1000)
+                orders.filter { it.createdAt.time >= sevenDaysAgo }
+            }
+            "This Month" -> {
+                val oneMonthAgo = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
+                orders.filter { it.createdAt.time >= oneMonthAgo }
+            }
+            else -> orders
         }
-        "This Month" -> {
-            val oneMonthAgo = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
-            orders.filter { it.createdAt.time >= oneMonthAgo }
-        }
-        else -> orders
     }
 
-    // Logic for Cash to Deposit
-    val cashToDeposit = orders
-        .filter { it.isCOD && it.status == OrderStatus.DELIVERED.name && !it.isCashDeposited }
-        .sumOf { it.codAmount }
+    // ⚡ Bolt: Memoize cash to deposit calculation to avoid repeated list filtering
+    val cashToDeposit = remember(orders) {
+        orders
+            .filter { it.isCOD && it.status == OrderStatus.DELIVERED.name && !it.isCashDeposited }
+            .sumOf { it.codAmount }
+    }
     
-    val totalEarningsPotential = filteredOrders
-        .filter { it.status == OrderStatus.DELIVERED.name }
-        .sumOf { config.commissionPerOrder }
+    // ⚡ Bolt: Memoize total potential earnings calculation
+    val totalEarningsPotential = remember(filteredOrders, config) {
+        filteredOrders
+            .filter { it.status == OrderStatus.DELIVERED.name }
+            .sumOf { config.commissionPerOrder }
+    }
 
-    val settledAmount = payoutLogs.sumOf { (it["amount"] as? Number)?.toDouble() ?: 0.0 }
-    val pendingSettlement = (totalEarningsPotential - settledAmount).coerceAtLeast(0.0)
+    // ⚡ Bolt: Memoize settled amount calculation
+    val settledAmount = remember(payoutLogs) {
+        payoutLogs.sumOf { (it["amount"] as? Number)?.toDouble() ?: 0.0 }
+    }
+
+    // ⚡ Bolt: Memoize pending settlement calculation
+    val pendingSettlement = remember(totalEarningsPotential, settledAmount) {
+        (totalEarningsPotential - settledAmount).coerceAtLeast(0.0)
+    }
+
+    // ⚡ Bolt: Memoize delivered orders list for performance stats & recent deliveries list rendering
+    val deliveredOrders = remember(filteredOrders) {
+        filteredOrders.filter { it.status == OrderStatus.DELIVERED.name }
+    }
+    val deliveredCount = remember(deliveredOrders) { deliveredOrders.size }
 
     Scaffold(
         topBar = {
@@ -124,7 +145,6 @@ fun EarningsScreen(viewModel: EarningsViewModel = hiltViewModel()) {
 
             item {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    val deliveredCount = filteredOrders.count { it.status == OrderStatus.DELIVERED.name }
                     val avgPay = if (deliveredCount != 0) totalEarningsPotential / deliveredCount else 0.0
                     StatCard("Orders", deliveredCount.toString(), Icons.Default.History, Modifier.weight(1f))
                     StatCard("Avg Pay", "₹${avgPay.toInt()}", Icons.Default.Payments, Modifier.weight(1f))
@@ -134,8 +154,6 @@ fun EarningsScreen(viewModel: EarningsViewModel = hiltViewModel()) {
             item {
                 Text("Recent Deliveries", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
-
-            val deliveredOrders = filteredOrders.filter { it.status == OrderStatus.DELIVERED.name }
             if (deliveredOrders.isEmpty()) {
                 item {
                     Text("No delivered orders in this period.", color = Color.Gray, fontSize = 14.sp)
