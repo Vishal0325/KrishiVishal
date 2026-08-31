@@ -27,7 +27,7 @@ import com.company.krishivishal.core.model.*
         RecentSearch::class
     ],
     version = 48,
-    exportSchema = true
+    exportSchema = false
 )
 @TypeConverters(AppConverters::class)
 abstract class AppDatabase : RoomDatabase() {

@@ -231,9 +231,7 @@ service firebase.storage {
       // Existing evidence cannot be overwritten.
       allow create: if (isAdmin() || isAssignedRider(orderId)) &&
         isValidImage() &&
-        !exists(
-          /b/$(bucket)/o/pod/$(orderId)/$(fileName)
-        );
+        resource == null;
 
       // Rider cannot modify/delete evidence.
       allow update, delete: if isAdmin();
@@ -276,9 +274,7 @@ service firebase.storage {
       // Existing evidence cannot be overwritten.
       allow create: if (isAdmin() || isReturnRider(returnId)) &&
         isValidImage() &&
-        !exists(
-          /b/$(bucket)/o/returns/$(returnId)/$(fileName)
-        );
+        resource == null;
 
       // Rider cannot modify/delete evidence.
       allow update, delete: if isAdmin();

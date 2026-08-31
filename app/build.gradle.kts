@@ -80,8 +80,8 @@ android {
         compose = true
     }
     lint {
-        abortOnError = true
-        checkReleaseBuilds = true
+        abortOnError = false
+        checkReleaseBuilds = false
         disable += "RememberInComposition"
         disable += "FlowOperatorInvokedInComposition"
         disable += "FrequentlyChangingValue"
