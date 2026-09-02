@@ -16,8 +16,8 @@ import DataTable from "../components/common/DataTable";
 import ImageUpload from "../components/common/ImageUpload";
 import { formatCurrency } from "../utils/formatters";
 import Papa from "papaparse";
-import * as XLSX from "xlsx";
 import { importProducts, downloadSampleProductTemplate } from "../services/bulkUpload";
+import { readWorksheetAsJson } from "../utils/excel";
 import {
   fetchAllProducts,
   exportProductsCsv,
@@ -185,21 +185,14 @@ const Products = () => {
     const fileName = f.name.toLowerCase();
 
     if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
-      // Parse Excel
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        try {
-          const workbook = XLSX.read(evt.target.result, { type: "binary" });
-          const sheetName = workbook.SheetNames[0];
-          const sheet = workbook.Sheets[sheetName];
-          const data = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      readWorksheetAsJson(f)
+        .then((data) => {
           setBulkRows(data);
           toast.success(`Parsed ${data.length} rows from Excel`);
-        } catch (err) {
+        })
+        .catch((err) => {
           toast.error("Excel parse error: " + err.message);
-        }
-      };
-      reader.readAsBinaryString(f);
+        });
     } else {
       // Parse CSV
       Papa.parse(f, {

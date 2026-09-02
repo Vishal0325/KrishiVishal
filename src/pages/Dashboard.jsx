@@ -9,6 +9,13 @@ import { ShoppingCart, IndianRupee, Users, Clock, AlertTriangle, PackageSearch, 
 import { useOrders } from '../hooks/useOrders';
 import { useProducts } from '../hooks/useProducts';
 import { useCustomers } from '../hooks/useCustomers';
+import {
+  fetchAllProducts,
+  exportProductsCsv,
+  exportProductsXlsx,
+  callUpsertSku,
+  callReceiveGrn,
+} from "../services/inventory";
 import { formatCurrency } from '../utils/formatters';
 import { doc, setDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -22,6 +29,7 @@ const Dashboard = () => {
 
   const [chartFilter, setChartFilter] = useState('30D');
   const [refillQuantities, setRefillQuantities] = useState({});
+  const [refillBatches, setRefillBatches] = useState({});
   const [updatingId, setUpdatingId] = useState(null);
 
   const districtData = useMemo(() => {
@@ -46,28 +54,41 @@ const Dashboard = () => {
 
   const handleRefill = async (product) => {
     const qtyToAdd = Number(refillQuantities[product.id]);
+    const batchNo = refillBatches[product.id];
+
     if (!qtyToAdd || qtyToAdd <= 0) return toast.error("Enter valid quantity");
+    if (!batchNo) return toast.error("Batch Number is required for GRN");
 
     setUpdatingId(product.id);
     try {
-      await setDoc(doc(db, 'products', product.id), {
-        stock: (product.stock || 0) + qtyToAdd,
-        stockQuantity: (product.stockQuantity || product.stock || 0) + qtyToAdd,
-        updatedAt: Timestamp.now()
-      }, { merge: true });
-      toast.success(`${product.name} restocked!`);
+      // Use authoritative GRN call instead of direct Firestore write
+      await callReceiveGrn({
+        skuCode: product.skuCode || product.id,
+        quantity: qtyToAdd,
+        batchNumber: batchNo,
+        warehouseId: 'DEFAULT', // Dashboard refill defaults to main warehouse
+        reason: 'Dashboard Quick Refill'
+      });
+
+      toast.success(`${product.name} restocked via GRN!`);
       setRefillQuantities({ ...refillQuantities, [product.id]: '' });
+      setRefillBatches({ ...refillBatches, [product.id]: '' });
     } catch (e) {
-      toast.error("Refill failed");
+      console.error(e);
+      toast.error("Refill failed: " + (e.message || "Unknown error"));
     } finally {
       setUpdatingId(null);
     }
   };
 
-  // Dummy aggregation for UI
+  // Aggregation for UI - Subtracting cancelled and returned amounts
   const todayRevenue = orders
     .filter(o => o.status !== 'CANCELLED')
-    .reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+    .reduce((sum, o) => {
+      const amount = Number(o.totalAmount) || 0;
+      const refund = o.returnApproved ? (Number(o.refundAmount) || amount) : 0;
+      return sum + (amount - refund);
+    }, 0);
 
   const pendingCount = orders.filter(o => o.status === 'PLACED').length;
   const lowStockProducts = products.filter(p => (p.stockQuantity || p.stock || 0) < 10);
@@ -253,21 +274,30 @@ const Dashboard = () => {
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center space-x-3">
-                  <input
-                    type="number"
-                    placeholder="+ Qty"
-                    value={refillQuantities[p.id] || ''}
-                    onChange={(e) => setRefillQuantities({...refillQuantities, [p.id]: e.target.value})}
-                    className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:border-red-400"
-                  />
+                <div className="flex flex-col space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="text"
+                      placeholder="Batch #"
+                      value={refillBatches[p.id] || ''}
+                      onChange={(e) => setRefillBatches({...refillBatches, [p.id]: e.target.value})}
+                      className="w-24 bg-white border border-gray-200 rounded-xl px-3 py-2 text-[10px] font-bold outline-none focus:border-red-400"
+                    />
+                    <input
+                      type="number"
+                      placeholder="+ Qty"
+                      value={refillQuantities[p.id] || ''}
+                      onChange={(e) => setRefillQuantities({...refillQuantities, [p.id]: e.target.value})}
+                      className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-[10px] font-bold outline-none focus:border-red-400"
+                    />
+                  </div>
                   <button
                     onClick={() => handleRefill(p)}
                     disabled={updatingId === p.id}
-                    className="bg-red-500 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-600 shadow-lg shadow-red-100 active:scale-95 transition-all flex items-center space-x-2"
+                    className="w-full bg-red-500 text-white py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-600 shadow-lg shadow-red-100 active:scale-95 transition-all flex items-center justify-center space-x-2"
                   >
                     {updatingId === p.id ? '...' : <CheckCircle size={12} />}
-                    <span>Refill</span>
+                    <span>Confirm GRN Refill</span>
                   </button>
                 </div>
               </div>

@@ -4,7 +4,8 @@ import {
   onSnapshot,
   query,
   orderBy,
-  limit
+  limit,
+  doc
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { useAuth } from '../hooks/useAuth';
@@ -39,7 +40,28 @@ const CRMDashboard = () => {
   const [tickets, setTickets] = useState([]);
   const [complaints, setComplaints] = useState([]);
   const [feedbackList, setFeedbackList] = useState([]);
+  const [settings, setSettings] = useState({
+    crmHighValueLTV: 10000,
+    crmChurnRiskDays: 45,
+    activeDays: 30,
+    regularBuyerOrderCount: 2
+  });
   const [loading, setLoading] = useState(true);
+
+  // Listen to Settings
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'config'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setSettings(prev => ({
+          ...prev,
+          crmHighValueLTV: data.crmHighValueLTV || 10000,
+          crmChurnRiskDays: data.crmChurnRiskDays || 45
+        }));
+      }
+    });
+    return unsub;
+  }, []);
 
   // Listen to Users (Farmers)
   useEffect(() => {
@@ -86,8 +108,8 @@ const CRMDashboard = () => {
 
   // Compute Persona Stats
   const personaStats = useMemo(() => {
-    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    const fortyFiveDaysAgo = Date.now() - 45 * 24 * 60 * 60 * 1000;
+    const thirtyDaysAgo = Date.now() - settings.activeDays * 24 * 60 * 60 * 1000;
+    const churnRiskThreshold = Date.now() - settings.crmChurnRiskDays * 24 * 60 * 60 * 1000;
 
     let highValueCount = 0;
     let activeBuyerCount = 0;
@@ -110,10 +132,10 @@ const CRMDashboard = () => {
         activeThirtyDays++;
       }
 
-      if (totalSpent >= 10000) {
+      if (totalSpent >= settings.crmHighValueLTV) {
         highValueCount++;
-      } else if (ordersCount >= 2) {
-        if (lastOrderDateMs && lastOrderDateMs < fortyFiveDaysAgo) {
+      } else if (ordersCount >= settings.regularBuyerOrderCount) {
+        if (lastOrderDateMs && lastOrderDateMs < churnRiskThreshold) {
           churnRiskCount++;
         } else {
           activeBuyerCount++;
@@ -130,7 +152,7 @@ const CRMDashboard = () => {
       churnRiskCount,
       activeThirtyDays
     };
-  }, [customers, orders]);
+  }, [customers, orders, settings]);
 
   // CSAT Metrics
   const totalReviews = feedbackList.length;
@@ -269,7 +291,7 @@ const CRMDashboard = () => {
         {/* High Value Farmers */}
         <div className="bg-white p-5 rounded-2xl border border-amber-200 shadow-sm bg-gradient-to-br from-amber-50/50 to-white">
           <p className="text-[10px] font-black text-amber-800 uppercase tracking-widest flex items-center gap-1">
-            <Sparkles size={12} className="text-amber-600 fill-amber-600" /> High Value (₹10k+)
+            <Sparkles size={12} className="text-amber-600 fill-amber-600" /> High Value (₹{settings.crmHighValueLTV / 1000}k+)
           </p>
           <p className="text-2xl font-black text-amber-900 mt-1 font-mono">{personaStats.highValueCount}</p>
           <span className="text-[10px] font-bold text-amber-700 mt-1 block">
@@ -320,7 +342,7 @@ const CRMDashboard = () => {
         {/* Churn Risk */}
         <div className="bg-white p-5 rounded-2xl border border-orange-100 shadow-sm">
           <p className="text-[10px] font-black text-orange-700 uppercase tracking-widest flex items-center gap-1">
-            <AlertTriangle size={12} /> Churn Risk (&gt;45d)
+            <AlertTriangle size={12} /> Churn Risk (&gt;{settings.crmChurnRiskDays}d)
           </p>
           <p className="text-2xl font-black text-orange-800 mt-1 font-mono">{personaStats.churnRiskCount}</p>
           <span className="text-[10px] font-bold text-orange-600 mt-1 block">
@@ -348,7 +370,7 @@ const CRMDashboard = () => {
             <div>
               <div className="flex justify-between text-xs font-bold mb-1">
                 <span className="text-amber-800 flex items-center gap-1">
-                  <Sparkles size={12} /> High Value Farmers (₹10k+ LTV)
+                  <Sparkles size={12} /> High Value Farmers (₹{settings.crmHighValueLTV / 1000}k+ LTV)
                 </span>
                 <span className="font-mono text-gray-900">{personaStats.highValueCount} ({customers.length ? Math.round((personaStats.highValueCount / customers.length) * 100) : 0}%)</span>
               </div>
@@ -396,7 +418,7 @@ const CRMDashboard = () => {
             <div>
               <div className="flex justify-between text-xs font-bold mb-1">
                 <span className="text-red-700 flex items-center gap-1">
-                  <AlertTriangle size={12} /> Churn Risk (45+ Days Inactive)
+                  <AlertTriangle size={12} /> Churn Risk ({settings.crmChurnRiskDays}+ Days Inactive)
                 </span>
                 <span className="font-mono text-gray-900">{personaStats.churnRiskCount} ({customers.length ? Math.round((personaStats.churnRiskCount / customers.length) * 100) : 0}%)</span>
               </div>

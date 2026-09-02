@@ -1,8 +1,9 @@
 import { collection, addDoc, getDocs, Timestamp } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "../firebase/config";
-import * as XLSX from "xlsx";
 import Papa from "papaparse";
+import ExcelJS from "exceljs";
+import { createWorksheetFromJson, downloadWorkbook } from "../utils/excel";
 
 // ─── Cloud Function Wrappers (all inventory mutations go through CF) ───
 
@@ -222,10 +223,9 @@ export function exportProductsCsv(products) {
   document.body.removeChild(link);
 }
 
-export function exportProductsXlsx(products) {
+export async function exportProductsXlsx(products) {
   const data = products.map(buildExportRow);
-  const worksheet = XLSX.utils.json_to_sheet(data);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Products");
-  XLSX.writeFile(workbook, "krishivishal-products-export.xlsx");
+  const workbook = new ExcelJS.Workbook();
+  createWorksheetFromJson(workbook, data, "Products");
+  await downloadWorkbook(workbook, "krishivishal-products-export.xlsx");
 }

@@ -18,6 +18,8 @@ const Settings = () => {
     codAvailable: true,
     razorpayKey: '',
     lowStockThreshold: 10,
+    crmHighValueLTV: 10000,
+    crmChurnRiskDays: 45,
     adminAlertWhatsApp: '',
     aboutUs: '',
     gstin: '10AAAAA0000A1Z5',
@@ -185,6 +187,33 @@ const Settings = () => {
                         onChange={(e) => setSettings({...settings, lowStockThreshold: Number(e.target.value)})}
                         className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900"
                       />
+                    </div>
+                  </div>
+
+                  <h2 className="text-lg font-black text-gray-900 uppercase tracking-tighter flex items-center border-b pb-4 mt-12">
+                    <div className="h-8 w-1 bg-amber-500 mr-3 rounded-full" />
+                    CRM Business Intelligence Threholds
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-amber-600 uppercase tracking-widest ml-1">High Value Farmer LTV (₹)</label>
+                      <input
+                        type="number"
+                        value={settings.crmHighValueLTV}
+                        onChange={(e) => setSettings({...settings, crmHighValueLTV: Number(e.target.value)})}
+                        className="w-full px-6 py-4 bg-amber-50/20 border border-amber-100 rounded-2xl focus:ring-4 focus:ring-amber-500/5 focus:border-amber-500 outline-none transition-all font-black text-gray-900"
+                      />
+                      <p className="text-[8px] text-gray-400 font-bold uppercase ml-1 tracking-tighter italic">* Minimum spend to be marked as VIP</p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-orange-600 uppercase tracking-widest ml-1">Churn Risk Duration (Days)</label>
+                      <input
+                        type="number"
+                        value={settings.crmChurnRiskDays}
+                        onChange={(e) => setSettings({...settings, crmChurnRiskDays: Number(e.target.value)})}
+                        className="w-full px-6 py-4 bg-orange-50/20 border border-orange-100 rounded-2xl focus:ring-4 focus:ring-orange-500/5 focus:border-orange-500 outline-none transition-all font-black text-gray-900"
+                      />
+                      <p className="text-[8px] text-gray-400 font-bold uppercase ml-1 tracking-tighter italic">* Inactivity period before churn alert</p>
                     </div>
                   </div>
                 </div>

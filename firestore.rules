@@ -66,7 +66,7 @@ service cloud.firestore {
     // ========== ADMIN / SYSTEM COLLECTIONS ==========
 
     match /settings/{id} {
-      allow read: if true; // App needs to read config
+      allow read: if isAuthenticated(); // App needs to read config, but should be authenticated
       allow write: if isAdmin();
     }
 

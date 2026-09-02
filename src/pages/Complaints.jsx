@@ -299,6 +299,15 @@ const Complaints = () => {
       };
 
       await updateDoc(docRef, updates);
+
+      await addAuditLog('RESOLVE_CUSTOMER_COMPLAINT', 'Complaint', selectedComplaint.id, {
+        complaintNumber: selectedComplaint.complaintNumber,
+        previousStatus: selectedComplaint.status,
+        newStatus: statusToSet,
+        rootCause: updates.rootCause,
+        correctiveAction: updates.correctiveAction
+      });
+
       setSelectedComplaint(prev => ({ ...prev, ...updates }));
       toast.success(`Complaint marked as ${statusToSet}`);
     } catch (error) {

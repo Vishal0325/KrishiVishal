@@ -72,6 +72,10 @@ const InventoryMovements = () => {
   const [adjustQuantity, setAdjustQuantity] = useState('');
   const [adjustDirection, setAdjustDirection] = useState('ADD'); // 'ADD' | 'REMOVE'
   const [adjustReason, setAdjustReason] = useState('');
+  const [unitCost, setUnitCost] = useState('');
+  const [rackBin, setRackBin] = useState('');
+  const [batchNo, setBatchNo] = useState('');
+  const [warehouseId, setWarehouseId] = useState('DEFAULT');
   const [submittingAdjust, setSubmittingAdjust] = useState(false);
 
   // Listen to Inventory Movements
@@ -126,14 +130,18 @@ const InventoryMovements = () => {
         await callAdjustInventory({
           skuCode: foundSku.skuCode || foundSku.id,
           adjustment: finalQty,
-          reason: adjustReason || 'Manual adjustment from Admin stock movements'
+          reason: adjustReason || 'Manual adjustment from Admin stock movements',
+          unitCost: unitCost ? Number(unitCost) : undefined,
+          rackBin: rackBin || undefined,
+          batchNumber: batchNo || undefined,
+          warehouseId: warehouseId || 'DEFAULT'
         });
         toast.success(`SKU ${foundSku.skuCode || foundSku.id} stock adjusted by ${finalQty > 0 ? '+' : ''}${finalQty}`);
       } else {
         // Legacy product adjustment fallback
         const prod = products.find(p => p.id === selectedSkuOrProduct);
         const refId = `ADJ-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
-        
+
         await updateDoc(doc(db, 'products', selectedSkuOrProduct), {
           stockQuantity: increment(finalQty),
           stock: increment(finalQty),
@@ -145,7 +153,11 @@ const InventoryMovements = () => {
           type: adjustType,
           quantity: finalQty,
           reason: adjustReason,
-          referenceId: refId
+          referenceId: refId,
+          unitCost: unitCost ? Number(unitCost) : undefined,
+          rackBin: rackBin || undefined,
+          batchNumber: batchNo || undefined,
+          warehouseId: warehouseId || 'DEFAULT'
         });
         toast.success(`Stock adjusted by ${finalQty > 0 ? '+' : ''}${finalQty} units`);
       }
@@ -154,6 +166,10 @@ const InventoryMovements = () => {
       setSelectedSkuOrProduct('');
       setAdjustQuantity('');
       setAdjustReason('');
+      setUnitCost('');
+      setRackBin('');
+      setBatchNo('');
+      setWarehouseId('DEFAULT');
     } catch (error) {
       console.error('Adjustment failed:', error);
       toast.error('Failed to adjust stock: ' + error.message);
@@ -487,6 +503,32 @@ const InventoryMovements = () => {
                       - Remove
                     </button>
                   </div>
+                </div>
+              </div>
+
+              {/* Batch & Warehouse */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Batch Number</label>
+                  <input
+                    type="text"
+                    value={batchNo}
+                    onChange={(e) => setBatchNo(e.target.value)}
+                    placeholder="e.g. B2024-001"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl font-bold text-sm text-gray-900 outline-none focus:border-[#1b5e20]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Warehouse</label>
+                  <select
+                    value={warehouseId}
+                    onChange={(e) => setWarehouseId(e.target.value)}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl font-bold text-sm text-gray-900 outline-none focus:border-[#1b5e20]"
+                  >
+                    <option value="DEFAULT">Main Warehouse (Bihar)</option>
+                    <option value="WH_NORTH">North Bihar Hub</option>
+                    <option value="WH_SOUTH">South Bihar Hub</option>
+                  </select>
                 </div>
               </div>
 

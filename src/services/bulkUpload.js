@@ -2,12 +2,13 @@ import { collection, addDoc, Timestamp, query, where, getDocs, doc, updateDoc, s
 import { db } from "../firebase/config";
 import { autoDeriveSkuFromProduct, getCategoryTaxDefaults } from "../utils/skuGenerator";
 import { callUpsertSku, callReceiveGrn } from "./inventory";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
+import { createWorksheetFromJson, downloadWorkbook } from "../utils/excel";
 
 /**
  * Generates and downloads a clean, ready-to-fill Excel template for 1-Click bulk product upload.
  */
-export function downloadSampleProductTemplate() {
+export async function downloadSampleProductTemplate() {
   const sampleData = [
     {
       "Product Name": "Urea Neem Coated 50kg",
@@ -62,10 +63,9 @@ export function downloadSampleProductTemplate() {
     }
   ];
 
-  const worksheet = XLSX.utils.json_to_sheet(sampleData);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Products_Upload_Template");
-  XLSX.writeFile(workbook, "KrishiVishal_Products_Upload_Template.xlsx");
+  const workbook = new ExcelJS.Workbook();
+  createWorksheetFromJson(workbook, sampleData, "Products_Upload_Template");
+  await downloadWorkbook(workbook, "KrishiVishal_Products_Upload_Template.xlsx");
 }
 
 /**
