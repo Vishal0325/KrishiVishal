@@ -240,6 +240,13 @@ fun ProductDetailScreen(
                         }
                     }
 
+                    // 4. Delivery ETA & Pincode Checker Section
+                    item {
+                        val product = uiState.product
+                        val isOutOfStock = product == null || (uiState.selectedVariant?.stock ?: product.stockQuantity) <= 0 || !product.isActive
+                        ProductDeliveryETASection(isOutOfStock = isOutOfStock)
+                    }
+
                     val product = uiState.product
                     if (product != null) {
                         // P0-1 Smart Substitutes Notice

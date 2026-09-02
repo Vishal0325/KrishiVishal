@@ -74,7 +74,7 @@ class SkuRepositoryImpl @Inject constructor(
         ).flowOn(ioDispatcher)
     }
 
-    override fun getSkuByBarcode(barcode: String): Flow<Resource<Sku?>> = flow {
+    override fun getSkuByBarcode(barcode: String): Flow<Resource<Sku?>> = flow<Resource<Sku?>> {
         emit(Resource.Loading())
         try {
             // 1. Check local cache first
@@ -90,7 +90,7 @@ class SkuRepositoryImpl @Inject constructor(
                 .get()
                 .await()
 
-            if (!snap.empty) {
+            if (!snap.isEmpty) {
                 val sku = snap.documents[0].toObject(Sku::class.java)
                 if (sku != null) {
                     skuDao.insertSku(sku)
