@@ -42,6 +42,7 @@ fun AdminPanelScreen(
     onManageCoupons: () -> Unit,
     onManageBanners: () -> Unit,
     onSettings: () -> Unit,
+    onManageInventory: () -> Unit = {},
     viewModel: AdminPanelViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -119,17 +120,22 @@ fun AdminPanelScreen(
             }
 
             Text("Management Hub", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            
-            // ... (rest of management grid/menu)
 
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                maxItemsInEachRow = 2
+                maxItemsInEachRow = 3
             ) {
                 val itemModifier = Modifier.weight(1f)
                 
+                AdminGridItem(
+                    title = "Inventory & SKU",
+                    icon = Icons.Default.QrCodeScanner,
+                    color = Color(0xFF00897B),
+                    onClick = onManageInventory,
+                    modifier = itemModifier
+                )
                 AdminGridItem(
                     title = "Products",
                     icon = Icons.Default.Inventory,
