@@ -29,6 +29,7 @@ import {
   Route as RouteIcon,
   Cpu,
   Factory,
+  Database,
   ClipboardList,
   PackageCheck,
   History,
@@ -85,6 +86,7 @@ const Sidebar = () => {
       icon: <Factory size={16} className="text-amber-300" />,
       roles: ["SuperAdmin", "OrderManager", "CatalogManager", "Viewer"],
       items: [
+        { icon: <Package size={17} />, label: "SKU Master & Stock", path: "/skus", roles: ["SuperAdmin", "OrderManager", "CatalogManager", "Viewer"], isNew: true },
         { icon: <Factory size={17} />, label: "Suppliers", path: "/suppliers", roles: ["SuperAdmin", "OrderManager", "CatalogManager", "Viewer"] },
         { icon: <ClipboardList size={17} />, label: "Procurement", path: "/procurement", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
         { icon: <PackageCheck size={17} />, label: "Goods Receipt (GRN)", path: "/grn", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
@@ -99,6 +101,7 @@ const Sidebar = () => {
       items: [
         { icon: <Package size={17} />, label: "Products", path: "/products", roles: ["SuperAdmin", "CatalogManager", "Viewer"] },
         { icon: <Grid3X3 size={17} />, label: "Categories", path: "/categories", roles: ["SuperAdmin", "CatalogManager", "Viewer"] },
+        { icon: <Database size={17} />, label: "SKU Master Codes", path: "/master-data", roles: ["SuperAdmin", "ADMIN", "CatalogManager", "Viewer"], isNew: true },
         { icon: <Award size={17} />, label: "Brands", path: "/brands", roles: ["SuperAdmin", "CatalogManager", "Viewer"] },
         { icon: <Sprout size={17} />, label: "Crops", path: "/crops", roles: ["SuperAdmin", "CatalogManager", "Viewer"] },
         { icon: <Bell size={17} />, label: "Stock Requests", path: "/stock-requests", roles: ["SuperAdmin", "CatalogManager", "Viewer"] },

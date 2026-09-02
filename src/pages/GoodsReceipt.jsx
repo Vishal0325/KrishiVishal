@@ -16,6 +16,7 @@ import { useAuth } from '../hooks/useAuth';
 import DataTable from '../components/common/DataTable';
 import { addAuditLog } from '../services/logger';
 import { formatCurrency } from '../utils/formatters';
+import { callReceiveGrn } from '../services/inventory';
 import {
   Truck,
   Plus,
@@ -199,6 +200,28 @@ const GoodsReceipt = () => {
       for (const item of processedItems) {
         const productRef = doc(db, 'products', item.productId);
         
+        // If item has skuCode, execute authoritative Cloud Function GRN
+        if (item.skuCode) {
+          try {
+            await callReceiveGrn({
+              skuCode: item.skuCode,
+              batchNumber: item.batchNumber,
+              mfgDate: item.mfgDate,
+              expiryDate: item.expiryDate,
+              quantity: item.receivedQuantity,
+              warehouseId: warehouseLocation,
+              binLocation: item.rackBin || "",
+              supplierId: selectedPO.supplierId || "",
+              purchaseOrderId: selectedPO.id || "",
+              grnId: grnNumber,
+              landingCost: item.actualUnitCost || 0,
+              idempotencyKey: `GRN:${grnNumber}:${item.skuCode}:${item.batchNumber}`
+            });
+          } catch (cfErr) {
+            console.warn('callReceiveGrn warning:', cfErr.message);
+          }
+        }
+
         // Update product stock balance and cost basis
         await updateDoc(productRef, {
           stockQuantity: increment(item.receivedQuantity),
@@ -215,8 +238,10 @@ const GoodsReceipt = () => {
         await setDoc(movementRef, {
           movementId: movementRef.id,
           productId: item.productId,
+          skuCode: item.skuCode || null,
           productName: item.productName,
           type: 'PURCHASE_RECEIPT',
+          movementType: 'PURCHASE_RECEIPT',
           quantity: item.receivedQuantity,
           costBasisPerUnit: item.actualUnitCost,
           totalCost: item.lineTotal,

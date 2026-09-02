@@ -1,7 +1,77 @@
 import { collection, addDoc, getDocs, Timestamp } from "firebase/firestore";
-import { db } from "../firebase/config";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "../firebase/config";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
+
+// ─── Cloud Function Wrappers (all inventory mutations go through CF) ───
+
+/**
+ * Bulk import SKUs via Cloud Function.
+ * @param {Array} skus Array of SKU row objects
+ * @param {boolean} dryRun If true, validates without writing
+ * @returns {Promise<object>} Import results with valid/invalid counts and errors
+ */
+export async function callImportSkus(skus, dryRun = false) {
+  const fn = httpsCallable(functions, "importSkus");
+  const result = await fn({ skus, dryRun });
+  return result.data;
+}
+
+/**
+ * Create or update a single SKU via Cloud Function.
+ * @param {string} skuCode
+ * @param {object} data SKU data (name, pricing, barcode, tax, etc.)
+ * @returns {Promise<object>}
+ */
+export async function callUpsertSku(skuCode, data) {
+  const fn = httpsCallable(functions, "upsertSku");
+  const result = await fn({ skuCode, data });
+  return result.data;
+}
+
+/**
+ * Submit a Goods Receipt Note (GRN) via Cloud Function.
+ * @param {object} payload { skuCode, batchNumber, quantity, mfgDate, expiryDate, warehouseId, ... }
+ * @returns {Promise<object>}
+ */
+export async function callReceiveGrn(payload) {
+  const fn = httpsCallable(functions, "receiveGrn");
+  const result = await fn(payload);
+  return result.data;
+}
+
+/**
+ * Adjust inventory stock via Cloud Function.
+ * @param {object} payload { skuCode, adjustment, reason, batchId, warehouseId }
+ * @returns {Promise<object>}
+ */
+export async function callAdjustInventory(payload) {
+  const fn = httpsCallable(functions, "adjustInventory");
+  const result = await fn(payload);
+  return result.data;
+}
+
+/**
+ * Write off damaged or expired stock via Cloud Function.
+ * @param {object} payload { skuCode, batchId, quantity, type, reason, warehouseId }
+ * @returns {Promise<object>}
+ */
+export async function callWriteOffStock(payload) {
+  const fn = httpsCallable(functions, "writeOffStock");
+  const result = await fn(payload);
+  return result.data;
+}
+
+/**
+ * Fetch inventory report via Cloud Function.
+ * @returns {Promise<object>} { total, items[] }
+ */
+export async function callGetInventoryReport() {
+  const fn = httpsCallable(functions, "getInventoryReport");
+  const result = await fn({});
+  return result.data;
+}
 
 export async function recordStockMovement(
   productId,

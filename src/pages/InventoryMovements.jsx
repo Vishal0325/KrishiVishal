@@ -16,6 +16,7 @@ import { useAuth } from '../hooks/useAuth';
 import DataTable from '../components/common/DataTable';
 import { addAuditLog } from '../services/logger';
 import { formatCurrency } from '../utils/formatters';
+import { callAdjustInventory } from '../services/inventory';
 import {
   History,
   Plus,
@@ -32,24 +33,33 @@ import {
   SlidersHorizontal,
   X,
   Loader2,
-  MapPin
+  MapPin,
+  RefreshCw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const MOVEMENT_TYPES = [
   { value: 'ALL', label: 'All Movements' },
   { value: 'PURCHASE_RECEIPT', label: 'Purchase Receipt (GRN)' },
-  { value: 'ORDER_RESERVE', label: 'Order Reserve' },
-  { value: 'DISPATCH_SALE', label: 'Dispatch / Sale' },
-  { value: 'RETURN_RESTOCK', label: 'Return Restock' },
-  { value: 'DAMAGE_ADJUSTMENT', label: 'Damage / Expiry' },
-  { value: 'MANUAL_AUDIT', label: 'Manual Cycle Count' },
+  { value: 'ORDER_RESERVED', label: 'Order Reserved' },
+  { value: 'ORDER_RELEASED', label: 'Order Released' },
+  { value: 'ORDER_COMPLETED', label: 'Order Completed' },
+  { value: 'RETURN_IN', label: 'Return Restock' },
+  { value: 'DAMAGE', label: 'Damaged Stock' },
+  { value: 'EXPIRED', label: 'Expired Stock' },
+  { value: 'ADJUSTMENT', label: 'Stock Adjustment' },
+  { value: 'ORDER_RESERVE', label: 'Order Reserve (Legacy)' },
+  { value: 'DISPATCH_SALE', label: 'Dispatch / Sale (Legacy)' },
+  { value: 'RETURN_RESTOCK', label: 'Return Restock (Legacy)' },
+  { value: 'DAMAGE_ADJUSTMENT', label: 'Damage / Loss (Legacy)' },
+  { value: 'MANUAL_AUDIT', label: 'Cycle Count (Legacy)' },
 ];
 
 const InventoryMovements = () => {
   const { user } = useAuth();
   const [movements, setMovements] = useState([]);
   const [products, setProducts] = useState([]);
+  const [skus, setSkus] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('ALL');
@@ -57,13 +67,11 @@ const InventoryMovements = () => {
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
 
   // Adjustment Form State
-  const [selectedProductId, setSelectedProductId] = useState('');
-  const [adjustType, setAdjustType] = useState('MANUAL_AUDIT');
+  const [selectedSkuOrProduct, setSelectedSkuOrProduct] = useState('');
+  const [adjustType, setAdjustType] = useState('ADJUSTMENT');
   const [adjustQuantity, setAdjustQuantity] = useState('');
   const [adjustDirection, setAdjustDirection] = useState('ADD'); // 'ADD' | 'REMOVE'
-  const [unitCost, setUnitCost] = useState('');
   const [adjustReason, setAdjustReason] = useState('');
-  const [rackBin, setRackBin] = useState('RACK_A1_BIN_01');
   const [submittingAdjust, setSubmittingAdjust] = useState(false);
 
   // Listen to Inventory Movements
@@ -84,78 +92,66 @@ const InventoryMovements = () => {
     return unsub;
   }, []);
 
-  // Listen to Products
+  // Listen to Products & SKUs
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'products'), (snap) => {
+    const unsubProd = onSnapshot(collection(db, 'products'), (snap) => {
       setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
     });
-    return unsub;
+    const unsubSku = onSnapshot(collection(db, 'skus'), (snap) => {
+      setSkus(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name || a.skuCode || '').localeCompare(b.name || b.skuCode || '')));
+    });
+    return () => {
+      unsubProd();
+      unsubSku();
+    };
   }, []);
-
-  // Handle Product Select in Adjustment Modal
-  const handleProductSelect = (productId) => {
-    setSelectedProductId(productId);
-    const p = products.find(prod => prod.id === productId);
-    if (p) {
-      setUnitCost(p.costPrice || p.estimatedCostPrice || p.price || '');
-    }
-  };
 
   // Submit Manual Stock Adjustment
   const handleManualAdjustment = async (e) => {
     e.preventDefault();
-    if (!selectedProductId || !adjustQuantity || Number(adjustQuantity) <= 0) {
-      toast.error('Please enter a valid product and quantity');
+    if (!selectedSkuOrProduct || !adjustQuantity || Number(adjustQuantity) <= 0) {
+      toast.error('Please enter a valid SKU/Product and quantity');
       return;
     }
-
-    const prod = products.find(p => p.id === selectedProductId);
-    if (!prod) return;
 
     setSubmittingAdjust(true);
     try {
       const qtyNumber = Number(adjustQuantity);
       const finalQty = adjustDirection === 'ADD' ? qtyNumber : -qtyNumber;
-      const refId = `ADJ-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      // 1. Write Immutable Movement Record
-      const movementRef = doc(collection(db, 'inventory_movements'));
-      await setDoc(movementRef, {
-        movementId: movementRef.id,
-        productId: prod.id,
-        productName: prod.name,
-        type: adjustType,
-        quantity: finalQty,
-        costBasisPerUnit: Number(unitCost) || 0,
-        totalCost: Math.abs(finalQty) * (Number(unitCost) || 0),
-        referenceId: refId,
-        reason: adjustReason,
-        warehouseId: 'WH_PURNEA_MAIN',
-        rackBin,
-        recordedBy: user?.uid || 'ADMIN',
-        recordedByEmail: user?.email || 'admin@krishivishal.com',
-        timestamp: Timestamp.now()
-      });
+      // Check if selected is SKU
+      const foundSku = skus.find(s => s.id === selectedSkuOrProduct || s.skuCode === selectedSkuOrProduct);
+      if (foundSku) {
+        // Call authoritative Cloud Function
+        await callAdjustInventory({
+          skuCode: foundSku.skuCode || foundSku.id,
+          adjustment: finalQty,
+          reason: adjustReason || 'Manual adjustment from Admin stock movements'
+        });
+        toast.success(`SKU ${foundSku.skuCode || foundSku.id} stock adjusted by ${finalQty > 0 ? '+' : ''}${finalQty}`);
+      } else {
+        // Legacy product adjustment fallback
+        const prod = products.find(p => p.id === selectedSkuOrProduct);
+        const refId = `ADJ-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+        
+        await updateDoc(doc(db, 'products', selectedSkuOrProduct), {
+          stockQuantity: increment(finalQty),
+          stock: increment(finalQty),
+          updatedAt: Timestamp.now()
+        });
 
-      // 2. Update Product Stock
-      await updateDoc(doc(db, 'products', prod.id), {
-        stockQuantity: increment(finalQty),
-        stock: increment(finalQty),
-        updatedAt: Timestamp.now()
-      });
+        await addAuditLog('MANUAL_STOCK_ADJUSTMENT', 'Product', selectedSkuOrProduct, {
+          productName: prod?.name || selectedSkuOrProduct,
+          type: adjustType,
+          quantity: finalQty,
+          reason: adjustReason,
+          referenceId: refId
+        });
+        toast.success(`Stock adjusted by ${finalQty > 0 ? '+' : ''}${finalQty} units`);
+      }
 
-      // 3. Audit Log
-      await addAuditLog('MANUAL_STOCK_ADJUSTMENT', 'Product', prod.id, {
-        productName: prod.name,
-        type: adjustType,
-        quantity: finalQty,
-        reason: adjustReason,
-        referenceId: refId
-      });
-
-      toast.success(`Stock adjusted by ${finalQty > 0 ? '+' : ''}${finalQty} units`);
       setIsAdjustModalOpen(false);
-      setSelectedProductId('');
+      setSelectedSkuOrProduct('');
       setAdjustQuantity('');
       setAdjustReason('');
     } catch (error) {
@@ -168,31 +164,42 @@ const InventoryMovements = () => {
 
   // Filter Movements
   const filtered = movements.filter(m => {
+    const rawType = m.movementType || m.type;
+    const skuOrProd = m.skuCode || m.productName || m.productId || '';
     const matchSearch = !searchTerm ||
-      m.productName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      skuOrProd.toLowerCase().includes(searchTerm.toLowerCase()) ||
       m.referenceId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      m.actorId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       m.recordedByEmail?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchType = typeFilter === 'ALL' || m.type === typeFilter;
-    const matchProduct = productFilter === 'ALL' || m.productId === productFilter;
+    const matchType = typeFilter === 'ALL' || rawType === typeFilter;
+    const matchProduct = productFilter === 'ALL' || m.productId === productFilter || m.skuCode === productFilter;
     return matchSearch && matchType && matchProduct;
   });
 
   // Calculate Cumulative Metrics
   const totalInbound = movements.filter(m => (m.quantity || 0) > 0).reduce((sum, m) => sum + m.quantity, 0);
   const totalOutbound = movements.filter(m => (m.quantity || 0) < 0).reduce((sum, m) => sum + Math.abs(m.quantity), 0);
-  const totalValuation = products.reduce((sum, p) => sum + ((p.stockQuantity || p.stock || 0) * (p.costPrice || p.estimatedCostPrice || p.price || 0)), 0);
+  const totalValuation = skus.reduce((sum, s) => sum + ((s.inventory?.availableStock || 0) * (s.pricing?.landingCost || s.pricing?.consumerPrice || 0)), 0) ||
+    products.reduce((sum, p) => sum + ((p.stockQuantity || p.stock || 0) * (p.costPrice || p.estimatedCostPrice || p.price || 0)), 0);
 
   // Type Badges
   const renderTypeBadge = (type) => {
     const config = {
       PURCHASE_RECEIPT: { bg: 'bg-green-100 text-green-800', label: 'Purchase Receipt' },
+      ORDER_RESERVED: { bg: 'bg-blue-100 text-blue-800', label: 'Order Reserved' },
+      ORDER_RELEASED: { bg: 'bg-amber-100 text-amber-800', label: 'Order Released' },
+      ORDER_COMPLETED: { bg: 'bg-emerald-100 text-emerald-800', label: 'Order Delivered' },
+      RETURN_IN: { bg: 'bg-purple-100 text-purple-800', label: 'Return Restock' },
+      DAMAGE: { bg: 'bg-red-100 text-red-800', label: 'Damaged Stock' },
+      EXPIRED: { bg: 'bg-orange-100 text-orange-800', label: 'Expired Stock' },
+      ADJUSTMENT: { bg: 'bg-teal-100 text-teal-800', label: 'Adjustment' },
       ORDER_RESERVE: { bg: 'bg-blue-100 text-blue-800', label: 'Order Reserve' },
       DISPATCH_SALE: { bg: 'bg-indigo-100 text-indigo-800', label: 'Dispatch Sale' },
       RETURN_RESTOCK: { bg: 'bg-purple-100 text-purple-800', label: 'Return Restock' },
       DAMAGE_ADJUSTMENT: { bg: 'bg-red-100 text-red-800', label: 'Damage / Loss' },
       MANUAL_AUDIT: { bg: 'bg-amber-100 text-amber-800', label: 'Cycle Count' },
     };
-    const c = config[type] || { bg: 'bg-gray-100 text-gray-700', label: type };
+    const c = config[type] || { bg: 'bg-gray-100 text-gray-700', label: type || 'Movement' };
     return (
       <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider ${c.bg}`}>
         {c.label}
@@ -216,21 +223,27 @@ const InventoryMovements = () => {
       )
     },
     {
-      header: 'Product',
+      header: 'SKU / Product',
       key: 'productName',
       render: (m) => (
         <div>
-          <p className="font-black text-sm text-gray-900">{m.productName}</p>
+          {m.skuCode ? (
+            <span className="font-mono text-[11px] font-black text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded">
+              {m.skuCode}
+            </span>
+          ) : (
+            <p className="font-black text-sm text-gray-900">{m.productName || m.productId}</p>
+          )}
           {m.batchNumber && (
-            <p className="text-[10px] font-mono text-gray-400">Batch: {m.batchNumber}</p>
+            <p className="text-[10px] font-mono text-gray-400 mt-0.5">Batch: {m.batchNumber}</p>
           )}
         </div>
       )
     },
     {
       header: 'Movement Type',
-      key: 'type',
-      render: (m) => renderTypeBadge(m.type)
+      key: 'movementType',
+      render: (m) => renderTypeBadge(m.movementType || m.type)
     },
     {
       header: 'Quantity',
@@ -252,13 +265,18 @@ const InventoryMovements = () => {
       }
     },
     {
-      header: 'Cost Basis',
-      key: 'costBasisPerUnit',
-      render: (m) => (
-        <span className="font-mono text-xs font-bold text-gray-700">
-          {formatCurrency(m.costBasisPerUnit || 0)}/u
-        </span>
-      )
+      header: 'Stock Delta',
+      key: 'availableAfter',
+      render: (m) => {
+        if (m.availableBefore !== undefined && m.availableAfter !== undefined) {
+          return (
+            <span className="font-mono text-xs font-bold text-gray-600">
+              {m.availableBefore} → <span className="text-gray-900 font-black">{m.availableAfter}</span>
+            </span>
+          );
+        }
+        return <span className="text-xs text-gray-400">—</span>;
+      }
     },
     {
       header: 'Reference ID',
@@ -397,21 +415,34 @@ const InventoryMovements = () => {
             </div>
 
             <form onSubmit={handleManualAdjustment} className="p-6 space-y-4">
-              {/* Product Selector */}
+              {/* SKU / Product Selector */}
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Select Product *</label>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Select SKU or Product *</label>
                 <select
                   required
-                  value={selectedProductId}
-                  onChange={(e) => handleProductSelect(e.target.value)}
+                  value={selectedSkuOrProduct}
+                  onChange={(e) => setSelectedSkuOrProduct(e.target.value)}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl font-bold text-sm text-gray-900 outline-none focus:border-[#1b5e20]"
                 >
-                  <option value="">-- Choose Product --</option>
-                  {products.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} (Current Stock: {p.stockQuantity || p.stock || 0})
-                    </option>
-                  ))}
+                  <option value="">-- Choose SKU or Product --</option>
+                  {skus.length > 0 && (
+                    <optgroup label="SKUs (Authoritative Ledger)">
+                      {skus.map(s => (
+                        <option key={s.id} value={s.skuCode || s.id}>
+                          [SKU] {s.skuCode || s.id} — {s.name} (Avail: {s.inventory?.availableStock ?? 0})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {products.length > 0 && (
+                    <optgroup label="Catalog Products">
+                      {products.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} (Stock: {p.stockQuantity || p.stock || 0})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               </div>
 

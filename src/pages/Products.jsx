@@ -10,7 +10,8 @@ import {
   addDoc,
   getDoc,
 } from "firebase/firestore";
-import { db } from "../firebase/config";
+import { db, functions } from "../firebase/config";
+import { httpsCallable } from "firebase/functions";
 import DataTable from "../components/common/DataTable";
 import ImageUpload from "../components/common/ImageUpload";
 import { formatCurrency } from "../utils/formatters";
@@ -217,18 +218,33 @@ const Products = () => {
     setBulkProcessing(true);
     setBulkSummary(null);
     try {
-      const res = await importProducts(bulkRows);
-      setBulkSummary(res);
+      const importSkus = httpsCallable(functions, "importSkus");
+      // Map bulkRows to SKU format expected by Cloud Function
+      const skuPayload = bulkRows.map(r => ({
+        skuCode: r.skuCode || r.SKU || "",
+        name: r.name || r.Name || "",
+        mrp: r.mrp || r.MRP || 0,
+        stock: r.stock || r.Stock || 0,
+        landingCost: r.landingCost || 0,
+        dealerPrice: r.dealerPrice || 0,
+        consumerPrice: r.price || r.Price || 0,
+        batchNumber: r.batchNumber || "",
+        mfgDate: r.mfgDate || null,
+        expiryDate: r.expiryDate || null
+      }));
+
+      const res = await importSkus({ skus: skuPayload });
+      const data = res.data;
+      setBulkSummary(data);
       setBulkRows([]);
       setCsvFile(null);
       setIsVerified(false);
 
-      if (res.failed > 0) {
-        toast.error(`Import finished with ${res.failed} errors`);
+      if (data.failed > 0) {
+        toast.error(`Import finished with ${data.failed} errors`);
       } else {
-        toast.success(`Sync successful: ${res.success} New, ${res.updated} Updated`);
+        toast.success(`Sync successful: ${data.success} SKUs processed`);
       }
-      fetchProducts();
     } catch (err) {
       toast.error("Import failed: " + err.message);
     } finally {

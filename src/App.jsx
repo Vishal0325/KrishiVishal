@@ -48,7 +48,9 @@ import FinancialStatements from "./pages/FinancialStatements";
 import SupportTickets from "./pages/SupportTickets";
 import Complaints from "./pages/Complaints";
 import CustomerFeedback from "./pages/CustomerFeedback";
+import MasterData from "./pages/MasterData";
 import CRMDashboard from "./pages/CRMDashboard";
+import SkuDashboard from "./pages/SkuDashboard";
 import { useAuth } from "./hooks/useAuth";
 import { auth } from "./firebase/config"; // Direct import
 import { signOut } from "firebase/auth";
@@ -135,11 +137,14 @@ function App() {
           <Route path="/purchase-order/:id" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><PurchaseOrderDetail /></RequireRole>} />
           <Route path="/grn" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><GoodsReceipt /></RequireRole>} />
           <Route path="/inventory-movements" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><InventoryMovements /></RequireRole>} />
+          <Route path="/skus" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager", "OrderManager", "Viewer"]}><SkuDashboard /></RequireRole>} />
+          <Route path="/sku-dashboard" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager", "OrderManager", "Viewer"]}><SkuDashboard /></RequireRole>} />
           <Route path="/products" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager", "Viewer"]}><Products /></RequireRole>} />
           <Route path="/product/new" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager"]}><ProductDetail /></RequireRole>} />
           <Route path="/product/:id" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager", "Viewer"]}><ProductDetail /></RequireRole>} />
-          <Route path="/categories" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager", "Viewer"]}><Categories /></RequireRole>} />
-          <Route path="/brands" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager", "Viewer"]}><Brands /></RequireRole>} />
+          <Route path="/categories" element={<RequireRole allowedRoles={["SuperAdmin", "ADMIN", "CatalogManager", "Viewer"]}><Categories /></RequireRole>} />
+          <Route path="/master-data" element={<RequireRole allowedRoles={["SuperAdmin", "ADMIN", "CatalogManager", "Viewer"]}><MasterData /></RequireRole>} />
+          <Route path="/brands" element={<RequireRole allowedRoles={["SuperAdmin", "ADMIN", "CatalogManager", "Viewer"]}><Brands /></RequireRole>} />
           <Route path="/crops" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager", "Viewer"]}><Crops /></RequireRole>} />
           <Route path="/stock-requests" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager", "Viewer"]}><StockRequests /></RequireRole>} />
           <Route path="/customers" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><Customers /></RequireRole>} />

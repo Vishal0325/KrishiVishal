@@ -14,6 +14,7 @@ const Categories = () => {
   const [uploading, setUploading] = useState(null); // stores id of item being uploaded
   const [formData, setFormData] = useState({
     name: '',
+    code: '',
     hindiName: '',
     order: 1,
     imageUrl: '',
@@ -73,7 +74,7 @@ const Categories = () => {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingCategory(null);
-    setFormData({ name: '', hindiName: '', order: categories.length + 1, imageUrl: '', subCategories: [] });
+    setFormData({ name: '', code: '', hindiName: '', order: categories.length + 1, imageUrl: '', subCategories: [] });
   };
 
   const openEdit = (cat) => {
@@ -120,6 +121,7 @@ const Categories = () => {
         {c.imageUrl ? <img src={c.imageUrl} className="w-full h-full object-cover" alt="" /> : <ImageIcon size={20} className="m-auto mt-3 text-gray-300" />}
       </div>
     )},
+    { header: 'Code', key: 'code', render: (c) => <span className="font-mono font-black text-primary-dark bg-green-50 px-2 py-1 rounded border border-green-100 uppercase">{c.code || '--'}</span> },
     { header: 'Name (English)', key: 'name', render: (c) => <span className="font-black text-gray-900 tracking-tight">{c.name}</span> },
     { header: 'Sub-categories', render: (c) => <span className="text-xs font-bold text-gray-500 bg-gray-50 px-2 py-1 rounded">{c.subCategories?.length || 0} items</span> },
     { header: 'Actions', render: (c) => (
@@ -180,6 +182,17 @@ const Categories = () => {
                     value={formData.name}
                     onChange={(e) => setFormData({...formData, name: e.target.value})}
                     className="w-full px-5 py-3.5 bg-gray-50 border border-gray-100 rounded-xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Category Code (2 Chars)</label>
+                  <input
+                    required
+                    maxLength={2}
+                    value={formData.code}
+                    onChange={(e) => setFormData({...formData, code: e.target.value.toUpperCase()})}
+                    className="w-full px-5 py-3.5 bg-gray-50 border border-gray-100 rounded-xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900 uppercase"
+                    placeholder="e.g. IN"
                   />
                 </div>
                 <div className="space-y-1">

@@ -15,6 +15,7 @@ const Brands = () => {
   const [useUrl, setUseUrl] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
+    code: '',
     imageUrl: '',
     isActive: true
   });
@@ -83,7 +84,7 @@ const Brands = () => {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingBrand(null);
-    setFormData({ name: '', imageUrl: '', isActive: true });
+    setFormData({ name: '', code: '', imageUrl: '', isActive: true });
     setUseUrl(false);
   };
 
@@ -102,49 +103,50 @@ const Brands = () => {
 
   const columns = [
     { header: 'Image', key: 'imageUrl', render: (b) => (
-      <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden border border-gray-100">
-        {b.imageUrl ? <img src={b.imageUrl} className="w-full h-full object-cover" alt="" /> : <ImageIcon size={20} className="m-auto mt-3 text-gray-300" />}
+      <div className="w-10 h-10 rounded-lg bg-gray-100 overflow-hidden border border-gray-100">
+        {b.imageUrl ? <img src={b.imageUrl} className="w-full h-full object-cover" alt="" /> : <ImageIcon size={18} className="m-auto mt-2.5 text-gray-300" />}
       </div>
     )},
-    { header: 'Name', key: 'name', render: (b) => <span className="font-black text-gray-900 tracking-tight">{b.name}</span> },
+    { header: 'Code', key: 'code', render: (b) => <span className="font-mono font-black text-primary-dark bg-green-50 px-1.5 py-0.5 rounded border border-green-100 uppercase text-[10px]">{b.code || '---'}</span> },
+    { header: 'Name', key: 'name', render: (b) => <span className="font-bold text-gray-900 tracking-tight text-sm">{b.name}</span> },
     { header: 'Status', key: 'isActive', render: (b) => (
-      <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-widest ${b.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest ${b.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
         {b.isActive ? 'Active' : 'Inactive'}
       </span>
     )},
     { header: 'Actions', render: (b) => (
-      <div className="flex space-x-2">
-        <button onClick={() => openEdit(b)} className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition-all"><Edit2 size={16} /></button>
-        <button onClick={() => deleteBrand(b.id)} className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-all"><Trash2 size={16} /></button>
+      <div className="flex space-x-1.5">
+        <button onClick={() => openEdit(b)} className="p-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition-all"><Edit2 size={14} /></button>
+        <button onClick={() => deleteBrand(b.id)} className="p-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-all"><Trash2 size={14} /></button>
       </div>
     )}
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-          <Award className="mr-3 text-[#1b5e20]" size={28} />
+    <div className="space-y-4 max-w-6xl mx-auto">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <h1 className="text-xl font-black text-gray-900 tracking-tight flex items-center">
+          <Award className="mr-2 text-[#1b5e20]" size={24} />
           Popular Brands
         </h1>
         <button
           onClick={() => setIsModalOpen(true)}
-          className="bg-[#1b5e20] text-white px-6 py-3 rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-[#2e7d32] transition-all flex items-center group active:scale-95"
+          className="bg-[#1b5e20] text-white px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-[#2e7d32] transition-all flex items-center group active:scale-95"
         >
-          <Plus size={18} className="mr-2 group-hover:scale-110 transition-transform" />
+          <Plus size={16} className="mr-1.5 group-hover:scale-110 transition-transform" />
           Add Brand
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <DataTable columns={columns} data={brands} loading={loading} />
         </div>
 
-        <div className="space-y-6">
-          <div className="bg-[#1b5e20] p-8 rounded-3xl text-white shadow-xl shadow-green-100 relative overflow-hidden group">
-            <h3 className="text-lg font-black uppercase tracking-widest mb-2 relative z-10">Brands Management</h3>
-            <p className="text-sm font-medium text-green-100 leading-relaxed relative z-10">
+        <div className="space-y-4">
+          <div className="bg-[#1b5e20] p-6 rounded-2xl text-white shadow-xl shadow-green-100 relative overflow-hidden group">
+            <h3 className="text-base font-black uppercase tracking-widest mb-1.5 relative z-10">Brands Management</h3>
+            <p className="text-xs font-medium text-green-100 leading-relaxed relative z-10">
               Manage the popular brands shown on the home screen. Brands can now be added with or without images.
             </p>
           </div>
@@ -152,21 +154,33 @@ const Brands = () => {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-md p-6 animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl animate-in zoom-in duration-300 relative border border-white/20">
-            <div className="p-6 border-b border-gray-50 flex items-center justify-between sticky top-0 bg-white z-10">
-              <h2 className="text-lg font-black text-gray-900 tracking-tight uppercase tracking-[0.1em]">{editingBrand ? 'Edit Brand' : 'Add Brand'}</h2>
-              <button onClick={closeModal} className="p-2 hover:bg-gray-100 rounded-full transition-all text-gray-400"><X size={20} /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl animate-in zoom-in duration-300 relative border border-white/20">
+            <div className="p-4 border-b border-gray-50 flex items-center justify-between sticky top-0 bg-white z-10">
+              <h2 className="text-sm font-black text-gray-900 tracking-tight uppercase tracking-[0.1em]">{editingBrand ? 'Edit Brand' : 'Add Brand'}</h2>
+              <button onClick={closeModal} className="p-1.5 hover:bg-gray-100 rounded-full transition-all text-gray-400"><X size={18} /></button>
             </div>
-            <form onSubmit={handleSubmit} className="p-8 space-y-6">
-              <div className="space-y-4">
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              <div className="space-y-3">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Brand Name</label>
+                  <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Brand Name</label>
                   <input
                     required
                     value={formData.name}
                     onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    className="w-full px-5 py-3.5 bg-gray-50 border border-gray-100 rounded-xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900 text-sm"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Brand Code (3 Chars)</label>
+                  <input
+                    required
+                    maxLength={3}
+                    value={formData.code}
+                    onChange={(e) => setFormData({...formData, code: e.target.value.toUpperCase()})}
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900 uppercase text-sm"
+                    placeholder="e.g. BSF"
                   />
                 </div>
 
