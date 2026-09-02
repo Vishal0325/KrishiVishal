@@ -341,7 +341,7 @@ const Customers = () => {
     const search = searchTerm.toLowerCase();
     const matchSearch =
       (c.name || '').toLowerCase().includes(search) ||
-      (c.phone || '').includes(searchTerm) ||
+      (c.phone ? String(c.phone) : '').includes(searchTerm) ||
       (c.email || '').toLowerCase().includes(search) ||
       (c.district || '').toLowerCase().includes(search);
 
@@ -530,7 +530,7 @@ const Customers = () => {
               <div className="flex items-center gap-2">
                 {selectedCustomer.phone && (
                   <a
-                    href={`https://wa.me/91${selectedCustomer.phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Namaste ${selectedCustomer.name}, KrishiVishal se call/support update.`)}`}
+                    href={`https://wa.me/91${String(selectedCustomer.phone).replace(/\D/g, '')}?text=${encodeURIComponent(`Namaste ${selectedCustomer.name}, KrishiVishal se call/support update.`)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="p-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-white transition-all shadow-sm flex items-center gap-1 text-xs font-black"
