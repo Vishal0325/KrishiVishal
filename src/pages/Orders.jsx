@@ -5,9 +5,10 @@ import { db } from '../firebase/config';
 import DataTable from '../components/common/DataTable';
 import StatusBadge from '../components/common/StatusBadge';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
-import { Search, Filter, Eye, Download, X, MoreVertical, Package, User, MapPin, Printer, Clock, MessageCircle, PackageCheck } from 'lucide-react';
+import { Search, Filter, Eye, Download, X, MoreVertical, Package, User, MapPin, Printer, Clock, MessageCircle, PackageCheck, Truck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { printShippingLabel, printInvoice } from '../utils/PrintService';
+import { sendOrderConfirmationWhatsApp, sendOutForDeliveryWhatsApp, sendInvoiceWhatsApp } from '../services/whatsappService';
 
 import StatusTimeline from '../components/common/StatusTimeline';
 
@@ -364,20 +365,34 @@ const Orders = () => {
                 </div>
               </section>
 
-              <div className="pt-6 grid grid-cols-2 gap-4">
+              <div className="pt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
                 <button
                   onClick={() => printInvoice(selectedOrder)}
-                  className="bg-gray-800 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg hover:bg-black transition-all active:scale-[0.98] flex items-center justify-center space-x-2"
+                  className="bg-gray-800 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg hover:bg-black transition-all active:scale-[0.98] flex flex-col items-center justify-center space-y-1"
                 >
                   <Printer size={16} />
                   <span>Print Invoice</span>
                 </button>
                 <button
                   onClick={() => printShippingLabel(selectedOrder)}
-                  className="bg-[#1b5e20] text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-[#2e7d32] transition-all active:scale-[0.98] flex items-center justify-center space-x-2"
+                  className="bg-[#1b5e20] text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-[#2e7d32] transition-all active:scale-[0.98] flex flex-col items-center justify-center space-y-1"
                 >
                   <Package size={16} />
                   <span>Print Label</span>
+                </button>
+                <button
+                  onClick={() => sendOrderConfirmationWhatsApp(selectedOrder)}
+                  className="bg-[#25D366] text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-[#128C7E] transition-all active:scale-[0.98] flex flex-col items-center justify-center space-y-1"
+                >
+                  <MessageCircle size={16} />
+                  <span>WA Confirm</span>
+                </button>
+                <button
+                  onClick={() => sendOutForDeliveryWhatsApp(selectedOrder, '1234')}
+                  className="bg-[#128C7E] text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-[#075E54] transition-all active:scale-[0.98] flex flex-col items-center justify-center space-y-1"
+                >
+                  <Truck size={16} />
+                  <span>WA Dispatch</span>
                 </button>
               </div>
             </div>

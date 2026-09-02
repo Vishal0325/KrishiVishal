@@ -63,6 +63,7 @@ const Sidebar = () => {
         { icon: <LayoutDashboard size={17} />, label: "Dashboard", path: "/", roles: ["SuperAdmin", "CatalogManager", "OrderManager", "Viewer"] },
         { icon: <ShoppingCart size={17} />, label: "Orders", path: "/orders", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
         { icon: <QrCode size={17} />, label: "Packing Station", path: "/packing-station", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
+        { icon: <ShoppingCart size={17} />, label: "Abandoned Carts", path: "/abandoned-carts", roles: ["SuperAdmin", "OrderManager"], isNew: true },
         { icon: <CreditCard size={17} />, label: "Payments", path: "/payments", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
         { icon: <RefreshCcw size={17} />, label: "Returns", path: "/returns", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
       ]
@@ -115,6 +116,8 @@ const Sidebar = () => {
       items: [
         { icon: <Bike size={17} />, label: "Riders", path: "/riders", roles: ["SuperAdmin", "OrderManager"] },
         { icon: <Activity size={17} />, label: "Rider Intelligence", path: "/rider-performance", roles: ["SuperAdmin", "OrderManager"] },
+        { icon: <RouteIcon size={17} />, label: "Delivery Rules", path: "/delivery-rules", roles: ["SuperAdmin", "OrderManager"], isNew: true },
+        { icon: <Factory size={17} />, label: "Warehouses (Hubs)", path: "/warehouses", roles: ["SuperAdmin", "OrderManager"], isNew: true },
         { icon: <Navigation size={17} />, label: "Live Tracking", path: "/tracking", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
         { icon: <RouteIcon size={17} />, label: "Trips & Routes", path: "/trips", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
         { icon: <Calendar size={17} />, label: "Attendance", path: "/attendance", roles: ["SuperAdmin", "OrderManager", "Viewer"] },

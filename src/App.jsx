@@ -51,6 +51,9 @@ import CustomerFeedback from "./pages/CustomerFeedback";
 import MasterData from "./pages/MasterData";
 import CRMDashboard from "./pages/CRMDashboard";
 import SkuDashboard from "./pages/SkuDashboard";
+import AbandonedCarts from "./pages/AbandonedCarts";
+import DeliverySettings from "./pages/DeliverySettings";
+import Warehouses from "./pages/Warehouses";
 import { useAuth } from "./hooks/useAuth";
 import { auth } from "./firebase/config"; // Direct import
 import { signOut } from "firebase/auth";
@@ -139,6 +142,7 @@ function App() {
           <Route path="/inventory-movements" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><InventoryMovements /></RequireRole>} />
           <Route path="/skus" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager", "OrderManager", "Viewer"]}><SkuDashboard /></RequireRole>} />
           <Route path="/sku-dashboard" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager", "OrderManager", "Viewer"]}><SkuDashboard /></RequireRole>} />
+          <Route path="/abandoned-carts" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager"]}><AbandonedCarts /></RequireRole>} />
           <Route path="/products" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager", "Viewer"]}><Products /></RequireRole>} />
           <Route path="/product/new" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager"]}><ProductDetail /></RequireRole>} />
           <Route path="/product/:id" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager", "Viewer"]}><ProductDetail /></RequireRole>} />
@@ -177,6 +181,8 @@ function App() {
           <Route path="/attendance" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><Attendance /></RequireRole>} />
           <Route path="/reconciliation" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager"]}><CashRecon /></RequireRole>} />
           <Route path="/trips" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><Trips /></RequireRole>} />
+          <Route path="/delivery-rules" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager"]}><DeliverySettings /></RequireRole>} />
+          <Route path="/warehouses" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager"]}><Warehouses /></RequireRole>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
 

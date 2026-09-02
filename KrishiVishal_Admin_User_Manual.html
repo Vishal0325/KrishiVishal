@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<title>KrishiVishal Admin Portal — संपूर्ण यूज़र मैन्युअल एवं संचालन मार्गदर्शिका (User Guide)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+Devanagari:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;700&display=swap');
+
+  @page {
+    size: A4 portrait;
+    margin: 18mm 16mm 18mm 16mm;
+    @bottom-right {
+      content: "पृष्ठ " counter(page);
+      font-family: 'Inter', sans-serif;
+      font-size: 8pt;
+      color: #718096;
+    }
+    @bottom-left {
+      content: "KrishiVishal ERP • 02 September 2026";
+      font-family: 'Inter', sans-serif;
+      font-size: 8pt;
+      color: #718096;
+    }
+  }
+
+  body {
+    font-family: 'Noto Sans Devanagari', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #1a202c;
+    background-color: #ffffff;
+    line-height: 1.55;
+    font-size: 9.5pt;
+    margin: 0;
+    padding: 0;
+  }
+
+  .cover-page {
+    page-break-after: always;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 30px 20px 20px 20px;
+    box-sizing: border-box;
+    border-bottom: 4px solid #166534;
+  }
+
+  .cover-badge {
+    display: inline-block;
+    background: #dcfce7;
+    color: #166534;
+    font-weight: 800;
+    font-size: 9pt;
+    padding: 6px 14px;
+    border-radius: 20px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border: 1px solid #bbf7d0;
+  }
+
+  .cover-title {
+    font-size: 28pt;
+    font-weight: 900;
+    color: #14532d;
+    margin: 20px 0 10px 0;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+  }
+
+  .cover-subtitle {
+    font-size: 13pt;
+    color: #4b5563;
+    font-weight: 600;
+    margin-bottom: 25px;
+    line-height: 1.4;
+  }
+
+  .cover-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    background: #f8fafc;
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+  }
+
+  .meta-item {
+    font-size: 8.5pt;
+  }
+
+  .meta-label {
+    color: #64748b;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 7pt;
+    letter-spacing: 0.05em;
+  }
+
+  .meta-value {
+    color: #0f172a;
+    font-weight: 800;
+    font-size: 9.5pt;
+    margin-top: 2px;
+  }
+
+  .section-break {
+    page-break-before: always;
+  }
+
+  .module-header {
+    background: linear-gradient(135deg, #14532d, #166534);
+    color: #ffffff;
+    padding: 10px 16px;
+    border-radius: 10px;
+    margin: 20px 0 14px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .module-title {
+    font-size: 13pt;
+    font-weight: 800;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  .module-tag {
+    background: rgba(255, 255, 255, 0.2);
+    font-size: 7.5pt;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .feature-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    page-break-inside: avoid;
+  }
+
+  .feature-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1px solid #f1f5f9;
+    padding-bottom: 6px;
+    margin-bottom: 8px;
+  }
+
+  .feature-name {
+    font-size: 11pt;
+    font-weight: 800;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .feature-route {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8pt;
+    color: #0284c7;
+    background: #e0f2fe;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-weight: 600;
+  }
+
+  .what-it-does {
+    background: #f8fafc;
+    border-left: 3px solid #3b82f6;
+    padding: 6px 10px;
+    border-radius: 0 6px 6px 0;
+    font-size: 9pt;
+    color: #1e293b;
+    margin-bottom: 8px;
+  }
+
+  .how-to-use {
+    background: #f0fdf4;
+    border-left: 3px solid #16a34a;
+    padding: 8px 10px;
+    border-radius: 0 6px 6px 0;
+    font-size: 9pt;
+    color: #14532d;
+  }
+
+  .how-to-title {
+    font-weight: 800;
+    font-size: 8pt;
+    text-transform: uppercase;
+    color: #15803d;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+  }
+
+  .step-list {
+    margin: 0;
+    padding-left: 18px;
+  }
+
+  .step-list li {
+    margin-bottom: 3px;
+    line-height: 1.4;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 6px;
+    font-size: 7.5pt;
+    font-weight: 700;
+    border-radius: 4px;
+    margin-right: 4px;
+  }
+
+  .badge-green { background: #dcfce7; color: #166534; }
+  .badge-blue { background: #dbeafe; color: #1e40af; }
+  .badge-amber { background: #fef3c7; color: #92400e; }
+  .badge-red { background: #fee2e2; color: #991b1b; }
+  .badge-purple { background: #f3e8ff; color: #6b21a8; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8.5pt;
+    margin: 10px 0;
+  }
+
+  th {
+    background: #f1f5f9;
+    color: #334155;
+    text-align: left;
+    padding: 6px 8px;
+    font-weight: 800;
+    border-bottom: 2px solid #cbd5e1;
+    font-size: 8pt;
+    text-transform: uppercase;
+  }
+
+  td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #e2e8f0;
+    color: #334155;
+  }
+
+  .pro-tip {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin: 8px 0;
+    font-size: 8.5pt;
+    color: #92400e;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    page-break-inside: avoid;
+  }
+
+  .code-block {
+    font-family: 'JetBrains Mono', monospace;
+    background: #0f172a;
+    color: #38bdf8;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 8pt;
+    display: inline-block;
+    margin: 2px 0;
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════ COVER PAGE ════════════════════ -->
+<div class="cover-page">
+  <div>
+    <span class="cover-badge">KrishiVishal ERP 2.0 • Official User Manual</span>
+    <h1 class="cover-title">KrishiVishal Admin Portal<br>संपूर्ण यूज़र मैन्युअल</h1>
+    <p class="cover-subtitle">
+      एडमिन पैनल के प्रत्येक मॉड्यूल, विकल्प और टूल का सचित्र एवं चरणबद्ध विवरण<br>
+      (What Every Option Does & How to Operate It)
+    </p>
+
+    <div class="cover-meta-grid">
+      <div class="meta-item">
+        <div class="meta-label">तारीख / Release Date</div>
+        <div class="meta-value">02 September 2026</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">प्लेटफ़ॉर्म / Environment</div>
+        <div class="meta-value">Web Admin Portal (Firebase Cloud ERP)</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">लाइव यूआरएल / Live URL</div>
+        <div class="meta-value" style="font-family: 'JetBrains Mono'; font-size: 8.5pt;">https://krishivishal-a9ed7.web.app</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">अधिकार क्षेत्र / Target Roles</div>
+        <div class="meta-value">SuperAdmin, Warehouse, Order & Catalog Managers</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 14px;">
+    <p style="margin: 0; font-weight: 800; color: #166534; font-size: 9.5pt;">📋 इस दस्तावेज़ में शामिल 7 मुख्य विभाग:</p>
+    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 8px; font-size: 8.5pt; color: #14532d;">
+      <div>1. डैशबोर्ड एवं ऑर्डर संचालन (Operations)</div>
+      <div>2. सप्लाई चेन, SKU एवं इन्वेंट्री (Supply Chain)</div>
+      <div>3. कैटलॉग एवं 1-क्लिक प्रोडक्ट अपलोड (Catalog)</div>
+      <div>4. फ्लीट, राइडर एवं लाइव ट्रैकिंग (Logistics)</div>
+      <div>5. ERP, टैक्स, GST एवं अकाउंट्स (Finance)</div>
+      <div>6. मार्केटिंग, बैनर एवं सूचनाएँ (Marketing)</div>
+      <div>7. AI इंटेलिजेंस, ऑडिट एवं स्टाफ (Admin)</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════ 1. DASHBOARD & ORDERS ════════════════════ -->
+<div>
+  <div class="module-header">
+    <h2 class="module-title">1. डैशबोर्ड एवं ऑर्डर संचालन (Dashboard & Operations)</h2>
+    <span class="module-tag">Core Workflow</span>
+  </div>
+
+  <!-- Main Dashboard -->
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">📊 Executive Live Dashboard</span>
+      <span class="feature-route">/</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> वेयरहाउस और बिजनेस का 360-डिग्री लाइव ओवरव्यू देता है—जैसे आज की कुल बिक्री (Today's Revenue), पेंडिंग ऑर्डर्स, लो-स्टॉक अलर्ट्स, राइडर स्टेटस और एक्टिव कस्टमर टिकट्स।
+    </div>
+    <div class="how-to-use">
+      <div class="how-to-title">इसे कैसे उपयोग करें (Step-by-Step):</div>
+      <ol class="step-list">
+        <li>लॉगिन करते ही सबसे पहले स्क्रीन पर KPI कार्ड्स देखें (Gross Revenue, Live Orders, Low Stock Items)।</li>
+        <li><strong>Quick Actions</strong> बटन से सीधे नया प्रोडक्ट, GRN या स्टॉक एडजस्टमेंट खोल सकते हैं।</li>
+        <li>नीचे <strong>Recent Live Orders</strong> लिस्ट में किसी भी नए ऑर्डर पर क्लिक करके तुरंत प्रोसेस कर सकते हैं।</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- Orders Management -->
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">📦 Orders Pipeline & Processing</span>
+      <span class="feature-route">/orders</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> किसान और रिटेल ऑर्डर्स की पूरी लाइफसाइकिल को मैनेज करता है: <span class="badge badge-blue">PLACED</span> ➔ <span class="badge badge-amber">CONFIRMED</span> ➔ <span class="badge badge-purple">PACKED</span> ➔ <span class="badge badge-blue">OUT_FOR_DELIVERY</span> ➔ <span class="badge badge-green">DELIVERED</span>।
+    </div>
+    <div class="how-to-use">
+      <div class="how-to-title">ऑर्डर प्रोसेस करने का तरीका:</div>
+      <ol class="step-list">
+        <li><strong>Pending Orders</strong> टैब में नया ऑर्डर चुनें और ग्राहक की सामग्री व डिलीवरी पता जांचें।</li>
+        <li><strong>"Confirm Order"</strong> दबाएँ — सिस्टम तुरंत FEFO (First-Expiry-First-Out) के अनुसार वेयरहाउस से स्टॉक रिज़र्व कर लेता है।</li>
+        <li>ऑर्डर तैयार होने पर <strong>"Mark Packed"</strong> दबाएँ और <strong>"Assign Rider"</strong> से नजदीकी डिलीवरी बॉय को असाइन करें।</li>
+        <li>डिलीवरी पर राइडर ग्राहक से 4-अंकों का OTP लेकर डिलीवरी पूरी करेगा, जिससे स्टॉक लेज़र से ऑटो-डिडक्ट हो जाएगा।</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- Packing Station -->
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">🏷️ Packing Station & Barcode Scan</span>
+      <span class="feature-route">/packing-station</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> वेयरहाउस पिकर/पैकर के लिए समर्पित टचस्क्रीन इंटरफ़ेस। पैकर बारकोड स्कैन करके सही सामग्री बैग में डालता है और पैकिंग स्लिप प्रिंट करता है।
+    </div>
+    <div class="how-to-use">
+      <div class="how-to-title">पैकिंग प्रक्रिया:</div>
+      <ol class="step-list">
+        <li>पैकिंग कतार से ऑर्डर सेलेक्ट करें या इनवॉइस बारकोड स्कैन करें।</li>
+        <li>प्रत्येक SKU का बारकोड स्कैन करें (गलत प्रोडक्ट स्कैन होने पर स्क्रीन लाल चेतावनी देगी)।</li>
+        <li>सभी आइटम्स पैक होने पर <strong>"Generate Packing Slip"</strong> दबाएँ और पार्सल पर लेबल चिपकाएँ।</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- Support & CRM -->
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">🎧 Support Tickets, Complaints & CRM</span>
+      <span class="feature-route">/support-tickets • /crm-dashboard</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> किसानों की समस्याएँ (खराब बीज, डिलीवरी में देरी, रिटर्न/रिफंड) हल करना और किसान प्रोफाइल/क्रेडिट लिमिट ट्रैक करना।
+    </div>
+    <div class="how-to-use">
+      <div class="how-to-title">सपोर्ट टिकट हल करने का तरीका:</div>
+      <ol class="step-list">
+        <li>टिकट लिस्ट से शिकायत चुनें, किसान का फोन नंबर व ऑर्डर हिस्ट्री देखें।</li>
+        <li>अगर डैमेज प्रोडक्ट है, तो <strong>"Approve Return / Refund"</strong> दबाएँ (क्लाउड फंक्शन रिफंड और स्टॉक रिटर्न अपने-आप संभाल लेगा)।</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════ 2. SUPPLY CHAIN & INVENTORY ════════════════════ -->
+<div class="section-break">
+  <div class="module-header">
+    <h2 class="module-title">2. सप्लाई चेन, SKU एवं इन्वेंट्री (Supply Chain & Inventory)</h2>
+    <span class="module-tag">Authoritative ERP Engine</span>
+  </div>
+
+  <!-- SKU Master Dashboard -->
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">⚡ SKU Master & Stock Dashboard</span>
+      <span class="feature-route">/skus</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> सभी 6-सेगमेंट Agri SKUs (<span class="code-block">CC-III-VVV-GG-SSSUU-BBB</span>) का केंद्रीय मास्टर हब। यहाँ से हर SKU के एक्टिव बैच, एक्सपायरी डेट, वेयरहाउस स्टॉक और मूल्य नियंत्रित होते हैं।
+    </div>
+    <div class="how-to-use">
+      <div class="how-to-title">उपयोग करने की विधि:</div>
+      <ol class="step-list">
+        <li><strong>Search Bar:</strong> SKU कोड, नाम या EAN-13 बारकोड डालकर सर्च करें।</li>
+        <li><strong>Row Expand (⬇):</strong> किसी भी SKU पर क्लिक करके उसके सभी एक्टिव बैच (FEFO क्रम में), QC स्थिति और मैन्युफैक्चरिंग/एक्सपायरी डेट देखें।</li>
+        <li><strong>+ Add SKU:</strong> नया SKU कोड बनाने के लिए बटन दबाएँ (लाइव कोड प्रिव्यू के साथ)।</li>
+        <li><strong>✏️ Adjust Stock:</strong> अगर वेयरहाउस में गिनती में अंतर आए, तो Cloud Function से सुरक्षित स्टॉक एडजस्टमेंट करें।</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- Goods Receipt GRN -->
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">🚚 Goods Receipt Note (GRN / आवक चालान)</span>
+      <span class="feature-route">/grn</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> सप्लायर (जैसे IFFCO, Bayer, Syngenta) से फैक्ट्री या वेयरहाउस में माल आने पर उसकी आधिकारिक आवक (Inward Entry) दर्ज करता है। यह ऑटोमैटिक नया बैच और स्टॉक लेज़र एंट्री बनाता है।
+    </div>
+    <div class="how-to-use">
+      <div class="how-to-title">GRN दर्ज करने का तरीका:</div>
+      <ol class="step-list">
+        <li>सप्लायर और Purchase Order (PO) सेलेक्ट करें।</li>
+        <li>आए हुए माल का <strong>Batch Number</strong>, <strong>Mfg Date</strong>, <strong>Expiry Date</strong> और <strong>प्राप्त मात्रा (Quantity)</strong> भरें।</li>
+        <li>सप्लायर का पक्का बिल (Invoice PDF/Photo) अपलोड करें।</li>
+        <li><strong>"Confirm & Record GRN"</strong> दबाएँ — सिस्टम तुरंत वेयरहाउस स्टॉक बढ़ा देगा और लेज़र में एंट्री कर देगा।</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- Stock Ledger -->
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">📜 Stock Movements Journal (अपरिवर्तनीय लेज़र)</span>
+      <span class="feature-route">/inventory-movements</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> वेयरहाउस की हर एक यूनिट के आने-जाने का पक्का और अपरिवर्तनीय (Immutable) ऑडिट ट्रेल रखता है। इसमें कोई डेटा डिलीट या फर्जी एंट्री नहीं हो सकती।
+    </div>
+    <div class="how-to-use">
+      <div class="how-to-title">लेज़र रिपोर्ट देखना:</div>
+      <ol class="step-list">
+        <li>मूवमेंट प्रकार से फ़िल्टर करें: <span class="badge badge-green">PURCHASE_RECEIPT</span>, <span class="badge badge-blue">ORDER_RESERVED</span>, <span class="badge badge-purple">RETURN_IN</span>, <span class="badge badge-red">DAMAGE</span>।</li>
+        <li><strong>Stock Delta</strong> कॉलम में देखें कि ट्रांजैक्शन से पहले स्टॉक कितना था और बाद में कितना हुआ (उदा. <code>100 ➔ 150</code>)।</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- Procurement -->
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">🛒 Suppliers & Procurement Queue</span>
+      <span class="feature-route">/suppliers • /procurement</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> जब किसी प्रोडक्ट का स्टॉक Reorder Level से नीचे जाता है, तो यह ऑटोमैटिक खरीद ऑर्डर (Purchase Order) का ड्राफ्ट तैयार करता है।
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════ 3. CATALOG & 1-CLICK UPLOAD ════════════════════ -->
+<div class="section-break">
+  <div class="module-header">
+    <h2 class="module-title">3. कैटलॉग एवं 1-क्लिक प्रोडक्ट अपलोड (Catalog Management)</h2>
+    <span class="module-tag">1-Click Auto Provisioning</span>
+  </div>
+
+  <div class="pro-tip">
+    <strong>💡 नया 1-Click ऑटोमेशन:</strong> अब आपको SKU कोड सोचने या अलग-अलग स्क्रीन्स पर जाने की ज़रूरत नहीं है! प्रोडक्ट का नाम, ब्रांड और पैक साइज़ डालते ही 6-सेगमेंट SKU, GST% (5%/18%) और HSN कोड अपने-आप बन जाता है।
+  </div>
+
+  <!-- Product Master -->
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">🌿 1-Click Product Master</span>
+      <span class="feature-route">/products</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> किसान ऐप में दिखने वाले सभी कृषि उत्पादों (खाद, कीटनाशक, बीज, कृषि यंत्र) का कैटलॉग मैनेजमेंट।
+    </div>
+    <div class="how-to-use">
+      <div class="how-to-title">1-Click में नया प्रोडक्ट जोड़ने का तरीका:</div>
+      <ol class="step-list">
+        <li><strong>+ Add New Product</strong> बटन पर क्लिक करें।</li>
+        <li><strong>Product Name:</strong> उत्पाद का नाम लिखें (उदा. <code>Urea 50kg Neem Coated</code>)।</li>
+        <li><strong>Brand:</strong> ब्रांड चुनें (उदा. <code>IFFCO</code>), <strong>Category:</strong> श्रेणी चुनें (उदा. <code>Fertilizers</code>)।</li>
+        <li>👉 <em>जादू:</em> श्रेणी चुनते ही <strong>HSN Code (31021010)</strong> और <strong>GST (5%)</strong> अपने-आप भर जाएँगे और नीचे हरा <strong>Auto-Derived SKU Badge</strong> (<code>FE-URE-GRN-00-050KG-IFF</code>) दिखेगा।</li>
+        <li><strong>MRP, Selling Price, Cost Price</strong> और <strong>Available Stock</strong> भरें।</li>
+        <li><strong>"Save Product"</strong> दबाएँ — 1-क्लिक में:
+          <ul>
+            <li>कैटलॉग में प्रोडक्ट पब्लिश होगा</li>
+            <li>SKU मास्टर में कोड रजिस्टर होगा</li>
+            <li>वेयरहाउस में इनिशियल बैच और स्टॉक लेज़र बन जाएगा!</li>
+          </ul>
+        </li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- Bulk Operations -->
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">📑 1-Click Excel / CSV Bulk Importer</span>
+      <span class="feature-route">/products (Bulk Operations)</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> सैकड़ों प्रोडक्ट्स को 1 सेकंड में एक्सेल शीट से अपलोड करता है।
+    </div>
+    <div class="how-to-use">
+      <div class="how-to-title">बल्क अपलोड करने का तरीका:</div>
+      <ol class="step-list">
+        <li><strong>"📥 Template"</strong> बटन दबाकर बना-बनाया एक्सेल टेम्पलेट डाउनलोड करें।</li>
+        <li>अपनी एक्सेल फ़ाइल में प्रोडक्ट्स के नाम, ब्रांड, पैक साइज़ और रेट भरें।</li>
+        <li>फ़ाइल को <strong>"Upload CSV / Excel"</strong> बॉक्स में ड्रैग & ड्रॉप करें।</li>
+        <li>सिस्टम हर रो का SKU ऑटो-जनरेट करेगा। <strong>"Initialize Bulk Sync"</strong> दबाते ही सब कुछ लाइव हो जाएगा!</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- Categories, Brands, Crops -->
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">🏷️ Categories, Brands, Crops & Master Codes</span>
+      <span class="feature-route">/categories • /brands • /crops • /master-data</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> ऐप की टैक्सोनॉमी को व्यवस्थित करता है:
+      <ul>
+        <li><strong>Categories:</strong> खाद, कीटनाशक, बीज, यंत्र आदि के आइकन और क्रम सेट करना।</li>
+        <li><strong>Brands:</strong> राष्ट्रीय व अंतर्राष्ट्रीय कंपनियों की सूची और लोगो।</li>
+        <li><strong>Crops:</strong> धान, गेहूँ, मक्का, गन्ना आदि की लिस्ट ताकि किसान अपनी फसल के अनुसार दवाइयाँ खोज सकें।</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════ 4. LOGISTICS & FLEET ════════════════════ -->
+<div class="section-break">
+  <div class="module-header">
+    <h2 class="module-title">4. फ्लीट, डिलीवरी एवं लाइव ट्रैकिंग (Fleet & Logistics)</h2>
+    <span class="module-tag">Real-Time Operations</span>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">🚴 Riders Directory & Onboarding</span>
+      <span class="feature-route">/riders</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> डिलीवरी राइडर्स का केवाईसी (आधार कार्ड, ड्राइविंग लाइसेंस, बैंक खाता), गाड़ी का नंबर और एक्टिव स्टेटस मैनेज करता है।
+    </div>
+    <div class="how-to-use">
+      <div class="how-to-title">नया राइडर जोड़ने की विधि:</div>
+      <ol class="step-list">
+        <li><strong>"+ Add Rider"</strong> दबाएँ, राइडर का नाम, मोबाइल नंबर और ज़ोन (उदा. पूर्णिया सेंट्रल) भरें।</li>
+        <li>दस्तावेज़ अपलोड करें और <strong>"Approve & Activate"</strong> करें।</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">🗺️ Live GPS Tracking & Route Trips</span>
+      <span class="feature-route">/tracking • /trips</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> डिलीवरी के दौरान राइडर की रियल-टाइम जीपीएस लोकेशन मैप पर दिखाता है और एक ही रूट के कई ऑर्डर्स को एक साथ क्लब (Batching) करके पेट्रोल व समय बचाता है।
+    </div>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">🚨 Rider Intelligence, Attendance & SOS</span>
+      <span class="feature-route">/rider-performance • /attendance • /sos</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> राइडर की दैनिक उपस्थिति, ऑन-टाइम डिलीवरी रेट, कस्टमर रेटिंग और इमरजेंसी एसओएस अलर्ट्स की मॉनिटरिंग।
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════ 5. ERP, TAX & FINANCE ════════════════════ -->
+<div class="section-break">
+  <div class="module-header">
+    <h2 class="module-title">5. ERP, टैक्स, GST एवं अकाउंट्स (ERP, Tax & Accounts)</h2>
+    <span class="module-tag">Statutory & Financials</span>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">📈 Unit Economics & Profitability (P&L)</span>
+      <span class="feature-route">/unit-economics</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> हर एक ऑर्डर का सूक्ष्म लाभ/हानि (Margin Analysis) दिखाता है: <code>सेलिंग प्राइस − खरीद लागत − डिलीवरी खर्च − पैकेजिंग = शुद्ध लाभ</code>।
+    </div>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">🏛️ GST & Tax Filing Reports (GSTR-1 / GSTR-3B)</span>
+      <span class="feature-route">/gst-reports</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> सीए (Chartered Accountant) को देने के लिए तैयार मासिक जीएसटी रिपोर्ट जनरेट करता है, जिसमें HSN कोड वार 0%, 5%, 12%, 18% का अलग-अलग टैक्स ब्रेकअप होता है।
+    </div>
+    <div class="how-to-use">
+      <div class="how-to-title">जीएसटी रिपोर्ट निकालने का तरीका:</div>
+      <ol class="step-list">
+        <li>महीना व साल चुनें (उदा. August 2026)।</li>
+        <li><strong>"Export GSTR-1 Excel"</strong> दबाएँ — पूरी फाइल सरकारी जीएसटी पोर्टल के फॉर्मेट में डाउनलोड हो जाएगी।</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">💰 Rider Payouts & Cash Reconciliation (COD)</span>
+      <span class="feature-route">/payouts • /reconciliation</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> राइडर्स की प्रति-डिलीवरी कमाई व साप्ताहिक बैंक भुगतान प्रोसेस करता है, और राइडर्स द्वारा ग्राहकों से लिया गया नकद पैसा (Cash on Delivery) वेयरहाउस काउंटर पर सेटल करता है।
+    </div>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">📒 Supplier Ledger (A/P) & Expenses</span>
+      <span class="feature-route">/supplier-ledger • /expenses • /financial-statements</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> खाद-बीज कंपनियों का बकाया खाता (Accounts Payable) और वेयरहाउस के दैनिक खर्चे (किराया, बिजली, पैकेजिंग मैटेरियल) का रिकॉर्ड।
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════ 6. MARKETING & GROWTH ════════════════════ -->
+<div>
+  <div class="module-header">
+    <h2 class="module-title">6. मार्केटिंग, बैनर एवं सूचनाएँ (Growth & Marketing)</h2>
+    <span class="module-tag">Customer Engagement</span>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">🖼️ Home Screen Promo Banners</span>
+      <span class="feature-route">/banners</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> किसान ऐप के होमपेज पर दिखने वाले आकर्षक बैनर (उदा. खरीफ स्पेशल डिस्काउंट, यूरिया उपलब्धता) अपलोड और शेड्यूल करना।
+    </div>
+    <div class="how-to-use">
+      <div class="how-to-title">बैनर लगाने का तरीका:</div>
+      <ol class="step-list">
+        <li><strong>"+ Add Banner"</strong> दबाएँ, बैनर इमेज (1200x600 px) अपलोड करें।</li>
+        <li>लिंक टाइप चुनें (उदा. Category: Fertilizers या Specific Product)।</li>
+        <li><strong>"Publish Banner"</strong> दबाते ही सभी किसानों के ऐप में बैनर तुरंत लाइव हो जाएगा।</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">🔔 Broadcast Push Notifications</span>
+      <span class="feature-route">/notifications</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> किसानों के मोबाइल पर मौसम की चेतावनी, खाद की नई खेप की सूचना या डिस्काउंट कूपन का नोटिफिकेशन एक साथ भेजना।
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════ 7. INTELLIGENCE & SECURITY ════════════════════ -->
+<div class="section-break">
+  <div class="module-header">
+    <h2 class="module-title">7. AI इंटेलिजेंस, सुरक्षा एवं सेटिंग्स (Intelligence & Admin)</h2>
+    <span class="module-tag">Governance & AI Control</span>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">🤖 AI Supervisor & Demand Control Room</span>
+      <span class="feature-route">/ai-control</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> मौसम और फसल चक्र (Crop Seasonality) के आधार पर किस खाद या कीटनाशक की माँग अगले 15 दिनों में बढ़ने वाली है, उसका सटीक पूर्वानुमान (AI Demand Forecasting) बताता है।
+    </div>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">🛡️ Staff Role-Based Access (RBAC) & Audit Logs</span>
+      <span class="feature-route">/staff • /audit-logs</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> वेयरहाउस कर्मचारियों को उनकी भूमिका के अनुसार सीमित अधिकार देना और हर एक्शन का टाइमस्टैम्प ऑडिट लॉग सुरक्षित रखना।
+    </div>
+    <div class="how-to-use">
+      <div class="how-to-title">भूमिका प्रकार (Roles):</div>
+      <ul>
+        <li><span class="badge badge-purple">SuperAdmin</span>: सभी सेटिंग्स, फाइनेंस और डिलीट का पूरा अधिकार।</li>
+        <li><span class="badge badge-blue">OrderManager</span>: ऑर्डर प्रोसेस करना, राइडर असाइन करना, पैकिंग।</li>
+        <li><span class="badge badge-green">CatalogManager</span>: प्रोडक्ट, ब्रांड, केटेगरी और SKU जोड़ना/एडिट करना।</li>
+        <li><span class="badge badge-amber">Viewer</span>: केवल रिपोर्ट्स और डैशबोर्ड देखने का अधिकार (नो एडिट)।</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-card-header">
+      <span class="feature-name">⚙️ Global ERP Settings</span>
+      <span class="feature-route">/settings</span>
+    </div>
+    <div class="what-it-does">
+      <strong>यह क्या करता है:</strong> वेयरहाउस का पता, डिलीवरी रेडियस (उदा. 25 किमी), फ्री डिलीवरी मिनिमम आर्डर वैल्यू, हेल्पलाइन फोन नंबर व बिज़नेस नीतियां कॉन्फ़िगर करना।
+    </div>
+  </div>
+
+  <!-- Summary Table of All Standard SKU Codes -->
+  <div style="margin-top: 20px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px;">
+    <h3 style="margin: 0 0 8px 0; color: #166534; font-size: 10.5pt; font-weight: 800;">📌 संदर्भ: 6-सेगमेंट कृषि SKU कोडिंग प्रणाली (Standard Reference)</h3>
+    <p style="margin: 0 0 10px 0; font-size: 8.5pt; color: #4b5563;">
+      KrishiVishal ERP फॉर्मेट: <span class="code-block">CC-III-VVV-GG-SSSUU-BBB</span> (उदा. <code>FE-URE-GRN-46-050KG-IFF</code>)
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>Segment</th>
+          <th>अर्थ (Meaning)</th>
+          <th>उदाहरण (Example)</th>
+          <th>विवरण (Description)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>CC</strong></td>
+          <td>Category Code (2 अक्षर)</td>
+          <td><code>FE</code>, <code>PE</code>, <code>SE</code></td>
+          <td>FE = Fertilizer, PE = Pesticide, SE = Seeds, EQ = Equipment</td>
+        </tr>
+        <tr>
+          <td><strong>III</strong></td>
+          <td>Item Code (3 अक्षर)</td>
+          <td><code>URE</code>, <code>DAP</code>, <code>COR</code></td>
+          <td>URE = Urea, DAP = Di-Ammonium Phosphate, COR = Coragen</td>
+        </tr>
+        <tr>
+          <td><strong>VVV</strong></td>
+          <td>Variety Code (3 अक्षर)</td>
+          <td><code>GRN</code>, <code>HYB</code>, <code>STD</code></td>
+          <td>GRN = Granular, HYB = Hybrid, STD = Standard</td>
+        </tr>
+        <tr>
+          <td><strong>GG</strong></td>
+          <td>Grade Code (2 अक्षर)</td>
+          <td><code>46</code>, <code>A1</code>, <code>00</code></td>
+          <td>46 = 46% Nitrogen, A1 = Premium Grade</td>
+        </tr>
+        <tr>
+          <td><strong>SSSUU</strong></td>
+          <td>Pack Size + Unit (5 अक्षर)</td>
+          <td><code>050KG</code>, <code>500ML</code>, <code>001LT</code></td>
+          <td>050 + KG = 50 Kilogram, 500 + ML = 500 Millilitre</td>
+        </tr>
+        <tr>
+          <td><strong>BBB</strong></td>
+          <td>Brand Code (3 अक्षर)</td>
+          <td><code>IFF</code>, <code>BAY</code>, <code>FMC</code></td>
+          <td>IFF = IFFCO, BAY = Bayer, FMC = FMC Chemicals</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+</body>
+</html>
