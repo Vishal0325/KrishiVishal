@@ -43,7 +43,8 @@ import {
   FileCheck,
   UploadCloud,
   Layers,
-  Activity
+  Activity,
+  Eye
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
