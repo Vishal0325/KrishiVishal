@@ -1,18 +1,95 @@
-import { collection, addDoc, Timestamp, query, where, getDocs, doc, updateDoc } from "firebase/firestore";
+import { collection, addDoc, Timestamp, query, where, getDocs, doc, updateDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase/config";
+import { autoDeriveSkuFromProduct, getCategoryTaxDefaults } from "../utils/skuGenerator";
+import { callUpsertSku, callReceiveGrn } from "./inventory";
+import * as XLSX from "xlsx";
+
+/**
+ * Generates and downloads a clean, ready-to-fill Excel template for 1-Click bulk product upload.
+ */
+export function downloadSampleProductTemplate() {
+  const sampleData = [
+    {
+      "Product Name": "Urea Neem Coated 50kg",
+      "Category": "Fertilizers",
+      "Brand": "IFFCO",
+      "Pack Size": 50,
+      "Unit": "KG",
+      "MRP": 300,
+      "Selling Price": 266,
+      "Cost Price": 240,
+      "Stock": 100,
+      "Batch Number": "BAT-2026-001",
+      "Mfg Date": "2026-01-15",
+      "Expiry Date": "2028-01-15",
+      "HSN Code": "31021010",
+      "GST Rate": 5,
+      "Description": "Neem coated agricultural urea fertilizer for high nitrogen yield."
+    },
+    {
+      "Product Name": "Coragen Insecticide 60ml",
+      "Category": "Pesticides",
+      "Brand": "FMC",
+      "Pack Size": 60,
+      "Unit": "ML",
+      "MRP": 1100,
+      "Selling Price": 950,
+      "Cost Price": 850,
+      "Stock": 50,
+      "Batch Number": "BAT-2026-002",
+      "Mfg Date": "2026-02-01",
+      "Expiry Date": "2028-02-01",
+      "HSN Code": "38089190",
+      "GST Rate": 18,
+      "Description": "Broad-spectrum insecticide for borer control in sugarcane and paddy."
+    },
+    {
+      "Product Name": "Hybrid Paddy Seed 6444 Gold 3kg",
+      "Category": "Seeds",
+      "Brand": "Bayer",
+      "Pack Size": 3,
+      "Unit": "KG",
+      "MRP": 950,
+      "Selling Price": 870,
+      "Cost Price": 780,
+      "Stock": 200,
+      "Batch Number": "BAT-2026-003",
+      "Mfg Date": "2026-03-01",
+      "Expiry Date": "2027-03-01",
+      "HSN Code": "12099990",
+      "GST Rate": 0,
+      "Description": "High yielding hybrid paddy seeds with disease resistance."
+    }
+  ];
+
+  const worksheet = XLSX.utils.json_to_sheet(sampleData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Products_Upload_Template");
+  XLSX.writeFile(workbook, "KrishiVishal_Products_Upload_Template.xlsx");
+}
 
 /**
  * Parse variants from a pipe-separated string.
  * Format per variant: label:mrp:price:stock:reorderLevel:batchNo:mfgDate:expiryDate
  */
-function parseVariants(variantsStr) {
+function parseVariants(variantsStr, parentName = "", parentBrand = "", parentCategory = "") {
   if (!variantsStr || !variantsStr.trim()) return [];
   const variants = [];
   const parts = variantsStr.split(";").map((s) => s.trim()).filter(Boolean);
   for (const part of parts) {
     const fields = part.split(":").map((s) => s.trim());
+    const label = fields[0] || "";
+    const derivedSku = autoDeriveSkuFromProduct({
+      name: parentName,
+      brand: parentBrand,
+      category: parentCategory,
+      quantity: label
+    });
+
     variants.push({
-      label: fields[0] || "",
+      id: `var_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      skuCode: fields[9] || derivedSku,
+      label,
       mrp: fields[1] ? Number(fields[1]) : 0,
       price: fields[2] ? Number(fields[2]) : 0,
       costPrice: fields[3] ? Number(fields[3]) : 0,
@@ -26,8 +103,12 @@ function parseVariants(variantsStr) {
   return variants;
 }
 
-const CHEMICAL_CATEGORIES = ["herbicide", "insecticide", "pgr", "plant growth regulator", "fungicide"];
+const CHEMICAL_CATEGORIES = ["herbicide", "insecticide", "pgr", "plant growth regulator", "fungicide", "pesticide", "pesticides"];
 
+/**
+ * 1-Click Unified Product Importer:
+ * Creates Product Document + Registers Cloud Function SKUs + Provisions Initial Inventory/Batches automatically.
+ */
 export async function importProducts(rows) {
   const results = { success: 0, updated: 0, failed: 0, errors: [] };
   const productsRef = collection(db, "products");
@@ -35,133 +116,116 @@ export async function importProducts(rows) {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     try {
-      // normalize keys (trim whitespace)
+      // normalize keys (trim whitespace and handle multiple header casing formats)
       const r = {};
-      for (const k in row) r[k.trim()] = (row[k] || "").toString().trim();
+      for (const k in row) {
+        const cleanKey = k.trim().replace(/\s+/g, '_').toLowerCase();
+        r[cleanKey] = (row[k] !== undefined && row[k] !== null ? row[k] : "").toString().trim();
+      }
 
-      if (!r.name) throw new Error("Product name is missing in row");
+      const name = r.product_name || r.name || r.title || "";
+      if (!name) throw new Error("Product name is missing in row");
 
-      // Parse variants
-      const variants = parseVariants(r.variants);
+      const brand = r.brand || r.company || "GEN";
+      const category = r.category || "Others";
+      const subCategory = r.sub_category || r.subcategory || "";
+      const quantity = r.pack_size || r.size || r.quantity || "1";
+      const unit = r.unit || "piece";
 
-      // Calculate aggregated fields
-      let mrp, price, stock, quantity, reorderLevel, expiryDate, mfgDate, batchNumber, costPrice;
+      // Auto-Derive Standard SKU
+      const derivedSku = autoDeriveSkuFromProduct({
+        name,
+        brand,
+        category,
+        subCategory,
+        quantity,
+        unit,
+        skuCode: r.sku_code || r.sku || ""
+      });
+
+      // Auto-Tax Defaults if not supplied
+      const taxDefaults = getCategoryTaxDefaults(category);
+      const hsnCode = r.hsn_code || r.hsn || taxDefaults.hsnCode;
+      const gstRate = r.gst_rate || r.gst ? Number(r.gst_rate || r.gst) : taxDefaults.gstRate;
+
+      // Parse variants if provided
+      const variants = parseVariants(r.variants, name, brand, category);
+
+      let mrp = r.mrp ? Number(r.mrp) : 0;
+      let price = r.selling_price || r.price ? Number(r.selling_price || r.price) : 0;
+      let costPrice = r.cost_price || r.landing_cost ? Number(r.cost_price || r.landing_cost) : 0;
+      let stock = r.stock ? Number(r.stock) : 0;
+      let reorderLevel = r.reorder_level ? Number(r.reorder_level) : 10;
+      let batchNumber = r.batch_number || r.batch_no || `BAT-${Date.now()}`;
+      let mfgDate = r.mfg_date && !isNaN(Date.parse(r.mfg_date)) ? Timestamp.fromDate(new Date(r.mfg_date)) : null;
+      let expiryDate = r.expiry_date && !isNaN(Date.parse(r.expiry_date)) ? Timestamp.fromDate(new Date(r.expiry_date)) : null;
 
       if (variants.length > 0) {
         mrp = Math.max(...variants.map((v) => v.mrp));
         price = Math.min(...variants.map((v) => v.price));
         costPrice = Math.min(...variants.map((v) => v.costPrice));
         stock = variants.reduce((s, v) => s + v.stock, 0);
-        quantity = variants[0]?.label || "";
         reorderLevel = variants.reduce((s, v) => s + v.reorderLevel, 0);
-
-        const variantExpiries = variants.map((v) => v.expiryDate).filter(Boolean);
-        expiryDate = variantExpiries.length
-          ? Timestamp.fromDate(new Date(Math.min(...variantExpiries.map((t) => t.toDate()))))
-          : null;
-
-        const variantMfgs = variants.map((v) => v.mfgDate).filter(Boolean);
-        mfgDate = variantMfgs.length
-          ? Timestamp.fromDate(new Date(Math.min(...variantMfgs.map((t) => t.toDate()))))
-          : null;
-
-        batchNumber = variants.map((v) => v.batchNumber).filter(Boolean).join(", ");
       } else {
-        mrp = r.mrp ? Number(r.mrp) : 0;
-        price = r.price ? Number(r.price) : 0;
-        costPrice = r.costPrice ? Number(r.costPrice) : 0;
-        stock = r.stock ? Number(r.stock) : 0;
-        quantity = r.quantity || "";
-        reorderLevel = r.reorderLevel ? Number(r.reorderLevel) : 10;
-        expiryDate = r.expiryDate && !isNaN(Date.parse(r.expiryDate)) ? Timestamp.fromDate(new Date(r.expiryDate)) : null;
-        mfgDate = r.mfgDate && !isNaN(Date.parse(r.mfgDate)) ? Timestamp.fromDate(new Date(r.mfgDate)) : null;
-        batchNumber = r.batchNumber || "";
+        // Embed single variant with auto-derived SKU
+        variants.push({
+          id: `var_${derivedSku}`,
+          skuCode: derivedSku,
+          label: `${quantity} ${unit}`,
+          mrp,
+          price,
+          costPrice,
+          stock,
+          reorderLevel,
+          batchNumber,
+          mfgDate,
+          expiryDate
+        });
       }
 
-      const categoryLower = (r.category || "").toLowerCase();
+      const categoryLower = category.toLowerCase();
 
       const productData = {
-        name: r.name,
-        brand: r.brand || "",
-        category: r.category || "",
-        subCategory: r.subCategory || "",
-        isAllCrops: r.isAllCrops ? r.isAllCrops.toLowerCase() === "true" : false,
-        associatedCropIds: r.associatedCropIds ? r.associatedCropIds.split(/[,;]+/).map((s) => s.trim()).filter(Boolean) : [],
-        associatedCropNames: r.associatedCropNames ? r.associatedCropNames.split(/[,;]+/).map((s) => s.trim()).filter(Boolean) : [],
-        cropId: r.cropId || "",
-        cropName: r.cropName || "",
+        name,
+        brand,
+        category,
+        subCategory,
         mrp,
         price,
-        costPrice,
+        discountedPrice: price,
         stock,
         stockQuantity: stock,
-        quantity,
+        quantity: `${quantity} ${unit}`,
+        unit,
         reorderLevel,
+        hsnCode,
+        gstRate,
         expiryDate,
         mfgDate,
         batchNumber,
-        chemicalComposition: CHEMICAL_CATEGORIES.includes(categoryLower) ? (r.chemicalComposition || "") : null,
-        description: r.description || "",
-        images: r.imageUrl
-          ? r.imageUrl.split(/[,;]+/).map((s) => s.trim()).filter(Boolean)
-          : [],
-        isActive: r.isActive ? r.isActive.toLowerCase() === "true" : true,
-        unit: r.unit || "piece",
         variants,
-        seedMetadata: categoryLower === "seeds" ? {
-          variety: r.seedVariety || "",
-          seedClass: r.seedClass || "Truthfully Labeled",
-          germination: r.seedGermination ? Number(r.seedGermination) : 0,
-          purity: r.seedPurity ? Number(r.seedPurity) : 0,
-          moisture: r.seedMoisture ? Number(r.seedMoisture) : 0,
-          lotNumber: r.seedLotNumber || "",
-          isTreated: r.seedIsTreated ? r.seedIsTreated.toLowerCase() === "true" : false,
-          chemicalName: r.seedChemicalName || "",
-        } : null,
-        agroMetadata: ["fungicide", "insecticide", "crop nutrition"].includes(categoryLower) ? {
-          technicalName: r.agroTechnicalName || "",
-          formulation: r.agroFormulation || "",
-          dosePerAcre: r.agroDosePerAcre || "",
-          composition: r.agroComposition || "",
-          recommendedCrops: r.agroRecommendedCrops ? r.agroRecommendedCrops.split(",").map(s => s.trim()) : [],
-          toxicityLabel: r.agroToxicityLabel || "green",
-          batchNumber: r.agroBatchNumber || "",
-          mfgDate: r.agroMfgDate || "",
-          antidote: r.agroAntidote || "",
-          targetPests: r.agroTargetPests ? r.agroTargetPests.split(",").map(s => s.trim()) : [],
-          safetyWarning: r.agroSafetyWarning ? r.agroSafetyWarning.toLowerCase() === "true" : false,
-        } : null,
-        herbicideMetadata: categoryLower === "herbicide" ? {
-          selectivity: r.herbSelectivity || "Selective",
-          timing: r.herbTiming || "Post-Emergent",
-          technicalName: r.herbTechnicalName || "",
-          targetWeeds: r.herbTargetWeeds ? r.herbTargetWeeds.split(",").map(s => s.trim()) : [],
-          recommendedCrops: r.herbRecommendedCrops ? r.herbRecommendedCrops.split(",").map(s => s.trim()) : [],
-          dosePerAcre: r.herbDosePerAcre || "",
-          waterVolume: r.herbWaterVolume || "",
-          avoidDrift: r.herbAvoidDrift ? r.herbAvoidDrift.toLowerCase() === "true" : false,
-          toxicityLabel: r.herbToxicityLabel || "green",
-          rainFastness: r.herbRainFastness || "",
-        } : null,
+        hasVariants: variants.length > 1,
+        chemicalComposition: CHEMICAL_CATEGORIES.includes(categoryLower) ? (r.chemical_composition || r.technical_name || "") : null,
+        description: r.description || `${name} by ${brand} in ${category}.`,
+        images: r.image_url || r.images ? (r.image_url || r.images).split(/[,;]+/).map((s) => s.trim()).filter(Boolean) : [],
+        isActive: r.is_active ? r.is_active.toLowerCase() === "true" : true,
         updatedAt: Timestamp.now(),
       };
 
-      // --- UPSERT LOGIC ---
-      const qCheck = query(productsRef, where("name", "==", r.name), where("brand", "==", r.brand || ""));
+      // Search keywords auto-generation
+      const keywords = [
+        ...name.toLowerCase().split(/\s+/),
+        ...brand.toLowerCase().split(/\s+/),
+        categoryLower,
+        derivedSku.toLowerCase()
+      ].filter((v, idx, arr) => v && arr.indexOf(v) === idx);
+
+      // --- 1. UPSERT PRODUCT IN CATALOG ---
+      const qCheck = query(productsRef, where("name", "==", name), where("brand", "==", brand));
       const querySnapshot = await getDocs(qCheck);
 
       let targetId = "";
-
-      // 1. Save Public Product Data
-      const publicProduct = { ...productData };
-      delete publicProduct.costPrice;
-      if (publicProduct.variants) {
-         publicProduct.variants = publicProduct.variants.map(v => {
-            const c = { ...v };
-            delete c.costPrice;
-            return c;
-         });
-      }
+      const publicProduct = { ...productData, searchKeywords: keywords };
 
       if (!querySnapshot.empty) {
         targetId = querySnapshot.docs[0].id;
@@ -176,21 +240,44 @@ export async function importProducts(rows) {
         results.success += 1;
       }
 
-      // 2. Save Private Cost Data
-      const finalCostData = {
-         productId: targetId,
-         costPrice: productData.costPrice || 0,
-         variantsCost: (productData.variants || []).reduce((acc, v) => {
-            if (v.id) acc[v.id] = v.costPrice || 0;
-            return acc;
-         }, {}),
-         updatedAt: Timestamp.now()
-      };
-      await setDoc(doc(db, "product_costs", targetId), finalCostData, { merge: true });
+      // --- 2. UPSERT SKUS VIA CLOUD FUNCTION ---
+      for (const v of variants) {
+        try {
+          await callUpsertSku(v.skuCode || derivedSku, {
+            name: `${name} (${v.label || quantity})`,
+            pricing: {
+              mrp: v.mrp || mrp,
+              consumerPrice: v.price || price,
+              landingCost: v.costPrice || costPrice,
+              dealerPrice: v.costPrice || costPrice
+            },
+            tax: {
+              hsnCode,
+              gstRate
+            },
+            reorderLevel: v.reorderLevel || reorderLevel
+          });
+
+          // If stock > 0, provision initial batch & ledger via Cloud Function
+          if (v.stock > 0) {
+            await callReceiveGrn({
+              skuCode: v.skuCode || derivedSku,
+              batchNumber: v.batchNumber || batchNumber,
+              mfgDate: v.mfgDate ? (v.mfgDate.toDate ? v.mfgDate.toDate().toISOString() : v.mfgDate) : null,
+              expiryDate: v.expiryDate ? (v.expiryDate.toDate ? v.expiryDate.toDate().toISOString() : v.expiryDate) : null,
+              quantity: Number(v.stock),
+              landingCost: v.costPrice || costPrice,
+              grnId: `IMPORT-${Date.now()}`
+            });
+          }
+        } catch (cfErr) {
+          console.warn(`SKU auto-upsert error for ${v.skuCode}:`, cfErr.message);
+        }
+      }
 
     } catch (err) {
       results.failed += 1;
-      results.errors.push({ row: i + 1, name: row.name || "Unknown", error: err.message });
+      results.errors.push({ row: i + 1, name: row.name || row["Product Name"] || "Unknown", error: err.message });
     }
   }
 

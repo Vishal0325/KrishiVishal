@@ -17,12 +17,15 @@ import ImageUpload from "../components/common/ImageUpload";
 import { formatCurrency } from "../utils/formatters";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { importProducts } from "../services/bulkUpload";
+import { importProducts, downloadSampleProductTemplate } from "../services/bulkUpload";
 import {
   fetchAllProducts,
   exportProductsCsv,
   exportProductsXlsx,
+  callUpsertSku,
+  callReceiveGrn,
 } from "../services/inventory";
+import { autoDeriveSkuFromProduct, getCategoryTaxDefaults } from "../utils/skuGenerator";
 import { addAuditLog } from "../services/logger";
 import {
   Search,
@@ -218,32 +221,17 @@ const Products = () => {
     setBulkProcessing(true);
     setBulkSummary(null);
     try {
-      const importSkus = httpsCallable(functions, "importSkus");
-      // Map bulkRows to SKU format expected by Cloud Function
-      const skuPayload = bulkRows.map(r => ({
-        skuCode: r.skuCode || r.SKU || "",
-        name: r.name || r.Name || "",
-        mrp: r.mrp || r.MRP || 0,
-        stock: r.stock || r.Stock || 0,
-        landingCost: r.landingCost || 0,
-        dealerPrice: r.dealerPrice || 0,
-        consumerPrice: r.price || r.Price || 0,
-        batchNumber: r.batchNumber || "",
-        mfgDate: r.mfgDate || null,
-        expiryDate: r.expiryDate || null
-      }));
-
-      const res = await importSkus({ skus: skuPayload });
-      const data = res.data;
+      // 1-Click Unified Importer: Automatically generates SKUs, saves Products, creates Batches & Ledger
+      const data = await importProducts(bulkRows);
       setBulkSummary(data);
       setBulkRows([]);
       setCsvFile(null);
       setIsVerified(false);
 
       if (data.failed > 0) {
-        toast.error(`Import finished with ${data.failed} errors`);
+        toast.error(`Imported with ${data.failed} errors. ${data.success || data.updated} items synced successfully.`);
       } else {
-        toast.success(`Sync successful: ${data.success} SKUs processed`);
+        toast.success(`1-Click Sync complete! ${data.success} new products & ${data.updated} updated.`);
       }
     } catch (err) {
       toast.error("Import failed: " + err.message);
@@ -462,7 +450,6 @@ const Products = () => {
           oldPrice: editingProduct.price,
           newPrice: data.price
         });
-        toast.success("Product updated!");
       } else {
         // Create Logic
         const publicData = { ...data };
@@ -495,8 +482,75 @@ const Products = () => {
         await setDoc(doc(db, "product_costs", docRef.id), costData);
 
         await addAuditLog("CREATE_PRODUCT", "Product", docRef.id, { name: data.name, price: data.price });
-        toast.success("Product added!");
       }
+
+      // ─── 3. 1-CLICK AUTO-PROVISION SKUs & INITIAL INVENTORY VIA CLOUD FUNCTIONS ───
+      const skusToSync = processedVariants.length > 0
+        ? processedVariants
+        : [{
+            skuCode: autoDeriveSkuFromProduct({
+              name: data.name,
+              brand: data.brand,
+              category: data.category,
+              subCategory: data.subCategory,
+              quantity: data.quantity,
+              unit: data.unit
+            }),
+            label: `${data.quantity} ${data.unit}`,
+            mrp: data.mrp,
+            price: data.price,
+            costPrice: data.costPrice,
+            stock: data.stock,
+            reorderLevel: data.reorderLevel,
+            batchNumber: data.batchNumber,
+            mfgDate: data.mfgDate,
+            expiryDate: data.expiryDate
+          }];
+
+      for (const v of skusToSync) {
+        try {
+          const finalSku = v.skuCode || autoDeriveSkuFromProduct({
+            name: data.name,
+            brand: data.brand,
+            category: data.category,
+            subCategory: data.subCategory,
+            quantity: v.label || data.quantity,
+            unit: data.unit
+          });
+
+          await callUpsertSku(finalSku, {
+            name: `${data.name} (${v.label || data.quantity || ''})`.trim(),
+            pricing: {
+              mrp: Number(v.mrp || data.mrp || 0),
+              consumerPrice: Number(v.price || data.price || 0),
+              landingCost: Number(v.costPrice || data.costPrice || 0),
+              dealerPrice: Number(v.costPrice || data.costPrice || 0)
+            },
+            tax: {
+              hsnCode: data.hsnCode || "31021010",
+              gstRate: Number(data.gstRate || 5)
+            },
+            reorderLevel: Number(v.reorderLevel || data.reorderLevel || 10)
+          });
+
+          // If initial stock provided (>0), provision initial batch & ledger
+          if (Number(v.stock || 0) > 0) {
+            await callReceiveGrn({
+              skuCode: finalSku,
+              batchNumber: v.batchNumber || data.batchNumber || `INIT-${Date.now()}`,
+              mfgDate: v.mfgDate ? (v.mfgDate.toDate ? v.mfgDate.toDate().toISOString() : v.mfgDate) : null,
+              expiryDate: v.expiryDate ? (v.expiryDate.toDate ? v.expiryDate.toDate().toISOString() : v.expiryDate) : null,
+              quantity: Number(v.stock),
+              landingCost: Number(v.costPrice || data.costPrice || 0),
+              grnId: `PROD_INIT_${Date.now()}`
+            });
+          }
+        } catch (skuErr) {
+          console.warn(`SKU auto-sync warning for ${v.skuCode}:`, skuErr.message);
+        }
+      }
+
+      toast.success(editingProduct ? "Product & SKUs updated successfully!" : "1-Click Success: Product, SKUs & Inventory provisioned!");
       closeModal();
     } catch (error) {
       toast.error("Operation failed");
@@ -918,6 +972,14 @@ const Products = () => {
 
           <div className="flex items-center space-x-3">
             <button
+              onClick={downloadSampleProductTemplate}
+              className="flex items-center space-x-2 bg-emerald-50 text-emerald-800 border border-emerald-200 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-emerald-100 transition-all active:scale-95 shadow-sm"
+              title="Download clean Excel format for 1-Click bulk product upload"
+            >
+              <Download size={16} />
+              <span>📥 Template</span>
+            </button>
+            <button
               onClick={exportCsv}
               className="flex items-center space-x-2 bg-white px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest text-gray-600 border border-gray-100 shadow-sm hover:border-primary transition-all active:scale-95"
             >
@@ -1262,9 +1324,17 @@ const Products = () => {
                   <select
                     required
                     value={formData.category}
-                    onChange={(e) =>
-                      setFormData({ ...formData, category: e.target.value, subCategory: "" })
-                    }
+                    onChange={(e) => {
+                      const newCat = e.target.value;
+                      const tax = getCategoryTaxDefaults(newCat);
+                      setFormData({
+                        ...formData,
+                        category: newCat,
+                        subCategory: "",
+                        hsnCode: formData.hsnCode || tax.hsnCode,
+                        gstRate: tax.gstRate.toString()
+                      });
+                    }}
                     className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900 appearance-none cursor-pointer"
                   >
                     <option value="">Select Category</option>
@@ -1274,6 +1344,31 @@ const Products = () => {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                {/* ─── LIVE AUTO-DERIVED SKU PREVIEW ─── */}
+                <div className="md:col-span-2 bg-gradient-to-r from-emerald-50 via-teal-50 to-green-50 border border-emerald-200/60 p-4 rounded-3xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+                  <div className="flex items-center space-x-3">
+                    <div className="h-9 w-9 bg-emerald-700 text-white rounded-2xl flex items-center justify-center font-black text-xs shadow-md shadow-emerald-700/20">
+                      SKU
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-[10px] font-black text-emerald-800 uppercase tracking-widest">
+                          1-Click Standard Agri SKU
+                        </p>
+                        <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-[9px] font-black">
+                          AUTO-GENERATED
+                        </span>
+                      </div>
+                      <p className="font-mono text-sm font-black text-emerald-950 mt-0.5 tracking-tight">
+                        {autoDeriveSkuFromProduct(formData)}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold text-emerald-700 bg-white/80 px-3 py-1.5 rounded-xl border border-emerald-100 shadow-sm">
+                    CC-III-VVV-GG-SSSUU-BBB
+                  </span>
                 </div>
 
                 {/* GST & Tax Compliance Section */}
