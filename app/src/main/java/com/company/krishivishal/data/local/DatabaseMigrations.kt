@@ -224,6 +224,125 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * Migration from 48 to 49
+     * Adds SKU, Batch, Warehouse, and Inventory Movement tables with indexes.
+     */
+    val MIGRATION_48_49 = object : Migration(48, 49) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // 1. Update variants table
+            db.execSQL("ALTER TABLE variants ADD COLUMN skuCode TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE variants ADD COLUMN barcode TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE variants ADD COLUMN reorderLevel INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE variants ADD COLUMN availableStock INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE variants ADD COLUMN committedStock INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_variants_skuCode` ON `variants` (`skuCode`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_variants_barcode` ON `variants` (`barcode`)")
+
+            // 2. Update cart_items table
+            db.execSQL("ALTER TABLE cart_items ADD COLUMN skuCode TEXT")
+
+            // 3. Create skus table
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `skus` (
+                    `skuCode` TEXT NOT NULL PRIMARY KEY,
+                    `productId` TEXT NOT NULL,
+                    `name` TEXT NOT NULL,
+                    `categoryCode` TEXT NOT NULL,
+                    `itemCode` TEXT NOT NULL,
+                    `varietyCode` TEXT NOT NULL,
+                    `gradeCode` TEXT NOT NULL,
+                    `packCode` TEXT NOT NULL,
+                    `brandCode` TEXT NOT NULL,
+                    `unit` TEXT NOT NULL,
+                    `size` TEXT NOT NULL,
+                    `mrp` REAL NOT NULL,
+                    `consumerPrice` REAL NOT NULL,
+                    `dealerPrice` REAL NOT NULL,
+                    `landingCost` REAL NOT NULL,
+                    `totalStock` INTEGER NOT NULL,
+                    `availableStock` INTEGER NOT NULL,
+                    `committedStock` INTEGER NOT NULL,
+                    `hsnCode` TEXT NOT NULL,
+                    `gstRate` REAL NOT NULL,
+                    `barcode` TEXT NOT NULL,
+                    `reorderLevel` INTEGER NOT NULL,
+                    `minStockLimit` INTEGER NOT NULL,
+                    `isActive` INTEGER NOT NULL,
+                    `updatedAt` INTEGER NOT NULL
+                )
+            """.trimIndent())
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_skus_productId` ON `skus` (`productId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_skus_barcode` ON `skus` (`barcode`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_skus_isActive` ON `skus` (`isActive`)")
+
+            // 4. Create batches table
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `batches` (
+                    `batchId` TEXT NOT NULL PRIMARY KEY,
+                    `skuCode` TEXT NOT NULL,
+                    `batchNumber` TEXT NOT NULL,
+                    `mfgDate` INTEGER,
+                    `expiryDate` INTEGER,
+                    `stock` INTEGER NOT NULL,
+                    `warehouseId` TEXT NOT NULL,
+                    `binLocation` TEXT NOT NULL,
+                    `supplierId` TEXT NOT NULL,
+                    `purchaseOrderId` TEXT NOT NULL,
+                    `grnId` TEXT NOT NULL,
+                    `landingCost` REAL NOT NULL,
+                    `qualityStatus` TEXT NOT NULL,
+                    `isActive` INTEGER NOT NULL,
+                    `createdAt` INTEGER NOT NULL,
+                    `updatedAt` INTEGER NOT NULL
+                )
+            """.trimIndent())
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_batches_skuCode` ON `batches` (`skuCode`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_batches_expiryDate` ON `batches` (`expiryDate`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_batches_warehouseId` ON `batches` (`warehouseId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_batches_qualityStatus` ON `batches` (`qualityStatus`)")
+
+            // 5. Create warehouses table
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `warehouses` (
+                    `id` TEXT NOT NULL PRIMARY KEY,
+                    `name` TEXT NOT NULL,
+                    `city` TEXT NOT NULL,
+                    `state` TEXT NOT NULL,
+                    `type` TEXT NOT NULL,
+                    `isActive` INTEGER NOT NULL
+                )
+            """.trimIndent())
+
+            // 6. Create inventory_movements table
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `inventory_movements` (
+                    `movementId` TEXT NOT NULL PRIMARY KEY,
+                    `movementType` TEXT NOT NULL,
+                    `skuCode` TEXT NOT NULL,
+                    `batchId` TEXT,
+                    `batchNumber` TEXT,
+                    `warehouseId` TEXT NOT NULL,
+                    `quantity` INTEGER NOT NULL,
+                    `availableBefore` INTEGER NOT NULL,
+                    `availableAfter` INTEGER NOT NULL,
+                    `committedBefore` INTEGER NOT NULL,
+                    `committedAfter` INTEGER NOT NULL,
+                    `referenceId` TEXT NOT NULL,
+                    `actorId` TEXT NOT NULL,
+                    `actorRole` TEXT NOT NULL,
+                    `reason` TEXT NOT NULL,
+                    `note` TEXT NOT NULL,
+                    `idempotencyKey` TEXT,
+                    `timestamp` INTEGER NOT NULL
+                )
+            """.trimIndent())
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_inventory_movements_skuCode` ON `inventory_movements` (`skuCode`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_inventory_movements_timestamp` ON `inventory_movements` (`timestamp`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_inventory_movements_referenceId` ON `inventory_movements` (`referenceId`)")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_33_34,
         MIGRATION_34_35,
@@ -232,7 +351,8 @@ object DatabaseMigrations {
         MIGRATION_37_38,
         MIGRATION_38_42,
         MIGRATION_42_43,
-        MIGRATION_43_48
+        MIGRATION_43_48,
+        MIGRATION_48_49
     )
 }
 

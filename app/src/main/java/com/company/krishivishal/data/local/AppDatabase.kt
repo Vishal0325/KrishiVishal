@@ -24,9 +24,13 @@ import com.company.krishivishal.core.model.*
         ProductCropCrossRef::class,
         ProductRecommendationCrossRef::class,
         RecentlyViewedProduct::class,
-        RecentSearch::class
+        RecentSearch::class,
+        Sku::class,
+        Batch::class,
+        Warehouse::class,
+        InventoryMovement::class
     ],
-    version = 48,
+    version = 49,
     exportSchema = false
 )
 @TypeConverters(AppConverters::class)
@@ -44,5 +48,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun notificationDao(): NotificationDao
     abstract fun returnDao(): ReturnDao
     abstract fun recentSearchDao(): com.company.krishivishal.data.local.dao.RecentSearchDao
+    abstract fun skuDao(): SkuDao
+    abstract fun batchDao(): BatchDao
 }
 

@@ -36,6 +36,10 @@ data class CartItem(
     @SerializedName("quantity")
     val quantity: Int = 1,
 
+    @ColumnInfo(name = "skuCode")
+    @SerializedName("sku_code")
+    val skuCode: String? = null,
+
     @ColumnInfo(name = "isSelected")
     @SerializedName("is_selected")
     val isSelected: Boolean = true,

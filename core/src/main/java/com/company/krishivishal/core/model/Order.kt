@@ -36,6 +36,8 @@ data class OrderItem(
     // NEW: Variant identification fields (nullable for backward compatibility)
     @SerializedName("variantId") val variantId: String? = null,
     @SerializedName("variantLabel") val variantLabel: String? = null,
+    @SerializedName("skuCode") val skuCode: String? = null,
+    @SerializedName("batchAllocations") val batchAllocations: List<BatchAllocation> = emptyList(),
 
     // V4: Tax Compliance Fields
     @SerializedName("hsnCode") val hsnCode: String = "",
@@ -43,6 +45,14 @@ data class OrderItem(
     @SerializedName("gstAmount") val gstAmount: Double = 0.0,
     @SerializedName("taxableAmount") val taxableAmount: Double = 0.0,
     @SerializedName("costPrice") val costPrice: Double = 0.0
+) : Parcelable
+
+@Parcelize
+@Serializable
+data class BatchAllocation(
+    @SerializedName("batchId") val batchId: String = "",
+    @SerializedName("batchNumber") val batchNumber: String = "",
+    @SerializedName("allocatedQty") val allocatedQty: Int = 0
 ) : Parcelable
 
 @Parcelize

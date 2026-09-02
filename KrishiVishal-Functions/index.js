@@ -17,6 +17,7 @@ const razorpay = require('./finance/razorpay');
 const ledger = require('./finance/ledger');
 const wallet = require('./finance/wallet');
 const inventory = require('./inventory/stock');
+const bulkImport = require('./inventory/importSkus');
 const recommendations = require('./inventory/recommendations');
 const adminTools = require('./admin/aiSupervisor');
 const sla = require('./admin/slaMonitor');
@@ -43,6 +44,13 @@ exports.deleteExpenseAttachment = ledger.deleteExpenseAttachment;
 
 // --- INVENTORY ---
 exports.onReturnStockSync = inventory.onReturnStockSync;
+exports.onSkuWrite = inventory.onSkuWrite;
+exports.importSkus = bulkImport.importSkus;
+exports.upsertSku = bulkImport.upsertSku;
+exports.adjustInventory = bulkImport.adjustInventory;
+exports.receiveGrn = bulkImport.receiveGrn;
+exports.writeOffStock = bulkImport.writeOffStock;
+exports.getInventoryReport = bulkImport.getInventoryReport;
 exports.onProductWrite = recommendations.onProductWrite;
 exports.refreshPopularity = recommendations.refreshPopularity;
 exports.getRecommendations = recommendations.getRecommendations;

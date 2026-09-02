@@ -62,10 +62,13 @@ object DatabaseModule {
     fun provideSyncOperationDao(database: AppDatabase): SyncOperationDao = database.syncOperationDao()
 
     @Provides
-    fun provideReturnDao(database: AppDatabase): ReturnDao = database.returnDao()
-
-    @Provides
     fun provideRecentSearchDao(database: AppDatabase): com.company.krishivishal.data.local.dao.RecentSearchDao =
         database.recentSearchDao()
+
+    @Provides
+    fun provideSkuDao(database: AppDatabase): SkuDao = database.skuDao()
+
+    @Provides
+    fun provideBatchDao(database: AppDatabase): BatchDao = database.batchDao()
 }
 

@@ -118,4 +118,10 @@ abstract class RepositoryModule {
     abstract fun bindReferralRepository(
         referralRepositoryImpl: ReferralRepositoryImpl
     ): ReferralRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindSkuRepository(
+        skuRepositoryImpl: SkuRepositoryImpl
+    ): SkuRepository
 }

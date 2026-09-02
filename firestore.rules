@@ -44,17 +44,19 @@ service cloud.firestore {
 
     // ============================================================
     // PRODUCTS
-    // Public Read / Admin Write
+    // Public Read / Admin Write (Metadata only)
     // ============================================================
 
     match /products/{id} {
       allow read: if true;
-      allow update: if isAdmin() || (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockQuantity']));
-      allow create, delete: if isAdmin();
+      // Price and Stock are derived from SKUs via Cloud Functions
+      allow update: if isAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['price', 'stockQuantity']);
+      allow create: if isAdmin();
+      allow delete: if isSuperAdmin();
 
       match /variants/{variantId} {
         allow read: if true;
-        allow write: if isAdmin();
+        allow write: if false; // Derived from SKUs
       }
 
       match /reviews/{reviewId} {
@@ -76,6 +78,27 @@ service cloud.firestore {
             resource.data.userId == request.auth.uid
           );
       }
+    }
+
+
+    // ============================================================
+    // SKUS & MASTER DATA (ERP SSoT)
+    // ============================================================
+
+    match /skus/{skuId} {
+      allow read: if isAuthenticated();
+      // Only Cloud Functions / Admin SDK can mutate SKU identity, price, and inventory
+      allow write: if false;
+
+      match /batches/{batchId} {
+        allow read: if isAuthenticated();
+        allow write: if false;
+      }
+    }
+
+    match /master_data/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
 
@@ -481,7 +504,26 @@ service cloud.firestore {
     }
 
     match /inventory_movements/{movementId} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin();
+      allow write: if false; // Immutable ledger: mutated strictly via Cloud Functions / Admin SDK
+    }
+
+    match /warehouse_stock/{docId} {
+      allow read: if isAdmin();
+      allow write: if false; // Cloud Functions SSoT for location inventory
+    }
+
+    match /warehouses/{warehouseId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+      match /{document=**} {
+        allow read: if isAuthenticated();
+        allow write: if isAdmin();
+      }
+    }
+
+    match /idempotency_keys/{key} {
+      allow read, write: if false; // Internal backend idempotency locks
     }
 
     match /supplier_ledger/{id} {

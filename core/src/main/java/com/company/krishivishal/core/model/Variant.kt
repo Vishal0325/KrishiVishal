@@ -112,5 +112,35 @@ data class Variant(
     @SerializedName("unit")
     @get:PropertyName("unit")
     @set:PropertyName("unit")
-    var unit: String = ""
+    var unit: String = "",
+
+    @ColumnInfo(name = "skuCode")
+    @SerializedName("skuCode")
+    @get:PropertyName("skuCode")
+    @set:PropertyName("skuCode")
+    var skuCode: String = "",
+
+    @ColumnInfo(name = "barcode")
+    @SerializedName("barcode")
+    @get:PropertyName("barcode")
+    @set:PropertyName("barcode")
+    var barcode: String = "",
+
+    @ColumnInfo(name = "reorderLevel")
+    @SerializedName("reorderLevel")
+    @get:PropertyName("reorderLevel")
+    @set:PropertyName("reorderLevel")
+    var reorderLevel: Int = 0,
+
+    @ColumnInfo(name = "availableStock")
+    @SerializedName("availableStock")
+    @get:PropertyName("availableStock")
+    @set:PropertyName("availableStock")
+    var availableStock: Int = 0,
+
+    @ColumnInfo(name = "committedStock")
+    @SerializedName("committedStock")
+    @get:PropertyName("committedStock")
+    @set:PropertyName("committedStock")
+    var committedStock: Int = 0
 ) : Parcelable

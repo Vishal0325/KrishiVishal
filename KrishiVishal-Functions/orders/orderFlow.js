@@ -2,11 +2,17 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const crypto = require("crypto");
 const { db, admin } = require("../core/admin");
 const { checkFeatureFlag, addToOutbox, isAdminRequest } = require("../core/utils");
+const {
+    reserveOrderStock,
+    releaseOrderStock,
+    completeOrderStock,
+    DEFAULT_WAREHOUSE_ID
+} = require("../inventory/inventoryEngine");
 
 const REGION = 'asia-south1';
 
 /**
- * createOrder: Full logic with inventory, thorough input validation (H2), and transactional safety.
+ * createOrder: Full logic with FEFO inventory reservation, input validation, and transactional safety.
  */
 exports.createOrder = onCall({ region: REGION }, async (request) => {
     const data = request.data || {};
@@ -32,7 +38,7 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
         }
     }
 
-    // H2: Validate address (supports formatted string from Android app or structured object)
+    // H2: Validate address
     if (!address) {
         throw new HttpsError('invalid-argument', 'Delivery address is required.');
     }
@@ -73,46 +79,58 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
 
         await db.runTransaction(async (transaction) => {
             const items = [];
+            const selfStockItems = [];
             let hasOnDemandItems = false;
 
             for (const item of cartItems) {
-                const productRef = db.collection("products").doc(item.productId);
+                const skuCode = item.skuCode;
+                const productId = item.productId;
+
+                if (!skuCode) {
+                    throw new Error(`SKU Code is required for item: ${item.productName || item.productId}`);
+                }
+
+                const skuRef = db.collection("skus").doc(skuCode);
+                const skuSnap = await transaction.get(skuRef);
+                if (!skuSnap.exists) {
+                    throw new Error(`SKU not found: ${skuCode}`);
+                }
+                const skuData = skuSnap.data();
+
+                const productRef = db.collection("products").doc(productId);
                 const productSnap = await transaction.get(productRef);
                 if (!productSnap.exists) {
-                    // L1: Generic identifier without unvalidated name reflection
-                    throw new Error(`Product not found: ${item.productId}`);
+                    throw new Error(`Product not found: ${productId}`);
                 }
                 const product = productSnap.data();
 
-                let itemPrice = product.discountedPrice || product.price || product.basePrice || 0;
-                let itemMrp = product.basePrice || product.mrp || itemPrice;
-                let stock = product.stockQuantity !== undefined ? product.stockQuantity : (product.stock || 0);
+                const itemPrice = Number(skuData.pricing?.consumerPrice || product.discountedPrice || 0);
+                const itemMrp = Number(skuData.pricing?.mrp || product.mrp || itemPrice);
                 const fulfillmentType = product.fulfillmentType || 'SELF_STOCK';
 
                 if (fulfillmentType === 'ON_DEMAND') {
                     hasOnDemandItems = true;
-                    // Route to procurement queue
                     const queueRef = db.collection("procurement_queue").doc();
                     transaction.set(queueRef, {
                         id: queueRef.id,
                         orderId,
                         productId: item.productId,
+                        skuCode: skuCode,
                         productName: product.name,
                         quantity: item.quantity,
                         supplierId: product.primarySupplierId || null,
-                        estimatedCostPrice: product.estimatedCostPrice || 0,
                         status: 'PROCUREMENT_PENDING',
-                        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        createdAt: admin.firestore.FieldValue.serverTimestamp()
                     });
                 } else {
-                    // SELF_STOCK: enforce inventory reservation
-                    // L1: Safe error message
-                    if (stock < item.quantity) throw new Error(`Out of stock: product ${item.productId}`);
-                    transaction.update(productRef, { stockQuantity: admin.firestore.FieldValue.increment(-item.quantity) });
+                    selfStockItems.push({
+                        skuCode,
+                        quantity: item.quantity,
+                        warehouseId: item.warehouseId || DEFAULT_WAREHOUSE_ID
+                    });
                 }
 
-                const gstRate = product.gstRate || 5;
+                const gstRate = Number(skuData.tax?.gstRate || product.gstRate || 5);
                 const itemTax = (itemPrice * item.quantity * gstRate) / 100;
                 subtotal += itemMrp * item.quantity;
                 totalDiscount += (itemMrp - itemPrice) * item.quantity;
@@ -120,14 +138,37 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
 
                 items.push({
                     productId: item.productId,
+                    skuCode: skuCode,
                     productName: product.name,
                     quantity: item.quantity,
                     price: itemPrice,
                     mrp: itemMrp,
+                    hsnCode: skuData.tax?.hsnCode || product.hsnCode || "31021010",
+                    gstRate: gstRate,
                     gstAmount: itemTax,
                     fulfillmentType,
-                    supplierId: product.primarySupplierId || null
+                    batchAllocations: [] // Will be populated after FEFO reservation
                 });
+            }
+
+            // Perform atomic FEFO stock reservation for all self-stock items
+            if (selfStockItems.length > 0) {
+                const reservationResult = await reserveOrderStock(transaction, {
+                    orderId,
+                    items: selfStockItems,
+                    userId: context.auth.uid,
+                    idempotencyKey: `ORDER:${orderId}:RESERVE`
+                });
+
+                // Attach batch allocations to respective items in order snapshot
+                if (reservationResult.allocationsSummary) {
+                    for (const allocSummary of reservationResult.allocationsSummary) {
+                        const targetItem = items.find(i => i.skuCode === allocSummary.skuCode);
+                        if (targetItem) {
+                            targetItem.batchAllocations = allocSummary.allocations || [];
+                        }
+                    }
+                }
             }
 
             const totalAmount = (subtotal - totalDiscount) + totalTax + 50;
@@ -158,9 +199,12 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
             addToOutbox(transaction, "ORDER_CREATED", { orderId, userId: context.auth.uid, status: initialStatus });
             orderOtp = otp;
         });
+
         const finalAmount = (subtotal - totalDiscount) + totalTax + 50;
         return { orderId, totalAmount: finalAmount };
-    } catch (error) { throw new HttpsError('internal', error.message); }
+    } catch (error) {
+        throw new HttpsError('internal', error.message);
+    }
 });
 
 exports.cancelOrder = onCall({ region: REGION }, async (request) => {
@@ -190,12 +234,37 @@ exports.cancelOrder = onCall({ region: REGION }, async (request) => {
         throw new HttpsError('failed-precondition', `Cannot cancel order in ${orderData.status} state.`);
     }
 
-    await orderRef.update({
-        status: "CANCELLED",
-        cancellationReason: reason || "User requested cancellation",
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    await db.runTransaction(async (transaction) => {
+        const oSnap = await transaction.get(orderRef);
+        if (!oSnap.exists) throw new Error("Order not found");
+        const currentData = oSnap.data();
+
+        if (currentData.status === "CANCELLED") {
+            return; // Already cancelled
+        }
+
+        // Release reserved inventory
+        const selfStockItems = (currentData.items || []).filter(item => item.fulfillmentType !== 'ON_DEMAND');
+        if (selfStockItems.length > 0) {
+            await releaseOrderStock(transaction, {
+                orderId,
+                items: selfStockItems,
+                actorId: context.auth.uid,
+                actorRole: isAdmin ? "ADMIN" : "CUSTOMER",
+                reason: reason || "Order cancelled",
+                idempotencyKey: `ORDER:${orderId}:CANCEL_RELEASE`
+            });
+        }
+
+        transaction.update(orderRef, {
+            status: "CANCELLED",
+            cancellationReason: reason || "User requested cancellation",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        addToOutbox(transaction, "ORDER_CANCELLED", { orderId, userId: context.auth.uid });
     });
-    addToOutbox(null, "ORDER_CANCELLED", { orderId, userId: context.auth.uid });
+
     return { success: true };
 });
 
@@ -285,8 +354,19 @@ exports.verifyDeliveryOTP = onCall({ region: REGION }, async (request) => {
                 throw new Error(`Invalid OTP. ${remaining > 0 ? remaining + ' attempt(s) remaining.' : 'Attempts exceeded.'}`);
             }
 
-            // OTP verified successfully: delete OTP and update order
+            // OTP verified successfully: delete OTP and complete inventory deduction
             transaction.delete(otpRef);
+
+            // Complete inventory stock mutation atomically
+            const selfStockItems = (orderData.items || []).filter(item => item.fulfillmentType !== 'ON_DEMAND');
+            if (selfStockItems.length > 0) {
+                await completeOrderStock(transaction, {
+                    orderId,
+                    items: selfStockItems,
+                    actorId: context.auth.uid,
+                    idempotencyKey: `ORDER:${orderId}:COMPLETE_STOCK`
+                });
+            }
 
             transaction.update(orderRef, {
                 status: "DELIVERED",
