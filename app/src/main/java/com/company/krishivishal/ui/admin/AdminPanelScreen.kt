@@ -42,7 +42,6 @@ fun AdminPanelScreen(
     onManageCoupons: () -> Unit,
     onManageBanners: () -> Unit,
     onSettings: () -> Unit,
-    onManageInventory: () -> Unit = {},
     viewModel: AdminPanelViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -125,17 +124,9 @@ fun AdminPanelScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                maxItemsInEachRow = 3
+                maxItemsInEachRow = 2
             ) {
                 val itemModifier = Modifier.weight(1f)
-                
-                AdminGridItem(
-                    title = "Inventory & SKU",
-                    icon = Icons.Default.QrCodeScanner,
-                    color = Color(0xFF00897B),
-                    onClick = onManageInventory,
-                    modifier = itemModifier
-                )
                 AdminGridItem(
                     title = "Products",
                     icon = Icons.Default.Inventory,

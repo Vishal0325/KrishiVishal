@@ -649,82 +649,41 @@ fun EditProductContent(
 @Composable
 fun VariantEditItem(variant: Variant, onUpdate: (Variant) -> Unit, onDelete: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFF9F9F9)),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE0E0E0))
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF9F9F9))
     ) {
-        Column(modifier = Modifier.padding(10.dp)) {
+        Column(modifier = Modifier.padding(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = variant.size,
                     onValueChange = { onUpdate(variant.copy(size = it, label = it)) },
-                    label = { Text("Size / Pack (e.g. 500ml, 50kg)") },
+                    label = { Text("Size") },
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Default.Delete, null, tint = Color.Red)
                 }
             }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = variant.skuCode,
-                    onValueChange = { onUpdate(variant.copy(skuCode = it.trim().uppercase())) },
-                    label = { Text("SKU Code") },
-                    placeholder = { Text("CC-III-VVV-GG-SSSUU-BBB") },
-                    modifier = Modifier.weight(1.2f)
-                )
-                OutlinedTextField(
-                    value = variant.barcode,
-                    onValueChange = { onUpdate(variant.copy(barcode = it.trim())) },
-                    label = { Text("Barcode / EAN") },
-                    modifier = Modifier.weight(0.8f)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
             
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
-                    value = if (variant.basePrice > 0) variant.basePrice.toString() else "",
+                    value = variant.basePrice.toString(),
                     onValueChange = { onUpdate(variant.copy(basePrice = it.toDoubleOrNull() ?: 0.0)) },
                     label = { Text("MRP") },
                     modifier = Modifier.weight(1f),
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
                 )
                 OutlinedTextField(
-                    value = if (variant.price > 0) variant.price.toString() else "",
+                    value = variant.price.toString(),
                     onValueChange = { onUpdate(variant.copy(price = it.toDoubleOrNull() ?: 0.0)) },
-                    label = { Text("Selling Price*") },
+                    label = { Text("Selling Price") },
                     modifier = Modifier.weight(1f),
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
                 )
                 OutlinedTextField(
-                    value = if (variant.stock > 0) variant.stock.toString() else "0",
+                    value = variant.stock.toString(),
                     onValueChange = { onUpdate(variant.copy(stock = it.toIntOrNull() ?: 0)) },
                     label = { Text("Stock") },
-                    modifier = Modifier.weight(1f),
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = variant.batchNumber,
-                    onValueChange = { onUpdate(variant.copy(batchNumber = it.trim().uppercase())) },
-                    label = { Text("Batch Number") },
-                    placeholder = { Text("e.g. BTH-2026-001") },
-                    modifier = Modifier.weight(1f)
-                )
-                OutlinedTextField(
-                    value = if (variant.reorderLevel > 0) variant.reorderLevel.toString() else "",
-                    onValueChange = { onUpdate(variant.copy(reorderLevel = it.toIntOrNull() ?: 0)) },
-                    label = { Text("Reorder Level") },
-                    placeholder = { Text("e.g. 50") },
                     modifier = Modifier.weight(1f),
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
                 )

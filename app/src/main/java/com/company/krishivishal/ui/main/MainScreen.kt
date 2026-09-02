@@ -580,8 +580,7 @@ fun MainScreen(
                     onManageUsers = { role -> navController.navigate(Screen.AdminUsers.createRoute(role)) },
                     onManageCoupons = { navController.navigate(Screen.AdminCoupons.route) },
                     onManageBanners = { navController.navigate(Screen.AdminBanners.route) },
-                    onSettings = { navController.navigate(Screen.AdminSettings.route) },
-                    onManageInventory = { navController.navigate(Screen.AdminInventory.route) }
+                    onSettings = { navController.navigate(Screen.AdminSettings.route) }
                 )
             }
 
@@ -600,11 +599,6 @@ fun MainScreen(
             composable(Screen.AdminCoupons.route) { AdminCouponScreen(onBack = { navController.popBackStack() }) }
             composable(Screen.AdminBanners.route) { AdminBannerScreen(onBack = { navController.popBackStack() }) }
             composable(Screen.AdminSettings.route) { AdminSettingsScreen(onBack = { navController.popBackStack() }) }
-            composable(Screen.AdminInventory.route) {
-                com.company.krishivishal.ui.inventory.InventoryDashboardScreen(
-                    onNavigateBack = { navController.popBackStack() }
-                )
-            }
         }
     }
 }
