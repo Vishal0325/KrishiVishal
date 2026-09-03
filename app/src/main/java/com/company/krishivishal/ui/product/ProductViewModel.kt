@@ -10,6 +10,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -18,22 +22,22 @@ class ProductViewModel @Inject constructor(
     private val productRepository: ProductRepository
 ) : ViewModel() {
 
-    private val _brandProducts = MutableStateFlow<Resource<List<Product>>>(Resource.Idle())
-    val brandProducts: StateFlow<Resource<List<Product>>> = _brandProducts.asStateFlow()
+    private val _uiState = MutableStateFlow(ProductUiState())
+    val uiState: StateFlow<ProductUiState> = _uiState.asStateFlow()
 
-    private val _categoryProducts = MutableStateFlow<Resource<List<Product>>>(Resource.Idle())
-    val categoryProducts: StateFlow<Resource<List<Product>>> = _categoryProducts.asStateFlow()
-
-    private val _cropProducts = MutableStateFlow<Resource<List<Product>>>(Resource.Idle())
-    val cropProducts: StateFlow<Resource<List<Product>>> = _cropProducts.asStateFlow()
-
-    private val _productDetail = MutableStateFlow<Resource<Product?>>(Resource.Idle())
-    val productDetail: StateFlow<Resource<Product?>> = _productDetail.asStateFlow()
+    val brandProducts: StateFlow<Resource<List<Product>>> = uiState.map { it.brandProducts }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, Resource.Idle())
+    val categoryProducts: StateFlow<Resource<List<Product>>> = uiState.map { it.categoryProducts }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, Resource.Idle())
+    val cropProducts: StateFlow<Resource<List<Product>>> = uiState.map { it.cropProducts }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, Resource.Idle())
+    val productDetail: StateFlow<Resource<Product?>> = uiState.map { it.productDetail }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, Resource.Idle())
 
     fun loadProductsByBrand(brand: String) {
         viewModelScope.launch {
             productRepository.getProductsByBrand(brand).collectLatest { resource ->
-                _brandProducts.value = resource
+                _uiState.update { it.copy(brandProducts = resource) }
             }
         }
     }
@@ -41,7 +45,7 @@ class ProductViewModel @Inject constructor(
     fun loadProductsByCategory(category: String) {
         viewModelScope.launch {
             productRepository.getProductsByCategory(category).collectLatest { resource ->
-                _categoryProducts.value = resource
+                _uiState.update { it.copy(categoryProducts = resource) }
             }
         }
     }
@@ -52,9 +56,9 @@ class ProductViewModel @Inject constructor(
             productRepository.getProductsByCategory(category).collectLatest { resource ->
                 if (resource is Resource.Success) {
                     val filtered = resource.data?.filter { it.subCategory == subCategory } ?: emptyList()
-                    _categoryProducts.value = Resource.Success(filtered)
+                    _uiState.update { it.copy(categoryProducts = Resource.Success(filtered)) }
                 } else {
-                    _categoryProducts.value = resource
+                    _uiState.update { it.copy(categoryProducts = resource) }
                 }
             }
         }
@@ -63,7 +67,7 @@ class ProductViewModel @Inject constructor(
     fun loadProductsByCrop(cropId: String, cropName: String) {
         viewModelScope.launch {
             productRepository.getProductsByCrop(cropId, cropName).collectLatest { resource ->
-                _cropProducts.value = resource
+                _uiState.update { it.copy(cropProducts = resource) }
             }
         }
     }
@@ -71,8 +75,15 @@ class ProductViewModel @Inject constructor(
     fun loadProductDetails(productId: String) {
         viewModelScope.launch {
             productRepository.getProductDetails(productId).collectLatest { resource ->
-                _productDetail.value = resource
+                _uiState.update { it.copy(productDetail = resource) }
             }
         }
     }
 }
+
+data class ProductUiState(
+    val brandProducts: Resource<List<Product>> = Resource.Idle(),
+    val categoryProducts: Resource<List<Product>> = Resource.Idle(),
+    val cropProducts: Resource<List<Product>> = Resource.Idle(),
+    val productDetail: Resource<Product?> = Resource.Idle()
+)

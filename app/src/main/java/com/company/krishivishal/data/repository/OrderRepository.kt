@@ -20,9 +20,6 @@ import com.company.krishivishal.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 
 interface OrderRepository {
     fun getOrders(userId: String): Flow<Resource<List<Order>>>
@@ -280,13 +277,13 @@ class OrderRepositoryImpl @Inject constructor(
                 return@flow
             }
             
-            val productSnaps = coroutineScope {
-                productIds.map { id ->
-                    async { firestore.collection("products").document(id).get().await() }
-                }.awaitAll()
-            }
-            
-            val products = productSnaps.mapNotNull { it.toProduct() }.filter { it.isActive }
+            val products = firestore.collection("products")
+                .whereIn("id", productIds)
+                .get()
+                .await()
+                .documents
+                .mapNotNull { it.toProduct() }
+                .filter { it.isActive }
             emit(Resource.Success(products))
         } catch (e: Exception) {
             emit(Resource.Error(e.localizedMessage ?: "Error fetching previous purchases"))
