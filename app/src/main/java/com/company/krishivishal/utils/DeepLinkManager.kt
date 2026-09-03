@@ -15,12 +15,29 @@ class DeepLinkManager @Inject constructor() {
     fun createProductShareLink(productId: String): Uri {
         return Uri.parse("$DEEP_LINK_BASE/product?id=$productId")
     }
-    
+
+    fun isValidDeepLink(uri: Uri?): Boolean {
+        if (uri == null || uri.fragment != null || uri.queryParameterNames != setOf("id")) {
+            return false
+        }
+
+        val productId = uri.getQueryParameter("id")
+        if (productId.isNullOrBlank() || productId.length > 128 ||
+            !productId.matches(Regex("[A-Za-z0-9._-]+"))
+        ) {
+            return false
+        }
+
+        return when {
+            uri.scheme == "https" && uri.host == "www.krishivishal.com" ->
+                uri.path == "/product" || uri.path == "/order"
+            uri.scheme == CUSTOM_SCHEME && uri.host == "product" ->
+                uri.path.isNullOrEmpty() || uri.path == "/"
+            else -> false
+        }
+    }
+
     fun getProductIdFromUri(uri: Uri): String? {
-        return if (uri.scheme == "https" && uri.host == "www.krishivishal.com" && uri.path?.contains("product") == true) {
-            uri.getQueryParameter("id")
-        } else if (uri.scheme == CUSTOM_SCHEME && uri.host == "product") {
-            uri.getQueryParameter("id")
-        } else null
+        return uri.takeIf(::isValidDeepLink)?.getQueryParameter("id")
     }
 }

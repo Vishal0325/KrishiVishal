@@ -30,7 +30,7 @@ import com.company.krishivishal.core.model.*
         Warehouse::class,
         InventoryMovement::class
     ],
-    version = 49,
+    version = 50,
     exportSchema = false
 )
 @TypeConverters(AppConverters::class)
@@ -51,4 +51,3 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun skuDao(): SkuDao
     abstract fun batchDao(): BatchDao
 }
-

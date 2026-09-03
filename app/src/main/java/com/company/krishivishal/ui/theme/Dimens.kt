@@ -1,14 +1,13 @@
 package com.company.krishivishal.ui.theme
 
-import androidx.compose.ui.unit.dp
 
-val SpacingXs = 4.dp
-val SpacingSm = 8.dp
-val SpacingMd = 16.dp
-val SpacingLg = 24.dp
-val SpacingXl = 32.dp
+val SpacingXs = DesignTokens.Spacing.xs
+val SpacingSm = DesignTokens.Spacing.sm
+val SpacingMd = DesignTokens.Spacing.md
+val SpacingLg = DesignTokens.Spacing.lg
+val SpacingXl = DesignTokens.Spacing.xl
 
-val ButtonRadius = 8.dp
-val CardRadius = 10.dp
-val ChipRadius = 20.dp
-val BottomSheetRadius = 16.dp
+val ButtonRadius = DesignTokens.Radius.button
+val CardRadius = DesignTokens.Radius.card
+val ChipRadius = DesignTokens.Radius.chip
+val BottomSheetRadius = DesignTokens.Radius.bottomSheet

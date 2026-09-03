@@ -347,6 +347,20 @@ object DatabaseMigrations {
         }
     }
 
+    val MIGRATION_49_50 = object : Migration(49, 50) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_wishlist_items_userId` ON `wishlist_items` (`userId`)")
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_recently_viewed_userId_timestamp` " +
+                    "ON `recently_viewed` (`userId`, `timestamp`)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_product_recommendations_sourceProductId_type_position` " +
+                    "ON `product_recommendations` (`sourceProductId`, `type`, `position`)"
+            )
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_33_34,
         MIGRATION_34_35,
@@ -356,8 +370,8 @@ object DatabaseMigrations {
         MIGRATION_38_42,
         MIGRATION_42_43,
         MIGRATION_43_48,
-        MIGRATION_48_49
+        MIGRATION_48_49,
+        MIGRATION_49_50
     )
 }
-
 

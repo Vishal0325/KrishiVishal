@@ -38,6 +38,14 @@ android {
         val rzpKey = keystoreProperties.getProperty("razorpayKey") ?: "rzp_test_default"
         buildConfigField("String", "RAZORPAY_KEY", "\"$rzpKey\"")
         buildConfigField("String", "FUNCTIONS_BASE_URL", "\"https://asia-south1-krishivishal-a9ed7.cloudfunctions.net/\"")
+        val firestorePrimaryPin = providers.gradleProperty("PIN_FIRESTORE_PRIMARY").orNull.orEmpty()
+        val firestoreBackupPin = providers.gradleProperty("PIN_FIRESTORE_BACKUP").orNull.orEmpty()
+        val storagePrimaryPin = providers.gradleProperty("PIN_STORAGE_PRIMARY").orNull.orEmpty()
+        val storageBackupPin = providers.gradleProperty("PIN_STORAGE_BACKUP").orNull.orEmpty()
+        buildConfigField("String", "PIN_FIRESTORE_PRIMARY", "\"$firestorePrimaryPin\"")
+        buildConfigField("String", "PIN_FIRESTORE_BACKUP", "\"$firestoreBackupPin\"")
+        buildConfigField("String", "PIN_STORAGE_PRIMARY", "\"$storagePrimaryPin\"")
+        buildConfigField("String", "PIN_STORAGE_BACKUP", "\"$storageBackupPin\"")
         manifestPlaceholders["razorpayKey"] = rzpKey
 
         // Certificate Pinning (gradle.properties से पढ़ो)

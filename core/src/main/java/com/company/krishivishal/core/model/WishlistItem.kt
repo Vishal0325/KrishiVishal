@@ -3,6 +3,7 @@ package com.company.krishivishal.core.model
 import android.os.Parcelable
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.google.firebase.firestore.IgnoreExtraProperties
 import com.google.gson.annotations.SerializedName
@@ -14,7 +15,7 @@ import kotlinx.parcelize.Parcelize
  */
 @IgnoreExtraProperties
 @Parcelize
-@Entity(tableName = "wishlist_items")
+@Entity(tableName = "wishlist_items", indices = [Index(value = ["userId"])])
 data class WishlistItem(
     @PrimaryKey
     @ColumnInfo(name = "productId")
