@@ -3,6 +3,7 @@ package com.company.krishivishal.core.model
 import android.os.Parcelable
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.google.gson.annotations.SerializedName
 import com.google.firebase.firestore.PropertyName
@@ -408,7 +409,8 @@ data class RecommendationResult(
 
 @Entity(
     tableName = "product_recommendations",
-    primaryKeys = ["sourceProductId", "recommendedProductId", "type"]
+    primaryKeys = ["sourceProductId", "recommendedProductId", "type"],
+    indices = [Index(value = ["sourceProductId", "type", "position"])]
 )
 data class ProductRecommendationCrossRef(
     val sourceProductId: String,

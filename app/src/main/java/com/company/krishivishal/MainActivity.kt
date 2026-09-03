@@ -176,9 +176,18 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     }
 
     private fun handleIntent(intent: Intent?) {
-        intent?.data?.let { uri ->
-            deepLinkProductId = deepLinkManager.getProductIdFromUri(uri)
+        if (intent?.action != Intent.ACTION_VIEW) {
+            return
         }
+
+        val uri = intent.data
+        if (!deepLinkManager.isValidDeepLink(uri)) {
+            deepLinkProductId = null
+            if (!isFinishing) finish()
+            return
+        }
+
+        deepLinkProductId = deepLinkManager.getProductIdFromUri(uri)
     }
 
     override fun onPaymentSuccess(razorpayPaymentId: String?, data: PaymentData?) {
