@@ -268,6 +268,10 @@ fun OrderPreviewContent(order: Order, onAccept: () -> Unit, onCancel: () -> Unit
         
         Text("Customer: ${order.userName}", fontWeight = FontWeight.Medium)
         Text("Address: ${order.address}", color = Color.Gray)
+        val landmark = order.getEffectiveLandmark()
+        if (landmark.isNotBlank()) {
+            Text("📍 Landmark: $landmark", color = Color(0xFFE65100), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        }
         Spacer(modifier = Modifier.height(16.dp))
         
         Text("Items:", fontWeight = FontWeight.Medium)

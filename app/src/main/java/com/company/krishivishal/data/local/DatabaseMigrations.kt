@@ -227,6 +227,7 @@ object DatabaseMigrations {
     /**
      * Migration from 48 to 49
      * Adds SKU, Batch, Warehouse, and Inventory Movement tables with indexes.
+     * Also adds missing landmark column to orders table.
      */
     val MIGRATION_48_49 = object : Migration(48, 49) {
         override fun migrate(db: SupportSQLiteDatabase) {
@@ -242,7 +243,10 @@ object DatabaseMigrations {
             // 2. Update cart_items table
             db.execSQL("ALTER TABLE cart_items ADD COLUMN skuCode TEXT")
 
-            // 3. Create skus table
+            // 3. Update orders table (Add missing landmark)
+            db.execSQL("ALTER TABLE orders ADD COLUMN landmark TEXT NOT NULL DEFAULT ''")
+
+            // 4. Create skus table
             db.execSQL("""
                 CREATE TABLE IF NOT EXISTS `skus` (
                     `skuCode` TEXT NOT NULL PRIMARY KEY,

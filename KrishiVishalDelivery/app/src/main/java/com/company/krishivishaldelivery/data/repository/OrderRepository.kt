@@ -236,10 +236,47 @@ class OrderRepository @Inject constructor(
         }
     }
 
+    suspend fun markCashAsDeposited(riderId: String): Boolean {
+        return try {
+            deliveryDao.markOrdersAsDeposited(riderId, false)
+            val snapshot = firestore.collection("orders")
+                .whereEqualTo("riderId", riderId)
+                .whereEqualTo("status", OrderStatus.DELIVERED.name)
+                .whereEqualTo("isCOD", true)
+                .whereEqualTo("isCashDeposited", false)
+                .get().await()
+
+            var totalDeposited = 0.0
+            val batch = firestore.batch()
+            snapshot.documents.forEach { doc ->
+                val amt = doc.getDouble("codAmount") ?: 0.0
+                totalDeposited += amt
+                batch.update(doc.reference, "isCashDeposited", true, "cashDepositedAt", FieldValue.serverTimestamp())
+            }
+            if (!snapshot.isEmpty) {
+                val depositLogRef = firestore.collection("cash_deposits").document()
+                batch.set(depositLogRef, mapOf(
+                    "riderId" to riderId,
+                    "amount" to totalDeposited,
+                    "ordersCount" to snapshot.size(),
+                    "orderIds" to snapshot.documents.map { it.id },
+                    "status" to "DEPOSITED_AT_WAREHOUSE",
+                    "depositedAt" to FieldValue.serverTimestamp()
+                ))
+                batch.commit().await()
+            }
+            true
+        } catch (e: Exception) {
+            Log.e("OrderRepo", "Failed to mark cash as deposited: ${e.message}")
+            false
+        }
+    }
+
     private fun Order.toEntity(): DeliveryOrderEntity {
         return DeliveryOrderEntity(
             id = id, userId = userId, userName = userName, userPhone = userPhone,
             items = items, totalAmount = totalAmount, address = address,
+            landmark = landmark.ifBlank { getEffectiveLandmark() },
             status = status, riderId = riderId, createdAtMillis = createdAt.time,
             customerOTP = customerOTP, isCOD = isCOD, codAmount = codAmount,
             collectedCash = collectedCash, isCashDeposited = isCashDeposited,
@@ -251,6 +288,7 @@ class OrderRepository @Inject constructor(
         return Order(
             id = id, userId = userId, userName = userName, userPhone = userPhone,
             items = items, totalAmount = totalAmount, address = address,
+            landmark = landmark,
             status = status, riderId = riderId, createdAt = Date(createdAtMillis),
             customerOTP = customerOTP, isCOD = isCOD, codAmount = codAmount,
             collectedCash = collectedCash, isCashDeposited = isCashDeposited,

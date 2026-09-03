@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.company.krishivishal.core.model.AppConfig
 import com.company.krishivishal.core.model.Order
 import com.company.krishivishal.core.util.Resource
+import com.company.krishivishaldelivery.data.model.IncentiveSlab
 import com.company.krishivishaldelivery.data.repository.ConfigRepository
 import com.company.krishivishaldelivery.data.repository.OrderRepository
 import com.company.krishivishaldelivery.data.repository.RiderRepository
@@ -31,6 +32,9 @@ class EarningsViewModel @Inject constructor(
     private val _appConfig = MutableStateFlow<Resource<AppConfig>>(Resource.Loading())
     val appConfig: StateFlow<Resource<AppConfig>> = _appConfig.asStateFlow()
 
+    private val _incentiveSlabs = MutableStateFlow<List<IncentiveSlab>>(emptyList())
+    val incentiveSlabs: StateFlow<List<IncentiveSlab>> = _incentiveSlabs.asStateFlow()
+
     private val currentRiderId: String get() = auth.currentUser?.uid ?: ""
 
     init {
@@ -43,6 +47,13 @@ class EarningsViewModel @Inject constructor(
             loadOrders(riderId)
             loadPayouts(riderId)
             loadConfig()
+            loadIncentives()
+        }
+    }
+
+    private fun loadIncentives() {
+        viewModelScope.launch {
+            _incentiveSlabs.value = riderRepository.getIncentiveSlabs()
         }
     }
 

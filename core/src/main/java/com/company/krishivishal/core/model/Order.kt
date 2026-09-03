@@ -96,6 +96,10 @@ data class Order(
     @SerializedName("address")
     val address: String = "",
 
+    @ColumnInfo(name = "landmark", defaultValue = "''")
+    @SerializedName("landmark")
+    val landmark: String = "",
+
     @ColumnInfo(name = "status")
     @SerializedName("status")
     val status: String = "PLACED",
@@ -204,4 +208,19 @@ data class Order(
     @get:Exclude
     val orderStatus: OrderStatus 
         get() = OrderStatus.fromString(status)
+
+    fun getEffectiveLandmark(): String {
+        if (landmark.isNotBlank()) return landmark
+        val landmarkPrefixes = listOf("Landmark:", "Landmark -", "लैंडमार्क:", "(Landmark:")
+        for (prefix in landmarkPrefixes) {
+            val idx = address.indexOf(prefix, ignoreCase = true)
+            if (idx != -1) {
+                val sub = address.substring(idx + prefix.length).trim()
+                val endIdx = sub.indexOfAny(charArrayOf(',', ')', ';', '\n'))
+                val result = if (endIdx != -1) sub.substring(0, endIdx).trim() else sub.trim()
+                if (result.isNotBlank()) return result
+            }
+        }
+        return ""
+    }
 }

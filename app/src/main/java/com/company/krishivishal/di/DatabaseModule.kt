@@ -70,5 +70,8 @@ object DatabaseModule {
 
     @Provides
     fun provideBatchDao(database: AppDatabase): BatchDao = database.batchDao()
+
+    @Provides
+    fun provideReturnDao(database: AppDatabase): ReturnDao = database.returnDao()
 }
 

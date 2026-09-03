@@ -130,24 +130,66 @@ fun OrderDetailScreen(
                     }
 
                     item {
+                        val landmark = order.getEffectiveLandmark()
+                        if (landmark.isNotBlank()) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
+                                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFFFB300)),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Place, contentDescription = null, tint = Color(0xFFE65100), modifier = Modifier.size(24.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("गाँव का पहचान स्थल (Rural Landmark)", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Color(0xFFE65100))
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Surface(
+                                        color = Color.White,
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = "📍 $landmark",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 17.sp,
+                                            color = Color(0xFF3E2723),
+                                            modifier = Modifier.padding(12.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        "गाँवों में मकान नंबर नहीं होते। इस लैंडमार्क के आधार पर किसान का घर ढूंढें या नीचे दिए गए 1-टैप कॉल बटन से संपर्क करें।",
+                                        fontSize = 12.sp,
+                                        color = Color(0xFF5D4037)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    item {
                         InfoCard(
                             title = stringResource(R.string.customer_details),
                             icon = Icons.Default.Person,
                             content = {
                                 Column {
-                                    Text(order.userName, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text(order.address, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    OutlinedButton(
+                                    Text(order.userName, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                    Text("फोन: ${order.userPhone}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Button(
                                         onClick = {
                                             val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${order.userPhone}"))
                                             context.startActivity(intent)
                                         },
-                                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                                        shape = RoundedCornerShape(10.dp)
                                     ) {
                                         Icon(Icons.Default.Phone, contentDescription = null)
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text(stringResource(R.string.call_customer))
+                                        Text("किसान को कॉल करें (1-Tap Call)", fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -160,22 +202,32 @@ fun OrderDetailScreen(
                             icon = Icons.Default.LocationOn,
                             content = {
                                 Column {
-                                    Text(order.address)
-                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(order.address, color = MaterialTheme.colorScheme.onSurface)
+                                    val landmark = order.getEffectiveLandmark()
+                                    if (landmark.isNotBlank()) {
+                                        Text("लैंडमार्क: $landmark", fontWeight = FontWeight.SemiBold, color = Color(0xFFE65100), fontSize = 13.sp)
+                                    }
+                                    Spacer(modifier = Modifier.height(10.dp))
                                     Button(
                                         onClick = {
-                                            val intentUri = Uri.parse("google.navigation:q=${order.targetLat},${order.targetLng}")
+                                            val intentUri = if (order.targetLat != 0.0 && order.targetLng != 0.0) {
+                                                Uri.parse("google.navigation:q=${order.targetLat},${order.targetLng}")
+                                            } else {
+                                                val query = if (landmark.isNotBlank()) "${order.address} ($landmark)" else order.address
+                                                Uri.parse("google.navigation:q=${Uri.encode(query)}")
+                                            }
                                             val mapIntent = Intent(Intent.ACTION_VIEW, intentUri).apply {
                                                 setPackage("com.google.android.apps.maps")
                                             }
                                             context.startActivity(mapIntent)
                                         },
                                         modifier = Modifier.fillMaxWidth().height(48.dp),
+                                        shape = RoundedCornerShape(10.dp),
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
                                     ) {
                                         Icon(Icons.Default.Navigation, contentDescription = null)
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text(stringResource(R.string.open_in_maps))
+                                        Text(stringResource(R.string.open_in_maps), fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }

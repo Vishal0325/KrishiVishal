@@ -10,5 +10,8 @@ data class IncentiveProgress(
     val nextSlab: IncentiveSlab? = null,
     val ordersRemaining: Int = 0,
     val progress: Float = 0f,
-    val slabAchieved: Boolean = false
+    val slabAchieved: Boolean = false,
+    val earnedBonus: Double = 0.0,
+    val earnedCommission: Double = 0.0,
+    val totalEarningsToday: Double = 0.0
 )

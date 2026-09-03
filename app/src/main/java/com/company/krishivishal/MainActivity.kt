@@ -76,6 +76,17 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
         handleIntent(intent)
         enableEdgeToEdge()
         
+        // Deeplink validation
+        val intentData = intent
+        if (intentData?.action == Intent.ACTION_VIEW) {
+            val uri = intentData.data
+            if (uri != null && !isValidDeepLink(uri)) {
+                android.util.Log.e("MainActivity", "Invalid deeplink attempted: $uri")
+                finish()
+                return
+            }
+        }
+        
         setContent {
             val languageFlow = remember { userPreferences.language }
             val languageState = languageFlow.collectAsState(initial = "en")
@@ -195,5 +206,21 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
         lifecycleScope.launch {
             paymentHandler.onPaymentError(code, description)
         }
+    }
+
+    private fun isValidDeepLink(uri: Uri): Boolean {
+        val validHosts = listOf("krishivishal.app", "krishivishal.com", "www.krishivishal.com")
+        val host = uri.host ?: return false
+        
+        // Host must be whitelisted
+        if (!validHosts.contains(host)) {
+            return false
+        }
+        
+        // Path must be valid
+        val path = uri.path ?: return false
+        return path.startsWith("/product/") || 
+               path.startsWith("/order/") || 
+               path.startsWith("/category/")
     }
 }

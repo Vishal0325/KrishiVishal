@@ -25,7 +25,11 @@ import com.google.firebase.Timestamp
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("productId")]
+    indices = [
+        Index("productId"),
+        Index("skuCode"),
+        Index("barcode")
+    ]
 )
 data class Variant(
     @PrimaryKey
@@ -114,31 +118,31 @@ data class Variant(
     @set:PropertyName("unit")
     var unit: String = "",
 
-    @ColumnInfo(name = "skuCode")
+    @ColumnInfo(name = "skuCode", defaultValue = "''")
     @SerializedName("skuCode")
     @get:PropertyName("skuCode")
     @set:PropertyName("skuCode")
     var skuCode: String = "",
 
-    @ColumnInfo(name = "barcode")
+    @ColumnInfo(name = "barcode", defaultValue = "''")
     @SerializedName("barcode")
     @get:PropertyName("barcode")
     @set:PropertyName("barcode")
     var barcode: String = "",
 
-    @ColumnInfo(name = "reorderLevel")
+    @ColumnInfo(name = "reorderLevel", defaultValue = "0")
     @SerializedName("reorderLevel")
     @get:PropertyName("reorderLevel")
     @set:PropertyName("reorderLevel")
     var reorderLevel: Int = 0,
 
-    @ColumnInfo(name = "availableStock")
+    @ColumnInfo(name = "availableStock", defaultValue = "0")
     @SerializedName("availableStock")
     @get:PropertyName("availableStock")
     @set:PropertyName("availableStock")
     var availableStock: Int = 0,
 
-    @ColumnInfo(name = "committedStock")
+    @ColumnInfo(name = "committedStock", defaultValue = "0")
     @SerializedName("committedStock")
     @get:PropertyName("committedStock")
     @set:PropertyName("committedStock")

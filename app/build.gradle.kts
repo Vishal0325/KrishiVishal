@@ -39,6 +39,12 @@ android {
         buildConfigField("String", "RAZORPAY_KEY", "\"$rzpKey\"")
         buildConfigField("String", "FUNCTIONS_BASE_URL", "\"https://asia-south1-krishivishal-a9ed7.cloudfunctions.net/\"")
         manifestPlaceholders["razorpayKey"] = rzpKey
+
+        // Certificate Pinning (gradle.properties से पढ़ो)
+        buildConfigField("String", "PIN_FIRESTORE_PRIMARY", "\"${project.findProperty("PIN_FIRESTORE_PRIMARY") ?: ""}\"")
+        buildConfigField("String", "PIN_FIRESTORE_BACKUP", "\"${project.findProperty("PIN_FIRESTORE_BACKUP") ?: ""}\"")
+        buildConfigField("String", "PIN_STORAGE_PRIMARY", "\"${project.findProperty("PIN_STORAGE_PRIMARY") ?: ""}\"")
+        buildConfigField("String", "PIN_STORAGE_BACKUP", "\"${project.findProperty("PIN_STORAGE_BACKUP") ?: ""}\"")
     }
 
     signingConfigs {

@@ -13,6 +13,7 @@ data class DeliveryOrderEntity(
     val items: List<OrderItem>,
     val totalAmount: Double,
     val address: String,
+    val landmark: String = "",
     val status: String,
     val riderId: String,
     val createdAtMillis: Long,

@@ -22,7 +22,8 @@ class PlaceOrderUseCase @Inject constructor(
         lat: Double = 0.0,
         lng: Double = 0.0
     ): Flow<Resource<Triple<String, Double, String>>> {
-        val addressString = "${address.fullName}, ${address.houseNo}, ${address.street}, ${address.ward}, ${address.block}, ${address.district}, ${address.state} - ${address.pincode}"
+        val landmarkPart = if (address.landmark.isNotBlank()) " (Landmark: ${address.landmark})" else ""
+        val addressString = "${address.fullName}, ${address.houseNo}, ${address.street}, ${address.ward}, ${address.block}, ${address.district}, ${address.state} - ${address.pincode}$landmarkPart"
         
         return this.orderRepository.createOrderViaFunction(
             cartItems = cartItems.map { it.cartItem },

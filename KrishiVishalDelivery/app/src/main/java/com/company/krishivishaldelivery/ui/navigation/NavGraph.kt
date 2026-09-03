@@ -50,7 +50,16 @@ fun AppNavGraph(
                 },
                 onScanClick = {
                     navController.navigate("scanner")
+                },
+                onReconciliationClick = {
+                    navController.navigate("reconciliation")
                 }
+            )
+        }
+        composable("reconciliation") {
+            com.company.krishivishaldelivery.ui.reconciliation.CashReconciliationScreen(
+                onNavigateBack = { navController.popBackStack() },
+                viewModel = dashboardViewModel
             )
         }
         composable("scanner") {

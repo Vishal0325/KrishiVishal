@@ -1,6 +1,7 @@
 package com.company.krishivishal.security
 
 import android.content.Context
+import com.company.krishivishal.BuildConfig
 import okhttp3.CertificatePinner
 import okhttp3.OkHttpClient
 import timber.log.Timber
@@ -55,7 +56,16 @@ class CertificatePinningManager @Inject constructor(
      * once real SHA-256 values are generated (see class doc above).
      * Returns primary + backup pin list per domain; empty list = not configured.
      */
-    private fun providePins(): Map<String, List<String>> = emptyMap()
+    private fun providePins(): Map<String, List<String>> = mapOf(
+        "firestore.googleapis.com" to listOf(
+            BuildConfig.PIN_FIRESTORE_PRIMARY,
+            BuildConfig.PIN_FIRESTORE_BACKUP
+        ),
+        "firebasestorage.googleapis.com" to listOf(
+            BuildConfig.PIN_STORAGE_PRIMARY,
+            BuildConfig.PIN_STORAGE_BACKUP
+        )
+    )
 
     /**
      * Returns a certificate-pinned OkHttpClient.
