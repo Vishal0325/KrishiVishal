@@ -60,19 +60,11 @@ class CertificatePinningManager @Inject constructor(
         "firestore.googleapis.com" to listOf(
             BuildConfig.PIN_FIRESTORE_PRIMARY,
             BuildConfig.PIN_FIRESTORE_BACKUP
-<<<<<<< HEAD
-        ),
-        "firebasestorage.googleapis.com" to listOf(
-            BuildConfig.PIN_STORAGE_PRIMARY,
-            BuildConfig.PIN_STORAGE_BACKUP
-        )
-=======
         ).filter(String::isNotBlank),
         "firebasestorage.googleapis.com" to listOf(
             BuildConfig.PIN_STORAGE_PRIMARY,
             BuildConfig.PIN_STORAGE_BACKUP
         ).filter(String::isNotBlank)
->>>>>>> ea501d3e08e4e218dbe36ee379ce57048f08d36e
     )
 
     /**
