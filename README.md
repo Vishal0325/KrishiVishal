@@ -1,92 +1,110 @@
-# 🌾 KrishiVishal — Agri-E-Commerce & Supply Chain Enterprise Platform
+# 🌾 KrishiVishal
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Android](https://img.shields.io/badge/Platform-Android_Native-brightgreen.svg)](https://developer.android.com)
-[![Firebase](https://img.shields.io/badge/Backend-Firebase_Cloud_Functions-orange.svg)](https://firebase.google.com)
-[![Kotlin](https://img.shields.io/badge/Language-Kotlin_1.9+-purple.svg)](https://kotlinlang.org)
-[![Node.js](https://img.shields.io/badge/Runtime-Node.js_v20+-blue.svg)](https://nodejs.org)
-
-**KrishiVishal** is a full-stack, enterprise-grade agri-e-commerce and supply chain management platform designed for agricultural inputs (seeds, fertilizers, pesticides, tools) and direct farm produce. The ecosystem seamlessly connects farmers, delivery personnel, warehouse managers, and admins through robust native mobile apps and scalable cloud infrastructure.
+**KrishiVishal** is a full-stack, enterprise-grade agricultural supply chain and e-commerce platform designed for agricultural inputs such as insecticides, fungicides, herbicides, micro-nutrients, seeds, and farm equipment. The ecosystem seamlessly connects farmers, field riders/delivery personnel, and supply chain administrators through native Android applications and serverless Firebase backend infrastructure.
 
 ---
 
-## 🏗️ System Architecture
+## 📑 Overview
+
+KrishiVishal handles the complete end-to-end lifecycle of agricultural input supply chains:
+- **Direct Input Purchasing:** Farmers browse and order verified agricultural inputs (Insecticides, Seeds, Micro Nutrients, Sprayers) via a native Android app.
+- **Inventory & FEFO Stock Management:** Warehouse operations follow First-Expiry-First-Out (FEFO) batch allocation to ensure chemical and seed freshness.
+- **Procurement & Goods Receipt (GRN):** Automatic procurement queueing for on-demand items and stock reconciliation upon receipt.
+- **Last-Mile Delivery & Rider Dispatch:** Delivery personnel use a dedicated rider app with OTP delivery confirmation and COD collection.
+- **Double-Entry Financial Accounting:** Automated posting to a double-entry ledger for sales revenue, GST liabilities, wallet balances, and inventory valuation.
+- **Self-Service Returns & Refunds:** Verified 7-day return policy with automated Razorpay online refunds and wallet credits.
+
+---
+
+## 🏗️ Platform Architecture
 
 ```mermaid
 graph TD
-    subgraph Client Applications
-        A[📱 Customer App - Native Kotlin Compose]
-        B[🚚 Delivery App - Native Kotlin Compose]
-        C[💻 Admin Dashboard - React Web]
+    subgraph Client Layer
+        A["📱 Customer Android App (/app)"]
+        B["🚚 Delivery Android App (/KrishiVishalDelivery)"]
+        C["💻 Admin Web Directory (/public - Configured)"]
     end
 
-    subgraph Firebase Cloud Backend
-        D[⚡ Firebase Cloud Functions v2]
-        E[🗄️ Cloud Firestore Database]
-        F[🔐 Firebase Auth & App Check]
-        G[📦 Cloud Storage]
+    subgraph Firebase Cloud Backend (KrishiVishal-Functions)
+        D["⚡ Node.js v22 Cloud Functions (v2 Callable & Triggers)"]
+        E["🗄️ Cloud Firestore Database"]
+        F["🔐 Firebase Auth & App Check"]
+        G["📦 Cloud Storage"]
     end
 
-    subgraph External Integrations
-        H[💳 Razorpay Payment Gateway]
-        I[📄 ClearTax / E-Way Bill API]
-        J[📲 Firebase Cloud Messaging - FCM]
+    subgraph External Systems & Integrations
+        H["💳 Razorpay Payment Gateway"]
+        I["📄 ClearTax / E-Way Bill Provider API"]
+        J["📲 Firebase Cloud Messaging (FCM)"]
     end
 
-    A -->|HTTPS / Callables| D
-    B -->|HTTPS / Callables| D
-    C -->|HTTPS / Callables| D
+    A -->|HTTPS Callables & SDK| D
+    B -->|HTTPS Callables & SDK| D
+    C -.->|Hosting Target| E
     A -->|Security Rules| E
     B -->|Security Rules| E
-    C -->|Security Rules| E
+    D <--> E
     D --> H
     D --> I
     D --> J
-    D <--> E
 ```
 
 ---
 
-## 📱 Core Applications & Modules
+## 📱 Applications & Component Modules
 
-### 1. 🛒 Customer Mobile App (`/app`)
-Native Android application tailored for farmers and buyers with offline-first support and localized UI.
-- **Tech Stack:** Kotlin, Jetpack Compose, Hilt DI, Coroutines & Flow, Room Database, Retrofit/Firebase SDK.
-- **Features:**
-  - Dynamic Product Catalog & Category Browsing with Search Filtering.
-  - Multi-item Cart & FEFO Stock-aware Checkout.
-  - Razorpay UPI/Cards/Netbanking & COD / Wallet Payment Modes.
-  - Real-time Order Tracking & Delivery OTP Verification.
-  - Self-service 7-Day Return Request Flow (`requestReturn`).
-  - Multilingual & Farmer-friendly UI.
+| Module / Component | Language / Framework | Implementation Status | Path |
+|---|---|---|---|
+| **Customer Android App** | Kotlin 2.0.21, Jetpack Compose, Material3, Hilt 2.52, Room 2.8.4 | **Implemented** | [`/app`](file:///c:/Users/visha/AndroidStudioProjects/KrishiVishal/app) |
+| **Delivery Rider App** | Kotlin, Jetpack Compose, Room, Google Maps SDK | **Implemented** | [`/KrishiVishalDelivery`](file:///c:/Users/visha/AndroidStudioProjects/KrishiVishal/KrishiVishalDelivery) |
+| **Firebase Cloud Backend** | Node.js 22, Firebase Functions v2 (`asia-south1`) | **Implemented** | [`/KrishiVishal-Functions`](file:///c:/Users/visha/AndroidStudioProjects/KrishiVishal/KrishiVishal-Functions) |
+| **Shared Core Domain** | Kotlin 2.0.21, Models & Room Entities | **Implemented** | [`/core`](file:///c:/Users/visha/AndroidStudioProjects/KrishiVishal/core) |
+| **Admin Web Frontend** | Firebase Hosting Target (`public/`) | **Configured (Backend APIs Implemented)** | [`/public`](file:///c:/Users/visha/AndroidStudioProjects/KrishiVishal/public) |
 
-### 2. 🚚 Delivery & Field Rider App (`/KrishiVishalDelivery`)
-Dedicated mobile app for supply chain logistics, rider dispatch, and last-mile delivery.
-- **Tech Stack:** Kotlin, Jetpack Compose, Google Maps SDK, Room Database, Hilt.
-- **Features:**
-  - Real-time Route & Order Assignment via FCM Push Notifications.
-  - Delivery OTP Verification (`verifyDeliveryOTP`).
-  - Cash on Delivery (COD) Collection & Verification Flow.
-  - Customer Return Pickup & Quality Check (QC) Photo Upload.
-  - Offline-resilient sync with local SQLite (Room) cache.
+---
 
-### 3. 💻 Admin & Operations Panel (`/public` / Cloud Managed)
-Web dashboard for inventory control, order dispatch, ledger accounting, and returns management.
-- **Features:**
-  - Real-time Order Fulfillment & Procurement Queue Monitoring.
-  - Stock Adjustment, Batch Expiry & FEFO Management.
-  - Return Request Inspection & One-Click Refund Processing (`initiateRefund`).
-  - Financial Ledger & Cash Deposit Verification.
+### 1. 🛒 Customer Android App (`/app`)
+- **Core Tech:** Kotlin 2.0.21, Jetpack Compose, Hilt Dependency Injection, Room Local Database, Coroutines & Flow, Retrofit 2.11.0, Firebase SDK 33.1.2.
+- **Implemented Features:**
+  - Dynamic home feed with seasonal category recommendations (*Insecticides*, *Seeds*, *Micro Nutrients*).
+  - Search, product detail view, and variant selection.
+  - Multi-item cart management and checkout with real-time total & tax computation.
+  - Server-side Razorpay online payment integration (`razorpayOrderId` amount lock protection) & Cash on Delivery (COD).
+  - Secure customer order history & real-time delivery state updates.
+  - Customer 7-day return request submission (`requestReturn` Cloud Function).
 
-### 4. ⚙️ Firebase Backend Engine (`/KrishiVishal-Functions`)
-Serverless backend running Node.js 2nd Generation Cloud Functions.
-- **Modules:**
-  - `orders/orderFlow.js`: Server-side price lock (`createRazorpayOrder`), atomic order creation, FEFO stock reservation, order cancellation, and OTP verification.
-  - `orders/orderTriggers.js`: Order state triggers, procurement queue auto-assignment, and rider notifications.
-  - `finance/initiateRefund.js`: Admin-triggered automated Razorpay online refunds & COD wallet credits.
-  - `finance/razorpay.js`: Secure HMAC timing-safe signature verification & payment webhooks.
-  - `finance/ledger.js`: Double-entry accounting ledger & expense management.
-  - `inventory/inventoryEngine.js`: FEFO (First-Expiry-First-Out) batch stock reservation engine with idempotency protection.
+### 2. 🚚 Delivery / Rider Android App (`/KrishiVishalDelivery`)
+- **Core Tech:** Kotlin, Jetpack Compose, Room DB, Google Maps Location SDK, Firebase Cloud Messaging (FCM).
+- **Implemented Features:**
+  - Real-time return and delivery assignment via FCM push notifications.
+  - Delivery OTP verification (`verifyDeliveryOTP`).
+  - Cash-on-Delivery (COD) cash collection workflow.
+  - Customer return pickup inspection & Quality Check (QC) photo capture.
+  - Offline Room database caching for low-connectivity rural routes.
+
+### 3. ⚙️ Firebase Cloud Backend (`/KrishiVishal-Functions`)
+- **Runtime:** Node.js 22, Firebase Functions v2 (`asia-south1` region), Firebase Admin SDK 12, Razorpay SDK 2.9.8.
+- **Implemented Functions & Modules:**
+  - **Orders (`orders/orderFlow.js` & `orderTriggers.js`):**
+    - `createOrder`: Server-side price locking, Razorpay Order ID generation (`createRazorpayOrder`), atomic order creation, FEFO stock reservation.
+    - `cancelOrder`: Server-validated cancellation with stock release.
+    - `verifyDeliveryOTP`: Secure OTP verification for last-mile delivery completion.
+    - `requestReturn`: Authenticated 7-day return policy validation & return request creation.
+    - `updateOrderStatus`: Admin/Rider order state transitions.
+    - `onOrderStatusUpdate`, `onReturnRequestCreated`, `onOrderDeliveryUpdate`, `onProcurementQueueUpdated`.
+  - **Finance & Payments (`finance/`):**
+    - `verifyPayment`: Timing-safe HMAC signature verification & payment status update.
+    - `razorpayWebhook`: Asynchronous payment reconciliation.
+    - `initiateRefund`: Admin-triggered Razorpay online refund & COD wallet credit with idempotency guards.
+    - `payWithWallet`: Wallet payment transaction processing.
+    - `onOrderPaidLedger`, `onReturnCompletedLedger`, `onGoodsReceiptCreated`, `onCashDepositVerified`.
+  - **Inventory (`inventory/`):**
+    - `onReturnStockSync`, `onSkuWrite`, `importSkus`, `upsertSku`, `adjustInventory`, `receiveGrn`, `writeOffStock`, `getInventoryReport`.
+  - **Admin & AI (`admin/`):**
+    - `aiSupervisor`, `processAiAction`, `monitorOrderSLA`.
+  - **Compliance (`index.js`):**
+    - `generateEWayBill`: E-Way Bill generation via GSP provider interface.
 
 ---
 
@@ -98,105 +116,134 @@ sequenceDiagram
     actor Customer
     participant App as Customer App
     participant Backend as Cloud Functions
-    participant Rzp as Razorpay API
+    participant Rzp as Razorpay Gateway
     participant Rider as Delivery App
     actor Admin
 
-    Customer->>App: 1. Add Items & Checkout
-    App->>Backend: 2. Call createOrder()
-    Backend->>Backend: 3. Reserve Stock (FEFO) & Lock Amount
-    Backend->>Rzp: 4. Create Server-side Order ID
-    Backend-->>App: 5. Return Order ID & Razorpay Order ID
-    Customer->>App: 6. Complete Payment
-    App->>Rzp: 7. Launch Razorpay SDK with Server Order ID
-    App->>Backend: 8. Call verifyPayment()
-    Backend->>Backend: 9. Verify HMAC Signature & Payment Status
-    Backend->>Rider: 10. Assign Order & Notify Rider (FCM)
-    Rider->>Customer: 11. Deliver Order & Verify OTP
-    Rider->>Backend: 12. Call verifyDeliveryOTP()
-    Backend->>Backend: 13. Mark DELIVERED & Update Ledger
+    Customer->>App: 1. Add Items to Cart & Checkout
+    App->>Backend: 2. Invoke createOrder()
+    Backend->>Backend: 3. Check FEFO Stock & Lock Amount
+    Backend->>Rzp: 4. Create Server Razorpay Order
+    Backend-->>App: 5. Return orderId & razorpayOrderId
+    Customer->>App: 6. Initiate Payment
+    App->>Rzp: 7. Launch Razorpay SDK (Server Order ID)
+    App->>Backend: 8. Invoke verifyPayment()
+    Backend->>Backend: 9. Verify HMAC Signature & Set CONFIRMED
+    Backend->>Rider: 10. Auto-assign Order & FCM Push
+    Rider->>Customer: 11. Arrive & Handover Goods
+    Customer->>Rider: 12. Share Delivery OTP
+    Rider->>Backend: 13. Invoke verifyDeliveryOTP()
+    Backend->>Backend: 14. Set DELIVERED & Post Double-Entry Ledger
 ```
 
 ---
 
-## 🗄️ Firestore Data Architecture
+## 🚥 Order State Machine
 
-- `/orders/{orderId}` — Order header, payment status, status, totals, and line items snapshot.
-- `/orders/{orderId}/internal/otp` — Encrypted/Protected OTP details (restricted access).
-- `/returns/{returnId}` — Customer return requests, rider QC photos, return status, and refund metadata.
-- `/inventory/{skuId}/batches/{batchId}` — Individual stock batches with expiry date and reserved quantities.
-- `/ledger/{entryId}` — Double-entry bookkeeping transactions.
-- `/users/{userId}` — Customer profiles, address book, and wallet balance.
+The repository enforces the following order statuses:
+
+| Status | Trigger / Condition | Transitioned By |
+|---|---|---|
+| `PLACED` | Initial state for self-stock orders | `createOrder` |
+| `PROCUREMENT_PENDING` | Initial state when on-demand items are present | `createOrder` |
+| `CONFIRMED` | Payment verified via Razorpay or COD validated | `verifyPayment` / `razorpayWebhook` |
+| `READY_FOR_PACKING` | Procurement queue items fulfilled | `onProcurementQueueUpdated` |
+| `PACKED` | Warehouse packing checklist completed | `updateOrderStatus` |
+| `READY_FOR_PICKUP` | Order staged at pickup dispatch point | `updateOrderStatus` |
+| `RIDER_ASSIGNED` | Delivery rider assigned to order | `onOrderDeliveryUpdate` |
+| `OUT_FOR_DELIVERY` | Rider departed with shipment | Rider App |
+| `DELIVERED` | OTP verified successfully at delivery point | `verifyDeliveryOTP` |
+| `CANCELLED` | User/Admin cancelled prior to dispatch | `cancelOrder` |
+| `RETURN_REQUESTED` | Customer submitted return within 7 days | `requestReturn` |
+| `RETURNED` | Return pickup & QC completed | `onReturnStockSync` |
 
 ---
 
-## ⚙️ Environment Variables & Configuration
+## 📦 Inventory Engine & FEFO Allocation
 
-Set the following environment variables in Firebase Cloud Functions (`.env` or secret manager):
+The warehouse inventory engine (`inventory/inventoryEngine.js`) enforces strict authoritative stock management:
+- **Authoritative Warehouse:** Primary fulfillment hub (`WH-PURNEA-01`).
+- **FEFO Allocation:** Batches sorted by nearest `expiryDate`. Stock is reserved atomically (`reserveOrderStock`).
+- **Stock States:** Available Stock $\rightarrow$ Reserved Stock $\rightarrow$ Completed Stock (Deducted).
+- **Idempotency Safeguards:** Idempotency keys (`ORDER:{orderId}:RESERVE`) stored in `idempotency_keys` collection to prevent double allocation.
+- **Goods Receipt (GRN):** `receiveGrn` updates batch quantities and triggers ledger posting (`onGoodsReceiptCreated`).
+
+---
+
+## 💳 Payment, Refunds & Double-Entry Ledger
+
+### Payment Security
+- **Server-Side Price Lock:** Razorpay Order IDs generated exclusively on the server (`createRazorpayOrder`). Amounts are locked in paise to prevent client-side price tampering.
+- **Timing-Safe Verification:** Payment signatures verified using `crypto.timingSafeEqual` in `verifyPayment`.
+
+### Double-Entry Accounting Chart of Accounts
+Financial transactions automatically post to the `ledger` collection following standard accounting principles:
+
+| Account Name | Account Type | Increase Side |
+|---|---|---|
+| `CASH_IN_HAND` | Asset | DEBIT |
+| `BANK_ACCOUNT` | Asset | DEBIT |
+| `INVENTORY_VALUE` | Asset | DEBIT |
+| `WALLET_BALANCE` | Liability | CREDIT |
+| `GST_PAYABLE` | Liability | CREDIT |
+| `SALES` | Revenue | CREDIT |
+| `ACCOUNTS_PAYABLE` | Liability | CREDIT |
+
+- **Sales Posting (`onOrderPaidLedger`):** Debits `BANK_ACCOUNT` / `CASH_IN_HAND`, Credits `SALES` & `GST_PAYABLE`.
+- **Return Completion (`onReturnCompletedLedger`):** Reverses revenue/liability and credits customer wallet or initiates Razorpay refund.
+
+---
+
+## 🔐 Security & Compliance
+
+- **Firestore Security Rules:** Role-based access controls (`isAdmin()`, `isRider()`, `isAuthenticated()`) with field immutability constraints.
+- **App Check & Certificate Pinning:** Configured in Android build (`PIN_FIRESTORE_PRIMARY`, `PIN_STORAGE_PRIMARY`).
+- **Secret Management:** Secrets injected via environment variables (never hardcoded in source control).
+
+---
+
+## 🔑 Environment Variables
+
+The following environment variables are referenced by the Cloud Functions runtime:
 
 ```env
 # Razorpay Credentials
-RAZORPAY_KEY_ID=rzp_live_xxxxxxxxxxxx
-RAZORPAY_KEY_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
-RAZORPAY_WEBHOOK_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
+RAZORPAY_KEY_ID=<configured securely>
+RAZORPAY_KEY_SECRET=<configured securely>
+RAZORPAY_WEBHOOK_SECRET=<configured securely>
 
-# Security & Compliance
-QR_HMAC_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
-CLEARTAX_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxx
+# Security & External APIs
+QR_HMAC_SECRET=<configured securely>
+CLEARTAX_AUTH_TOKEN=<configured securely>
 ```
 
 ---
 
-## 🛠️ Setup & Deployment Instructions
+## 🛠️ Build & Deployment Instructions
 
-### Prerequisites
-- Node.js `v20.x` or higher
-- JDK 17 & Android Studio Jellyfish or newer
-- Firebase CLI (`npm install -g firebase-tools`)
-
-### 1. Backend Deployment
+### 1. Firebase Backend Deployment
 ```bash
-# Navigate to functions folder
+# Navigate to Cloud Functions directory
 cd KrishiVishal-Functions
 
 # Install dependencies
 npm install
 
-# Test syntax & modules locally
-node -e "require('./index'); console.log('Syntax OK');"
+# Test syntax & test suite
+npm test
 
 # Deploy Cloud Functions & Firestore Security Rules
 firebase deploy --only functions:initiateRefund,functions:requestReturn,functions:createOrder,firestore
 ```
 
-### 2. Customer & Delivery Android App Build
+### 2. Android App Builds
 ```bash
-# Build Customer App APK / Bundle
+# Build Customer Android App
 ./gradlew :app:assembleRelease
 
-# Build Delivery App APK / Bundle
+# Build Delivery Rider Android App
 ./gradlew :KrishiVishalDelivery:app:assembleRelease
 ```
-
----
-
-## 🔒 Security & Compliance Highlights
-
-- 🔐 **Price Tampering Protection:** Razorpay Order IDs are strictly created server-side with locked amounts. Client SDK cannot modify payment values.
-- 🛡️ **Admin Privilege Enforcement:** Financial functions (`initiateRefund`, ledger write) verify Custom Claims / Admin roles before execution.
-- 🔁 **Idempotency Safeguards:** Critical operations (stock reservation, refund processing) enforce idempotency keys to prevent duplicate transactions.
-- ⏱️ **Timing-Safe Cryptography:** Signature verification uses `crypto.timingSafeEqual` to eliminate timing side-channel attacks.
-
----
-
-## 📋 Production Readiness Status
-
-- [x] **Double-Entry Ledger Engine** — Verified
-- [x] **FEFO Stock Reservation** — Verified
-- [x] **Server-side Razorpay Order Locking** — Completed
-- [x] **Automated Refund & Wallet Credits** — Completed
-- [x] **7-Day Return Request Flow & Validation** — Completed
-- [x] **OTP Delivery Verification** — Verified
 
 ---
 
