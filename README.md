@@ -20,20 +20,20 @@ KrishiVishal handles the complete end-to-end lifecycle of agricultural input sup
 
 ```mermaid
 graph TD
-    subgraph Client Layer
+    subgraph "Client Layer"
         A["📱 Customer Android App (app/)"]
         B["🚚 Delivery Android App (KrishiVishalDelivery/)"]
         C["💻 Admin Web Panel (KrishiVishal-Admin/ & public/)"]
     end
 
-    subgraph Firebase Cloud Backend (KrishiVishal-Functions/)
+    subgraph "Firebase Cloud Backend (KrishiVishal-Functions/)"
         D["⚡ Node.js v22 Cloud Functions (v2 Callable & Triggers)"]
         E["🗄️ Cloud Firestore Database"]
         F["🔐 Firebase Auth & Custom Claims"]
         G["📦 Cloud Storage"]
     end
 
-    subgraph External Systems & Integrations
+    subgraph "External Systems & Integrations"
         H["💳 Razorpay Payment Gateway"]
         I["📄 ClearTax / E-Way Bill Provider API"]
         J["📲 Firebase Cloud Messaging (FCM)"]
@@ -114,7 +114,7 @@ sequenceDiagram
     participant App as Customer App
     participant Backend as Cloud Functions
     participant Rzp as Razorpay Gateway
-    participant Admin as Admin / ERP
+    participant Admin as Admin Web
     participant Rider as Delivery App
 
     Customer->>App: 1. Add SKU/variant to Cart & Checkout
@@ -125,7 +125,7 @@ sequenceDiagram
     else Stock Unavailable
         Backend->>Admin: 4b. Create Procurement Queue Record
         Admin->>Admin: 5. Procure from Supplier & Receive GRN
-        Backend->>Backend: 6. Update Stock -> Set READY_FOR_PACKING
+        Backend->>Backend: 6. Update Stock to READY_FOR_PACKING
     end
     Backend->>Rzp: 7. Create Server Razorpay Order
     Backend-->>App: 8. Return orderId & razorpayOrderId
