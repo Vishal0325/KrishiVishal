@@ -16,6 +16,7 @@ const orderTriggers = require('./orders/orderTriggers');
 const razorpay = require('./finance/razorpay');
 const ledger = require('./finance/ledger');
 const wallet = require('./finance/wallet');
+const refund = require('./finance/initiateRefund');
 const inventory = require('./inventory/stock');
 const bulkImport = require('./inventory/importSkus');
 const recommendations = require('./inventory/recommendations');
@@ -25,6 +26,7 @@ const messaging = require('./messaging/notifications');
 
 // --- ORDERS ---
 exports.createOrder = orders.createOrder;
+exports.requestReturn = orders.requestReturn;
 exports.verifyDeliveryOTP = orders.verifyDeliveryOTP;
 exports.cancelOrder = orders.cancelOrder;
 exports.updateOrderStatus = orders.updateOrderStatus;
@@ -37,6 +39,7 @@ exports.onProcurementQueueUpdated = orderTriggers.onProcurementQueueUpdated;
 // --- FINANCE & PAYMENTS ---
 exports.verifyPayment = razorpay.verifyPayment;
 exports.razorpayWebhook = razorpay.razorpayWebhook;
+exports.initiateRefund = refund.initiateRefund;
 exports.onOrderPaidLedger = ledger.onOrderPaidLedger;
 exports.onReturnCompletedLedger = ledger.onReturnCompletedLedger;
 exports.payWithWallet = wallet.payWithWallet;

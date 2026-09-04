@@ -76,6 +76,7 @@ fun CheckoutScreen(
                         activity = context as Activity,
                         amount = event.amount,
                         orderId = event.orderId,
+                        razorpayOrderId = event.razorpayOrderId,
                         userEmail = uiState.userEmail,
                         userPhone = uiState.userPhone
                     )
@@ -505,6 +506,7 @@ fun startRazorpay(
     activity: Activity, 
     amount: Double, 
     orderId: String,
+    razorpayOrderId: String,
     userEmail: String?,
     userPhone: String?
 ) {
@@ -514,6 +516,7 @@ fun startRazorpay(
         val options = JSONObject()
         options.put("name", "KrishiVishal")
         options.put("description", "Payment for Order #$orderId")
+        options.put("order_id", razorpayOrderId) // Locked server-side Razorpay Order ID
         options.put("theme.color", "#2E7D32")
         options.put("currency", "INR")
         options.put("amount", (amount * 100).toInt()) // Amount in paise

@@ -3,6 +3,7 @@ package com.company.krishivishal.domain.usecase.checkout
 import com.company.krishivishal.core.model.Address
 import com.company.krishivishal.core.model.CartWithProduct
 import com.company.krishivishal.data.repository.OrderRepository
+import com.company.krishivishal.data.repository.CreateOrderResult
 import com.company.krishivishal.core.util.Resource
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
@@ -21,7 +22,7 @@ class PlaceOrderUseCase @Inject constructor(
         paymentMethod: String = "COD",
         lat: Double = 0.0,
         lng: Double = 0.0
-    ): Flow<Resource<Triple<String, Double, String>>> {
+    ): Flow<Resource<CreateOrderResult>> {
         val landmarkPart = if (address.landmark.isNotBlank()) " (Landmark: ${address.landmark})" else ""
         val addressString = "${address.fullName}, ${address.houseNo}, ${address.street}, ${address.ward}, ${address.block}, ${address.district}, ${address.state} - ${address.pincode}$landmarkPart"
         

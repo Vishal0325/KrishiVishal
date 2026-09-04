@@ -126,8 +126,7 @@ class OrderViewModel @Inject constructor(
             returnRepository.requestReturn(request).collectLatest { resource ->
                 _uiState.update { it.copy(returnRequestResource = resource) }
                 if (resource is Resource.Success) {
-                    // Update local order status to indicate return is initiated
-                    updateOrderStatus(order.id, "RETURNED")
+                    loadOrders()
                 }
             }
         }

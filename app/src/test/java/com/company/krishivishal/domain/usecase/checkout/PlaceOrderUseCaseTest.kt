@@ -35,7 +35,7 @@ class PlaceOrderUseCaseTest {
 
         every {
             orderRepository.createOrderViaFunction(any(), any(), any(), any(), any(), any(), any())
-        } returns flowOf(Resource.Success(Triple("orderId", 140.0, "123456")))
+        } returns flowOf(Resource.Success(com.company.krishivishal.data.repository.CreateOrderResult("orderId", 140.0, "123456", null)))
 
         useCase(userId, items, address).collect {}
 

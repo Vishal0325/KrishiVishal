@@ -7,6 +7,7 @@ import com.company.krishivishal.utils.safeCall
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.FieldValue
+import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.tasks.await
@@ -25,17 +26,43 @@ interface ReturnRepository {
 @Singleton
 class ReturnRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
+    private val functions: FirebaseFunctions,
     private val returnDao: com.company.krishivishal.data.local.ReturnDao,
     private val notificationRepository: NotificationRepository,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : ReturnRepository {
 
     override fun requestReturn(request: ReturnRequest): Flow<Resource<String>> = safeCall(ioDispatcher) {
-        val id = "RET-" + UUID.randomUUID().toString().substring(0, 8).uppercase()
-        val finalRequest = request.copy(id = id, createdAt = java.util.Date(), updatedAt = java.util.Date())
-        firestore.collection("returns").document(id).set(finalRequest).await()
+        val payload = hashMapOf<String, Any>(
+            "orderId" to request.orderId,
+            "reason" to request.reason,
+            "customerComment" to request.customerComment,
+            "proofUrls" to request.proofUrls,
+            "productId" to request.productId,
+            "productName" to request.productName,
+            "quantity" to request.quantity
+        )
+
+        val result = functions
+            .getHttpsCallable("requestReturn")
+            .call(payload)
+            .await()
+
+        @Suppress("UNCHECKED_CAST")
+        val data = result.data as? Map<String, Any>
+            ?: throw Exception("Invalid response from server")
+
+        val returnId = data["returnId"] as? String
+            ?: throw Exception("returnId missing in server response")
+
+        val finalRequest = request.copy(
+            id = returnId,
+            status = "REQUESTED",
+            createdAt = java.util.Date(),
+            updatedAt = java.util.Date()
+        )
         returnDao.insertReturn(finalRequest)
-        id
+        returnId
     }
 
     override fun getReturnsByUser(userId: String): Flow<Resource<List<ReturnRequest>>> = kotlinx.coroutines.flow.flow {

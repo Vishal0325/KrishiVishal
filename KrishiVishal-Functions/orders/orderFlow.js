@@ -8,8 +8,41 @@ const {
     completeOrderStock,
     DEFAULT_WAREHOUSE_ID
 } = require("../inventory/inventoryEngine");
+const Razorpay = require("razorpay");
 
 const REGION = 'asia-south1';
+
+/**
+ * Creates a Razorpay Order server-side to lock the amount.
+ * This prevents client-side price tampering — amount is set by the server,
+ * not by the app. Razorpay will reject any payment whose amount does not
+ * match the locked Razorpay Order.
+ */
+async function createRazorpayOrder(orderId, totalAmountINR) {
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (!keyId || !keySecret) {
+        throw new Error('Razorpay credentials not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET env vars.');
+    }
+
+    const rzp = new Razorpay({ key_id: keyId, key_secret: keySecret });
+
+    const rzpOrder = await rzp.orders.create({
+        amount: Math.round(totalAmountINR * 100), // paise
+        currency: 'INR',
+        receipt: orderId,                          // our internal order ID as receipt
+        notes: { orderId },                        // makes webhook reconciliation easy
+        payment_capture: 1,                        // auto-capture payment
+    });
+
+    if (!rzpOrder || !rzpOrder.id) {
+        throw new Error('Razorpay order creation returned an invalid response.');
+    }
+
+    console.log(`[createOrder] Razorpay Order created: ${rzpOrder.id} for orderId: ${orderId}`);
+    return rzpOrder.id;
+}
 
 /**
  * createOrder: Full logic with FEFO inventory reservation, input validation, and transactional safety.
@@ -201,7 +234,39 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
         });
 
         const finalAmount = (subtotal - totalDiscount) + totalTax + 50;
-        return { orderId, totalAmount: finalAmount };
+
+        // ── Razorpay Order Creation (ONLINE payments only) ──────────────────
+        // For RAZORPAY_ONLINE, we create a server-side Razorpay Order to lock
+        // the amount. The client MUST use this razorpayOrderId when opening the
+        // Razorpay SDK — this prevents any client-side amount tampering.
+        let razorpayOrderId = null;
+        if (paymentMethod === 'RAZORPAY_ONLINE') {
+            try {
+                razorpayOrderId = await createRazorpayOrder(orderId, finalAmount);
+                // Persist the Razorpay Order ID on the order document immediately
+                await db.collection("orders").doc(orderId).update({
+                    razorpayOrderId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            } catch (rzpError) {
+                // Razorpay order creation failed — still return orderId so the
+                // client can retry. Flag paymentStatus as RAZORPAY_INIT_FAILED
+                // so the system doesn't mistakenly mark this as PAID.
+                console.error('[createOrder] Razorpay order init failed:', rzpError.message);
+                await db.collection("orders").doc(orderId).update({
+                    paymentStatus: 'RAZORPAY_INIT_FAILED',
+                    razorpayInitError: rzpError.message,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                throw new HttpsError('internal', `Order created but payment init failed: ${rzpError.message}`);
+            }
+        }
+
+        return {
+            orderId,
+            totalAmount: finalAmount,
+            razorpayOrderId, // null for COD/WALLET, populated for RAZORPAY_ONLINE
+        };
     } catch (error) {
         throw new HttpsError('internal', error.message);
     }
@@ -266,6 +331,106 @@ exports.cancelOrder = onCall({ region: REGION }, async (request) => {
     });
 
     return { success: true };
+});
+
+/**
+ * requestReturn: Handles customer return requests securely with server validations:
+ * 1. User authentication & order ownership check
+ * 2. Order status must be DELIVERED
+ * 3. 7-day return policy window check
+ * 4. Duplicate return prevention
+ * 5. Creates return doc in 'returns' collection
+ * 6. Updates order returnStatus
+ */
+exports.requestReturn = onCall({ region: REGION }, async (request) => {
+    const data = request.data || {};
+    const context = { auth: request.auth };
+
+    if (!context.auth) throw new HttpsError('unauthenticated', 'Login required.');
+    const { orderId, reason, customerComment, proofUrls, productId, productName, quantity } = data;
+
+    if (!orderId || typeof orderId !== 'string') {
+        throw new HttpsError('invalid-argument', 'Invalid or missing orderId.');
+    }
+    if (!reason || typeof reason !== 'string' || !reason.trim()) {
+        throw new HttpsError('invalid-argument', 'Return reason is required.');
+    }
+
+    const orderRef = db.collection("orders").doc(orderId);
+    const orderSnap = await orderRef.get();
+    if (!orderSnap.exists) throw new HttpsError('not-found', 'Order not found.');
+
+    const orderData = orderSnap.data();
+    if (orderData.userId !== context.auth.uid) {
+        throw new HttpsError('permission-denied', 'You can only request returns for your own orders.');
+    }
+
+    if (orderData.status !== 'DELIVERED') {
+        throw new HttpsError('failed-precondition', `Returns can only be requested for delivered orders. Current status: ${orderData.status}`);
+    }
+
+    // Return window check (7 days = 7 * 24 * 60 * 60 * 1000 ms)
+    const RETURN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+    const deliveryTimestamp = orderData.deliveredAt || orderData.updatedAt || orderData.createdAt;
+    if (deliveryTimestamp) {
+        const deliveryDate = deliveryTimestamp.toDate ? deliveryTimestamp.toDate() : new Date(deliveryTimestamp);
+        const elapsed = Date.now() - deliveryDate.getTime();
+        if (elapsed > RETURN_WINDOW_MS) {
+            throw new HttpsError('failed-precondition', 'Return window has expired (7 days from delivery).');
+        }
+    }
+
+    // Check for existing active return requests for this order
+    const existingReturnsSnap = await db.collection("returns")
+        .where("orderId", "==", orderId)
+        .get();
+
+    const activeReturns = existingReturnsSnap.docs.filter(doc => {
+        const status = doc.data().status;
+        return !['REJECTED', 'CANCELLED'].includes(status);
+    });
+
+    if (activeReturns.length > 0) {
+        throw new HttpsError('already-exists', 'An active return request already exists for this order.');
+    }
+
+    // Generate unique return ID
+    const returnId = "RET-" + crypto.randomBytes(4).toString("hex").toUpperCase();
+    const targetProduct = (orderData.items && orderData.items.length > 0) ? orderData.items[0] : null;
+
+    const returnDoc = {
+        id: returnId,
+        orderId,
+        userId: context.auth.uid,
+        productId: productId || (targetProduct ? targetProduct.productId : "general"),
+        productName: productName || (targetProduct ? (targetProduct.productName || targetProduct.name || "Item") : "Ordered Item"),
+        quantity: typeof quantity === 'number' && quantity > 0 ? quantity : (targetProduct ? (targetProduct.quantity || 1) : 1),
+        reason: reason.trim(),
+        customerComment: typeof customerComment === 'string' ? customerComment.trim() : "",
+        proofUrls: Array.isArray(proofUrls) ? proofUrls : [],
+        status: "REQUESTED",
+        refundMethod: orderData.paymentMethod === "RAZORPAY_ONLINE" ? "UPI" : "WALLET",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    const batch = db.batch();
+    batch.set(db.collection("returns").doc(returnId), returnDoc);
+    batch.update(orderRef, {
+        returnStatus: "RETURN_REQUESTED",
+        returnId: returnId,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
+
+    console.log(`[requestReturn] Return request ${returnId} created for order ${orderId} by user ${context.auth.uid}`);
+
+    return {
+        returnId,
+        status: "REQUESTED",
+        message: "Return request submitted successfully."
+    };
 });
 
 /**

@@ -49,7 +49,13 @@ data class PaymentOption(
 )
 
 sealed class CheckoutUiEvent {
-    data class InitiatePayment(val amount: Double, val orderId: String) : CheckoutUiEvent()
+    // razorpayOrderId is the server-locked Razorpay Order ID.
+    // The SDK MUST use this ID — amount is enforced server-side.
+    data class InitiatePayment(
+        val amount: Double,
+        val orderId: String,
+        val razorpayOrderId: String
+    ) : CheckoutUiEvent()
     data class OrderSuccess(val orderId: String, val otp: String) : CheckoutUiEvent()
 }
 
@@ -88,6 +94,11 @@ class CheckoutViewModel @Inject constructor(
     private var pendingOrderOtp: String?
         get() = savedStateHandle.get<String>("pending_order_otp")
         set(value) = savedStateHandle.set("pending_order_otp", value)
+
+    // Persisted so we can verify payment even after process death + restore
+    private var pendingRazorpayOrderId: String?
+        get() = savedStateHandle.get<String>("pending_razorpay_order_id")
+        set(value) = savedStateHandle.set("pending_razorpay_order_id", value)
 
     init {
         loadData()
@@ -350,13 +361,31 @@ class CheckoutViewModel @Inject constructor(
                     is Resource.Success -> {
                         paymentResilienceManager.recordSuccess()
                         resource.data?.let { data ->
-                            pendingOrderId = data.first
-                            pendingOrderOtp = data.third
+                            pendingOrderId = data.orderId
+                            pendingOrderOtp = data.customerOtp
+                            pendingRazorpayOrderId = data.razorpayOrderId
                             if (currentState.selectedPaymentMethod == PaymentMethod.ONLINE) {
+                                val rzpOrderId = data.razorpayOrderId
+                                if (rzpOrderId.isNullOrBlank()) {
+                                    // Server did not return a Razorpay Order ID — unsafe to proceed
+                                    _uiState.update {
+                                        it.copy(
+                                            checkoutResource = Resource.Error("Payment init failed: missing Razorpay Order ID. Please try again."),
+                                            error = "Payment init failed. Please try again."
+                                        )
+                                    }
+                                    return@collect
+                                }
                                 _uiState.update { it.copy(checkoutResource = null) }
-                                _uiEvent.emit(CheckoutUiEvent.InitiatePayment(data.second, data.first))
+                                _uiEvent.emit(
+                                    CheckoutUiEvent.InitiatePayment(
+                                        amount = data.totalAmount,
+                                        orderId = data.orderId,
+                                        razorpayOrderId = rzpOrderId
+                                    )
+                                )
                             } else {
-                                onOrderCompletionSuccess(data.second)
+                                onOrderCompletionSuccess(data.totalAmount)
                             }
                         }
                     }

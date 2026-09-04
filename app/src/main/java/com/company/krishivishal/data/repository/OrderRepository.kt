@@ -21,9 +21,25 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 
+/**
+ * Result of a successful order creation.
+ * @param orderId       Our internal Firestore order document ID.
+ * @param totalAmount   Final payable amount in INR.
+ * @param customerOtp   OTP for delivery verification.
+ * @param razorpayOrderId  Server-locked Razorpay Order ID. Non-null only for
+ *                         RAZORPAY_ONLINE payments. The Razorpay SDK MUST use
+ *                         this ID — amount is enforced server-side.
+ */
+data class CreateOrderResult(
+    val orderId: String,
+    val totalAmount: Double,
+    val customerOtp: String,
+    val razorpayOrderId: String? = null
+)
+
 interface OrderRepository {
     fun getOrders(userId: String): Flow<Resource<List<Order>>>
-    // V4: placeOrder (Direct Write) is deprecated and blocked by security rules. 
+    // V4: placeOrder (Direct Write) is deprecated and blocked by security rules.
     // Use createOrderViaFunction instead for secure, server-side validated orders.
     fun createOrderViaFunction(
         cartItems: List<com.company.krishivishal.core.model.CartItem>,
@@ -33,7 +49,7 @@ interface OrderRepository {
         userPhone: String,
         lat: Double = 0.0,
         lng: Double = 0.0
-    ): Flow<Resource<Triple<String, Double, String>>>
+    ): Flow<Resource<CreateOrderResult>>
     fun verifyPayment(
         orderId: String,
         paymentId: String,
@@ -77,7 +93,7 @@ class OrderRepositoryImpl @Inject constructor(
         userPhone: String,
         lat: Double,
         lng: Double
-    ): Flow<Resource<Triple<String, Double, String>>> = flow {
+    ): Flow<Resource<CreateOrderResult>> = flow {
         emit(Resource.Loading())
 
         // Step 1: Ensure user is authenticated with a fresh, valid token
@@ -154,9 +170,15 @@ class OrderRepositoryImpl @Inject constructor(
                     else -> throw Exception("totalAmount missing in response")
                 }
                 val customerOTP = resultMap["customerOTP"] as? String ?: ""
+                val razorpayOrderId = resultMap["razorpayOrderId"] as? String
 
-                android.util.Log.d("OrderRepo", "Order Success! ID: $orderId")
-                emit(Resource.Success(Triple(orderId, totalAmount, customerOTP)))
+                android.util.Log.d("OrderRepo", "Order Success! ID: $orderId, RZP Order: $razorpayOrderId")
+                emit(Resource.Success(CreateOrderResult(
+                    orderId = orderId,
+                    totalAmount = totalAmount,
+                    customerOtp = customerOTP,
+                    razorpayOrderId = razorpayOrderId
+                )))
                 return@flow
             } catch (e: Exception) {
                 android.util.Log.e("OrderRepo", "Order attempt $attempt - Error: ${e.javaClass.simpleName}: ${e.message}")
