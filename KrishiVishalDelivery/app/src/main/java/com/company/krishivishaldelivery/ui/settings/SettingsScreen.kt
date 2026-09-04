@@ -14,13 +14,23 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onNavigateBack: () -> Unit) {
+fun SettingsScreen(
+    onNavigateBack: () -> Unit,
+    viewModel: SettingsViewModel = hiltViewModel()
+) {
+    val context = LocalContext.current
     var notificationsEnabled by remember { mutableStateOf(true) }
     var locationSharing by remember { mutableStateOf(true) }
     var selectedLanguage by remember { mutableStateOf("English") }
+    
+    val themePref by viewModel.themeFlow.collectAsState()
+    var showThemeDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -82,8 +92,19 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
                 SettingsClickItem(
                     icon = Icons.Default.Brightness6,
                     title = "Theme",
-                    value = "System Default",
-                    onClick = { /* Logic to change theme */ }
+                    value = themePref,
+                    onClick = { showThemeDialog = true }
+                )
+            }
+            item {
+                SettingsClickItem(
+                    icon = Icons.Default.Sync,
+                    title = "Force Sync",
+                    value = "",
+                    onClick = { 
+                        viewModel.forceSync()
+                        Toast.makeText(context, "Background Sync Started", Toast.LENGTH_SHORT).show()
+                    }
                 )
             }
 
@@ -118,6 +139,44 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
                     fontSize = 12.sp
                 )
             }
+        }
+
+        if (showThemeDialog) {
+            AlertDialog(
+                onDismissRequest = { showThemeDialog = false },
+                title = { Text("Select Theme") },
+                text = {
+                    Column {
+                        listOf("SYSTEM", "LIGHT", "DARK").forEach { themeOption ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.setTheme(themeOption)
+                                        showThemeDialog = false
+                                    }
+                                    .padding(vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = themePref == themeOption,
+                                    onClick = {
+                                        viewModel.setTheme(themeOption)
+                                        showThemeDialog = false
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(themeOption)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showThemeDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
     }
 }

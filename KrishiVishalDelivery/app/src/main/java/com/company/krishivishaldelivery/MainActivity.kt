@@ -31,14 +31,27 @@ import com.company.krishivishaldelivery.ui.UpdateRequiredDialog
 import com.company.krishivishaldelivery.ui.navigation.AppNavGraph
 import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+import com.company.krishivishaldelivery.data.local.PreferencesManager
+import androidx.compose.foundation.isSystemInDarkTheme
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    
+    @Inject
+    lateinit var preferencesManager: PreferencesManager
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            KrishiVishalTheme {
+            val themePref by preferencesManager.themeFlow.collectAsState()
+            val darkTheme = when (themePref) {
+                "DARK" -> true
+                "LIGHT" -> false
+                else -> isSystemInDarkTheme()
+            }
+            KrishiVishalTheme(darkTheme = darkTheme) {
                 val navController = rememberNavController()
                 val dashboardViewModel: DashboardViewModel = hiltViewModel()
                 val context = LocalContext.current

@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -22,6 +23,16 @@ interface DeliveryDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrder(order: DeliveryOrderEntity)
+
+    /**
+     * Atomic clear + insert — sync ke dauran agar crash bhi ho toh
+     * purana data safe rahega (transaction rollback hoga).
+     */
+    @Transaction
+    suspend fun clearAndInsertOrders(orders: List<DeliveryOrderEntity>) {
+        clearOrders()
+        insertOrders(orders)
+    }
 
     @Query("UPDATE delivery_orders SET status = :status, isPendingSync = :isPendingSync WHERE id = :orderId")
     suspend fun updateOrderStatus(orderId: String, status: String, isPendingSync: Boolean = true)

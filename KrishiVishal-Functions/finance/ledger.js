@@ -1,5 +1,5 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
-const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onDocumentUpdated, onDocumentCreated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { db, admin } = require("../core/admin");
 const { isAdminRequest } = require("../core/utils");
 
@@ -236,6 +236,122 @@ exports.onReturnCompletedLedger = onDocumentUpdated({ document: "returns/{return
             // Re-throw or use Outbox for retry logic in production
             throw error;
         }
+    }
+    return null;
+});
+
+/**
+ * Triggered when a Goods Receipt Note (GRN) is created.
+ */
+exports.onGoodsReceiptCreated = onDocumentCreated({ document: "goods_receipts/{grnId}", region: REGION }, async (event) => {
+    const snap = event.data;
+    if (!snap) return null;
+    
+    const grnId = event.params.grnId;
+    const data = snap.data();
+    const totalAmount = data.totalGRNAmount || 0;
+
+    if (totalAmount <= 0) return null;
+
+    try {
+        await db.runTransaction(async (transaction) => {
+            const existingEntries = await transaction.get(
+                db.collection("ledger")
+                    .where("referenceId", "==", grnId)
+                    .where("account", "==", "INVENTORY_VALUE")
+                    .limit(1)
+            );
+
+            if (!existingEntries.empty) {
+                console.log(`Ledger entry already exists for GRN: ${grnId}. Skipping.`);
+                return;
+            }
+
+            postLedgerEntry(transaction, {
+                account: 'INVENTORY_VALUE',
+                type: 'DEBIT',
+                amount: totalAmount,
+                description: `GRN #${data.grnNumber} Inventory Received`,
+                referenceId: grnId,
+                metadata: { grnId, poId: data.poId }
+            });
+
+            postLedgerEntry(transaction, {
+                account: 'ACCOUNTS_PAYABLE',
+                type: 'CREDIT',
+                amount: totalAmount,
+                description: `GRN #${data.grnNumber} Supplier Payable (${data.supplierName})`,
+                referenceId: grnId,
+                metadata: { grnId, supplierId: data.supplierId }
+            });
+        });
+        console.log(`Ledger entries posted for GRN: ${grnId}`);
+    } catch (error) {
+        console.error("CRITICAL: Financial transaction failed for GRN:", grnId, error);
+        throw error;
+    }
+    return null;
+});
+
+/**
+ * Triggered when a rider cash deposit is created or updated to VERIFIED.
+ */
+exports.onCashDepositVerified = onDocumentWritten({ document: "cash_deposits/{depositId}", region: REGION }, async (event) => {
+    const change = event.data;
+    const newData = change.after ? change.after.data() : null;
+    const oldData = change.before ? change.before.data() : null;
+    const depositId = event.params.depositId;
+
+    if (!newData) return null;
+    if (newData.status !== 'VERIFIED') return null;
+    if (oldData && oldData.status === 'VERIFIED') return null;
+
+    const amount = newData.amount || 0;
+    if (amount <= 0) return null;
+
+    try {
+        await db.runTransaction(async (transaction) => {
+            const existingEntries = await transaction.get(
+                db.collection("ledger")
+                    .where("referenceId", "==", depositId)
+                    .where("account", "==", "BANK_ACCOUNT")
+                    .limit(1)
+            );
+
+            if (!existingEntries.empty) {
+                console.log(`Ledger entry already exists for Deposit: ${depositId}. Skipping.`);
+                return;
+            }
+
+            // Transfer from Rider's Cash In Hand liability to Business Bank Account
+            postLedgerEntry(transaction, {
+                account: 'CASH_IN_HAND',
+                type: 'CREDIT',
+                amount: amount,
+                description: `Cash Deposit #${depositId} from Rider ${newData.riderId} Cleared`,
+                referenceId: depositId,
+                metadata: { depositId, riderId: newData.riderId }
+            });
+
+            postLedgerEntry(transaction, {
+                account: 'BANK_ACCOUNT',
+                type: 'DEBIT',
+                amount: amount,
+                description: `Cash Deposit #${depositId} banked`,
+                referenceId: depositId,
+                metadata: { depositId, riderId: newData.riderId }
+            });
+            
+            // Mark deposit as ledger posted
+            transaction.update(change.after.ref, {
+                ledgerPosted: true,
+                ledgerPostedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        });
+        console.log(`Ledger entries posted for Cash Deposit: ${depositId}`);
+    } catch (error) {
+        console.error("CRITICAL: Financial transaction failed for Cash Deposit:", depositId, error);
+        throw error;
     }
     return null;
 });

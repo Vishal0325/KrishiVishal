@@ -22,6 +22,9 @@ import com.company.krishivishaldelivery.ui.profile.ProfileScreen
 import com.company.krishivishaldelivery.ui.returns.ReturnDetailScreen
 import com.company.krishivishaldelivery.ui.scanner.QRScannerScreen
 import com.company.krishivishaldelivery.ui.settings.SettingsScreen
+import com.company.krishivishaldelivery.ui.support.SupportScreen
+import com.company.krishivishaldelivery.ui.tracking.RiderDeliveryScreen
+import com.company.krishivishaldelivery.ui.tracking.RiderOrderViewModel
 
 @Composable
 fun AppNavGraph(
@@ -90,11 +93,18 @@ fun AppNavGraph(
                 },
                 onSettingsClick = {
                     navController.navigate("settings")
+                },
+                onSupportClick = {
+                    navController.navigate("support")
                 }
             )
         }
         composable("settings") {
             SettingsScreen(onNavigateBack = { navController.popBackStack() })
+        }
+        // Support Screen
+        composable("support") {
+            SupportScreen(onNavigateBack = { navController.popBackStack() })
         }
         composable(
             route = "order_detail/{orderId}",
@@ -134,6 +144,18 @@ fun AppNavGraph(
                     dashboardViewModel.updateReturnStatus(returnId, "PICKED_UP")
                     navController.popBackStack()
                 }
+            )
+        }
+        // Rider Delivery Console Screen
+        composable(
+            route = "rider_delivery/{orderId}",
+            arguments = listOf(navArgument("orderId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val orderId = backStackEntry.arguments?.getString("orderId") ?: ""
+            val viewModel: RiderOrderViewModel = hiltViewModel()
+            RiderDeliveryScreen(
+                orderId = orderId,
+                viewModel = viewModel
             )
         }
     }

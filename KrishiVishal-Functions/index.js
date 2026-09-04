@@ -32,6 +32,7 @@ exports.generateSignedQRPayload = orders.generateSignedQRPayload;
 exports.onOrderStatusUpdate = orderTriggers.onOrderStatusUpdate;
 exports.onReturnRequestCreated = orderTriggers.onReturnRequestCreated;
 exports.onOrderDeliveryUpdate = orderTriggers.onOrderDeliveryUpdate;
+exports.onProcurementQueueUpdated = orderTriggers.onProcurementQueueUpdated;
 
 // --- FINANCE & PAYMENTS ---
 exports.verifyPayment = razorpay.verifyPayment;
@@ -41,6 +42,8 @@ exports.onReturnCompletedLedger = ledger.onReturnCompletedLedger;
 exports.payWithWallet = wallet.payWithWallet;
 exports.recordExpensePayment = ledger.recordExpensePayment;
 exports.deleteExpenseAttachment = ledger.deleteExpenseAttachment;
+exports.onGoodsReceiptCreated = ledger.onGoodsReceiptCreated;
+exports.onCashDepositVerified = ledger.onCashDepositVerified;
 
 // --- INVENTORY ---
 exports.onReturnStockSync = inventory.onReturnStockSync;

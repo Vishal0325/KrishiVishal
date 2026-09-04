@@ -176,3 +176,51 @@ exports.onOrderDeliveryUpdate = onDocumentUpdated({ document: "orders/{orderId}"
     }
     return null;
 });
+
+/**
+ * Triggered when a procurement queue item is updated.
+ * If all items for an order are RECEIVED, advance order status.
+ */
+exports.onProcurementQueueUpdated = onDocumentUpdated({ document: "procurement_queue/{itemId}", region: REGION }, async (event) => {
+    const change = event.data;
+    const newData = change.after.data();
+    const oldData = change.before.data();
+
+    if (!newData || !oldData || newData.status === oldData.status) return null;
+
+    if (newData.status === 'RECEIVED' && newData.orderId) {
+        const orderId = newData.orderId;
+        try {
+            await db.runTransaction(async (transaction) => {
+                const orderRef = db.collection("orders").doc(orderId);
+                const orderSnap = await transaction.get(orderRef);
+                
+                if (!orderSnap.exists) return;
+                const orderData = orderSnap.data();
+                
+                if (orderData.status !== 'PROCUREMENT_PENDING') return;
+
+                // Check if all queue items for this order are received
+                const queueQuery = await transaction.get(db.collection("procurement_queue").where("orderId", "==", orderId));
+                let allReceived = true;
+                
+                queueQuery.docs.forEach(doc => {
+                    if (doc.data().status !== 'RECEIVED') {
+                        allReceived = false;
+                    }
+                });
+
+                if (allReceived) {
+                    transaction.update(orderRef, {
+                        status: 'READY_FOR_PACKING',
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                    console.log(`Order ${orderId} fully received. Transitioned to READY_FOR_PACKING.`);
+                }
+            });
+        } catch (error) {
+            console.error(`Failed to update order ${newData.orderId} from procurement queue:`, error);
+        }
+    }
+    return null;
+});

@@ -1,6 +1,7 @@
 package com.company.krishivishaldelivery.ui.dashboard
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.google.android.gms.location.LocationServices
 import com.company.krishivishal.core.model.Order
 import com.company.krishivishal.core.model.OrderStatus
 import com.company.krishivishal.core.model.ReturnRequest
@@ -310,10 +312,15 @@ fun DashboardScreen(
             title = { Text("Trigger Emergency SOS?") },
             text = { Text("This will alert the dispatch team and share your live location. Use only in real emergencies.") },
             confirmButton = {
-                Button(onClick = {
-                    viewModel.triggerSOS(0.0, 0.0, null)
-                    showSOSDialog = false
-                }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("CONFIRM SOS") }
+                Button(
+                    onClick = {
+                        triggerSOSWithLocation(context) { lat, lng ->
+                            viewModel.triggerSOS(lat, lng, null)
+                        }
+                        showSOSDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("CONFIRM SOS") }
             },
             dismissButton = {
                 OutlinedButton(onClick = {
@@ -673,4 +680,26 @@ private fun startLocationService(context: android.content.Context): Boolean {
 private fun stopLocationService(context: android.content.Context) {
     val intent = Intent(context, RiderLocationService::class.java).apply { action = RiderLocationService.ACTION_STOP }
     context.stopService(intent)
+}
+
+/**
+ * Rider ki last-known GPS location fetch karke SOS trigger karta hai.
+ * Agar location unavailable ho, tab bhi SOS 0.0 se bhej deta hai taaki alert miss na ho.
+ */
+@SuppressLint("MissingPermission")
+private fun triggerSOSWithLocation(
+    context: android.content.Context,
+    onLocation: (lat: Double, lng: Double) -> Unit
+) {
+    val fusedClient = LocationServices.getFusedLocationProviderClient(context)
+    fusedClient.lastLocation
+        .addOnSuccessListener { location ->
+            val lat = location?.latitude ?: 0.0
+            val lng = location?.longitude ?: 0.0
+            onLocation(lat, lng)
+        }
+        .addOnFailureListener {
+            // Location fetch fail — phir bhi SOS bhejo
+            onLocation(0.0, 0.0)
+        }
 }

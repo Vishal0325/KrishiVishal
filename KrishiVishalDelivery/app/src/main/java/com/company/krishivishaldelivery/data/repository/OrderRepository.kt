@@ -1,7 +1,6 @@
 package com.company.krishivishaldelivery.data.repository
 
 import android.net.Uri
-import android.util.Log
 import com.company.krishivishal.core.model.Order
 import com.company.krishivishal.core.model.OrderItem
 import com.company.krishivishal.core.model.OrderStatus
@@ -21,6 +20,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
+import timber.log.Timber
 import java.util.Date
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -59,12 +59,12 @@ class OrderRepository @Inject constructor(
                 OrderStatus.DELIVERED.name
             )
             val filteredOrders = orders.filter { it.status in activeStatuses }
-
             val entities = filteredOrders.map { it.toEntity() }
-            deliveryDao.clearOrders()
-            deliveryDao.insertOrders(entities)
+
+            // Atomic: clear + insert ek hi transaction mein — data loss nahi hoga
+            deliveryDao.clearAndInsertOrders(entities)
         } catch (e: Exception) {
-            Log.e("OrderRepo", "Sync Error: ${e.message}")
+            Timber.e(e, "syncAssignedOrders failed for rider: $riderId")
         }
     }
 
@@ -81,7 +81,7 @@ class OrderRepository @Inject constructor(
 
             deliveryDao.updateSyncStatus(orderId, false)
         } catch (e: Exception) {
-            Log.e("OrderRepo", "Update failed: ${e.message}")
+            Timber.e(e, "updateOrderStatus failed for order: $orderId, status: $newStatus")
         }
     }
 
@@ -94,18 +94,6 @@ class OrderRepository @Inject constructor(
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "OTP Verification failed")
         }
-    }
-
-    private fun isStatusAdvanced(current: String, incoming: String): Boolean {
-        val priority = mapOf(
-            OrderStatus.PLACED.name to 0,
-            OrderStatus.CONFIRMED.name to 1,
-            OrderStatus.ASSIGNED.name to 2,
-            OrderStatus.PICKED_UP.name to 3,
-            OrderStatus.OUT_FOR_DELIVERY.name to 4,
-            OrderStatus.DELIVERED.name to 5
-        )
-        return (priority[current] ?: -1) > (priority[incoming] ?: -1)
     }
 
     suspend fun syncPendingOrders() {
@@ -130,7 +118,7 @@ class OrderRepository @Inject constructor(
                 }
                 deliveryDao.updateSyncStatus(entity.id, false)
             } catch (e: Exception) {
-                Log.e("SyncWorker", "Failed to sync ${entity.id}: ${e.message}")
+                Timber.e(e, "syncPendingOrders: failed to sync order ${entity.id}")
             }
         }
 
@@ -151,7 +139,7 @@ class OrderRepository @Inject constructor(
                     batch.commit().await()
                     deliveryDao.markGPSLogsSynced(chunk.map { it.id })
                 } catch (e: Exception) {
-                    Log.e("SyncWorker", "Failed to sync GPS logs: ${e.message}")
+                    Timber.e(e, "syncPendingOrders: failed to sync GPS log chunk")
                 }
             }
         }
@@ -232,6 +220,7 @@ class OrderRepository @Inject constructor(
             }
             true
         } catch (e: Exception) {
+            Timber.e(e, "uploadProofOfDelivery failed for order: $orderId")
             false
         }
     }
@@ -267,7 +256,7 @@ class OrderRepository @Inject constructor(
             }
             true
         } catch (e: Exception) {
-            Log.e("OrderRepo", "Failed to mark cash as deposited: ${e.message}")
+            Timber.e(e, "markCashAsDeposited failed for rider: $riderId")
             false
         }
     }

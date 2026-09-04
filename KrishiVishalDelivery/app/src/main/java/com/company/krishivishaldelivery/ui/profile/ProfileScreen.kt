@@ -33,6 +33,7 @@ import com.google.firebase.auth.FirebaseAuth
 fun ProfileScreen(
     onLogout: () -> Unit,
     onSettingsClick: () -> Unit,
+    onSupportClick: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val auth = FirebaseAuth.getInstance()
@@ -88,6 +89,7 @@ fun ProfileScreen(
                 ProfileOption(Icons.Default.AccountBalance, "Bank Details", rider?.bankAccount ?: "Add Account") { showEditDialog = true }
                 ProfileOption(Icons.Default.DirectionsBike, "Vehicle Details", "${rider?.vehicleType}: ${rider?.vehicleNumber}") { showEditDialog = true }
                 ProfileOption(Icons.Default.Settings, "App Settings", "Theme, Notifications") { onSettingsClick() }
+                ProfileOption(Icons.Default.SupportAgent, "Contact Support", "24/7 help available") { onSupportClick() }
                 ProfileOption(Icons.Default.DeleteForever, stringResource(R.string.delete_account_data), "Permanent removal") { showDeleteConfirm = true }
                 
                 Spacer(modifier = Modifier.height(32.dp))
