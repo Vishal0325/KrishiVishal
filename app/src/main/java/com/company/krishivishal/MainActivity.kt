@@ -191,7 +191,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
             return
         }
 
-        val uri = intent.data
+        val uri = intent.data ?: return
         if (!deepLinkManager.isValidDeepLink(uri)) {
             deepLinkProductId = null
             if (!isFinishing) finish()
