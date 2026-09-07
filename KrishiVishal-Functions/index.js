@@ -16,6 +16,7 @@ const orderTriggers = require('./orders/orderTriggers');
 const razorpay = require('./finance/razorpay');
 const ledger = require('./finance/ledger');
 const wallet = require('./finance/wallet');
+const walletTopUp = require('./finance/walletTopUp');
 const refund = require('./finance/initiateRefund');
 const inventory = require('./inventory/stock');
 const bulkImport = require('./inventory/importSkus');
@@ -43,6 +44,11 @@ exports.initiateRefund = refund.initiateRefund;
 exports.onOrderPaidLedger = ledger.onOrderPaidLedger;
 exports.onReturnCompletedLedger = ledger.onReturnCompletedLedger;
 exports.payWithWallet = wallet.payWithWallet;
+exports.redeemWalletAtCheckout = wallet.redeemWalletAtCheckout;
+exports.createWalletTopUpOrder = walletTopUp.createWalletTopUpOrder;
+exports.verifyWalletTopUp = walletTopUp.verifyWalletTopUp;
+exports.adminAdjustWallet = walletTopUp.adminAdjustWallet;
+exports.getWalletHistory = walletTopUp.getWalletHistory;
 exports.recordExpensePayment = ledger.recordExpensePayment;
 exports.deleteExpenseAttachment = ledger.deleteExpenseAttachment;
 exports.onGoodsReceiptCreated = ledger.onGoodsReceiptCreated;
@@ -61,6 +67,12 @@ exports.onProductWrite = recommendations.onProductWrite;
 exports.refreshPopularity = recommendations.refreshPopularity;
 exports.getRecommendations = recommendations.getRecommendations;
 exports.backfillProductMetadata = recommendations.backfillProductMetadata;
+
+// --- MARKETING & REFERRALS ---
+const referrals = require('./marketing/referrals');
+exports.generateReferralCode = referrals.generateReferralCode;
+exports.applyReferralCode = referrals.applyReferralCode;
+exports.getOrCreateReferralCode = referrals.getOrCreateReferralCode;
 
 // --- ADMIN & AI ---
 exports.aiSupervisor = adminTools.aiSupervisor;

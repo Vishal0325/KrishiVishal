@@ -41,6 +41,8 @@ import com.company.krishivishal.core.model.RecentSearch
 import com.company.krishivishal.core.model.SearchResult
 import com.company.krishivishal.ui.theme.PrimaryGreen
 import com.company.krishivishal.ui.theme.PoppinsFamily
+import androidx.compose.ui.res.stringResource
+import com.company.krishivishal.R
 import java.util.Locale
 
 /**
@@ -72,12 +74,12 @@ fun GlobalSearchScreen(
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "उत्पाद का नाम बोलें (Speak product name)...")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, context.getString(R.string.speak_product_name))
         }
         try {
             voiceSearchLauncher.launch(intent)
         } catch (e: Exception) {
-            Toast.makeText(context, "Voice search is not supported on this device", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.voice_search_not_supported), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -140,7 +142,7 @@ fun GlobalSearchScreen(
             if (searchState.results.isNotEmpty()) {
                 item {
                     Text(
-                        "परिणाम (${searchState.results.size})", // "Results" in Hindi
+                        stringResource(R.string.search_results_count, searchState.results.size),
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
                         fontFamily = PoppinsFamily,
@@ -205,7 +207,7 @@ fun SearchBarSection(
             .height(56.dp),
         placeholder = {
             Text(
-                "Search fertilizers, seeds, tools...",
+                stringResource(R.string.search_products),
                 color = Color.Gray,
                 fontSize = 14.sp,
                 fontFamily = PoppinsFamily
@@ -476,7 +478,7 @@ fun RecentSearchesSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "Recent Searches",
+                stringResource(R.string.recent_searches),
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
                 fontFamily = PoppinsFamily
@@ -486,7 +488,7 @@ fun RecentSearchesSection(
                 modifier = Modifier.height(32.dp)
             ) {
                 Text(
-                    "Clear All",
+                    stringResource(R.string.clear_all),
                     fontSize = 12.sp,
                     color = Color.Gray,
                     fontFamily = PoppinsFamily
@@ -576,7 +578,7 @@ fun NoResultsView(query: String) {
         )
 
         Text(
-            "क्षमा करें, कोई उत्पाद नहीं मिला", // "Sorry, no products found" in Hindi
+            stringResource(R.string.sorry_no_products),
             fontWeight = FontWeight.Bold,
             fontSize = 20.sp,
             fontFamily = PoppinsFamily,
@@ -585,7 +587,7 @@ fun NoResultsView(query: String) {
         )
 
         Text(
-            "हमें \"$query\" के लिए कुछ भी नहीं मिला।\n\nकृपया निम्न चीज़ें आज़माएं:\n• स्पेलिंग चेक करें\n• सामान्य शब्दों का उपयोग करें\n• अन्य कैटेगरी देखें",
+            stringResource(R.string.no_results_desc, query),
             fontSize = 14.sp,
             color = Color.Gray,
             textAlign = TextAlign.Center,
@@ -600,7 +602,7 @@ fun NoResultsView(query: String) {
             colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
             shape = RoundedCornerShape(8.dp)
         ) {
-            Text("होम स्क्रीन पर जाएं", color = Color.White)
+            Text(stringResource(R.string.go_to_home), color = Color.White)
         }
     }
 }
@@ -625,14 +627,14 @@ fun InitialSearchView() {
         )
 
         Text(
-            "Find Products",
+            stringResource(R.string.find_products),
             fontWeight = FontWeight.Bold,
             fontSize = 18.sp,
             fontFamily = PoppinsFamily
         )
 
         Text(
-            "Search for seeds, fertilizers, tools, and more to improve your farm.",
+            stringResource(R.string.find_products_desc),
             fontSize = 13.sp,
             color = Color.Gray,
             textAlign = TextAlign.Center,
@@ -641,7 +643,7 @@ fun InitialSearchView() {
         )
 
         Text(
-            "Popular Searches",
+            stringResource(R.string.popular_searches_title),
             fontWeight = FontWeight.SemiBold,
             fontSize = 13.sp,
             modifier = Modifier.padding(top = 16.dp),

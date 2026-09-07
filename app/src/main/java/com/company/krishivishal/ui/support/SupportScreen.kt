@@ -28,6 +28,7 @@ import com.company.krishivishal.ui.theme.PrimaryGreen
 import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.SupportUtils
 import java.net.URLEncoder
+import androidx.compose.ui.res.vectorResource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,7 +79,7 @@ fun SupportScreen(
                 ) {
                     ContactCard(
                         modifier = Modifier.weight(1f),
-                        icon = Icons.Default.Chat,
+                        icon = ImageVector.vectorResource(id = R.drawable.ic_whatsapp),
                         title = "WhatsApp",
                         color = Color(0xFF25D366),
                         onClick = { 

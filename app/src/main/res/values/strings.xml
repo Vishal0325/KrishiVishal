@@ -71,6 +71,17 @@
     <string name="total_label">Total:</string>
     <string name="search_products">Search products...</string>
     <string name="no_products_found">No products found</string>
+    <string name="search_results_count">Results (%1$d)</string>
+    <string name="speak_product_name">Speak product name...</string>
+    <string name="voice_search_not_supported">Voice search is not supported on this device</string>
+    <string name="sorry_no_products">Sorry, no products found</string>
+    <string name="no_results_desc">We couldn\'t find anything for \"%1$s\".\n\nPlease try the following:\n• Check spelling\n• Use general terms\n• Browse other categories</string>
+    <string name="go_to_home">Go to Home Screen</string>
+    <string name="recent_searches">Recent Searches</string>
+    <string name="clear_all">Clear All</string>
+    <string name="find_products">Find Products</string>
+    <string name="find_products_desc">Search for seeds, fertilizers, tools, and more to improve your farm.</string>
+    <string name="popular_searches_title">Popular Searches</string>
     <string name="my_wishlist">My Wishlist</string>
     <string name="empty_wishlist_msg">Your wishlist is empty</string>
     <string name="move_to_cart">Move to Cart</string>

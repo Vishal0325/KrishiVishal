@@ -197,6 +197,22 @@ fun LoginScreen(
                             )
                         )
 
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        OutlinedTextField(
+                            value = uiState.referralCode,
+                            onValueChange = { viewModel.onReferralCodeChange(it) },
+                            label = { Text("Referral Code (Optional)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PrimaryGreen,
+                                focusedLabelColor = PrimaryGreen
+                            )
+                        )
+
                         Spacer(modifier = Modifier.height(24.dp))
 
                         Button(

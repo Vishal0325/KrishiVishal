@@ -27,8 +27,26 @@ class CartViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(CartUiState())
     val uiState: StateFlow<CartUiState> = _uiState.asStateFlow()
 
+    private var appConfig = com.company.krishivishal.core.model.AppConfig()
+
     init {
+        observeConfig()
         loadCartItems()
+    }
+
+    private fun observeConfig() {
+        viewModelScope.launch {
+            configRepository.getConfig().collectLatest { res ->
+                res.data?.let { config ->
+                    appConfig = config
+                    val items = _uiState.value.cartItems
+                    if (items.isNotEmpty()) {
+                        val totals = calculateCartTotalsUseCase(items, appConfig)
+                        _uiState.update { it.copy(totals = totals) }
+                    }
+                }
+            }
+        }
     }
 
     private fun loadCartItems() {
@@ -43,7 +61,7 @@ class CartViewModel @Inject constructor(
                     }
                     is Resource.Success -> {
                         val items = resource.data ?: emptyList()
-                        val totals = calculateCartTotalsUseCase(items)
+                        val totals = calculateCartTotalsUseCase(items, appConfig)
                         _uiState.update { 
                             it.copy(
                                 isLoading = false,

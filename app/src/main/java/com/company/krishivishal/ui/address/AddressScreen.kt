@@ -287,16 +287,14 @@ fun AddAddressDialog(
 ) {
     var name by remember { mutableStateOf("") }
     var mobile by remember { mutableStateOf("") }
-    var house by remember { mutableStateOf("") }
     var street by remember { mutableStateOf("") }
     var ward by remember { mutableStateOf("") }
     var pin by remember { mutableStateOf("") }
     var block by remember { mutableStateOf("") }
     var district by remember { mutableStateOf("") }
-    var state by remember { mutableStateOf("") }
     var landmark by remember { mutableStateOf("") }
     var isDefault by remember { mutableStateOf(false) }
-    var selectedType by remember { mutableStateOf("Farm") }
+    var selectedType by remember { mutableStateOf("Home") }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -315,11 +313,7 @@ fun AddAddressDialog(
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    AddressTypeChip("Farm", Icons.Default.Agriculture, selectedType == "Farm") { selectedType = "Farm" }
-                    Spacer(modifier = Modifier.width(8.dp))
                     AddressTypeChip("Home", Icons.Default.Home, selectedType == "Home") { selectedType = "Home" }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    AddressTypeChip("Other", Icons.Default.Place, selectedType == "Other") { selectedType = "Other" }
                 }
                 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -327,8 +321,6 @@ fun AddAddressDialog(
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Full Name") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(value = mobile, onValueChange = { mobile = it }, label = { Text("Mobile Number") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(value = house, onValueChange = { house = it }, label = { Text("House No/Farm Name") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(value = street, onValueChange = { street = it }, label = { Text("Street/Area") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
                 Spacer(modifier = Modifier.height(8.dp))
@@ -344,8 +336,6 @@ fun AddAddressDialog(
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(value = district, onValueChange = { district = it }, label = { Text("District") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(value = state, onValueChange = { state = it }, label = { Text("State") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
-                Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(value = landmark, onValueChange = { landmark = it }, label = { Text("Landmark (Optional)") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
                 
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
@@ -358,7 +348,7 @@ fun AddAddressDialog(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismiss) { Text("Cancel") }
                     Button(
-                        onClick = { onSave(name, mobile, house, street, ward, pin, block, district, state, landmark, isDefault, selectedType) },
+                        onClick = { onSave(name, mobile, "", street, ward, pin, block, district, "", landmark, isDefault, selectedType) },
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
                         shape = RoundedCornerShape(12.dp)
                     ) {

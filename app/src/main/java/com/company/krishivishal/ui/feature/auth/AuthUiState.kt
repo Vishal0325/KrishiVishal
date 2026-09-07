@@ -10,7 +10,8 @@ data class AuthUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val resendTimer: Int = 0,
-    val isResendEnabled: Boolean = false
+    val isResendEnabled: Boolean = false,
+    val referralCode: String = ""
 )
 
 /**

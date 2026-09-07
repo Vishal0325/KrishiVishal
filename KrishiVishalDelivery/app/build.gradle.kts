@@ -26,12 +26,14 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        val keystorePropertiesFile = rootProject.file("local.properties")
-        val keystoreProperties = Properties()
-        if (keystorePropertiesFile.exists()) {
-            keystoreProperties.load(keystorePropertiesFile.inputStream())
+        val localProps = Properties()
+        listOf(
+            file("../local.properties"),
+            rootProject.file("local.properties")
+        ).filter { it.exists() }.forEach {
+            it.inputStream().use { stream -> localProps.load(stream) }
         }
-        val mapsApiKey = keystoreProperties.getProperty("MAPS_API_KEY") ?: ""
+        val mapsApiKey = localProps.getProperty("MAPS_API_KEY") ?: ""
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
 

@@ -71,6 +71,17 @@
     <string name="total_label">कुल:</string>
     <string name="search_products">उत्पाद खोजें...</string>
     <string name="no_products_found">कोई उत्पाद नहीं मिला</string>
+    <string name="search_results_count">परिणाम (%1$d)</string>
+    <string name="speak_product_name">उत्पाद का नाम बोलें...</string>
+    <string name="voice_search_not_supported">इस डिवाइस पर वॉइस सर्च समर्थित नहीं है</string>
+    <string name="sorry_no_products">क्षमा करें, कोई उत्पाद नहीं मिला</string>
+    <string name="no_results_desc">हमें \"%1$s\" के लिए कुछ भी नहीं मिला।\n\nकृपया निम्न चीज़ें आज़माएं:\n• स्पेलिंग चेक करें\n• सामान्य शब्दों का उपयोग करें\n• अन्य कैटेगरी देखें</string>
+    <string name="go_to_home">होम स्क्रीन पर जाएं</string>
+    <string name="recent_searches">हाल की खोजें</string>
+    <string name="clear_all">सभी मिटाएं</string>
+    <string name="find_products">उत्पाद खोजें</string>
+    <string name="find_products_desc">अपने खेत को बेहतर बनाने के लिए बीज, उर्वरक, उपकरण और बहुत कुछ खोजें।</string>
+    <string name="popular_searches_title">लोकप्रिय खोजें</string>
     <string name="my_wishlist">मेरी विशलिस्ट</string>
     <string name="empty_wishlist_msg">आपकी विशलिस्ट खाली है</string>
     <string name="move_to_cart">कार्ट में ले जाएं</string>

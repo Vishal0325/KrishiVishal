@@ -14,6 +14,9 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
+import com.company.krishivishal.core.model.isAvailable
+import com.company.krishivishal.core.model.getEffectiveSellingPrice
+import com.company.krishivishal.core.model.getEffectiveMrp
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @HiltViewModel
@@ -62,14 +65,14 @@ class SearchViewModel @Inject constructor(
                     com.company.krishivishal.core.model.SearchResult(
                         id = p.id,
                         name = p.name,
-                        price = p.basePrice,
-                        discountedPrice = p.discountedPrice,
+                        price = p.getEffectiveMrp(),
+                        discountedPrice = p.getEffectiveSellingPrice(),
                         images = p.images.ifEmpty { listOf(p.imageUrl) },
                         category = p.category,
                         brand = p.brand,
                         rating = p.rating,
                         reviewCount = p.reviewsCount,
-                        inStock = if (p.variants.isNotEmpty()) p.variants.any { it.stock > 0 } else p.stockQuantity > 0,
+                        inStock = p.isAvailable(),
                         cropAssociatedIds = p.associatedCropIds,
                         cropAssociatedNames = p.associatedCropNames
                     )

@@ -1,6 +1,9 @@
 package com.company.krishivishal.domain.usecase.cart
 
+import com.company.krishivishal.core.model.AppConfig
 import com.company.krishivishal.core.model.CartWithProduct
+import com.company.krishivishal.core.model.getEffectiveMrp
+import com.company.krishivishal.core.model.getEffectiveSellingPrice
 import javax.inject.Inject
 
 data class CartTotals(
@@ -20,7 +23,7 @@ data class CartTotals(
  * UseCase to calculate total prices, discounts, and delivery charges for the cart.
  */
 class CalculateCartTotalsUseCase @Inject constructor() {
-    operator fun invoke(items: List<CartWithProduct>): CartTotals {
+    operator fun invoke(items: List<CartWithProduct>, config: AppConfig? = null): CartTotals {
         // Filter only selected items for calculation
         val selectedItems = items.filter { it.cartItem.isSelected }
         
@@ -34,16 +37,12 @@ class CalculateCartTotalsUseCase @Inject constructor() {
             val variant = item.variant
             val quantity = item.cartItem.quantity
             
-            val mrp = variant?.basePrice ?: if (product.mrp > 0) product.mrp else product.basePrice
-            val sellingPrice = variant?.price ?: if (product.discountedPrice > 0) product.discountedPrice else if (product.price > 0) product.price else product.basePrice
+            val mrp = if (variant != null) variant.basePrice else product.getEffectiveMrp()
+            val sellingPrice = if (variant != null) variant.price else product.getEffectiveSellingPrice()
             
             subtotal += mrp * quantity
             totalSavings += (mrp - sellingPrice).coerceAtLeast(0.0) * quantity
             totalQuantity += quantity
-            
-            // Indian GST Calculation: based on product's specific rate (fallback to 5%)
-            val rate = if (product.gstRate > 0) product.gstRate else 5.0
-            gstAmount += (sellingPrice * quantity * (rate / 100.0))
         }
 
         val netAmount = subtotal - totalSavings
@@ -51,12 +50,12 @@ class CalculateCartTotalsUseCase @Inject constructor() {
         // Delivery charges logic: Free above 500, else 40
         val deliveryCharges = if (netAmount >= 500.0 || selectedItems.isEmpty()) 0.0 else 40.0
         
-        // Fixed fees for production quality
-        val platformFee = if (selectedItems.isNotEmpty()) 2.0 else 0.0
-        val handlingCharge = if (selectedItems.isNotEmpty()) 5.0 else 0.0
-        val packagingFee = if (selectedItems.isNotEmpty()) 10.0 else 0.0
+        // Fixed fees for production quality based on config
+        val platformFee = if (selectedItems.isNotEmpty() && config?.enablePlatformFee != false) 2.0 else 0.0
+        val handlingCharge = if (selectedItems.isNotEmpty() && config?.enableHandlingCharge != false) 5.0 else 0.0
+        val packagingFee = if (selectedItems.isNotEmpty() && config?.enablePackagingFee != false) 10.0 else 0.0
 
-        val grandTotal = netAmount + gstAmount + deliveryCharges + platformFee + handlingCharge + packagingFee
+        val grandTotal = netAmount + deliveryCharges + platformFee + handlingCharge + packagingFee
 
         fun round2(v: Double): Double = (kotlin.math.round(v * 100.0)) / 100.0
 

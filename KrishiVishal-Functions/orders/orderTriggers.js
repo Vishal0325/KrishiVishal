@@ -20,6 +20,109 @@ exports.onOrderStatusUpdate = onDocumentUpdated({ document: "orders/{orderId}", 
         return null;
     }
 
+    // --- REFERRAL LOGIC START ---
+    try {
+        if (newData.status === 'DELIVERED') {
+            const userDocRef = db.collection("users").doc(userId);
+            const userDoc = await userDocRef.get();
+            const userData = userDoc.data() || {};
+            
+            if (userData.hasCompletedFirstOrder === false) {
+                const referralsQuery = await db.collection("referrals")
+                    .where("refereeUid", "==", userId)
+                    .where("status", "==", "SIGNED_UP")
+                    .limit(1).get();
+                
+                if (!referralsQuery.empty) {
+                    const referralDoc = referralsQuery.docs[0];
+                    const referralData = referralDoc.data();
+                    const referrerUid = referralData.referrerUid;
+                    const rewardAmount = referralData.referrerRewardAmount || 50;
+                    
+                    await db.runTransaction(async (transaction) => {
+                        const referrerRef = db.collection("users").doc(referrerUid);
+                        
+                        transaction.update(userDocRef, { hasCompletedFirstOrder: true });
+                        
+                        transaction.update(referralDoc.ref, {
+                            status: "REWARDED",
+                            rewardedAt: admin.firestore.FieldValue.serverTimestamp(),
+                            referenceOrderId: context.params.orderId
+                        });
+                        
+                        transaction.update(referrerRef, {
+                            walletBalance: admin.firestore.FieldValue.increment(rewardAmount)
+                        });
+                        
+                        const txnRef = db.collection("wallet_transactions").doc();
+                        transaction.set(txnRef, {
+                            uid: referrerUid,
+                            type: "REFERRAL_CREDIT",
+                            amount: rewardAmount,
+                            referenceOrderId: context.params.orderId,
+                            referenceReferralId: referralDoc.id,
+                            createdAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    });
+                    
+                    // Trigger push notification to referrer
+                    const referrerDoc = await db.collection("users").doc(referrerUid).get();
+                    if (referrerDoc.exists && referrerDoc.data().fcmToken) {
+                        await admin.messaging().send({
+                            notification: {
+                                title: "Referral Reward!",
+                                body: `Aapko ₹${rewardAmount} mil gaye! Aapke dost ne KrishiVishal join kiya.`
+                            },
+                            token: referrerDoc.data().fcmToken
+                        }).catch(e => console.error("Referrer notif error:", e));
+                    }
+                } else {
+                    await userDocRef.update({ hasCompletedFirstOrder: true });
+                }
+            }
+        } else if (newData.status === 'CANCELLED') {
+            // Check if this order was a reference for a rewarded referral
+            const referralsQuery = await db.collection("referrals")
+                .where("referenceOrderId", "==", context.params.orderId)
+                .where("status", "==", "REWARDED")
+                .limit(1).get();
+                
+            if (!referralsQuery.empty) {
+                const referralDoc = referralsQuery.docs[0];
+                const referralData = referralDoc.data();
+                const referrerUid = referralData.referrerUid;
+                const rewardAmount = referralData.referrerRewardAmount || 50;
+                
+                await db.runTransaction(async (transaction) => {
+                    const referrerRef = db.collection("users").doc(referrerUid);
+                    // Firestore increment handles floor at 0 if we assume it doesn't go negative or we clamp it later, 
+                    // but standard increment could go negative. For simplicity, we just decrement.
+                    transaction.update(referrerRef, {
+                        walletBalance: admin.firestore.FieldValue.increment(-rewardAmount)
+                    });
+                    
+                    transaction.update(referralDoc.ref, {
+                        status: "VOIDED",
+                        voidReason: "order_cancelled_after_reward"
+                    });
+                    
+                    const txnRef = db.collection("wallet_transactions").doc();
+                    transaction.set(txnRef, {
+                        uid: referrerUid,
+                        type: "REFERRAL_REVERSAL",
+                        amount: rewardAmount,
+                        referenceOrderId: context.params.orderId,
+                        referenceReferralId: referralDoc.id,
+                        createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                });
+            }
+        }
+    } catch (e) {
+        console.error("Error processing referral logic on order update:", e);
+    }
+    // --- REFERRAL LOGIC END ---
+
     try {
         const userDoc = await db.collection("users").doc(userId).get();
         const fcmToken = userDoc.data()?.fcmToken;

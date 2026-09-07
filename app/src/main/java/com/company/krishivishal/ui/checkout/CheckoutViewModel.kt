@@ -10,6 +10,7 @@ import com.company.krishivishal.data.repository.CheckoutSessionRepository
 import com.company.krishivishal.data.repository.AddressRepository
 import com.company.krishivishal.data.repository.OrderRepository
 import com.company.krishivishal.domain.usecase.auth.GetCurrentUserUseCase
+import com.company.krishivishal.core.model.AppConfig
 import com.company.krishivishal.domain.usecase.cart.CalculateCartTotalsUseCase
 import com.company.krishivishal.domain.usecase.cart.CartTotals
 import com.company.krishivishal.domain.usecase.checkout.PlaceOrderUseCase
@@ -20,6 +21,7 @@ import com.company.krishivishal.analytics.AnalyticsTracker
 import com.company.krishivishal.payment.PaymentHandler
 import com.company.krishivishal.payment.PaymentResult
 import com.company.krishivishal.BuildConfig
+import com.company.krishivishal.data.repository.WalletRepository
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Payments
@@ -37,7 +39,7 @@ enum class CheckoutSource {
 }
 
 enum class PaymentMethod {
-    COD, ONLINE
+    COD, ONLINE, WALLET
 }
 
 data class PaymentOption(
@@ -71,6 +73,8 @@ class CheckoutViewModel @Inject constructor(
     private val analyticsTracker: AnalyticsTracker,
     private val paymentHandler: PaymentHandler,
     private val orderRepository: OrderRepository,
+    private val walletRepository: WalletRepository,
+    private val configRepository: com.company.krishivishal.data.repository.ConfigRepository,
     private val paymentResilienceManager: com.company.krishivishal.performance.PaymentResilienceManager,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -86,6 +90,7 @@ class CheckoutViewModel @Inject constructor(
     private var userId: String = ""
     private var currentSource: CheckoutSource = CheckoutSource.CART
     private var quantityUpdateJob: Job? = null
+    private var appConfig = AppConfig()
     
     private var pendingOrderId: String?
         get() = savedStateHandle.get<String>("pending_order_id")
@@ -104,12 +109,54 @@ class CheckoutViewModel @Inject constructor(
         loadData()
         observePaymentResult()
         initializePaymentOptions()
+        observeWalletBalance()
+        observeConfig()
+    }
+
+    private fun observeConfig() {
+        viewModelScope.launch {
+            configRepository.getConfig().collectLatest { res ->
+                res.data?.let { config ->
+                    appConfig = config
+                    val items = _uiState.value.checkoutItems
+                    if (items.isNotEmpty()) {
+                        _uiState.update { it.copy(totals = calculateCartTotalsUseCase(items, appConfig)) }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun observeWalletBalance() {
+        viewModelScope.launch {
+            getCurrentUserUseCase().collectLatest { user ->
+                val uid = user?.id ?: return@collectLatest
+                walletRepository.getBalanceStream(uid).collectLatest { balance ->
+                    _uiState.update { it.copy(walletBalance = balance) }
+                    // Re-initialize options to show/hide wallet based on balance
+                    initializePaymentOptions()
+                }
+            }
+        }
     }
 
     private fun initializePaymentOptions() {
         val options = mutableListOf<PaymentOption>()
-        val isOnlineEnabled = BuildConfig.IS_ONLINE_PAYMENT_ENABLED 
-        
+        val isOnlineEnabled = BuildConfig.IS_ONLINE_PAYMENT_ENABLED
+        val walletBalance = _uiState.value.walletBalance
+        val grandTotal = _uiState.value.totals.grandTotal
+
+        // Wallet option — show if balance > 0
+        if (walletBalance > 0) {
+            options.add(PaymentOption(
+                method = PaymentMethod.WALLET,
+                title = "KrishiWallet",
+                subtitle = "Balance: ₹${String.format("%.2f", walletBalance)}",
+                icon = Icons.Default.AccountBalanceWallet,
+                iconColor = androidx.compose.ui.graphics.Color(0xFF4CAF50)
+            ))
+        }
+
         if (isOnlineEnabled) {
             options.add(PaymentOption(
                 method = PaymentMethod.ONLINE,
@@ -119,7 +166,7 @@ class CheckoutViewModel @Inject constructor(
                 iconColor = androidx.compose.ui.graphics.Color(0xFF2196F3)
             ))
         }
-        
+
         options.add(PaymentOption(
             method = PaymentMethod.COD,
             title = "Cash on delivery",
@@ -128,13 +175,20 @@ class CheckoutViewModel @Inject constructor(
             iconColor = androidx.compose.ui.graphics.Color(0xFFFF9800)
         ))
 
-        _uiState.update { 
-            it.copy(
-                paymentOptions = options,
-                selectedPaymentMethod = if (isOnlineEnabled) PaymentMethod.ONLINE else PaymentMethod.COD
-            ) 
+        val currentMethod = _uiState.value.selectedPaymentMethod
+        val defaultMethod = when {
+            walletBalance >= grandTotal && grandTotal > 0 -> PaymentMethod.WALLET
+            isOnlineEnabled -> PaymentMethod.ONLINE
+            else -> PaymentMethod.COD
         }
 
+        _uiState.update {
+            it.copy(
+                paymentOptions = options,
+                // Only change default if current method is no longer available
+                selectedPaymentMethod = if (options.any { opt -> opt.method == currentMethod }) currentMethod else defaultMethod
+            )
+        }
     }
 
     fun setSource(source: CheckoutSource) {
@@ -192,7 +246,7 @@ class CheckoutViewModel @Inject constructor(
                                         }
                                     }
 
-                                    val totals = calculateCartTotalsUseCase(selectedItems)
+                                    val totals = calculateCartTotalsUseCase(selectedItems, appConfig)
                                     _uiState.update { 
                                         it.copy(
                                             isCartLoading = false,
@@ -207,7 +261,7 @@ class CheckoutViewModel @Inject constructor(
                         CheckoutSource.BUY_NOW -> {
                             checkoutSessionRepository.buyNowItem.collectLatest { item ->
                                 val items = if (item != null) listOf(item) else emptyList()
-                                val totals = calculateCartTotalsUseCase(items)
+                                val totals = calculateCartTotalsUseCase(items, appConfig)
                                 _uiState.update { 
                                     it.copy(
                                         isCartLoading = false,
@@ -245,7 +299,7 @@ class CheckoutViewModel @Inject constructor(
             }
             state.copy(
                 checkoutItems = updatedItems,
-                totals = calculateCartTotalsUseCase(updatedItems)
+                totals = calculateCartTotalsUseCase(updatedItems, appConfig)
             )
         }
 
@@ -367,7 +421,6 @@ class CheckoutViewModel @Inject constructor(
                             if (currentState.selectedPaymentMethod == PaymentMethod.ONLINE) {
                                 val rzpOrderId = data.razorpayOrderId
                                 if (rzpOrderId.isNullOrBlank()) {
-                                    // Server did not return a Razorpay Order ID — unsafe to proceed
                                     _uiState.update {
                                         it.copy(
                                             checkoutResource = Resource.Error("Payment init failed: missing Razorpay Order ID. Please try again."),
@@ -384,6 +437,21 @@ class CheckoutViewModel @Inject constructor(
                                         razorpayOrderId = rzpOrderId
                                     )
                                 )
+                            } else if (currentState.selectedPaymentMethod == PaymentMethod.WALLET) {
+                                // Pay via wallet — call cloud function
+                                walletRepository.payOrderWithWallet(data.orderId).collectLatest { walletRes ->
+                                    when (walletRes) {
+                                        is Resource.Success -> onOrderCompletionSuccess(data.totalAmount)
+                                        is Resource.Error -> {
+                                            paymentResilienceManager.recordFailure()
+                                            _uiState.update { it.copy(
+                                                checkoutResource = Resource.Error(walletRes.message ?: "Wallet payment failed"),
+                                                error = walletRes.message
+                                            )}
+                                        }
+                                        else -> Unit
+                                    }
+                                }
                             } else {
                                 onOrderCompletionSuccess(data.totalAmount)
                             }
@@ -483,6 +551,7 @@ data class CheckoutUiState(
     val isOnlinePaymentEnabled: Boolean = false,
     val paymentOptions: List<PaymentOption> = emptyList(),
     val selectedPaymentMethod: PaymentMethod = PaymentMethod.COD,
+    val walletBalance: Double = 0.0,
     val checkoutResource: Resource<Unit>? = null,
     val error: String? = null,
     val isSessionExpired: Boolean = false,

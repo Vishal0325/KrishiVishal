@@ -124,4 +124,10 @@ abstract class RepositoryModule {
     abstract fun bindSkuRepository(
         skuRepositoryImpl: SkuRepositoryImpl
     ): SkuRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindWalletRepository(
+        walletRepositoryImpl: WalletRepositoryImpl
+    ): WalletRepository
 }

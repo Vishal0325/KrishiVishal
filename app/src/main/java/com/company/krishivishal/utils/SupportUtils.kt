@@ -13,6 +13,17 @@ object SupportUtils {
             val url = "https://api.whatsapp.com/send?phone=$number&text=" + URLEncoder.encode(message, "UTF-8")
             val intent = Intent(Intent.ACTION_VIEW)
             intent.data = Uri.parse(url)
+
+            val pm = context.packageManager
+            val isWhatsAppInstalled = try { pm.getPackageInfo("com.whatsapp", 0); true } catch (e: Exception) { false }
+            val isWhatsAppBusinessInstalled = try { pm.getPackageInfo("com.whatsapp.w4b", 0); true } catch (e: Exception) { false }
+
+            if (isWhatsAppInstalled) {
+                intent.setPackage("com.whatsapp")
+            } else if (isWhatsAppBusinessInstalled) {
+                intent.setPackage("com.whatsapp.w4b")
+            }
+
             context.startActivity(intent)
         } catch (e: Exception) {
             Toast.makeText(context, "WhatsApp not installed", Toast.LENGTH_SHORT).show()

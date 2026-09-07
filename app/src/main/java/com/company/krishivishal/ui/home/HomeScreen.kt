@@ -76,6 +76,8 @@ fun HomeScreen(
     val notificationViewModel: NotificationViewModel = hiltViewModel()
     val unreadCount by notificationViewModel.unreadCount.collectAsState(initial = 0)
     
+    val recentSearches by viewModel.recentSearches.collectAsStateWithLifecycle()
+    
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var showLoginDialog by remember { mutableStateOf(false) }
@@ -137,6 +139,7 @@ fun HomeScreen(
 
                 item {
                     SearchBarSection(
+                        recentSearches = recentSearches,
                         onSearchClick = onSearchClick
                     )
                 }
@@ -509,8 +512,29 @@ fun HomeHeader(
 
 @Composable
 fun SearchBarSection(
+    recentSearches: List<com.company.krishivishal.core.model.RecentSearch> = emptyList(),
     onSearchClick: () -> Unit
 ) {
+    // Smart animated search placeholder
+    var currentIndex by remember { mutableIntStateOf(0) }
+    val defaultSearchHint = stringResource(R.string.search_products)
+    val displaySearches = remember(recentSearches, defaultSearchHint) {
+        if (recentSearches.isEmpty()) {
+            listOf(defaultSearchHint)
+        } else {
+            recentSearches.take(5).map { "Search for \"${it.query}\"" }
+        }
+    }
+    
+    LaunchedEffect(displaySearches) {
+        if (displaySearches.size > 1) {
+            while (true) {
+                kotlinx.coroutines.delay(3000)
+                currentIndex = (currentIndex + 1) % displaySearches.size
+            }
+        }
+    }
+
     OutlinedCard(
         onClick = onSearchClick,
         modifier = Modifier
@@ -532,12 +556,26 @@ fun SearchBarSection(
                 tint = Color.Gray
             )
             Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = "क्या खोज रहे हैं? (Search...)",
-                color = Color.Gray,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.weight(1f)
-            )
+            
+            Box(modifier = Modifier.weight(1f)) {
+                androidx.compose.animation.AnimatedContent(
+                    targetState = currentIndex,
+                    transitionSpec = {
+                        androidx.compose.animation.slideInVertically { height -> height } + androidx.compose.animation.fadeIn() togetherWith 
+                        androidx.compose.animation.slideOutVertically { height -> -height } + androidx.compose.animation.fadeOut()
+                    },
+                    label = "SearchPlaceholderAnimation"
+                ) { targetIndex ->
+                    Text(
+                        text = displaySearches[targetIndex],
+                        color = Color.Gray,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
+            }
+            
             IconButton(onClick = onSearchClick, modifier = Modifier.size(28.dp)) {
                 Icon(Icons.Default.Mic, contentDescription = "Voice Search", tint = PrimaryGreen)
             }

@@ -42,7 +42,8 @@ class HomeViewModel @Inject constructor(
     private val orderRepository: OrderRepository,
     private val analyticsTracker: AnalyticsTracker,
     private val productDao: com.company.krishivishal.data.local.ProductDao,
-    private val userDao: com.company.krishivishal.data.local.UserDao
+    private val userDao: com.company.krishivishal.data.local.UserDao,
+    private val recentSearchDao: com.company.krishivishal.data.local.dao.RecentSearchDao
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -84,6 +85,9 @@ class HomeViewModel @Inject constructor(
 
     val cartCount: StateFlow<Int> = _uiState.map { it.cartCount }
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+        
+    val recentSearches: StateFlow<List<com.company.krishivishal.core.model.RecentSearch>> = recentSearchDao.getRecentSearches()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     // ----------------------------------------
 
     val pagedProducts: Flow<PagingData<Product>> = productRepository.getProductsPaged()

@@ -79,3 +79,68 @@ exports.payWithWallet = onCall({ region: REGION }, async (request) => {
         throw new HttpsError('failed-precondition', error.message);
     }
 });
+
+exports.redeemWalletAtCheckout = onCall({ region: REGION }, async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Login required.');
+
+    const { orderId, amountToRedeem } = request.data || {};
+    const uid = request.auth.uid;
+
+    if (!orderId || !amountToRedeem || amountToRedeem <= 0) {
+        throw new HttpsError('invalid-argument', 'Invalid orderId or amountToRedeem.');
+    }
+
+    try {
+        await db.runTransaction(async (transaction) => {
+            const userRef = db.collection("users").doc(uid);
+            const userSnap = await transaction.get(userRef);
+            
+            if (!userSnap.exists) throw new Error("User not found.");
+            
+            const walletBalance = userSnap.data().walletBalance || 0;
+            if (amountToRedeem > walletBalance) {
+                throw new Error("Insufficient wallet balance.");
+            }
+
+            const orderRef = db.collection("orders").doc(orderId);
+            const orderSnap = await transaction.get(orderRef);
+            
+            if (!orderSnap.exists) throw new Error("Order not found.");
+            
+            const orderData = orderSnap.data();
+            
+            if (orderData.userId !== uid) throw new Error("Unauthorized.");
+            
+            if (['DELIVERED', 'CANCELLED', 'RETURNED'].includes(orderData.status)) {
+                throw new Error("Cannot redeem wallet for this order status.");
+            }
+
+            // Deduct from wallet
+            transaction.update(userRef, {
+                walletBalance: admin.firestore.FieldValue.increment(-amountToRedeem)
+            });
+
+            // Adjust order amount (Assuming COD here, deducting from codAmount or totalAmount depending on schema)
+            // For safety, we track walletRedeemed amount on the order
+            transaction.update(orderRef, {
+                walletRedeemed: admin.firestore.FieldValue.increment(amountToRedeem),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // Log transaction
+            const txnRef = db.collection("wallet_transactions").doc();
+            transaction.set(txnRef, {
+                uid: uid,
+                type: "REDEEMED_AT_CHECKOUT",
+                amount: amountToRedeem,
+                referenceOrderId: orderId,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        });
+
+        return { success: true };
+    } catch (error) {
+        console.error("Wallet redemption failed:", error);
+        throw new HttpsError('failed-precondition', error.message);
+    }
+});

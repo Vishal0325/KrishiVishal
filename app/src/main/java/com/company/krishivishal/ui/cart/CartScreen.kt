@@ -203,7 +203,6 @@ fun PriceBreakdownCard(totals: com.company.krishivishal.domain.usecase.cart.Cart
             
             PriceRow("Subtotal (MRP)", "₹${totals.subtotal.toInt()}")
             PriceRow("Product Discount", "-₹${totals.totalDiscount.toInt()}", color = Color(0xFF4CAF50))
-            PriceRow("GST (Tax)", "+₹${totals.gstAmount.toInt()}")
             
             if (totals.platformFee > 0) PriceRow("Platform Fee", "₹${totals.platformFee.toInt()}")
             if (totals.handlingCharge > 0) PriceRow("Handling Charge", "₹${totals.handlingCharge.toInt()}")

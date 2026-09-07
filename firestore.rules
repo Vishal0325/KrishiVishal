@@ -357,6 +357,8 @@ service cloud.firestore {
           'walletBalance',
           'rewardPoints',
           'referralCode',
+          'referredBy',
+          'hasCompletedFirstOrder',
           'customClaims'
         ]) &&
         // Only allow role='Rider' from Delivery App (not Customer/Admin roles)
@@ -375,9 +377,14 @@ service cloud.firestore {
               'isAdmin',
               'walletBalance',
               'rewardPoints',
-              'referralCode',
+              'referredBy',
+              'hasCompletedFirstOrder',
               'customClaims'
-            ])
+            ]) &&
+          (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['referralCode']) ||
+            !('referralCode' in resource.data) || resource.data.referralCode == null || resource.data.referralCode == ''
+          )
         );
 
       allow delete: if isSuperAdmin();
@@ -387,6 +394,10 @@ service cloud.firestore {
       }
 
       match /cart/{cartItemId} {
+        allow read, write: if isOwner(uId) || isAdmin();
+      }
+
+      match /wishlist/{wishlistItemId} {
         allow read, write: if isOwner(uId) || isAdmin();
       }
 
@@ -471,6 +482,28 @@ service cloud.firestore {
     match /audit_logs/{id} {
       allow read: if isAdmin();
       allow write: if false;
+    }
+
+
+    // ============================================================
+    // REFERRALS & WALLET
+    // ============================================================
+
+    match /referrals/{referralId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == resource.data.referrerUid ||
+        request.auth.uid == resource.data.refereeUid ||
+        isAdmin()
+      );
+      allow write: if false; // Only Cloud Functions mutate this
+    }
+
+    match /wallet_transactions/{txnId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == resource.data.uid ||
+        isAdmin()
+      );
+      allow write: if false; // Only Cloud Functions mutate this
     }
 
 

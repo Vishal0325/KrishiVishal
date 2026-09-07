@@ -42,7 +42,8 @@ class AuthViewModel @Inject constructor(
     private val loginWithEmailUseCase: LoginWithEmailUseCase,
     private val registerUseCase: RegisterUseCase,
     private val mergeWishlistUseCase: MergeWishlistUseCase,
-    private val cartRepository: CartRepository
+    private val cartRepository: CartRepository,
+    private val referralRepository: ReferralRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState())
@@ -65,6 +66,10 @@ class AuthViewModel @Inject constructor(
         if (newValue.length <= 6) {
             _uiState.update { it.copy(otp = newValue, error = null) }
         }
+    }
+
+    fun onReferralCodeChange(newValue: String) {
+        _uiState.update { it.copy(referralCode = newValue.uppercase()) }
     }
 
     fun onOtpReceived(otp: String) {
@@ -162,6 +167,17 @@ class AuthViewModel @Inject constructor(
                 _uiEvent.emit(AuthUiEvent.LoginSuccess)
                 
                 if (user != null) {
+                    // Try applying referral code if entered
+                    if (_uiState.value.referralCode.isNotEmpty()) {
+                        viewModelScope.launch {
+                            try {
+                                referralRepository.applyReferralCode(_uiState.value.referralCode).collect()
+                            } catch (e: Exception) {
+                                android.util.Log.e("AuthViewModel", "Failed to apply referral code: ${e.message}")
+                            }
+                        }
+                    }
+
                     // Start sync in background independently
                     viewModelScope.launch {
                         try {

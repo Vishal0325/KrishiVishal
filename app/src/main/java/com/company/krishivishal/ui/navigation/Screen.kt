@@ -43,23 +43,12 @@ sealed class Screen(val route: String) {
     object Settings : Screen("settings")
     object GlobalSearch : Screen("search")
     object Notifications : Screen("notifications")
+    object Referral : Screen("referral")
     object Login : Screen("login")
     object Tracking : Screen("tracking/{orderId}") {
         fun createRoute(orderId: String) = "tracking/$orderId"
     }
     object MyReturns : Screen("my_returns")
+    object Wallet : Screen("wallet")
     
-    // Admin Routes
-    object AdminPanel : Screen("admin_panel")
-    object AdminCategories : Screen("admin_categories")
-    object AdminBrands : Screen("admin_brands")
-    object AdminCrops : Screen("admin_crops")
-    object AdminProducts : Screen("admin_products")
-    object AdminOrders : Screen("admin_orders")
-    object AdminUsers : Screen("admin_users/{role}") {
-        fun createRoute(role: String) = "admin_users/$role"
-    }
-    object AdminCoupons : Screen("admin_coupons")
-    object AdminBanners : Screen("admin_banners")
-    object AdminSettings : Screen("admin_settings")
 }

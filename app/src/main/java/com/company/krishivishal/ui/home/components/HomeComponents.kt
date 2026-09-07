@@ -35,6 +35,11 @@ import com.company.krishivishal.core.model.*
 import com.company.krishivishal.ui.theme.PrimaryGreen
 import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.ui.components.AnimatedHeartButton
+import com.company.krishivishal.ui.components.bounceClick
+import com.company.krishivishal.core.model.isAvailable
+import com.company.krishivishal.core.model.getEffectiveSellingPrice
+import com.company.krishivishal.core.model.getEffectiveMrp
+import com.company.krishivishal.core.model.getEffectiveDiscountPercent
 
 @Composable
 fun SectionHeader(title: String, onViewAll: () -> Unit) {
@@ -128,30 +133,13 @@ fun HomeProductItem(
     onWishlistToggle: () -> Unit,
     onShare: () -> Unit
 ) {
-    // Check variant-level stock too: if product has variants, consider in-stock if any variant has stock > 0
-    val hasVariantStock = product.variants.any { it.stock > 0 }
-    val effectiveStock = if (product.variants.isNotEmpty()) hasVariantStock else product.stockQuantity > 0
-    val isOutOfStock = !effectiveStock || !product.isActive
+    // Use centralized logic from ProductExt.kt
+    val isOutOfStock = !product.isAvailable()
     val firstVariant = product.variants.firstOrNull()
     
-    val sellingPrice = when {
-        firstVariant != null -> firstVariant.price
-        product.discountedPrice > 0 -> product.discountedPrice
-        else -> product.basePrice
-    }
-    
-    val mrp = when {
-        firstVariant != null -> firstVariant.basePrice
-        product.mrp > 0 -> product.mrp
-        else -> product.basePrice.coerceAtLeast(sellingPrice)
-    }
-    
-    // Auto-calculate discount percentage
-    val discount = if (mrp > sellingPrice) {
-        (((mrp - sellingPrice) / mrp) * 100).toInt()
-    } else {
-        product.discountPercent
-    }
+    val sellingPrice = product.getEffectiveSellingPrice()
+    val mrp = product.getEffectiveMrp()
+    val discount = product.getEffectiveDiscountPercent()
 
     Card(
         modifier = Modifier

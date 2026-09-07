@@ -19,8 +19,9 @@ const REGION = 'asia-south1';
  *     - COD / WALLET     -> Wallet Credit (store credit)
  *  4. Atomically update return doc with refund status + create audit log
  *
- * @param {string} data.returnId     - Firestore doc ID in 'returns' collection
- * @param {number} data.refundAmount - Amount to refund in INR (e.g. 250.00)
+ * @param {string} data.returnId          - Firestore doc ID in 'returns' collection
+ * @param {number} data.refundAmount      - Amount to refund in INR (e.g. 250.00)
+ * @param {string} [data.refundDestination] - 'WALLET' (default for COD) or 'GATEWAY' (Razorpay)
  */
 exports.initiateRefund = onCall({ region: REGION }, async (request) => {
     const data = request.data || {};
@@ -36,7 +37,8 @@ exports.initiateRefund = onCall({ region: REGION }, async (request) => {
     }
 
     // ── 2. Input Validation ────────────────────────────────────────────────
-    const { returnId, refundAmount } = data;
+    const { returnId, refundAmount, refundDestination } = data;
+    // refundDestination: 'WALLET' | 'GATEWAY' (optional, defaults based on original payment method)
 
     if (!returnId || typeof returnId !== 'string' || returnId.trim().length === 0) {
         throw new HttpsError('invalid-argument', 'returnId is required.');
@@ -102,14 +104,19 @@ exports.initiateRefund = onCall({ region: REGION }, async (request) => {
     );
 
     // ── 5. Route to Correct Refund Handler ────────────────────────────────
+    //   Admin can explicitly choose 'WALLET' or 'GATEWAY'.
+    //   If not specified, default: online orders -> GATEWAY, COD/Wallet -> WALLET.
     let refundResult;
 
+    const useGateway = refundDestination === 'GATEWAY'
+        || (!refundDestination && paymentMethod === 'RAZORPAY_ONLINE' && razorpayPaymentId);
+
     try {
-        if (paymentMethod === 'RAZORPAY_ONLINE' && razorpayPaymentId) {
+        if (useGateway && razorpayPaymentId) {
             // Online payment -> refund via Razorpay API
             refundResult = await _processRazorpayRefund(razorpayPaymentId, refundAmount, returnId);
         } else {
-            // COD or Wallet -> credit to customer's wallet as store credit
+            // COD, Wallet, or admin-forced wallet destination
             refundResult = await _processWalletCredit(orderData.userId, refundAmount, returnId, orderId);
         }
     } catch (error) {
@@ -142,7 +149,8 @@ exports.initiateRefund = onCall({ region: REGION }, async (request) => {
         transaction.update(returnRef, {
             status: 'COMPLETED',
             refundStatus: 'REFUNDED',
-            refundMethod: paymentMethod === 'RAZORPAY_ONLINE' ? 'GATEWAY' : 'WALLET_CREDIT',
+            refundMethod: refundResult.method,
+            refundDestination: refundResult.method === 'RAZORPAY' ? 'GATEWAY' : 'WALLET',
             'financials.refundAmountInitiated': refundAmount,
             'financials.gatewayRefundId': refundResult.refundId || null,
             'financials.processedAt': timestamp,

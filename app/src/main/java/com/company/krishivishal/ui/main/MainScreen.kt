@@ -50,11 +50,15 @@ import com.company.krishivishal.ui.home.HomeScreen
 import com.company.krishivishal.ui.product.*
 import com.company.krishivishal.ui.search.GlobalSearchScreen
 import com.company.krishivishal.ui.settings.SettingsScreen
-import com.company.krishivishal.ui.admin.*
 import com.company.krishivishal.ui.common.components.KrishiBottomBar
 import com.company.krishivishal.ui.navigation.BottomNavItem
 import com.company.krishivishal.ui.profile.ProfileViewModel
 import com.company.krishivishal.ui.support.SupportViewModel
+import com.company.krishivishal.ui.wallet.WalletScreen
+import com.company.krishivishal.ui.wallet.WalletViewModel
+import com.company.krishivishal.ui.wallet.WalletUiEvent
+import com.company.krishivishal.ui.checkout.startRazorpay
+import com.company.krishivishal.payment.PaymentHandler
 import com.company.krishivishal.utils.SupportUtils
 import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.ui.theme.PrimaryGreen
@@ -321,6 +325,12 @@ fun MainScreen(
                 )
             }
 
+            composable(Screen.Referral.route) {
+                com.company.krishivishal.ui.referral.ReferralScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
             composable("editProfile") {
                 EditProfileScreen(
                     onBack = { navController.popBackStack() }
@@ -568,37 +578,30 @@ fun MainScreen(
                 )
             }
 
-            // Admin Routes
-            composable(Screen.AdminPanel.route) {
-                AdminPanelScreen(
+            composable(Screen.Wallet.route) {
+                val walletViewModel: WalletViewModel = hiltViewModel()
+                val context = LocalContext.current
+
+                WalletScreen(
                     onBack = { navController.popBackStack() },
-                    onManageCategories = { navController.navigate(Screen.AdminCategories.route) },
-                    onManageBrands = { navController.navigate(Screen.AdminBrands.route) },
-                    onManageCrops = { navController.navigate(Screen.AdminCrops.route) },
-                    onManageProducts = { navController.navigate(Screen.AdminProducts.route) },
-                    onManageOrders = { navController.navigate(Screen.AdminOrders.route) },
-                    onManageUsers = { role -> navController.navigate(Screen.AdminUsers.createRoute(role)) },
-                    onManageCoupons = { navController.navigate(Screen.AdminCoupons.route) },
-                    onManageBanners = { navController.navigate(Screen.AdminBanners.route) },
-                    onSettings = { navController.navigate(Screen.AdminSettings.route) }
+                    onInitiateTopUpPayment = { razorpayOrderId, topUpId, amount, keyId ->
+                        // Signal PaymentHandler to route the result to walletTopUpResult stream
+                        walletViewModel.setWalletPaymentContext()
+                        startRazorpay(
+                            activity = context as android.app.Activity,
+                            amount = amount,
+                            orderId = topUpId,
+                            razorpayOrderId = razorpayOrderId,
+                            userEmail = null,
+                            userPhone = null
+                        )
+                    },
+                    viewModel = walletViewModel
                 )
             }
 
-            composable(Screen.AdminCategories.route) { AdminCategoryScreen(onBack = { navController.popBackStack() }) }
-            composable(Screen.AdminBrands.route) { AdminBrandScreen(onBack = { navController.popBackStack() }) }
-            composable(Screen.AdminCrops.route) { AdminCropScreen(onBack = { navController.popBackStack() }) }
-            composable(Screen.AdminProducts.route) { AdminProductScreen(onBack = { navController.popBackStack() }) }
-            composable(Screen.AdminOrders.route) { AdminOrderScreen(onBack = { navController.popBackStack() }) }
-            composable(
-                route = Screen.AdminUsers.route,
-                arguments = listOf(navArgument("role") { type = NavType.StringType })
-            ) { backStackEntry ->
-                val role = backStackEntry.arguments?.getString("role") ?: "All"
-                AdminUserScreen(initialRole = role, onBack = { navController.popBackStack() })
-            }
-            composable(Screen.AdminCoupons.route) { AdminCouponScreen(onBack = { navController.popBackStack() }) }
-            composable(Screen.AdminBanners.route) { AdminBannerScreen(onBack = { navController.popBackStack() }) }
-            composable(Screen.AdminSettings.route) { AdminSettingsScreen(onBack = { navController.popBackStack() }) }
+
+
         }
     }
 }

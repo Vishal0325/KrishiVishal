@@ -39,6 +39,8 @@ fun ProfileScreen(
     val totalOrders by profileViewModel.totalOrdersCount.collectAsState()
     val wishlistItems by profileViewModel.wishlistItemsCount.collectAsState()
     val isAdmin by profileViewModel.isAdmin.collectAsState()
+    val walletBalanceRes by profileViewModel.walletBalance.collectAsState()
+    val walletBalance = (walletBalanceRes as? com.company.krishivishal.core.util.Resource.Success)?.data ?: 0.0
 
     LazyColumn(
         modifier = modifier
@@ -56,13 +58,17 @@ fun ProfileScreen(
         item {
             QuickStatsRow(
                 totalOrders = totalOrders,
-                wishlistItems = wishlistItems
+                wishlistItems = wishlistItems,
+                walletBalance = walletBalance,
+                onWalletClick = { navController.navigate(Screen.Wallet.route) }
             )
         }
 
         item {
             val menuItems = remember(isAdmin) {
                 val baseItems = mutableListOf(
+                    MenuOption("My Wallet", Icons.Default.AccountBalanceWallet, Screen.Wallet.route),
+                    MenuOption("Refer & Earn", Icons.Default.CardGiftcard, Screen.Referral.route),
                     MenuOption("Orders", Icons.Default.Inventory, Screen.Orders.route),
                     MenuOption("My Returns", Icons.Default.Refresh, Screen.MyReturns.route),
                     MenuOption("Saved Addresses", Icons.Default.LocationOn, Screen.Address.route),
@@ -71,9 +77,6 @@ fun ProfileScreen(
                     MenuOption("Help & Support", Icons.AutoMirrored.Filled.Help, Screen.Support.route),
                     MenuOption("Settings", Icons.Default.Settings, Screen.Settings.route)
                 )
-                if (isAdmin) {
-                    baseItems.add(0, MenuOption("Admin Control Panel", Icons.Default.AdminPanelSettings, Screen.AdminPanel.route))
-                }
                 baseItems
             }
             MenuOptionsList(
@@ -190,6 +193,8 @@ fun ProfileHeader(
 fun QuickStatsRow(
     totalOrders: Int,
     wishlistItems: Int,
+    walletBalance: Double = 0.0,
+    onWalletClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -206,9 +211,38 @@ fun QuickStatsRow(
             )
             StatCard(
                 number = wishlistItems.toString(),
-                label = "Wishlist Items",
+                label = "Wishlist",
                 modifier = Modifier.weight(1f)
             )
+            // Wallet balance chip — clickable
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onWalletClick() },
+                color = androidx.compose.ui.graphics.Color(0xFFE8F5E9),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "₹${String.format("%.0f", walletBalance)}",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = androidx.compose.ui.graphics.Color(0xFF2E7D32)
+                    )
+                    Text(
+                        text = "Wallet",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
         }
 
         HorizontalDivider(
@@ -217,6 +251,7 @@ fun QuickStatsRow(
         )
     }
 }
+
 
 @Composable
 fun StatCard(
