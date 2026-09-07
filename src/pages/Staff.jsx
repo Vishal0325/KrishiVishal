@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import DataTable from "../components/common/DataTable";
+import PageHeader from "../components/common/PageHeader";
+import MetricCard from "../components/common/MetricCard";
 import { getAllStaff, createStaffMember, updateStaffDetails } from "../services/staffManagement";
 import { useAuth } from "../hooks/useAuth";
 
@@ -20,6 +22,13 @@ const ROLES = [
   { id: "SuperAdmin", label: "Super Admin", desc: "Full access to everything" },
   { id: "CatalogManager", label: "Catalog Manager", desc: "Can manage products and categories" },
   { id: "OrderManager", label: "Order Manager", desc: "Can manage orders and returns" },
+  { id: "HRAdmin", label: "HR Admin", desc: "Full HR and document management" },
+  { id: "HRExecutive", label: "HR Executive", desc: "Upload and review documents" },
+  { id: "FinanceAdmin", label: "Finance Admin", desc: "Payroll, bank, and tax documents" },
+  { id: "OperationsAdmin", label: "Operations Admin", desc: "Operational data management" },
+  { id: "RiderManager", label: "Rider Manager", desc: "Rider operations and compliance documents" },
+  { id: "DepartmentManager", label: "Department Manager", desc: "Manage own department documents" },
+  { id: "Auditor", label: "Auditor", desc: "Read-only access to authorized records" },
   { id: "Viewer", label: "Viewer", desc: "Can only view data, no edit rights" }
 ];
 
@@ -174,24 +183,39 @@ const Staff = () => {
     }
   ];
 
+  // KPI Metrics
+  const staffMetrics = {
+    total: staffList.length,
+    superAdmin: staffList.filter(s => s.role === 'SuperAdmin').length,
+    active: staffList.filter(s => s.isActive !== false).length,
+    blocked: staffList.filter(s => s.isActive === false).length
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-          <Users className="mr-3 text-primary" size={28} />
-          Staff Management
-        </h1>
-        <button
-          onClick={() => {
-            setFormData({ name: "", email: "", password: "", role: "Viewer" });
-            setEditingStaff(null);
-            setIsModalOpen(true);
-          }}
-          className="bg-[#1b5e20] text-white px-6 py-3 rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-[#2e7d32] transition-all flex items-center group active:scale-95"
-        >
-          <Plus size={18} className="mr-2 group-hover:rotate-90 transition-transform" />
-          Add New Staff
-        </button>
+    <div className="space-y-6 pb-10 animate-in fade-in duration-300">
+      <PageHeader
+        title="Staff & Role Management"
+        subtitle="Manage admin users, assign roles, and control access permissions"
+        actions={[
+          {
+            label: 'Add New Staff',
+            icon: Plus,
+            onClick: () => {
+              setFormData({ name: "", email: "", password: "", role: "Viewer" });
+              setEditingStaff(null);
+              setIsModalOpen(true);
+            },
+            variant: 'primary'
+          }
+        ]}
+      />
+
+      {/* KPI Metric Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCard label="Total Staff" value={staffMetrics.total} icon={Users} color="blue" />
+        <MetricCard label="Super Admins" value={staffMetrics.superAdmin} icon={ShieldCheck} color="green" />
+        <MetricCard label="Active" value={staffMetrics.active} icon={UserCheck} color="indigo" />
+        <MetricCard label="Blocked" value={staffMetrics.blocked} icon={UserX} color="red" />
       </div>
 
       <div className="flex items-center bg-white px-4 py-3 rounded-2xl border border-gray-100 shadow-sm">

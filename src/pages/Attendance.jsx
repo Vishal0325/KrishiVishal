@@ -3,6 +3,7 @@ import { collection, query, getDocs, onSnapshot, where } from 'firebase/firestor
 import { db } from '../firebase/config';
 import { User, Clock, CheckCircle, TrendingUp, Calendar, Search, Trophy, Medal } from 'lucide-react';
 import DataTable from '../components/common/DataTable';
+import PageHeader from '../components/common/PageHeader';
 
 const Attendance = () => {
   const [records, setRecords] = useState([]);
@@ -146,14 +147,11 @@ const Attendance = () => {
   ];
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="page-header">
-        <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-          <Trophy className="mr-3 text-primary" size={28} />
-          Rider Leaderboard
-        </h1>
-        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1 ml-11">Monitor fleet shifts and daily performance</p>
-      </div>
+    <div className="space-y-8 animate-in fade-in duration-300">
+      <PageHeader
+        title="Rider Leaderboard & Attendance"
+        subtitle="Monitor fleet shifts, daily attendance, live online state, and performance incentives"
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">

@@ -13,6 +13,8 @@ import {
 import { db } from '../firebase/config';
 import { useAuth } from '../hooks/useAuth';
 import DataTable from '../components/common/DataTable';
+import PageHeader from '../components/common/PageHeader';
+import MetricCard from '../components/common/MetricCard';
 import { addAuditLog } from '../services/logger';
 import { formatCurrency, formatDate, formatDateTime } from '../utils/formatters';
 import {
@@ -78,6 +80,12 @@ const Customers = () => {
   const [isAddDocOpen, setIsAddDocOpen] = useState(false);
   const [newDocForm, setNewDocForm] = useState({ docType: 'Aadhaar Card (Identity Proof)', docNumber: '', docUrl: '', remarks: '' });
   const [savingDrawerData, setSavingDrawerData] = useState(false);
+
+  // Wallet state
+  const [walletHistory, setWalletHistory] = useState([]);
+  const [walletHistoryLoading, setWalletHistoryLoading] = useState(false);
+  const [walletAdjustForm, setWalletAdjustForm] = useState({ type: 'CREDIT', amount: '', reason: '' });
+  const [walletAdjusting, setWalletAdjusting] = useState(false);
 
   // Listen to Users (Customers)
   useEffect(() => {
@@ -453,19 +461,30 @@ const Customers = () => {
     }
   ];
 
+  // KPI aggregates
+  const kpiMetrics = useMemo(() => {
+    const analytics = Object.values(customerAnalytics);
+    const highValue = analytics.filter(a => a.persona === 'HIGH_VALUE').length;
+    const active = analytics.filter(a => a.persona === 'ACTIVE_BUYER' || a.persona === 'HIGH_VALUE').length;
+    const churnRisk = analytics.filter(a => a.persona === 'CHURN_RISK').length;
+    const newFarmers = analytics.filter(a => a.persona === 'NEW_FARMER').length;
+    return { total: customers.length, highValue, active, churnRisk, newFarmers };
+  }, [customerAnalytics, customers]);
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-            <Users className="mr-3 text-[#1b5e20]" size={28} />
-            Farmers Database & 360° Customer Hub
-          </h1>
-          <p className="text-xs font-medium text-gray-500 mt-0.5">
-            Unified Customer Profile, Multi-Address Management, LTV Analytics, Activity Timelines, and KYC Vault.
-          </p>
-        </div>
+    <div className="space-y-6 pb-10 animate-in fade-in duration-300">
+      <PageHeader
+        title="Farmers Database & 360° Customer Hub"
+        subtitle="Unified Customer Profile, Multi-Address Management, LTV Analytics, Activity Timelines, and KYC Vault"
+      />
+
+      {/* KPI Metric Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <MetricCard label="Total Farmers" value={kpiMetrics.total} icon={Users} color="blue" />
+        <MetricCard label="Active Buyers" value={kpiMetrics.active} icon={Activity} color="green" />
+        <MetricCard label="High Value" value={kpiMetrics.highValue} icon={Star} color="amber" />
+        <MetricCard label="New Farmers" value={kpiMetrics.newFarmers} icon={Sparkles} color="indigo" />
+        <MetricCard label="Churn Risk" value={kpiMetrics.churnRisk} icon={AlertTriangle} color="red" />
       </div>
 
       {/* Filter Bar */}
@@ -502,6 +521,7 @@ const Customers = () => {
         onRowClick={(c) => {
           setSelectedCustomer(c);
           setActiveTab('overview');
+          setWalletHistory([]);
         }}
       />
 
@@ -554,6 +574,7 @@ const Customers = () => {
               {[
                 { id: 'overview', label: 'Overview & Addresses', icon: <MapPin size={14} /> },
                 { id: 'orders', label: `Orders (${selectedCustomerOrders.length})`, icon: <Package size={14} /> },
+                { id: 'wallet', label: `Wallet (₹${(selectedCustomer.walletBalance || 0).toLocaleString('en-IN')})`, icon: <span style={{fontSize:14}}>💰</span> },
                 { id: 'support', label: `Support & Grievances (${selectedCustomerTickets.length + selectedCustomerComplaints.length})`, icon: <Headphones size={14} /> },
                 { id: 'timeline', label: `Activity Timeline (${activityTimeline.length})`, icon: <Activity size={14} /> },
                 { id: 'kyc', label: `KYC Vault (${selectedCustomer.kycDocuments?.length || 0})`, icon: <FileCheck size={14} /> },
@@ -693,6 +714,144 @@ const Customers = () => {
                   )}
                 </div>
               )}
+
+              {/* TAB: WALLET */}
+              {activeTab === 'wallet' && (() => {
+                // Load history when tab is first opened
+                if (!walletHistoryLoading && walletHistory.length === 0 && selectedCustomer?.id) {
+                  setWalletHistoryLoading(true);
+                  import('../firebase/config').then(({ db }) => {
+                    const { collection, query, orderBy, limit, getDocs } = require('firebase/firestore');
+                    getDocs(query(
+                      collection(db, 'users', selectedCustomer.id, 'wallet_history'),
+                      orderBy('timestamp', 'desc'),
+                      limit(30)
+                    )).then(snap => {
+                      setWalletHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                      setWalletHistoryLoading(false);
+                    }).catch(() => setWalletHistoryLoading(false));
+                  });
+                }
+
+                const handleAdjust = async (e) => {
+                  e.preventDefault();
+                  if (!walletAdjustForm.amount || Number(walletAdjustForm.amount) <= 0)
+                    return toast.error('Enter a valid amount');
+                  setWalletAdjusting(true);
+                  try {
+                    const { getFunctions, httpsCallable } = await import('firebase/functions');
+                    const fns = getFunctions();
+                    const adjustFn = httpsCallable(fns, 'adminAdjustWallet');
+                    await adjustFn({
+                      userId: selectedCustomer.id,
+                      amount: Number(walletAdjustForm.amount),
+                      type: walletAdjustForm.type,
+                      reason: walletAdjustForm.reason,
+                    });
+                    toast.success(`Wallet ${walletAdjustForm.type} of ₹${walletAdjustForm.amount} applied.`);
+                    setWalletAdjustForm({ type: 'CREDIT', amount: '', reason: '' });
+                    // Reload history
+                    setWalletHistory([]);
+                  } catch (err) {
+                    toast.error(err.message || 'Adjustment failed');
+                  } finally {
+                    setWalletAdjusting(false);
+                  }
+                };
+
+                return (
+                  <div className="space-y-6">
+                    {/* Balance Header */}
+                    <div className="bg-gradient-to-r from-[#0e3311] to-[#1b5e20] p-5 rounded-2xl text-white">
+                      <p className="text-xs font-black uppercase tracking-widest text-emerald-300 mb-1">KrishiWallet Balance</p>
+                      <p className="text-3xl font-black font-mono">
+                        ₹{(selectedCustomer.walletBalance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </p>
+                      <p className="text-[10px] text-emerald-400 mt-1">Last updated on Firestore real-time</p>
+                    </div>
+
+                    {/* Admin Adjustment Form */}
+                    <div className="bg-gray-50 rounded-2xl border border-gray-100 p-5">
+                      <h4 className="text-xs font-black uppercase tracking-wider text-gray-900 mb-4">Manual Adjustment</h4>
+                      <form onSubmit={handleAdjust} className="space-y-3">
+                        <div className="flex gap-3">
+                          <select
+                            value={walletAdjustForm.type}
+                            onChange={e => setWalletAdjustForm(f => ({ ...f, type: e.target.value }))}
+                            className="bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-black text-gray-700 outline-none"
+                          >
+                            <option value="CREDIT">➕ Credit (Add)</option>
+                            <option value="DEBIT">➖ Debit (Remove)</option>
+                          </select>
+                          <input
+                            type="number"
+                            min="1"
+                            placeholder="Amount (₹)"
+                            value={walletAdjustForm.amount}
+                            onChange={e => setWalletAdjustForm(f => ({ ...f, amount: e.target.value }))}
+                            className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold text-gray-900 outline-none focus:border-[#1b5e20]"
+                          />
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Reason (e.g. Goodwill credit, correction)"
+                          value={walletAdjustForm.reason}
+                          onChange={e => setWalletAdjustForm(f => ({ ...f, reason: e.target.value }))}
+                          className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold text-gray-900 outline-none focus:border-[#1b5e20]"
+                        />
+                        <button
+                          type="submit"
+                          disabled={walletAdjusting}
+                          className="w-full bg-[#1b5e20] text-white text-xs font-black py-2.5 rounded-xl hover:bg-[#0e3311] transition-all disabled:opacity-50"
+                        >
+                          {walletAdjusting ? 'Processing...' : 'Apply Adjustment'}
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* Transaction History */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-black uppercase tracking-wider text-gray-900">Transaction History</h4>
+                        <button
+                          onClick={() => { setWalletHistory([]); setWalletHistoryLoading(false); }}
+                          className="text-[11px] font-black text-[#1b5e20] hover:underline"
+                        >Refresh</button>
+                      </div>
+                      {walletHistoryLoading ? (
+                        <p className="text-xs text-gray-400 text-center py-4">Loading...</p>
+                      ) : walletHistory.length === 0 ? (
+                        <p className="text-xs text-gray-400 py-4 text-center bg-gray-50 rounded-xl">No transactions yet.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {walletHistory.map(txn => {
+                            const isCredit = ['TOP_UP', 'REFUND_CREDIT', 'ADMIN_CREDIT'].includes(txn.type);
+                            return (
+                              <div key={txn.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black ${isCredit ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                    {isCredit ? '+' : '-'}
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-black text-gray-900">{txn.type?.replace(/_/g, ' ')}</p>
+                                    <p className="text-[10px] text-gray-400">{txn.description}</p>
+                                    <p className="text-[9px] text-gray-300 font-mono">
+                                      {txn.timestamp?.toDate?.().toLocaleString('en-IN') || ''}
+                                    </p>
+                                  </div>
+                                </div>
+                                <span className={`text-sm font-black font-mono ${isCredit ? 'text-green-700' : 'text-red-600'}`}>
+                                  {isCredit ? '+' : '-'}₹{txn.amount}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* TAB 3: SUPPORT & GRIEVANCES HISTORY */}
               {activeTab === 'support' && (

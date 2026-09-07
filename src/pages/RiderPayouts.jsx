@@ -3,6 +3,7 @@ import { collection, query, where, onSnapshot, doc, getDoc, addDoc, Timestamp, o
 import { db } from '../firebase/config';
 import { Banknote, Calendar, ChevronLeft, ChevronRight, User, Package, TrendingUp, CheckCircle, Clock, Download } from 'lucide-react';
 import DataTable from '../components/common/DataTable';
+import PageHeader from '../components/common/PageHeader';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import toast from 'react-hot-toast';
 
@@ -269,13 +270,10 @@ const RiderPayouts = () => {
   return (
     <div className="space-y-10 pb-20 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center uppercase">
-            <Banknote className="mr-3 text-primary" size={28} />
-            Rider Payout Dashboard
-          </h1>
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] ml-11">Commission & Salary Settlement</p>
-        </div>
+        <PageHeader
+          title="Rider Payout & Earnings Settlement ERP"
+          subtitle="Monthly salary calculations, per-order delivery commissions, fuel allowances, and automated bank export files."
+        />
 
         <div className="flex items-center bg-white p-2 rounded-2xl border border-gray-100 shadow-sm space-x-4">
           <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-gray-50 rounded-xl transition-colors text-gray-400"><ChevronLeft size={20}/></button>

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Activity, Search, Filter } from "lucide-react";
+import { Activity, Search, Filter, Clock, User, Shield } from "lucide-react";
 import { collection, query, orderBy, onSnapshot, limit } from "firebase/firestore";
 import { db } from "../firebase/config";
 import DataTable from "../components/common/DataTable";
+import PageHeader from "../components/common/PageHeader";
 
 const AuditLogs = () => {
   const [logs, setLogs] = useState([]);
@@ -91,18 +92,11 @@ const AuditLogs = () => {
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-            <Activity className="mr-3 text-primary" size={28} />
-            Audit Logs
-          </h1>
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-10 mt-1">
-            System Activity Tracker
-          </p>
-        </div>
-      </div>
+    <div className="space-y-6 pb-10 animate-in fade-in duration-300">
+      <PageHeader
+        title="System Audit Trail"
+        subtitle="Complete immutable log of all admin actions, mutations, and system events"
+      />
 
       <div className="flex items-center bg-white px-4 py-3 rounded-2xl border border-gray-100 shadow-sm">
         <Search className="text-gray-400 mr-2" size={20} />

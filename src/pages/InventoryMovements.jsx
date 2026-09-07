@@ -14,6 +14,7 @@ import {
 import { db } from '../firebase/config';
 import { useAuth } from '../hooks/useAuth';
 import DataTable from '../components/common/DataTable';
+import PageHeader from '../components/common/PageHeader';
 import { addAuditLog } from '../services/logger';
 import { formatCurrency } from '../utils/formatters';
 import { callAdjustInventory } from '../services/inventory';
@@ -328,27 +329,20 @@ const InventoryMovements = () => {
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-            <History className="mr-3 text-[#1b5e20]" size={28} />
-            Stock Movements Journal
-          </h1>
-          <p className="text-xs font-medium text-gray-500 mt-0.5">
-            Immutable audit trail of all warehouse inventory movements, receipts, sales, and adjustments.
-          </p>
-        </div>
-
-        <button
-          onClick={() => setIsAdjustModalOpen(true)}
-          className="bg-[#1b5e20] text-white px-6 py-3 rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-[#2e7d32] transition-all flex items-center group active:scale-95"
-        >
-          <SlidersHorizontal size={18} className="mr-2 group-hover:scale-110 transition-transform" />
-          Manual Stock Adjustment
-        </button>
-      </div>
+    <div className="space-y-6 pb-10 animate-in fade-in duration-300">
+      <PageHeader
+        title="Stock Movements Journal ERP"
+        subtitle="Immutable audit trail of all warehouse inventory movements, GRN receipts, sales, and adjustments."
+        actions={
+          <button
+            onClick={() => setIsAdjustModalOpen(true)}
+            className="bg-[#1b5e20] text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider shadow-sm hover:bg-[#2e7d32] transition-all flex items-center group active:scale-95"
+          >
+            <SlidersHorizontal size={16} className="mr-2 group-hover:scale-110 transition-transform" />
+            Manual Stock Adjustment
+          </button>
+        }
+      />
 
       {/* Stats Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">

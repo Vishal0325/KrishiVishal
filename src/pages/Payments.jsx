@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import DataTable from '../components/common/DataTable';
+import PageHeader from '../components/common/PageHeader';
 import StatusBadge from '../components/common/StatusBadge';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { CreditCard, Search, ExternalLink, Filter, AlertCircle } from 'lucide-react';
@@ -109,16 +110,11 @@ const Payments = () => {
   ];
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-            <CreditCard className="mr-3 text-primary" size={28} />
-            Online Payments Tracking
-          </h1>
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-11">Verify UPI & Card Transactions</p>
-        </div>
-      </div>
+    <div className="space-y-8 animate-in fade-in duration-300">
+      <PageHeader
+        title="Online Payments & Gateways"
+        subtitle="Live payment gateway feeds, Razorpay transaction verification, refund queues, and settlement logs"
+      />
 
       {pendingRefunds.length > 0 && (
         <div className="bg-red-50 border-2 border-red-100 rounded-3xl p-6 space-y-4 animate-in slide-in-from-top duration-500 shadow-xl shadow-red-100/20">

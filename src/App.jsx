@@ -25,6 +25,7 @@ import Tracking from "./pages/Tracking";
 import SOSAlerts from "./pages/SOSAlerts";
 import Attendance from "./pages/Attendance";
 import CashRecon from "./pages/CashRecon";
+import Profile from "./pages/Profile";
 import Trips from "./pages/Trips";
 import Finance from "./pages/Finance";
 import Expenses from "./pages/Expenses/Expenses";
@@ -41,6 +42,7 @@ import PurchaseOrderDetail from "./pages/PurchaseOrderDetail";
 import GoodsReceipt from "./pages/GoodsReceipt";
 import InventoryMovements from "./pages/InventoryMovements";
 import PackingStation from "./pages/PackingStation";
+import InterHubTransfers from "./pages/InterHubTransfers";
 import SupplierLedger from "./pages/SupplierLedger";
 import UnitEconomics from "./pages/UnitEconomics";
 import GSTReports from "./pages/GSTReports";
@@ -54,12 +56,37 @@ import SkuDashboard from "./pages/SkuDashboard";
 import AbandonedCarts from "./pages/AbandonedCarts";
 import DeliverySettings from "./pages/DeliverySettings";
 import Warehouses from "./pages/Warehouses";
+import Coupons from "./pages/Coupons";
+import Referrals from "./pages/Referrals";
 import { useAuth } from "./hooks/useAuth";
 import { auth } from "./firebase/config"; // Direct import
 import { signOut } from "firebase/auth";
 
 import LoadingSpinner from "./components/common/LoadingSpinner";
 import { Toaster } from "react-hot-toast";
+
+import EmployeeDocuments from "./pages/hr/EmployeeDocuments";
+import RiderDocuments from "./pages/hr/RiderDocuments";
+import Employees from "./pages/hr/Employees";
+import EmployeeProfile from "./pages/hr/EmployeeProfile";
+import HRRiders from "./pages/hr/HRRiders";
+import RiderProfile from "./pages/hr/RiderProfile";
+import DocumentVerification from "./pages/hr/DocumentVerification";
+import ExpiringDocuments from "./pages/hr/ExpiringDocuments";
+import ExpiredDocuments from "./pages/hr/ExpiredDocuments";
+import BackgroundVerification from "./pages/hr/BackgroundVerification";
+import TrainingCertifications from "./pages/hr/TrainingCertifications";
+import PhysicalFiles from "./pages/hr/PhysicalFiles";
+import CompanyAssets from "./pages/hr/CompanyAssets";
+import ContractsAgreements from "./pages/hr/ContractsAgreements";
+import ExitManagement from "./pages/hr/ExitManagement";
+import HRDashboard from "./pages/hr/HRDashboard";
+import HRReports from "./pages/hr/HRReports";
+import DocumentSettings from "./pages/hr/DocumentSettings";
+import AgriLicenses from "./pages/hr/AgriLicenses";
+import LeaveAttendance from "./pages/hr/LeaveAttendance";
+import StatutoryPayroll from "./pages/hr/StatutoryPayroll";
+import CapTableLoans from "./pages/finance/CapTableLoans";
 
 function App() {
   const { user, loading, isAdmin, role } = useAuth();
@@ -123,12 +150,39 @@ function App() {
     );
   }
 
+  const hrRoles = ["SuperAdmin", "HRAdmin", "HRExecutive", "DepartmentManager"];
+
   return (
     <>
       <Toaster position="top-right" />
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route path="/" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "CatalogManager", "Viewer"]}><Dashboard /></RequireRole>} />
+          
+          {/* HR & Workforce Routes */}
+          <Route path="/hr/employees" element={<RequireRole allowedRoles={hrRoles}><Employees /></RequireRole>} />
+          <Route path="/hr/employees/:employeeId" element={<RequireRole allowedRoles={hrRoles}><EmployeeProfile /></RequireRole>} />
+          <Route path="/hr/riders" element={<RequireRole allowedRoles={["SuperAdmin", "HRAdmin", "RiderManager"]}><HRRiders /></RequireRole>} />
+          <Route path="/hr/riders/:riderId" element={<RequireRole allowedRoles={["SuperAdmin", "HRAdmin", "RiderManager"]}><RiderProfile /></RequireRole>} />
+          <Route path="/hr/documents" element={<RequireRole allowedRoles={hrRoles}><EmployeeDocuments /></RequireRole>} />
+          <Route path="/hr/rider-documents" element={<RequireRole allowedRoles={["SuperAdmin", "HRAdmin", "RiderManager"]}><RiderDocuments /></RequireRole>} />
+          <Route path="/hr/document-verification" element={<RequireRole allowedRoles={hrRoles}><DocumentVerification /></RequireRole>} />
+          <Route path="/hr/expiring-documents" element={<RequireRole allowedRoles={hrRoles}><ExpiringDocuments /></RequireRole>} />
+          <Route path="/hr/expired-documents" element={<RequireRole allowedRoles={hrRoles}><ExpiredDocuments /></RequireRole>} />
+          <Route path="/hr/background-verification" element={<RequireRole allowedRoles={hrRoles}><BackgroundVerification /></RequireRole>} />
+          <Route path="/hr/training" element={<RequireRole allowedRoles={hrRoles}><TrainingCertifications /></RequireRole>} />
+          <Route path="/hr/physical-files" element={<RequireRole allowedRoles={hrRoles}><PhysicalFiles /></RequireRole>} />
+          <Route path="/hr/company-assets" element={<RequireRole allowedRoles={hrRoles}><CompanyAssets /></RequireRole>} />
+          <Route path="/hr/contracts" element={<RequireRole allowedRoles={hrRoles}><ContractsAgreements /></RequireRole>} />
+          <Route path="/hr/exit-management" element={<RequireRole allowedRoles={hrRoles}><ExitManagement /></RequireRole>} />
+          <Route path="/hr/dashboard" element={<RequireRole allowedRoles={hrRoles}><HRDashboard /></RequireRole>} />
+          <Route path="/hr/reports" element={<RequireRole allowedRoles={hrRoles}><HRReports /></RequireRole>} />
+          <Route path="/hr/settings" element={<RequireRole allowedRoles={["SuperAdmin", "HRAdmin"]}><DocumentSettings /></RequireRole>} />
+          <Route path="/hr/licenses" element={<RequireRole allowedRoles={["SuperAdmin", "HRAdmin", "DepartmentManager"]}><AgriLicenses /></RequireRole>} />
+          <Route path="/hr/leave-attendance" element={<RequireRole allowedRoles={hrRoles}><LeaveAttendance /></RequireRole>} />
+          <Route path="/hr/payroll" element={<RequireRole allowedRoles={["SuperAdmin", "HRAdmin", "FinanceAdmin"]}><StatutoryPayroll /></RequireRole>} />
+
+          {/* Existing Routes */}
           <Route path="/orders" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><Orders /></RequireRole>} />
           <Route path="/packing-station" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><PackingStation /></RequireRole>} />
           <Route path="/support-tickets" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><SupportTickets /></RequireRole>} />
@@ -140,6 +194,8 @@ function App() {
           <Route path="/purchase-order/:id" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><PurchaseOrderDetail /></RequireRole>} />
           <Route path="/grn" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><GoodsReceipt /></RequireRole>} />
           <Route path="/inventory-movements" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><InventoryMovements /></RequireRole>} />
+          <Route path="/transfers" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><InterHubTransfers /></RequireRole>} />
+          <Route path="/inventory" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager", "OrderManager", "Viewer"]}><SkuDashboard /></RequireRole>} />
           <Route path="/skus" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager", "OrderManager", "Viewer"]}><SkuDashboard /></RequireRole>} />
           <Route path="/sku-dashboard" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager", "OrderManager", "Viewer"]}><SkuDashboard /></RequireRole>} />
           <Route path="/abandoned-carts" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager"]}><AbandonedCarts /></RequireRole>} />
@@ -170,6 +226,7 @@ function App() {
           <Route path="/gst-reports" element={<RequireRole allowedRoles={["SuperAdmin"]}><GSTReports /></RequireRole>} />
           <Route path="/financial-statements" element={<RequireRole allowedRoles={["SuperAdmin"]}><FinancialStatements /></RequireRole>} />
           <Route path="/finance" element={<RequireRole allowedRoles={["SuperAdmin"]}><Finance /></RequireRole>} />
+          <Route path="/finance/cap-table" element={<RequireRole allowedRoles={["SuperAdmin", "FinanceAdmin", "OrderManager"]}><CapTableLoans /></RequireRole>} />
           <Route path="/expenses" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><Expenses /></RequireRole>} />
           <Route path="/expenses/new" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager"]}><ExpenseForm /></RequireRole>} />
           <Route path="/expenses/edit/:id" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager"]}><ExpenseForm /></RequireRole>} />
@@ -183,6 +240,9 @@ function App() {
           <Route path="/trips" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "Viewer"]}><Trips /></RequireRole>} />
           <Route path="/delivery-rules" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager"]}><DeliverySettings /></RequireRole>} />
           <Route path="/warehouses" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager"]}><Warehouses /></RequireRole>} />
+          <Route path="/coupons" element={<RequireRole allowedRoles={["SuperAdmin", "CatalogManager"]}><Coupons /></RequireRole>} />
+          <Route path="/referrals" element={<RequireRole allowedRoles={["SuperAdmin", "OrderManager", "CatalogManager", "Viewer"]}><Referrals /></RequireRole>} />
+          <Route path="/profile" element={<RequireRole allowedRoles={["SuperAdmin", "ADMIN", "CatalogManager", "OrderManager", "Viewer"]}><Profile /></RequireRole>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
 

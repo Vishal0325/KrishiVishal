@@ -1,12 +1,77 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { Truck, MapPin, Package, CheckCircle, Clock, Map as MapIcon, Navigation } from 'lucide-react';
+import { Truck, MapPin, Package, CheckCircle, Clock, Map as MapIcon, Navigation, Route, Sparkles } from 'lucide-react';
 import DataTable from '../components/common/DataTable';
+import PageHeader from '../components/common/PageHeader';
+import toast from 'react-hot-toast';
+
+/**
+ * Extracts structured location parts from an order's address.
+ * Handles both object addresses (schema v2) and legacy string addresses.
+ */
+const extractLocationParts = (address) => {
+  if (!address || address === 'No Address') {
+    return { pincode: '', village: '', district: '', street: '', raw: 'No Address' };
+  }
+
+  // Object address (Firestore schema v2)
+  if (typeof address === 'object') {
+    return {
+      pincode: (address.pincode || '').trim(),
+      village: (address.village || '').trim(),
+      district: (address.district || '').trim(),
+      street: (address.street || '').trim(),
+      raw: [address.street, address.village, address.district, address.state, address.pincode].filter(Boolean).join(', '),
+    };
+  }
+
+  // Legacy string address — try to parse "street, village, district, state, pincode"
+  if (typeof address === 'string') {
+    const parts = address.split(',').map(p => p.trim());
+    // Try to find a 6-digit pincode anywhere in the string
+    const pincodeMatch = address.match(/\b(\d{6})\b/);
+    return {
+      pincode: pincodeMatch ? pincodeMatch[1] : '',
+      village: parts.length >= 4 ? parts[parts.length - 3] : '',
+      district: parts.length >= 3 ? parts[parts.length - 2] : '',
+      street: parts.length >= 1 ? parts[0] : '',
+      raw: address,
+    };
+  }
+
+  return { pincode: '', village: '', district: '', street: '', raw: String(address) };
+};
+
+/**
+ * Groups and sorts stops by Pincode → Village/Locality → Address.
+ * Stops with missing location data are placed at the end under "Location Unavailable".
+ * No stops are deleted or merged.
+ */
+const optimizeStopsByAddress = (stops) => {
+  if (!stops || stops.length <= 1) return stops;
+
+  // Build a grouping key for each stop
+  const enriched = stops.map(stop => {
+    const loc = stop._location || extractLocationParts(stop.address);
+    const hasLocation = loc.pincode || loc.village || loc.district;
+    // Primary sort: pincode, secondary: village, tertiary: district
+    const groupKey = hasLocation
+      ? `${loc.pincode || 'zzz'}|${loc.village || 'zzz'}|${loc.district || 'zzz'}`
+      : 'zzz|zzz|zzz|NO_LOCATION';
+    return { ...stop, _groupKey: groupKey, _location: loc, _hasLocation: hasLocation };
+  });
+
+  // Sort by groupKey so same pincode/village stays together
+  enriched.sort((a, b) => a._groupKey.localeCompare(b._groupKey, 'en', { numeric: true }));
+
+  return enriched;
+};
 
 const Trips = () => {
   const [activeTrips, setActiveTrips] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [optimizedTrips, setOptimizedTrips] = useState(new Set()); // track which trips are optimized
 
   useEffect(() => {
     const unsubRiders = onSnapshot(collection(db, 'riders'), (riderSnap) => {
@@ -40,11 +105,16 @@ const Trips = () => {
 
           const trip = ridersWithTrips.get(order.riderId);
           trip.orderCount++;
+
+          // Extract structured location for grouping
+          const locationParts = extractLocationParts(order.address);
+
           trip.stops.push({
             orderId: doc.id,
-            address: order.address?.address || order.address || 'No Address',
+            address: locationParts.raw || order.address?.address || order.address || 'No Address',
             status: order.status,
-            customerName: order.address?.name || 'Customer'
+            customerName: order.address?.name || 'Customer',
+            _location: locationParts,
           });
         });
 
@@ -58,15 +128,49 @@ const Trips = () => {
     return () => unsubRiders();
   }, []);
 
+  const handleOptimizeRoute = (riderId) => {
+    setActiveTrips(prev => prev.map(trip => {
+      if (trip.riderId !== riderId) return trip;
+      const optimized = optimizeStopsByAddress(trip.stops);
+      return { ...trip, stops: optimized };
+    }));
+    setOptimizedTrips(prev => new Set([...prev, riderId]));
+    toast.success("Route optimized by location grouping!");
+  };
+
+  /**
+   * Generates group header labels for optimized stops.
+   * Returns null if the stop belongs to the same group as the previous one.
+   */
+  const getGroupLabel = (stops, idx) => {
+    const stop = stops[idx];
+    if (!stop._location) return null;
+    
+    const loc = stop._location;
+    const prevLoc = idx > 0 ? stops[idx - 1]?._location : null;
+
+    // Check if this is a new group
+    const currentGroup = `${loc.pincode}|${loc.village}|${loc.district}`;
+    const prevGroup = prevLoc ? `${prevLoc.pincode}|${prevLoc.village}|${prevLoc.district}` : null;
+
+    if (currentGroup === prevGroup) return null;
+
+    if (!stop._hasLocation) return '📍 Location Unavailable';
+
+    const parts = [];
+    if (loc.pincode) parts.push(loc.pincode);
+    if (loc.village) parts.push(loc.village);
+    if (loc.district && loc.district !== loc.village) parts.push(loc.district);
+    
+    return parts.length > 0 ? `📍 ${parts.join(' → ')}` : null;
+  };
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="page-header">
-        <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-          <Truck className="mr-3 text-primary" size={28} />
-          Active Trip Monitoring
-        </h1>
-        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1 ml-11">Real-time multi-stop delivery routes</p>
-      </div>
+    <div className="space-y-8 pb-10 animate-in fade-in duration-300">
+      <PageHeader
+        title="Active Delivery Trips & GPS Monitoring ERP"
+        subtitle="Real-time multi-stop delivery routes, location grouping optimization, and live GPS map tracking."
+      />
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
         <div className="xl:col-span-2 space-y-6">
@@ -96,7 +200,21 @@ const Trips = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-6">
+                  <div className="flex items-center space-x-4">
+                    {/* Optimize Route Button */}
+                    <button
+                      onClick={() => handleOptimizeRoute(trip.riderId)}
+                      disabled={trip.stops.length <= 1}
+                      className={`flex items-center space-x-2 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 shadow-sm ${
+                        optimizedTrips.has(trip.riderId)
+                          ? 'bg-green-50 text-green-700 border border-green-200'
+                          : 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-100'
+                      } ${trip.stops.length <= 1 ? 'opacity-40 cursor-not-allowed' : ''}`}
+                    >
+                      {optimizedTrips.has(trip.riderId) ? <Sparkles size={14} /> : <Route size={14} />}
+                      <span>{optimizedTrips.has(trip.riderId) ? 'Optimized ✓' : 'Optimize Route'}</span>
+                    </button>
+
                     <div className="text-right hidden sm:block">
                         <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">Signal Update</p>
                         <p className="text-xs font-bold text-gray-600">{trip.lastUpdate ? new Date(trip.lastUpdate).toLocaleTimeString() : 'N/A'}</p>
@@ -113,41 +231,80 @@ const Trips = () => {
                 </div>
 
                 <div className="p-8">
+                  {/* Optimization info banner */}
+                  {optimizedTrips.has(trip.riderId) && (
+                    <div className="mb-6 bg-blue-50 border border-blue-100 rounded-2xl p-4 flex items-center space-x-3">
+                      <Sparkles size={16} className="text-blue-500 shrink-0" />
+                      <p className="text-[10px] font-bold text-blue-700 uppercase tracking-widest">
+                        Stops grouped by Pincode → Village — Same area ke stops saath mein dikhaye gaye hain
+                      </p>
+                    </div>
+                  )}
+
                   <div className="relative">
                     <div className="absolute left-3 top-2 bottom-2 w-0.5 bg-gray-100"></div>
-                    <div className="space-y-8">
-                      {trip.stops.map((stop, idx) => (
-                        <div key={stop.orderId} className="relative flex items-start gap-8 pl-10">
-                          <div className={`absolute left-0 top-1.5 w-6 h-6 rounded-full border-4 border-white z-10 shadow-sm ${
-                            stop.status === 'DELIVERED' ? 'bg-green-500' :
-                            stop.status === 'OUT_FOR_DELIVERY' ? 'bg-orange-500 animate-pulse' :
-                            'bg-blue-500'
-                          }`}></div>
-
-                          <div className="flex-1 bg-gray-50/50 p-6 rounded-3xl border border-gray-100 group-hover:bg-white transition-colors">
-                            <div className="flex justify-between items-start mb-4">
-                              <div>
-                                <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Stop #{idx + 1}</span>
-                                <h4 className="font-black text-gray-900">Order KV-{stop.orderId.slice(-6)}</h4>
+                    <div className="space-y-6">
+                      {trip.stops.map((stop, idx) => {
+                        const groupLabel = optimizedTrips.has(trip.riderId) ? getGroupLabel(trip.stops, idx) : null;
+                        return (
+                          <React.Fragment key={stop.orderId}>
+                            {/* Group Header */}
+                            {groupLabel && (
+                              <div className="ml-10 mb-2">
+                                <span className="inline-block bg-indigo-50 text-indigo-700 border border-indigo-100 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">
+                                  {groupLabel}
+                                </span>
                               </div>
-                              <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border ${
-                                stop.status === 'OUT_FOR_DELIVERY' ? 'bg-orange-50 text-orange-700 border-orange-100' :
-                                'bg-blue-50 text-blue-700 border-blue-100'
-                              }`}>
-                                {stop.status.replace(/_/g, ' ')}
-                              </span>
+                            )}
+
+                            <div className="relative flex items-start gap-8 pl-10">
+                              <div className={`absolute left-0 top-1.5 w-6 h-6 rounded-full border-4 border-white z-10 shadow-sm ${
+                                stop.status === 'DELIVERED' ? 'bg-green-500' :
+                                stop.status === 'OUT_FOR_DELIVERY' ? 'bg-orange-500 animate-pulse' :
+                                'bg-blue-500'
+                              }`}></div>
+
+                              <div className="flex-1 bg-gray-50/50 p-6 rounded-3xl border border-gray-100 group-hover:bg-white transition-colors">
+                                <div className="flex justify-between items-start mb-4">
+                                  <div>
+                                    <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Stop #{idx + 1}</span>
+                                    <h4 className="font-black text-gray-900">Order KV-{stop.orderId.slice(-6)}</h4>
+                                  </div>
+                                  <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border ${
+                                    stop.status === 'OUT_FOR_DELIVERY' ? 'bg-orange-50 text-orange-700 border-orange-100' :
+                                    'bg-blue-50 text-blue-700 border-blue-100'
+                                  }`}>
+                                    {stop.status.replace(/_/g, ' ')}
+                                  </span>
+                                </div>
+                                <div className="space-y-2">
+                                    <p className="text-xs font-bold text-gray-600 flex items-center">
+                                        <Package size={12} className="mr-2 opacity-40" /> {stop.customerName}
+                                    </p>
+                                    <p className="text-xs font-medium text-gray-400 flex items-start">
+                                        <MapPin size={12} className="mr-2 mt-0.5 opacity-40 shrink-0" /> {stop.address}
+                                    </p>
+                                    {/* Show pincode/village tags when optimized */}
+                                    {optimizedTrips.has(trip.riderId) && stop._location && (stop._location.pincode || stop._location.village) && (
+                                      <div className="flex flex-wrap gap-1.5 mt-1">
+                                        {stop._location.pincode && (
+                                          <span className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded text-[9px] font-bold">
+                                            PIN: {stop._location.pincode}
+                                          </span>
+                                        )}
+                                        {stop._location.village && (
+                                          <span className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded text-[9px] font-bold">
+                                            {stop._location.village}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                </div>
+                              </div>
                             </div>
-                            <div className="space-y-2">
-                                <p className="text-xs font-bold text-gray-600 flex items-center">
-                                    <Package size={12} className="mr-2 opacity-40" /> {stop.customerName}
-                                </p>
-                                <p className="text-xs font-medium text-gray-400 flex items-start">
-                                    <MapPin size={12} className="mr-2 mt-0.5 opacity-40 shrink-0" /> {stop.address}
-                                </p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                          </React.Fragment>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -173,6 +330,19 @@ const Trips = () => {
                 </div>
             </div>
 
+            <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
+                <Route size={32} className="mx-auto text-blue-200 mb-4" />
+                <h4 className="text-xs font-black text-gray-900 uppercase tracking-widest text-center mb-3">Route Optimization</h4>
+                <p className="text-[10px] font-bold text-gray-400 leading-relaxed px-2 text-center">
+                    "Optimize Route" बटन दबाएँ — Same Pincode और Village के stops एक साथ group हो जाएंगे ताकि rider को कम भटकना पड़े।
+                </p>
+                <div className="mt-4 p-3 bg-amber-50 border border-amber-100 rounded-2xl">
+                    <p className="text-[9px] font-bold text-amber-700 text-center uppercase tracking-widest">
+                        ⚠️ यह grouping-based suggestion है, shortest GPS route नहीं
+                    </p>
+                </div>
+            </div>
+
             <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 text-center">
                 <MapIcon size={32} className="mx-auto text-gray-200 mb-4" />
                 <p className="text-xs font-bold text-gray-400 leading-relaxed px-4">
@@ -186,3 +356,4 @@ const Trips = () => {
 };
 
 export default Trips;
+

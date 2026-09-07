@@ -7,11 +7,13 @@ import {
   Timestamp,
   query,
   orderBy,
-  where
+  where,
+  getDocs
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '../firebase/config';
 import { addAuditLog } from '../services/logger';
+import PageHeader from '../components/common/PageHeader';
 import { formatCurrency } from '../utils/formatters';
 import {
   PackageCheck,
@@ -32,7 +34,8 @@ import {
   Loader2,
   CheckCircle2,
   ExternalLink,
-  Tag
+  Tag,
+  Sparkles
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -42,7 +45,10 @@ const PackingStation = () => {
   const [activeTab, setActiveTab] = useState('READY_FOR_PACKING'); // 'READY_FOR_PACKING' | 'PACKING' | 'PACKED'
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [checkedItems, setCheckedItems] = useState({});
+  const [fefoBatches, setFefoBatches] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
+  const [hubFilter, setHubFilter] = useState('All');
+  const [warehouses, setWarehouses] = useState([]);
   const [packing, setPacking] = useState(false);
   const [shippingLabelData, setShippingLabelData] = useState(null);
   const [isLabelModalOpen, setIsLabelModalOpen] = useState(false);
@@ -58,7 +64,12 @@ const PackingStation = () => {
       toast.error('Failed to load orders');
       setLoading(false);
     });
-    return unsub;
+
+    const unsubWarehouses = onSnapshot(collection(db, 'warehouses'), (snap) => {
+      setWarehouses(snap.docs.map(doc => ({ id: doc.id, name: doc.data().name, code: doc.data().code })));
+    });
+
+    return () => { unsub(); unsubWarehouses(); };
   }, []);
 
   // Filter orders by packing stages
@@ -77,8 +88,10 @@ const PackingStation = () => {
       o.id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       o.userName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       o.userPhone?.includes(searchTerm);
+      
+    const matchHub = hubFilter === 'All' || o.fulfillmentWarehouseId === hubFilter;
 
-    return matchTab && matchSearch;
+    return matchTab && matchSearch && matchHub;
   });
 
   // Select order to pack
@@ -90,6 +103,39 @@ const PackingStation = () => {
       initialChecklist[idx] = false;
     });
     setCheckedItems(initialChecklist);
+
+    // Query FEFO batch recommendations for each item in the order
+    const warehouseId = order.fulfillmentWarehouseId || 'WH-PURNEA-01';
+    (order.items || []).forEach(async (it) => {
+      const skuId = it.productId || it.skuId || it.id;
+      if (!skuId) return;
+      try {
+        const invQ = query(
+          collection(db, 'warehouse_inventory'),
+          where('warehouseId', '==', warehouseId),
+          where('skuId', '==', skuId)
+        );
+        const snap = await getDocs(invQ);
+        if (!snap.empty) {
+          const docs = snap.docs.map(d => d.data());
+          docs.sort((a, b) => {
+            if (!a.expiryDate) return 1;
+            if (!b.expiryDate) return -1;
+            return a.expiryDate.localeCompare(b.expiryDate);
+          });
+          const bestBatch = docs[0];
+          setFefoBatches(prev => ({
+            ...prev,
+            [skuId]: {
+              batchId: bestBatch.batchId || 'BATCH-01',
+              expiryDate: bestBatch.expiryDate || 'N/A'
+            }
+          }));
+        }
+      } catch (e) {
+        console.warn('FEFO lookup error:', e);
+      }
+    });
 
     // If order was in PLACED or READY_FOR_PACKING, transition to PACKING
     if (['PLACED', 'PAYMENT_CONFIRMED', 'READY_FOR_PACKING'].includes(order.status)) {
@@ -218,46 +264,56 @@ const PackingStation = () => {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-            <PackageCheck className="mr-3 text-[#1b5e20]" size={28} />
-            Warehouse Packing Station & Shipping Labels
-          </h1>
-          <p className="text-xs font-medium text-gray-500 mt-0.5">
-            Verify order items, generate signed HMAC QR Codes, and print thermal shipping labels.
-          </p>
-        </div>
+    <div className="space-y-6 pb-10 animate-in fade-in duration-300">
+      <div className="print:hidden">
+        <PageHeader
+          title="Warehouse Packing Station ERP"
+          subtitle="Verify order items, generate signed HMAC QR Codes, and print thermal 4x6 shipping labels."
+        />
+      </div>
 
-        {/* Packing State Tabs */}
-        <div className="flex bg-gray-100 p-1 rounded-xl">
-          <button
-            onClick={() => { setActiveTab('READY_FOR_PACKING'); setSelectedOrder(null); }}
-            className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-              activeTab === 'READY_FOR_PACKING' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Ready to Pack ({orders.filter(o => ['PLACED', 'PAYMENT_CONFIRMED', 'READY_FOR_PACKING'].includes(o.status)).length})
-          </button>
-          <button
-            onClick={() => { setActiveTab('PACKING'); setSelectedOrder(null); }}
-            className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-              activeTab === 'PACKING' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Packing in Progress ({orders.filter(o => o.status === 'PACKING').length})
-          </button>
-          <button
-            onClick={() => { setActiveTab('PACKED'); setSelectedOrder(null); }}
-            className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-              activeTab === 'PACKED' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Packed & Labeled ({orders.filter(o => ['PACKED', 'READY_FOR_PICKUP', 'RIDER_ASSIGNED'].includes(o.status)).length})
-          </button>
-        </div>
+      {/* Packing State Tabs */}
+      <div className="flex bg-gray-100 p-1 rounded-xl w-fit print:hidden">
+        <button
+          onClick={() => { setActiveTab('READY_FOR_PACKING'); setSelectedOrder(null); }}
+          className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
+            activeTab === 'READY_FOR_PACKING' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          Ready to Pack ({orders.filter(o => ['PLACED', 'PAYMENT_CONFIRMED', 'READY_FOR_PACKING'].includes(o.status)).length})
+        </button>
+        <button
+          onClick={() => { setActiveTab('PACKING'); setSelectedOrder(null); }}
+          className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
+            activeTab === 'PACKING' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          Packing in Progress ({orders.filter(o => o.status === 'PACKING').length})
+        </button>
+        <button
+          onClick={() => { setActiveTab('PACKED'); setSelectedOrder(null); }}
+          className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
+            activeTab === 'PACKED' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          Packed & Labeled ({orders.filter(o => ['PACKED', 'READY_FOR_PICKUP', 'RIDER_ASSIGNED'].includes(o.status)).length})
+        </button>
+      </div>
+
+      {/* Hub Filter */}
+      <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm print:hidden flex items-center space-x-3">
+        <label className="text-xs font-black text-gray-500 uppercase">Select Hub:</label>
+        <select
+          value={hubFilter}
+          onChange={(e) => { setHubFilter(e.target.value); setSelectedOrder(null); }}
+          className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs font-bold text-gray-700 outline-none focus:ring-2 focus:ring-primary/20"
+        >
+          <option value="All">All Hubs (Admin View)</option>
+          {warehouses.map(w => (
+            <option key={w.id} value={w.id}>{w.name} ({w.code})</option>
+          ))}
+        </select>
+        <span className="text-[10px] text-gray-400">Only orders assigned to this Hub will be shown below.</span>
       </div>
 
       {/* Main Grid: Orders List + Packing Workspace */}
@@ -314,7 +370,10 @@ const PackingStation = () => {
                           </span>
                         </div>
                         <p className="font-bold text-sm text-gray-900 mt-1">{order.userName || 'Customer'}</p>
-                        <p className="text-[11px] text-gray-400">{order.userPhone || 'No Phone'}</p>
+                        <p className="text-[11px] text-gray-400">
+                          {order.userPhone || 'No Phone'}
+                          {order.fulfillmentWarehouseId && <span className="ml-2 text-blue-600 font-bold bg-blue-50 px-1 rounded">{warehouses.find(w=>w.id===order.fulfillmentWarehouseId)?.code || order.fulfillmentWarehouseId}</span>}
+                        </p>
                       </div>
 
                       <div className="text-right">
@@ -421,6 +480,16 @@ const PackingStation = () => {
                             <p className="text-[11px] text-gray-400">
                               Qty: <span className="font-bold text-gray-700">{item.quantity || 1} units</span> • Unit Price: {formatCurrency(item.price || 0)}
                             </p>
+                            {fefoBatches[item.productId || item.skuId || item.id] ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 mt-1 rounded-md bg-amber-50 text-amber-900 text-[10px] font-bold border border-amber-200">
+                                <Sparkles size={11} className="text-amber-600" />
+                                FEFO Batch: {fefoBatches[item.productId || item.skuId || item.id].batchId} (Exp: {fefoBatches[item.productId || item.skuId || item.id].expiryDate || 'Earliest'})
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 mt-1 rounded-md bg-gray-50 text-gray-600 text-[10px] font-bold border border-gray-200">
+                                Standard Batch: BATCH-01
+                              </span>
+                            )}
                           </div>
                         </div>
 

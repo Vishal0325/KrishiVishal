@@ -13,6 +13,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase/config';
 import DataTable from '../components/common/DataTable';
+import PageHeader from '../components/common/PageHeader';
 import { addAuditLog } from '../services/logger';
 import { formatCurrency } from '../utils/formatters';
 import {
@@ -345,40 +346,32 @@ const ProcurementQueue = () => {
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-            <ClipboardList className="mr-3 text-[#1b5e20]" size={28} />
-            Procurement & Purchase Orders
-          </h1>
-          <p className="text-xs font-medium text-gray-500 mt-0.5">
-            Manage on-demand procurement items and generate supplier purchase orders.
-          </p>
-        </div>
+    <div className="space-y-6 pb-10 animate-in fade-in duration-300">
+      <PageHeader
+        title="Procurement & Purchase Orders ERP"
+        subtitle="Manage on-demand procurement items, aggregate backorders, and generate supplier Purchase Orders (PO)."
+      />
 
-        {/* Tab Switcher */}
-        <div className="flex bg-gray-100 p-1 rounded-xl">
-          <button
-            onClick={() => setActiveTab('queue')}
-            className={`px-5 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
-              activeTab === 'queue' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Package size={14} />
-            Procurement Queue ({pendingQueue.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('pos')}
-            className={`px-5 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
-              activeTab === 'pos' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <FileText size={14} />
-            Purchase Orders ({purchaseOrders.length})
-          </button>
-        </div>
+      {/* Tab Switcher */}
+      <div className="flex bg-gray-100 p-1 rounded-xl w-fit">
+        <button
+          onClick={() => setActiveTab('queue')}
+          className={`px-5 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
+            activeTab === 'queue' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <Package size={14} />
+          Procurement Queue ({pendingQueue.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('pos')}
+          className={`px-5 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
+            activeTab === 'pos' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <FileText size={14} />
+          Purchase Orders ({purchaseOrders.length})
+        </button>
       </div>
 
       {/* Stats Summary Bar */}

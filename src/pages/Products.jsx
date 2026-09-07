@@ -13,6 +13,7 @@ import {
 import { db, functions } from "../firebase/config";
 import { httpsCallable } from "firebase/functions";
 import DataTable from "../components/common/DataTable";
+import PageHeader from "../components/common/PageHeader";
 import ImageUpload from "../components/common/ImageUpload";
 import { formatCurrency } from "../utils/formatters";
 import Papa from "papaparse";
@@ -931,26 +932,26 @@ const Products = () => {
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-          <Package2 className="mr-3 text-primary" size={28} />
-          Products Catalog
-        </h1>
-        <button
-          onClick={() => {
-            setFormData(initialFormState);
-            setIsModalOpen(true);
-          }}
-          className="bg-[#1b5e20] text-white px-6 py-3 rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-[#2e7d32] transition-all flex items-center group active:scale-95"
-        >
-          <Plus
-            size={18}
-            className="mr-2 group-hover:rotate-90 transition-transform"
-          />
-          Add New Product
-        </button>
-      </div>
+    <div className="space-y-6 pb-10 animate-in fade-in duration-300">
+      <PageHeader
+        title="Products & SKUs Catalog ERP"
+        subtitle="Manage agri-inputs, seed classes, technical agrochemicals, HSN GST rates, multi-pack variants, and instant bulk sync."
+        actions={
+          <button
+            onClick={() => {
+              setFormData(initialFormState);
+              setIsModalOpen(true);
+            }}
+            className="bg-[#1b5e20] text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider shadow-sm hover:bg-[#2e7d32] transition-all flex items-center group active:scale-95"
+          >
+            <Plus
+              size={16}
+              className="mr-2 group-hover:rotate-90 transition-transform"
+            />
+            Add New Product
+          </button>
+        }
+      />
 
       {/* Bulk Operations Section */}
       <div className="space-y-10 animate-in fade-in duration-500">

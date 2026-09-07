@@ -1,8 +1,9 @@
 import React from 'react';
 import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
 
-const MetricCard = ({ title, value, change, icon: Icon, color, onClick }) => {
+const MetricCard = ({ title, label, value, change, icon: Icon, color, onClick }) => {
   const isPositive = change?.startsWith('+');
+  const displayTitle = title || label || '';
 
   const colorMap = {
     green: 'bg-green-50 text-green-600',
@@ -10,7 +11,12 @@ const MetricCard = ({ title, value, change, icon: Icon, color, onClick }) => {
     purple: 'bg-purple-50 text-purple-600',
     orange: 'bg-orange-50 text-orange-600',
     red: 'bg-red-50 text-red-600',
+    amber: 'bg-amber-50 text-amber-600',
+    indigo: 'bg-indigo-50 text-indigo-600',
+    gray: 'bg-gray-50 text-gray-600',
   };
+
+  const badgeColor = colorMap[color] || color || colorMap.green;
 
   return (
     <div
@@ -18,8 +24,8 @@ const MetricCard = ({ title, value, change, icon: Icon, color, onClick }) => {
       className={`bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300 group ${onClick ? 'cursor-pointer active:scale-95' : ''}`}
     >
       <div className="flex items-center justify-between mb-4">
-        <div className={`p-3 rounded-xl transition-colors duration-300 ${colorMap[color] || colorMap.green}`}>
-          <Icon size={24} />
+        <div className={`p-3 rounded-xl transition-colors duration-300 ${badgeColor}`}>
+          {React.isValidElement(Icon) ? Icon : (Icon ? <Icon size={24} /> : null)}
         </div>
         {change && (
           <div className={`flex items-center text-xs font-bold px-2 py-1 rounded-lg ${isPositive ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
@@ -29,7 +35,7 @@ const MetricCard = ({ title, value, change, icon: Icon, color, onClick }) => {
         )}
       </div>
       <div>
-        <p className="text-gray-500 text-sm font-medium mb-1 group-hover:text-gray-700 transition-colors">{title}</p>
+        <p className="text-gray-500 text-sm font-medium mb-1 group-hover:text-gray-700 transition-colors">{displayTitle}</p>
         <h3 className="text-2xl font-bold text-gray-900 tracking-tight">{value}</h3>
       </div>
     </div>

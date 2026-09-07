@@ -1,321 +1,294 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   ShoppingCart,
   Package,
-  Grid3X3,
-  Users,
-  CreditCard,
-  Banknote,
-  Receipt,
-  Image as ImageIcon,
-  Bell,
-  Bike,
-  BarChart3,
-  Settings,
-  LogOut,
-  ChevronLeft,
-  ChevronRight,
-  ChevronDown,
-  RefreshCcw,
-  Activity,
-  Award,
-  Sprout,
-  Wallet,
-  Navigation,
-  AlertTriangle,
-  Calendar,
-  Route as RouteIcon,
-  Cpu,
   Factory,
-  Database,
   ClipboardList,
   PackageCheck,
   History,
-  QrCode,
-  TrendingUp,
-  BookOpen,
+  RefreshCcw,
+  Bike,
   Landmark,
-  Scale,
-  Sparkles,
-  Truck,
-  Sliders,
-  Headphones,
-  AlertOctagon,
-  Star
+  BarChart3,
+  Users,
+  Grid3X3,
+  Settings,
+  ChevronDown,
+  Sprout,
+  Ticket,
+  Gift,
+  X,
+  Briefcase
 } from "lucide-react";
-import { auth } from "../../firebase/config";
 import { useAuth } from "../../hooks/useAuth";
 
-const Sidebar = () => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+const Sidebar = ({ isOpen, setIsOpen }) => {
   const { role } = useAuth();
   const location = useLocation();
+  const [expanded, setExpanded] = useState({});
 
-  const categories = [
-    {
-      id: "operations",
-      label: "Operations & Orders",
-      icon: <ShoppingCart size={16} className="text-emerald-300" />,
-      roles: ["SuperAdmin", "OrderManager", "Viewer", "CatalogManager"],
-      items: [
-        { icon: <LayoutDashboard size={17} />, label: "Dashboard", path: "/", roles: ["SuperAdmin", "CatalogManager", "OrderManager", "Viewer"] },
-        { icon: <ShoppingCart size={17} />, label: "Orders", path: "/orders", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
-        { icon: <QrCode size={17} />, label: "Packing Station", path: "/packing-station", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
-        { icon: <ShoppingCart size={17} />, label: "Abandoned Carts", path: "/abandoned-carts", roles: ["SuperAdmin", "OrderManager"], isNew: true },
-        { icon: <CreditCard size={17} />, label: "Payments", path: "/payments", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
-        { icon: <RefreshCcw size={17} />, label: "Returns", path: "/returns", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
+  const menu = [
+    { 
+      icon: <LayoutDashboard size={18} />, 
+      label: "Dashboard & AI", 
+      id: "dashboard",
+      roles: ["SuperAdmin", "CatalogManager", "OrderManager", "Viewer"],
+      subItems: [
+        { label: "Main Dashboard", path: "/" },
+        { label: "AI Control Room", path: "/ai-control" }
       ]
     },
-    {
-      id: "crm",
-      label: "Customer CRM",
-      icon: <Users size={16} className="text-teal-300" />,
+    { 
+      icon: <ShoppingCart size={18} />, 
+      label: "Orders", 
+      id: "orders",
       roles: ["SuperAdmin", "OrderManager", "Viewer"],
-      items: [
-        { icon: <Activity size={17} />, label: "CRM Overview", path: "/crm-dashboard", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
-        { icon: <Users size={17} />, label: "Farmers (360°)", path: "/customers", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
-        { icon: <Headphones size={17} />, label: "Support Tickets", path: "/support-tickets", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
-        { icon: <AlertOctagon size={17} />, label: "Grievances", path: "/complaints", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
-        { icon: <Star size={17} />, label: "Customer Feedback", path: "/customer-feedback", roles: ["SuperAdmin", "OrderManager", "Viewer"], isNew: true },
+      subItems: [
+        { label: "All Orders", path: "/orders" },
+        { label: "Abandoned Carts", path: "/abandoned-carts" },
+        { label: "Packing Station", path: "/packing-station" }
       ]
     },
-    {
-      id: "supply-chain",
-      label: "Supply Chain & Stock",
-      icon: <Factory size={16} className="text-amber-300" />,
+    { 
+      icon: <Package size={18} />, 
+      label: "Inventory", 
+      id: "inventory",
       roles: ["SuperAdmin", "OrderManager", "CatalogManager", "Viewer"],
-      items: [
-        { icon: <Package size={17} />, label: "SKU Master & Stock", path: "/skus", roles: ["SuperAdmin", "OrderManager", "CatalogManager", "Viewer"], isNew: true },
-        { icon: <Factory size={17} />, label: "Suppliers", path: "/suppliers", roles: ["SuperAdmin", "OrderManager", "CatalogManager", "Viewer"] },
-        { icon: <ClipboardList size={17} />, label: "Procurement", path: "/procurement", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
-        { icon: <PackageCheck size={17} />, label: "Goods Receipt (GRN)", path: "/grn", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
-        { icon: <History size={17} />, label: "Stock Ledger", path: "/inventory-movements", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
+      subItems: [
+        { label: "SKU Dashboard", path: "/inventory" },
+        { label: "Stock Requests", path: "/stock-requests" }
       ]
     },
-    {
-      id: "catalog",
-      label: "Catalog Management",
-      icon: <Package size={16} className="text-lime-300" />,
-      roles: ["SuperAdmin", "CatalogManager", "Viewer"],
-      items: [
-        { icon: <Package size={17} />, label: "Products", path: "/products", roles: ["SuperAdmin", "CatalogManager", "Viewer"] },
-        { icon: <Grid3X3 size={17} />, label: "Categories", path: "/categories", roles: ["SuperAdmin", "CatalogManager", "Viewer"] },
-        { icon: <Database size={17} />, label: "SKU Master Codes", path: "/master-data", roles: ["SuperAdmin", "ADMIN", "CatalogManager", "Viewer"], isNew: true },
-        { icon: <Award size={17} />, label: "Brands", path: "/brands", roles: ["SuperAdmin", "CatalogManager", "Viewer"] },
-        { icon: <Sprout size={17} />, label: "Crops", path: "/crops", roles: ["SuperAdmin", "CatalogManager", "Viewer"] },
-        { icon: <Bell size={17} />, label: "Stock Requests", path: "/stock-requests", roles: ["SuperAdmin", "CatalogManager", "Viewer"] },
-      ]
-    },
-    {
-      id: "fleet",
-      label: "Fleet & Logistics",
-      icon: <Truck size={16} className="text-sky-300" />,
+    { icon: <Factory size={18} />, label: "Warehouses", path: "/warehouses", roles: ["SuperAdmin", "OrderManager"] },
+    { 
+      icon: <ClipboardList size={18} />, 
+      label: "Procurement", 
+      id: "procurement",
       roles: ["SuperAdmin", "OrderManager", "Viewer"],
-      items: [
-        { icon: <Bike size={17} />, label: "Riders", path: "/riders", roles: ["SuperAdmin", "OrderManager"] },
-        { icon: <Activity size={17} />, label: "Rider Intelligence", path: "/rider-performance", roles: ["SuperAdmin", "OrderManager"] },
-        { icon: <RouteIcon size={17} />, label: "Delivery Rules", path: "/delivery-rules", roles: ["SuperAdmin", "OrderManager"], isNew: true },
-        { icon: <Factory size={17} />, label: "Warehouses (Hubs)", path: "/warehouses", roles: ["SuperAdmin", "OrderManager"], isNew: true },
-        { icon: <Navigation size={17} />, label: "Live Tracking", path: "/tracking", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
-        { icon: <RouteIcon size={17} />, label: "Trips & Routes", path: "/trips", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
-        { icon: <Calendar size={17} />, label: "Attendance", path: "/attendance", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
-        { icon: <AlertTriangle size={17} />, label: "SOS Alerts", path: "/sos", roles: ["SuperAdmin", "OrderManager"] },
+      subItems: [
+        { label: "Purchase Orders", path: "/procurement" },
+        { label: "Suppliers", path: "/suppliers" },
       ]
     },
-    {
+    { icon: <PackageCheck size={18} />, label: "GRN", path: "/grn", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
+    { icon: <History size={18} />, label: "Stock Transfers", path: "/transfers", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
+    { icon: <RefreshCcw size={18} />, label: "Returns", path: "/returns", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
+    { 
+      icon: <Bike size={18} />, 
+      label: "Riders & Delivery", 
+      id: "riders",
+      roles: ["SuperAdmin", "OrderManager"],
+      subItems: [
+        { label: "Riders List", path: "/riders" },
+        { label: "Performance", path: "/rider-performance" },
+        { label: "Live Tracking", path: "/tracking" },
+        { label: "Trips History", path: "/trips" },
+        { label: "Attendance", path: "/attendance" },
+        { label: "SOS Alerts", path: "/sos" },
+        { label: "Delivery Rules", path: "/delivery-rules" }
+      ]
+    },
+    { 
+      icon: <Landmark size={18} />, 
+      label: "Finance & Ledger", 
       id: "finance",
-      label: "ERP, Tax & Accounts",
-      icon: <Landmark size={16} className="text-yellow-300" />,
       roles: ["SuperAdmin", "OrderManager"],
-      items: [
-        { icon: <TrendingUp size={17} />, label: "Unit Economics (P&L)", path: "/unit-economics", roles: ["SuperAdmin", "OrderManager"], isNew: true },
-        { icon: <BookOpen size={17} />, label: "Supplier Ledger (A/P)", path: "/supplier-ledger", roles: ["SuperAdmin", "OrderManager"], isNew: true },
-        { icon: <Landmark size={17} />, label: "GST & Tax Filing", path: "/gst-reports", roles: ["SuperAdmin", "OrderManager"], isNew: true },
-        { icon: <Scale size={17} />, label: "Financial Statements", path: "/financial-statements", roles: ["SuperAdmin", "OrderManager"], isNew: true },
-        { icon: <Receipt size={17} />, label: "Expenses", path: "/expenses", roles: ["SuperAdmin", "OrderManager", "Viewer"] },
-        { icon: <Banknote size={17} />, label: "Rider Payouts", path: "/payouts", roles: ["SuperAdmin", "OrderManager"] },
-        { icon: <Wallet size={17} />, label: "Cash Recon", path: "/reconciliation", roles: ["SuperAdmin", "OrderManager"] },
+      subItems: [
+        { label: "Finance Hub", path: "/finance" },
+        { label: "Payments", path: "/payments" },
+        { label: "Expenses", path: "/expenses" },
+        { label: "Add Expense", path: "/expenses/new" },
+        { label: "Expense Categories", path: "/expenses/categories" },
+        { label: "Expense Vendors", path: "/expenses/vendors" },
+        { label: "Payouts", path: "/payouts" },
+        { label: "Reconciliation", path: "/reconciliation" },
+        { label: "Settlement", path: "/settlement" },
+        { label: "GST Reports", path: "/gst-reports" },
+        { label: "Financial Statements", path: "/financial-statements" },
+        { label: "Cap Table & Loans", path: "/finance/cap-table" },
+        { label: "Unit Economics", path: "/unit-economics" },
+        { label: "Supplier Ledger", path: "/supplier-ledger" }
       ]
     },
-    {
-      id: "marketing",
-      label: "Growth & Marketing",
-      icon: <Sparkles size={16} className="text-purple-300" />,
-      roles: ["SuperAdmin", "CatalogManager"],
-      items: [
-        { icon: <ImageIcon size={17} />, label: "Banners", path: "/banners", roles: ["SuperAdmin", "CatalogManager"] },
-        { icon: <Bell size={17} />, label: "Notifications", path: "/notifications", roles: ["SuperAdmin", "CatalogManager"] },
+    { icon: <BarChart3 size={18} />, label: "Reports", path: "/reports", roles: ["SuperAdmin", "OrderManager"] },
+    { 
+      icon: <Users size={18} />, 
+      label: "Customers & Support", 
+      id: "customers",
+      roles: ["SuperAdmin", "OrderManager", "Viewer"],
+      subItems: [
+        { label: "Customers Directory", path: "/customers" },
+        { label: "CRM Dashboard", path: "/crm-dashboard" },
+        { label: "Support Tickets", path: "/support-tickets" },
+        { label: "Complaints", path: "/complaints" },
+        { label: "Customer Feedback", path: "/customer-feedback" }
       ]
     },
-    {
-      id: "intelligence",
-      label: "Intelligence & Admin",
-      icon: <Sliders size={16} className="text-cyan-300" />,
-      roles: ["SuperAdmin", "OrderManager"],
-      items: [
-        { icon: <Cpu size={17} />, label: "AI Control Room", path: "/ai-control", roles: ["SuperAdmin"] },
-        { icon: <BarChart3 size={17} />, label: "Analytics Reports", path: "/reports", roles: ["SuperAdmin", "OrderManager"] },
-        { icon: <Activity size={17} />, label: "Audit Logs", path: "/audit-logs", roles: ["SuperAdmin"] },
-        { icon: <Users size={17} />, label: "Staff Access", path: "/staff", roles: ["SuperAdmin"] },
-        { icon: <Settings size={17} />, label: "Settings", path: "/settings", roles: ["SuperAdmin"] },
+    { 
+      icon: <Grid3X3 size={18} />, 
+      label: "Products & SKUs", 
+      id: "products",
+      roles: ["SuperAdmin", "CatalogManager", "Viewer"],
+      subItems: [
+        { label: "All Products", path: "/products" },
+        { label: "Add New Product", path: "/product/new" },
+        { label: "Categories", path: "/categories" },
+        { label: "Brands", path: "/brands" },
+        { label: "Crops", path: "/crops" },
+        { label: "Master Data", path: "/master-data" }
       ]
-    }
+    },
+    { icon: <Ticket size={18} />, label: "Coupons & Offers", path: "/coupons", roles: ["SuperAdmin", "CatalogManager"] },
+    { icon: <Gift size={18} />, label: "Refer & Earn", path: "/referrals", roles: ["SuperAdmin", "OrderManager", "CatalogManager", "Viewer"] },
+    { 
+      icon: <Briefcase size={18} />, 
+      label: "HR & Workforce", 
+      id: "hr_workforce",
+      roles: ["SuperAdmin", "HRAdmin", "HRExecutive", "FinanceAdmin", "OperationsAdmin", "DepartmentManager"],
+      subItems: [
+        { label: "Employees", path: "/hr/employees" },
+        { label: "Riders (HR)", path: "/hr/riders" },
+        { label: "Employee Documents", path: "/hr/documents" },
+        { label: "Rider Documents", path: "/hr/rider-documents" },
+        { label: "Document Verification", path: "/hr/document-verification" },
+        { label: "Expiring Documents", path: "/hr/expiring-documents" },
+        { label: "Expired Documents", path: "/hr/expired-documents" },
+        { label: "Background Verification", path: "/hr/background-verification" },
+        { label: "Training & Certs", path: "/hr/training" },
+        { label: "Physical Files", path: "/hr/physical-files" },
+        { label: "Company Assets", path: "/hr/company-assets" },
+        { label: "Contracts & NDAs", path: "/hr/contracts" },
+        { label: "Exit Management", path: "/hr/exit-management" },
+        { label: "HR Dashboard", path: "/hr/dashboard" },
+        { label: "Agri & Statutory Licenses", path: "/hr/licenses" },
+        { label: "Leave & Attendance", path: "/hr/leave-attendance" },
+        { label: "Statutory Payroll & Slips", path: "/hr/payroll" },
+        { label: "HR Reports", path: "/hr/reports" },
+        { label: "Document Settings", path: "/hr/settings" }
+      ]
+    },
+    { 
+      icon: <Settings size={18} />, 
+      label: "Administration", 
+      id: "administration",
+      roles: ["SuperAdmin"],
+      subItems: [
+        { label: "Global Settings", path: "/settings" },
+        { label: "Staff Management", path: "/staff" },
+        { label: "Audit Logs", path: "/audit-logs" },
+        { label: "App Banners", path: "/banners" },
+        { label: "Push Notifications", path: "/notifications" }
+      ]
+    },
   ];
 
-  // Expanded Categories State (defaults all to open, allows user toggle)
-  const [expandedCategories, setExpandedCategories] = useState({
-    operations: true,
-    crm: true,
-    "supply-chain": true,
-    catalog: true,
-    fleet: true,
-    finance: true,
-    marketing: true,
-    intelligence: true
-  });
-
-  // Auto-expand category containing current active route
-  useEffect(() => {
-    categories.forEach(cat => {
-      if (cat.items.some(item => item.path === location.pathname)) {
-        setExpandedCategories(prev => ({ ...prev, [cat.id]: true }));
-      }
-    });
-  }, [location.pathname]);
-
-  const toggleCategory = (catId) => {
-    setExpandedCategories(prev => ({
-      ...prev,
-      [catId]: !prev[catId]
-    }));
-  };
+  const toggleExpand = (id) => setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
 
   return (
-    <div
-      className={`h-screen bg-[#144217] text-white flex flex-col transition-all duration-300 ${isCollapsed ? "w-20" : "w-72"} select-none shadow-2xl border-r border-white/5`}
-    >
-      {/* Brand Header */}
-      <div className="p-4 flex items-center justify-between border-b border-white/10 bg-[#0e3311]">
-        {!isCollapsed ? (
-          <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500 to-green-300 flex items-center justify-center shadow-md">
-              <Sprout size={18} className="text-[#0e3311] font-black" />
+    <>
+      {/* Mobile overlay */}
+      {isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-20 lg:hidden"
+          onClick={() => setIsOpen(false)}
+        />
+      )}
+      <div className={`w-[260px] h-screen bg-white flex flex-col border-r border-gray-100 shadow-sm z-30 flex-shrink-0 transition-transform duration-300 absolute lg:relative ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:hidden'}`}>
+        {/* Brand */}
+        <div className="p-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-green-50 text-green-700 flex items-center justify-center">
+              <Sprout size={20} />
             </div>
             <div>
-              <span className="text-base font-black tracking-wider text-white">KrishiVishal</span>
-              <p className="text-[9px] font-mono text-emerald-400 font-bold uppercase tracking-widest leading-none">Enterprise ERP</p>
+              <h1 className="text-lg font-black text-gray-900 leading-tight">KrishiVishal</h1>
+              <p className="text-[10px] text-gray-500 font-medium">Admin Panel</p>
             </div>
           </div>
-        ) : (
-          <div className="w-8 h-8 mx-auto rounded-xl bg-gradient-to-tr from-emerald-500 to-green-300 flex items-center justify-center shadow-md">
-            <Sprout size={18} className="text-[#0e3311]" />
-          </div>
-        )}
-        <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          className="hover:bg-white/10 p-1.5 rounded-lg text-white/70 hover:text-white transition-colors"
-          title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-        >
-          {isCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-        </button>
-      </div>
+          <button className="lg:hidden p-1 bg-gray-50 text-gray-500 hover:text-gray-900 rounded-md" onClick={() => setIsOpen(false)}>
+            <X size={18} />
+          </button>
+        </div>
 
-      {/* Navigation Accordion List */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2.5 space-y-1.5 custom-scrollbar">
-        {categories.map((category) => {
-          const filteredItems = category.items.filter(item => item.roles.includes(role || "Viewer"));
-          if (filteredItems.length === 0) return null;
-
-          const isExpanded = expandedCategories[category.id] !== false;
-          const hasActiveChild = filteredItems.some(i => i.path === location.pathname);
-
-          return (
-            <div key={category.id} className="rounded-xl overflow-hidden bg-white/[0.02] border border-white/[0.04]">
-              {/* Category Header */}
-              {!isCollapsed ? (
+      {/* Menu */}
+      <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1 custom-scrollbar">
+        {menu.filter(m => m.roles.includes(role || "Viewer")).map((item) => {
+          if (item.subItems) {
+            const isExpanded = expanded[item.id];
+            const isActiveChild = item.subItems.some(sub => location.pathname === sub.path);
+            return (
+              <div key={item.id} className="mb-1">
                 <button
-                  onClick={() => toggleCategory(category.id)}
-                  className={`w-full flex items-center justify-between px-3 py-2 text-left hover:bg-white/5 transition-all group ${
-                    hasActiveChild ? "text-emerald-300 font-black" : "text-white/60"
+                  onClick={() => toggleExpand(item.id)}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all ${
+                    isActiveChild ? "bg-green-50 text-green-800 font-bold" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                   }`}
                 >
-                  <div className="flex items-center space-x-2">
-                    <span className="opacity-80 group-hover:opacity-100">{category.icon}</span>
-                    <span className="text-[10.5px] font-black uppercase tracking-wider text-white/80 group-hover:text-white">
-                      {category.label}
-                    </span>
+                  <div className="flex items-center gap-3">
+                    <span className={isActiveChild ? "text-green-700" : "text-gray-400"}>{item.icon}</span>
+                    <span className="text-[13px] font-semibold">{item.label}</span>
                   </div>
-                  <div className="flex items-center space-x-1.5">
-                    <span className="text-[9px] font-mono font-bold bg-white/10 text-white/60 px-1.5 py-0.2 rounded-full">
-                      {filteredItems.length}
-                    </span>
-                    <ChevronDown
-                      size={13}
-                      className={`text-white/40 group-hover:text-white transition-transform duration-200 ${
-                        isExpanded ? "rotate-0" : "-rotate-90"
-                      }`}
-                    />
-                  </div>
+                  <ChevronDown size={14} className={`text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                 </button>
-              ) : (
-                <div className="p-2 text-center text-white/40 hover:text-white cursor-pointer" title={category.label}>
-                  {category.icon}
-                </div>
-              )}
+                {isExpanded && (
+                  <div className="ml-9 mt-1 space-y-1 border-l-2 border-gray-100 pl-2">
+                    {item.subItems.map(sub => (
+                      <NavLink
+                        key={sub.path}
+                        to={sub.path}
+                        className={({ isActive }) =>
+                          `block px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                            isActive ? "bg-[#0B4D31] text-white shadow-md shadow-[#0B4D31]/30" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                          }`
+                        }
+                      >
+                        {sub.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          }
 
-              {/* Items List (Collapsible) */}
-              {(isExpanded || isCollapsed) && (
-                <div className={`${!isCollapsed ? "pb-1.5 px-1 space-y-0.5" : "space-y-1"}`}>
-                  {filteredItems.map((item) => (
-                    <NavLink
-                      key={item.path}
-                      to={item.path}
-                      title={isCollapsed ? item.label : undefined}
-                      className={({ isActive }) =>
-                        `flex items-center space-x-2.5 px-3 py-2 rounded-lg transition-all text-xs font-bold ${
-                          isActive
-                            ? "bg-emerald-600 text-white shadow-md font-black"
-                            : "text-white/70 hover:bg-white/10 hover:text-white"
-                        } ${isCollapsed ? "justify-center px-0 py-2.5" : ""}`
-                      }
-                    >
-                      <div className="min-w-[18px] flex items-center justify-center opacity-90">{item.icon}</div>
-                      {!isCollapsed && (
-                        <div className="flex-1 flex items-center justify-between">
-                          <span className="truncate">{item.label}</span>
-                          {item.isNew && (
-                            <span className="text-[8.5px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-emerald-400/20 text-emerald-300 border border-emerald-400/30">
-                              NEW
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </NavLink>
-                  ))}
-                </div>
+          return (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-[13px] font-semibold mb-1 ${
+                  isActive
+                    ? "bg-[#0B4D31] text-white shadow-md shadow-[#0B4D31]/30"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                }`
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <span className={isActive ? "text-white" : "text-gray-400"}>{item.icon}</span>
+                  {item.label}
+                </>
               )}
-            </div>
+            </NavLink>
           );
         })}
-      </nav>
-
-      {/* Footer User & Logout */}
-      <div className="p-3 border-t border-white/10 bg-[#0e3311]">
-        <button
-          onClick={() => auth.signOut()}
-          className={`flex items-center space-x-2.5 px-3 py-2.5 w-full hover:bg-red-500/20 text-red-300 hover:text-red-200 transition-all rounded-xl text-xs font-black uppercase tracking-wider ${
-            isCollapsed ? "justify-center px-0" : ""
-          }`}
-          title="Logout"
-        >
-          <LogOut size={16} />
-          {!isCollapsed && <span>Logout</span>}
-        </button>
       </div>
-    </div>
+
+      {/* Bottom Version Card */}
+      <div className="p-4">
+        <div className="bg-[#EAF5F0] rounded-2xl p-4 flex flex-col items-center justify-center text-center">
+           <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm mb-2 text-[#0B4D31]">
+             <Sprout size={20} />
+           </div>
+           <h3 className="text-sm font-black text-[#0B4D31]">KrishiVishal</h3>
+           <p className="text-[10px] text-green-800/70 font-semibold mb-2">Agri Supply Chain ERP</p>
+           <span className="text-[9px] font-bold text-green-700/60 uppercase">Version 2.0.0</span>
+        </div>
+      </div>
+      </div>
+    </>
   );
 };
-
 export default Sidebar;

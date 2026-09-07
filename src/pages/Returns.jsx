@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useReturns } from '../hooks/useReturns';
 import DataTable from '../components/common/DataTable';
+import PageHeader from '../components/common/PageHeader';
+import MetricCard from '../components/common/MetricCard';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
-import { RefreshCcw, Search, Filter, Eye, X, CheckCircle2, Ban, Truck, ShieldAlert, MapPin, User } from 'lucide-react';
+import { RefreshCcw, Search, Filter, Eye, X, CheckCircle2, Ban, Truck, ShieldAlert, MapPin, User, Package, AlertTriangle, Inbox } from 'lucide-react';
 import StatusBadge from '../components/common/StatusBadge';
 import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -31,6 +33,7 @@ const Returns = () => {
   const [selectedRiderId, setSelectedRiderId] = useState('');
   const [orderDetails, setSelectedOrderDetails] = useState(null);
   const [refundAmount, setRefundAmount] = useState('');
+  const [refundDestination, setRefundDestination] = useState('WALLET'); // 'WALLET' | 'GATEWAY'
   const [isRefunding, setIsRefunding] = useState(false);
 
   useEffect(() => {
@@ -68,8 +71,12 @@ const Returns = () => {
     try {
       const functions = getFunctions();
       const initiateRefund = httpsCallable(functions, 'initiateRefund');
-      await initiateRefund({ returnId: selectedReturn.id, refundAmount: Number(refundAmount) });
-      toast.success('Refund initiated successfully');
+      await initiateRefund({
+        returnId: selectedReturn.id,
+        refundAmount: Number(refundAmount),
+        refundDestination: refundDestination, // 'WALLET' or 'GATEWAY'
+      });
+      toast.success(`Refund initiated via ${refundDestination === 'WALLET' ? 'Customer Wallet' : 'Razorpay Gateway'}`);
       setSelectedReturn(null);
     } catch (error) {
       console.error(error);
@@ -110,13 +117,28 @@ const Returns = () => {
     )}
   ];
 
+  // KPI Metrics
+  const metrics = useMemo(() => {
+    const requested = returns.filter(r => r.status === 'REQUESTED').length;
+    const approved = returns.filter(r => r.status === 'APPROVED').length;
+    const completed = returns.filter(r => r.status === 'COMPLETED').length;
+    const rejected = returns.filter(r => r.status === 'REJECTED').length;
+    return { total: returns.length, requested, approved, completed, rejected };
+  }, [returns]);
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-          <RefreshCcw className="mr-3 text-orange-500" size={28} />
-          Returns & Refunds
-        </h1>
+    <div className="space-y-6 pb-10 animate-in fade-in duration-300">
+      <PageHeader
+        title="Returns & Refund Management"
+        subtitle="Track return requests, manage pickups, QC, and process refunds via backend Cloud Functions"
+      />
+
+      {/* KPI Metric Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCard label="Total Returns" value={metrics.total} icon={Package} color="blue" />
+        <MetricCard label="Requested" value={metrics.requested} icon={AlertTriangle} color="amber" />
+        <MetricCard label="Approved" value={metrics.approved} icon={CheckCircle2} color="green" />
+        <MetricCard label="Completed" value={metrics.completed} icon={ShieldAlert} color="indigo" />
       </div>
 
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap items-center gap-4">
@@ -217,12 +239,36 @@ const Returns = () => {
                           onChange={(e) => setRefundAmount(e.target.value)}
                           className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-primary/20"
                         />
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <button
+                            type="button"
+                            onClick={() => setRefundDestination('WALLET')}
+                            className={`py-1.5 px-2 rounded-lg font-bold border transition-all ${
+                              refundDestination === 'WALLET'
+                                ? 'bg-primary/10 border-primary text-primary-dark font-black'
+                                : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
+                            }`}
+                          >
+                            👛 Wallet
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRefundDestination('GATEWAY')}
+                            className={`py-1.5 px-2 rounded-lg font-bold border transition-all ${
+                              refundDestination === 'GATEWAY'
+                                ? 'bg-blue-50 border-blue-500 text-blue-600 font-black'
+                                : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
+                            }`}
+                          >
+                            💳 Gateway
+                          </button>
+                        </div>
                         <button 
                           onClick={handleRefund}
                           disabled={isRefunding}
                           className="w-full py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md hover:bg-blue-700 disabled:opacity-50"
                         >
-                          {isRefunding ? 'PROCESSING...' : 'INITIATE REFUND'}
+                          {isRefunding ? 'PROCESSING...' : `REFUND TO ${refundDestination === 'WALLET' ? 'WALLET' : 'GATEWAY'}`}
                         </button>
                       </div>
                     ) : null}

@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, onSnapshot, writeBatch, doc } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { Wallet, CheckCircle, TrendingUp, AlertTriangle, Users, Truck, Clock, IndianRupee } from 'lucide-react';
+import { Wallet, CheckCircle, TrendingUp, AlertTriangle, Users, Truck, Clock, IndianRupee, RefreshCcw, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DataTable from '../components/common/DataTable';
+import PageHeader from '../components/common/PageHeader';
+import MetricCard from '../components/common/MetricCard';
 
 const Settlement = () => {
   const [orders, setOrders] = useState([]);
@@ -73,6 +75,15 @@ const Settlement = () => {
     return Array.from(map.values());
   }, [orders]);
 
+  // Aggregated metrics
+  const metrics = useMemo(() => {
+    const totalCollected = ledgers.reduce((s, l) => s + l.totalCashCollected, 0);
+    const totalSettled = ledgers.reduce((s, l) => s + l.settledCash, 0);
+    const totalPending = ledgers.reduce((s, l) => s + l.pendingCash, 0);
+    const ridersWithPending = ledgers.filter(l => l.pendingCash > 0).length;
+    return { totalCollected, totalSettled, totalPending, ridersWithPending };
+  }, [ledgers]);
+
   const handleSettle = async (riderId, pendingOrderIds) => {
     if (pendingOrderIds.length === 0) return;
     if (!window.confirm('Settle this amount with rider?')) return;
@@ -91,9 +102,14 @@ const Settlement = () => {
 
   const columns = [
     { header: 'Rider Info', render: (l) => (
-      <div className="flex flex-col">
-        <span className="font-black text-gray-900 tracking-tight">{riders[l.riderId] || l.riderId}</span>
-        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">ID: {l.riderId.slice(0, 8)}</span>
+      <div className="flex items-center gap-3">
+        <div className="h-9 w-9 bg-[#1b5e20] text-white rounded-xl flex items-center justify-center font-black text-sm shadow-md shadow-green-100">
+          {(riders[l.riderId] || '?').charAt(0)}
+        </div>
+        <div className="flex flex-col">
+          <span className="font-black text-gray-900 tracking-tight text-sm">{riders[l.riderId] || l.riderId}</span>
+          <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">ID: {l.riderId.slice(0, 8)}</span>
+        </div>
       </div>
     )},
     { header: 'Current Trip', render: (l) => (
@@ -110,15 +126,22 @@ const Settlement = () => {
     )},
     { header: 'Cash Collected', render: (l) => (
       <div className="flex flex-col">
-        <span className="font-bold text-gray-900">₹{l.totalCashCollected}</span>
+        <span className="font-bold text-gray-900 text-sm">₹{l.totalCashCollected.toLocaleString('en-IN')}</span>
         <span className="text-[9px] text-gray-400 font-medium uppercase tracking-tighter italic">Lifetime</span>
       </div>
     )},
+    { header: 'Settled', render: (l) => (
+      <span className="text-sm font-bold text-green-700">₹{l.settledCash.toLocaleString('en-IN')}</span>
+    )},
     { header: 'Cash in Hand', render: (l) => (
-      <div className="flex items-center space-x-2 bg-orange-50 px-3 py-1.5 rounded-xl border border-orange-100 w-fit">
-        <IndianRupee size={12} className="text-orange-600" />
-        <span className="text-orange-700 font-black tracking-tight">₹{l.pendingCash}</span>
-      </div>
+      l.pendingCash > 0 ? (
+        <div className="flex items-center space-x-2 bg-orange-50 px-3 py-1.5 rounded-xl border border-orange-100 w-fit">
+          <IndianRupee size={12} className="text-orange-600" />
+          <span className="text-orange-700 font-black tracking-tight">₹{l.pendingCash.toLocaleString('en-IN')}</span>
+        </div>
+      ) : (
+        <span className="text-xs font-bold text-green-600">₹0 — Clear</span>
+      )
     )},
     { header: 'Action', render: (l) => (
       <button
@@ -128,22 +151,29 @@ const Settlement = () => {
           l.pendingCash === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-primary text-white shadow-xl shadow-green-100 hover:bg-primary-dark hover:-translate-y-0.5'
         }`}
       >
-        {l.pendingCash === 0 ? 'Settled' : 'Collect Cash'}
+        {l.pendingCash === 0 ? 'Settled ✓' : 'Collect Cash'}
       </button>
     )}
   ];
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="page-header">
-        <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-          <Wallet className="mr-3 text-primary" size={28} />
-          COD Settlement Desk
-        </h1>
-        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1 ml-11">Manage rider cash collections</p>
+    <div className="space-y-6 pb-10 animate-in fade-in duration-300">
+      <PageHeader
+        title="COD Settlement Desk"
+        subtitle="Manage rider cash collections, verify deposits, and clear liabilities"
+      />
+
+      {/* KPI Metric Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCard label="Total COD Collected" value={`₹${metrics.totalCollected.toLocaleString('en-IN')}`} icon={Wallet} color="blue" />
+        <MetricCard label="Settled" value={`₹${metrics.totalSettled.toLocaleString('en-IN')}`} icon={CheckCircle} color="green" />
+        <MetricCard label="Pending Cash" value={`₹${metrics.totalPending.toLocaleString('en-IN')}`} icon={AlertTriangle} color="amber" />
+        <MetricCard label="Riders w/ Pending" value={metrics.ridersWithPending} icon={Users} color="red" />
       </div>
 
-      <DataTable columns={columns} data={ledgers} loading={loading} />
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <DataTable columns={columns} data={ledgers} loading={loading} />
+      </div>
     </div>
   );
 };

@@ -13,6 +13,7 @@ import {
 import { collection, query, onSnapshot, orderBy, limit } from "firebase/firestore";
 import { db } from "../firebase/config";
 import DataTable from "../components/common/DataTable";
+import PageHeader from "../components/common/PageHeader";
 
 const RiderPerformance = () => {
   const [performanceData, setPerformanceData] = useState([]);
@@ -101,16 +102,11 @@ const RiderPerformance = () => {
   ];
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 pb-20">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight flex items-center uppercase">
-            <Trophy className="mr-3 text-primary" size={32} />
-            Rider Leaderboard
-          </h1>
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] ml-11">Active Performance Intelligence</p>
-        </div>
-      </div>
+    <div className="space-y-8 animate-in fade-in duration-300 pb-20">
+      <PageHeader
+        title="Rider Performance & Analytics"
+        subtitle="Active performance intelligence, SLA adherence, speed scores, and leaderboards"
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm space-y-4">

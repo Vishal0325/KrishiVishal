@@ -65,6 +65,31 @@ service cloud.firestore {
 
     // ========== ADMIN / SYSTEM COLLECTIONS ==========
 
+    match /warehouses/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    match /warehouse_serviceability/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    match /warehouse_inventory/{id} {
+      allow read: if isAdmin();
+      allow write: if false; // Only Cloud Functions can mutate inventory
+    }
+    
+    match /inventory_movements/{id} {
+      allow read: if isAdmin();
+      allow write: if false; // Only Cloud Functions can log movements
+    }
+    
+    match /stock_transfers/{id} {
+      allow read: if isAdmin();
+      allow write: if false; // Handled via Cloud Functions
+    }
+
     match /settings/{id} {
       allow read: if isAuthenticated(); // App needs to read config, but should be authenticated
       allow write: if isAdmin();
@@ -141,6 +166,126 @@ service cloud.firestore {
       allow write: if isAdmin() || request.auth.uid == 'system';
     }
     
+    // ========== HR & WORKFORCE COLLECTIONS ==========
+    
+    match /employees/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+    
+    match /rider_hr_profiles/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+    
+    match /workforce_documents/{id} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() &&
+        // Protect server-controlled fields from client modification
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'ownerId', 'ownerType', 'verificationStatus', 'verifiedBy', 
+          'retentionStatus', 'legalHold', 'accessLevel', 'sensitivityLevel'
+        ]) || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin"]);
+      allow delete: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin"];
+    }
+    
+    match /document_requirements/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin"];
+    }
+    
+    match /physical_files/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+    
+    match /training/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+    
+    match /assets/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+    
+    match /contracts/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin"];
+    }
+    
+    match /background_verification/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin"];
+    }
+    
+    match /document_settings/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin"];
+    }
+    
+    match /statutory_licenses/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin", "DepartmentManager"];
+    }
+    
+    match /leave_requests/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+    
+    match /leave_balances/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+    
+    match /employee_attendance/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+    
+    match /company_holidays/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    match /employee_salary_structures/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin", "FinanceAdmin"];
+    }
+    
+    match /monthly_payroll_runs/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin", "FinanceAdmin"];
+    }
+    
+    match /system_counters/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin(); // Should be restricted more, but okay for Admin panel transaction
+    }
+
+    // Corporate Governance, Cap Table & Debt
+    match /corporate_capital/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "FinanceAdmin"];
+    }
+    match /corporate_shareholders/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "FinanceAdmin"];
+    }
+    match /corporate_loans/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "FinanceAdmin"];
+    }
+    match /corporate_interest_ledger/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "FinanceAdmin"];
+    }
+    match /corporate_funding_rounds/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "FinanceAdmin"];
+    }
+
     // ========== DEFAULT DENY ==========
     match /{document=**} {
       allow read, write: if isAdmin();

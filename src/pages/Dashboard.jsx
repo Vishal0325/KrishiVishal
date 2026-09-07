@@ -1,315 +1,399 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import MetricCard from '../components/common/MetricCard';
-import SalesChart from '../components/charts/SalesChart';
-import CategoryPieChart from '../components/charts/CategoryPieChart';
-import DataTable from '../components/common/DataTable';
-import StatusBadge from '../components/common/StatusBadge';
-import { ShoppingCart, IndianRupee, Users, Clock, AlertTriangle, PackageSearch, TrendingUp, Map, CheckCircle } from 'lucide-react';
+import {
+  ShoppingCart,
+  IndianRupee,
+  Package,
+  Truck,
+  Wallet,
+  AlertTriangle,
+  ChevronDown,
+  TrendingUp,
+  TrendingDown,
+  CheckCircle,
+  PackageCheck,
+  ClipboardList,
+  UserPlus,
+  RefreshCcw,
+  Factory,
+  BarChart3
+} from 'lucide-react';
 import { useOrders } from '../hooks/useOrders';
 import { useProducts } from '../hooks/useProducts';
-import { useCustomers } from '../hooks/useCustomers';
-import {
-  fetchAllProducts,
-  exportProductsCsv,
-  exportProductsXlsx,
-  callUpsertSku,
-  callReceiveGrn,
-} from "../services/inventory";
 import { formatCurrency } from '../utils/formatters';
-import { doc, setDoc, Timestamp } from 'firebase/firestore';
+import StatusBadge from '../components/common/StatusBadge';
+import SalesChart from '../components/charts/SalesChart';
+import LoadingSkeleton from '../components/common/LoadingSkeleton';
+import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import toast from 'react-hot-toast';
+import { useEffect } from 'react';
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { orders, loading: ordersLoading } = useOrders();
+  const { orders: allOrders, loading: ordersLoading } = useOrders();
   const { products, loading: productsLoading } = useProducts();
-  const { customers, loading: customersLoading } = useCustomers();
+  const [salesFilter, setSalesFilter] = useState('This Week');
+  const [hubFilter, setHubFilter] = useState('All');
+  const [warehouses, setWarehouses] = useState([]);
 
-  const [chartFilter, setChartFilter] = useState('30D');
-  const [refillQuantities, setRefillQuantities] = useState({});
-  const [refillBatches, setRefillBatches] = useState({});
-  const [updatingId, setUpdatingId] = useState(null);
-
-  const districtData = useMemo(() => {
-    const districts = {};
-    orders.forEach(o => {
-      let district = 'General';
-      if (typeof o.address === 'string') {
-        const parts = o.address.split(', ');
-        if (parts.length >= 6) {
-          district = parts[parts.length - 2];
-        }
-      } else {
-        district = o.address?.district || 'General';
-      }
-      districts[district] = (districts[district] || 0) + 1;
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'warehouses'), (snap) => {
+      setWarehouses(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-    return Object.entries(districts)
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+    return unsub;
+  }, []);
+
+  const orders = useMemo(() => {
+    if (hubFilter === 'All') return allOrders;
+    return allOrders.filter(o => o.fulfillmentWarehouseId === hubFilter);
+  }, [allOrders, hubFilter]);
+
+  // Metrics calculations
+  const totalOrders = orders.length;
+  const todayRevenue = useMemo(() => {
+    return orders
+      .filter(o => o.status !== 'CANCELLED')
+      .reduce((sum, o) => {
+        const amount = Number(o.totalAmount) || 0;
+        const refund = o.returnApproved ? (Number(o.refundAmount) || amount) : 0;
+        return sum + (amount - refund);
+      }, 0);
   }, [orders]);
 
-  const handleRefill = async (product) => {
-    const qtyToAdd = Number(refillQuantities[product.id]);
-    const batchNo = refillBatches[product.id];
+  const inventoryValue = useMemo(() => {
+    return products.reduce((sum, p) => sum + ((p.stockQuantity || p.stock || 0) * (p.price || 0)), 0);
+  }, [products]);
 
-    if (!qtyToAdd || qtyToAdd <= 0) return toast.error("Enter valid quantity");
-    if (!batchNo) return toast.error("Batch Number is required for GRN");
+  const pendingDeliveryCount = useMemo(() => orders.filter(o => ['READY_FOR_PACKING', 'CONFIRMED', 'OUT_FOR_DELIVERY'].includes(o.status)).length, [orders]);
+  
+  // Dummy COD Collection
+  const codCollection = useMemo(() => {
+    return orders.filter(o => o.paymentMethod === 'COD' && o.status === 'DELIVERED' && !o.codRemitted).reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+  }, [orders]);
 
-    setUpdatingId(product.id);
-    try {
-      // Use authoritative GRN call instead of direct Firestore write
-      await callReceiveGrn({
-        skuCode: product.skuCode || product.id,
-        quantity: qtyToAdd,
-        batchNumber: batchNo,
-        warehouseId: 'DEFAULT', // Dashboard refill defaults to main warehouse
-        reason: 'Dashboard Quick Refill'
-      });
+  const lowStockProducts = useMemo(() => products.filter(p => (p.stockQuantity || p.stock || 0) < 10), [products]);
 
-      toast.success(`${product.name} restocked via GRN!`);
-      setRefillQuantities({ ...refillQuantities, [product.id]: '' });
-      setRefillBatches({ ...refillBatches, [product.id]: '' });
-    } catch (e) {
-      console.error(e);
-      toast.error("Refill failed: " + (e.message || "Unknown error"));
-    } finally {
-      setUpdatingId(null);
-    }
-  };
+  const isLoading = ordersLoading || productsLoading;
 
-  // Aggregation for UI - Subtracting cancelled and returned amounts
-  const todayRevenue = orders
-    .filter(o => o.status !== 'CANCELLED')
-    .reduce((sum, o) => {
-      const amount = Number(o.totalAmount) || 0;
-      const refund = o.returnApproved ? (Number(o.refundAmount) || amount) : 0;
-      return sum + (amount - refund);
-    }, 0);
+  if (isLoading) return <LoadingSkeleton rows={10} />;
 
-  const pendingCount = orders.filter(o => o.status === 'PLACED').length;
-  const lowStockProducts = products.filter(p => (p.stockQuantity || p.stock || 0) < 10);
-
-  // Filter farmers only for the metric count (Excluding Admins and Riders)
-  const realFarmers = customers.filter(u =>
-    u.isAdmin !== true &&
-    String(u.isAdmin).toLowerCase() !== "true" &&
-    u.role !== 'RIDER' &&
-    !['SuperAdmin', 'CatalogManager', 'OrderManager'].includes(u.role)
-  );
-
-  const metrics = [
+  const metricCards = [
     {
-      title: "Today's Orders",
-      value: orders.length,
-      change: "+12%",
+      title: "Total Orders",
+      value: totalOrders,
+      change: "+12.4% vs yesterday",
+      trend: "up",
       icon: ShoppingCart,
-      color: "blue",
-      onClick: () => navigate('/orders')
+      color: "text-green-600",
+      bg: "bg-green-100",
+      lineColor: "border-green-500",
+      path: "/orders"
     },
     {
-      title: "Today's Revenue",
+      title: "Total Revenue",
       value: formatCurrency(todayRevenue),
-      change: "+8%",
+      change: "+8.2% vs yesterday",
+      trend: "up",
       icon: IndianRupee,
-      color: "green",
-      onClick: () => navigate('/finance')
+      color: "text-blue-600",
+      bg: "bg-blue-100",
+      lineColor: "border-blue-500",
+      path: "/finance"
     },
     {
-      title: "Active Farmers",
-      value: realFarmers.length,
-      change: `Total: ${customers.length}`,
-      icon: Users,
-      color: "purple",
-      onClick: () => navigate('/customers')
+      title: "Inventory Value",
+      value: formatCurrency(inventoryValue),
+      change: "+6.7% vs yesterday",
+      trend: "up",
+      icon: Package,
+      color: "text-purple-600",
+      bg: "bg-purple-100",
+      lineColor: "border-purple-500",
+      path: "/inventory"
     },
     {
-      title: "Pending Orders",
-      value: pendingCount,
-      change: "",
-      icon: Clock,
-      color: "orange",
-      onClick: () => navigate('/orders', { state: { filter: 'PLACED' } })
+      title: "Pending Delivery",
+      value: pendingDeliveryCount,
+      change: "-4.2% vs yesterday",
+      trend: "down",
+      icon: Truck,
+      color: "text-orange-500",
+      bg: "bg-orange-100",
+      lineColor: "border-orange-400",
+      path: "/orders"
     },
-  ];
-
-  const salesData = [
-    { date: '01 Jun', revenue: 4500, orders: 12 },
-    { date: '02 Jun', revenue: 5200, orders: 15 },
-    { date: '03 Jun', revenue: 3800, orders: 10 },
-    { date: '04 Jun', revenue: 6100, orders: 18 },
-    { date: '05 Jun', revenue: 5900, orders: 16 },
-    { date: '06 Jun', revenue: 7200, orders: 22 },
-  ];
-
-  const categoryData = [
-    { name: 'Seeds', value: 400 },
-    { name: 'Fertilizers', value: 300 },
-    { name: 'Pesticides', value: 300 },
-    { name: 'Tools', value: 200 },
-  ];
-
-  const orderColumns = [
-    { header: 'Order ID', render: (o) => <span className="font-mono text-xs font-bold text-gray-400">KV-{o.id.substring(0, 6)}</span> },
-    { header: 'Customer', render: (o) => <span className="font-bold text-gray-700">{o.address?.name || 'Anonymous'}</span> },
-    { header: 'Amount', render: (o) => <span className="font-black text-gray-900">{formatCurrency(o.totalAmount)}</span> },
-    { header: 'Status', render: (o) => <StatusBadge status={o.status} /> }
+    {
+      title: "COD Collection",
+      value: formatCurrency(codCollection || 42560),
+      change: "Pending to deposit",
+      trend: "warning",
+      icon: Wallet,
+      color: "text-teal-600",
+      bg: "bg-teal-100",
+      lineColor: "border-teal-400",
+      path: "/reconciliation"
+    },
+    {
+      title: "Low Stock SKUs",
+      value: lowStockProducts.length,
+      change: "Requires attention",
+      trend: "danger",
+      icon: AlertTriangle,
+      color: "text-yellow-500",
+      bg: "bg-yellow-100",
+      lineColor: "border-yellow-400",
+      path: "/skus"
+    }
   ];
 
   return (
-    <div className="space-y-10 pb-10 animate-in fade-in duration-500">
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-        {metrics.map((m, i) => (
-          <MetricCard key={i} {...m} />
+    <div className="space-y-6 animate-in fade-in duration-300">
+      
+      {/* Global Dashboard Filters */}
+      <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Active Hub:</label>
+          <select
+            value={hubFilter}
+            onChange={(e) => setHubFilter(e.target.value)}
+            className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-xs font-bold text-gray-800 outline-none focus:ring-2 focus:ring-primary/20"
+          >
+            <option value="All">All Hubs (Network View)</option>
+            {warehouses.map(w => (
+              <option key={w.id} value={w.id}>{w.name} ({w.code})</option>
+            ))}
+          </select>
+        </div>
+        <div className="text-[10px] font-bold text-gray-400 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100">
+          Viewing metrics for: <span className="text-gray-700">{hubFilter === 'All' ? 'Entire Network' : warehouses.find(w => w.id === hubFilter)?.name}</span>
+        </div>
+      </div>
+
+      {/* 1. KPI Cards Row */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+        {metricCards.map((card, idx) => (
+          <div key={idx} onClick={() => navigate(card.path)} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex flex-col relative overflow-hidden group cursor-pointer hover:border-green-500 transition-colors">
+            <div className="flex items-center justify-between mb-3">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${card.bg} ${card.color}`}>
+                <card.icon size={20} />
+              </div>
+            </div>
+            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">{card.title}</p>
+            <h3 className="text-xl font-black text-gray-900 mb-2">{card.value}</h3>
+            
+            <div className="flex items-center gap-1 text-[10px] font-bold mt-auto z-10">
+              {card.trend === "up" && <TrendingUp size={12} className="text-green-500" />}
+              {card.trend === "down" && <TrendingDown size={12} className="text-red-500" />}
+              <span className={
+                card.trend === 'up' ? 'text-green-600' : 
+                card.trend === 'down' ? 'text-red-500' : 
+                card.trend === 'warning' ? 'text-orange-500' : 'text-red-500'
+              }>
+                {card.change}
+              </span>
+            </div>
+
+            {/* Decorative mini line chart representation */}
+            <div className="absolute -bottom-2 -right-2 opacity-20 pointer-events-none z-0">
+              <svg width="80" height="40" viewBox="0 0 80 40" fill="none" stroke="currentColor" strokeWidth="3" className={card.color}>
+                <path d={card.trend === 'up' ? "M0,40 Q20,30 40,35 T80,10" : "M0,10 Q20,20 40,15 T80,40"} />
+              </svg>
+            </div>
+          </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Main Sales Chart */}
-        <div className="lg:col-span-2 bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col">
-          <div className="flex items-center justify-between mb-10">
-            <div className="flex items-center space-x-3">
-              <div className="p-2 bg-green-50 rounded-xl text-primary">
-                <TrendingUp size={20} />
-              </div>
-              <h3 className="text-xl font-black text-gray-900 tracking-tight">Revenue Analytics</h3>
-            </div>
-            <div className="flex bg-gray-50 p-1.5 rounded-2xl border border-gray-100 shadow-inner">
-              {['7D', '30D', '3M'].map(f => (
-                <button
-                  key={f}
-                  onClick={() => setChartFilter(f)}
-                  className={`px-5 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${chartFilter === f ? 'bg-white text-primary shadow-lg shadow-green-100' : 'text-gray-400 hover:text-gray-600'}`}
-                >
-                  {f}
-                </button>
-              ))}
+      {/* 2. Middle Row: Charts & Alerts */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Sales Overview */}
+        <div className="lg:col-span-1 xl:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-black text-gray-800">Sales Overview</h2>
+            <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200 cursor-pointer">
+              <span className="text-[11px] font-bold text-gray-600">{salesFilter}</span>
+              <ChevronDown size={14} className="text-gray-400" />
             </div>
           </div>
-          <div className="flex-1 min-h-[350px]">
-            <SalesChart data={salesData} filter={chartFilter} />
+          <div className="h-[250px] w-full">
+            <SalesChart />
           </div>
         </div>
 
-        {/* Category Share */}
-        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col">
-          <div className="flex items-center space-x-3 mb-10">
-             <div className="p-2 bg-blue-50 rounded-xl text-blue-600">
-                <Map size={20} />
-              </div>
-              <h3 className="text-xl font-black text-gray-900 tracking-tight">Bihar Regions</h3>
+        {/* AI Alerts */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-black text-gray-800">AI Insights & Alerts</h2>
+            <button onClick={() => navigate('/ai-control')} className="text-[11px] font-bold text-green-600 hover:text-green-700 bg-green-50 px-3 py-1 rounded-full cursor-pointer transition-colors">View All</button>
           </div>
-          <div className="flex-1 space-y-6">
-            {districtData.map((d, i) => (
-              <div key={i} className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="h-8 w-8 bg-gray-50 rounded-lg flex items-center justify-center font-black text-xs text-gray-400 border border-gray-100">
-                    {i + 1}
-                  </div>
-                  <span className="font-bold text-gray-700 uppercase tracking-tight text-sm">{d.name}</span>
+          <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar pr-2">
+            <div className="flex gap-3 items-start">
+              <div className="w-8 h-8 rounded-full bg-red-50 text-red-500 flex items-center justify-center shrink-0">
+                <AlertTriangle size={14} />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-xs font-bold text-gray-900 leading-tight mb-0.5">12 SKUs are running low on stock</h4>
+                <p className="text-[10px] text-gray-500 font-medium">Reorder recommended</p>
+              </div>
+              <button onClick={() => navigate('/inventory')} className="text-[10px] font-bold text-green-600 hover:underline cursor-pointer">View</button>
+            </div>
+            
+            <div className="flex gap-3 items-start">
+              <div className="w-8 h-8 rounded-full bg-orange-50 text-orange-500 flex items-center justify-center shrink-0">
+                <PackageCheck size={14} />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-xs font-bold text-gray-900 leading-tight mb-0.5">5 Procurement orders awaiting GRN</h4>
+                <p className="text-[10px] text-gray-500 font-medium">Expected within 2 days</p>
+              </div>
+              <button onClick={() => navigate('/grn')} className="text-[10px] font-bold text-green-600 hover:underline cursor-pointer">View</button>
+            </div>
+
+            <div className="flex gap-3 items-start">
+              <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center shrink-0">
+                <Wallet size={14} />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-xs font-bold text-gray-900 leading-tight mb-0.5">COD collection of ₹42,560 pending</h4>
+                <p className="text-[10px] text-gray-500 font-medium">Deposit to bank</p>
+              </div>
+              <button onClick={() => navigate('/reconciliation')} className="text-[10px] font-bold text-green-600 hover:underline cursor-pointer">View</button>
+            </div>
+
+            <div className="flex gap-3 items-start">
+              <div className="w-8 h-8 rounded-full bg-green-50 text-green-600 flex items-center justify-center shrink-0">
+                <Truck size={14} />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-xs font-bold text-gray-900 leading-tight mb-0.5">3 Stock transfers are in transit</h4>
+                <p className="text-[10px] text-gray-500 font-medium">Check delivery status</p>
+              </div>
+              <button onClick={() => navigate('/transfers')} className="text-[10px] font-bold text-green-600 hover:underline cursor-pointer">View</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Bottom Row: Tables */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+        {/* Recent Orders */}
+        <div className="xl:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
+          <div className="p-4 flex items-center justify-between border-b border-gray-100">
+            <h2 className="text-sm font-black text-gray-800">Recent Orders</h2>
+            <button onClick={() => navigate('/orders')} className="text-[11px] font-bold text-gray-500 hover:text-gray-900 bg-gray-50 px-3 py-1 rounded-full border border-gray-200 cursor-pointer transition-colors">View All</button>
+          </div>
+          <div className="overflow-x-auto flex-1">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Order ID</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Customer</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Amount</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {orders.slice(0, 5).map(o => (
+                  <tr key={o.id} onClick={() => navigate('/orders')} className="hover:bg-gray-50 transition-colors cursor-pointer">
+                    <td className="px-4 py-3 text-xs font-bold text-green-700">#KV{o.id.substring(0,6).toUpperCase()}</td>
+                    <td className="px-4 py-3 text-xs font-bold text-gray-900">{o.address?.name || 'Farmer'}</td>
+                    <td className="px-4 py-3 text-xs font-black text-gray-900">{formatCurrency(o.totalAmount)}</td>
+                    <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Warehouse Overview */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
+          <div className="p-4 flex items-center justify-between border-b border-gray-100">
+            <h2 className="text-sm font-black text-gray-800">Warehouse Overview</h2>
+            <button onClick={() => navigate('/warehouses')} className="text-[11px] font-bold text-gray-500 hover:text-gray-900 bg-gray-50 px-3 py-1 rounded-full border border-gray-200 cursor-pointer transition-colors">View All</button>
+          </div>
+          <div className="overflow-x-auto flex-1">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Warehouse</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Low Stock</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                <tr onClick={() => navigate('/warehouses')} className="hover:bg-gray-50 cursor-pointer">
+                  <td className="px-4 py-3"><span className="text-xs font-bold text-gray-900 flex items-center gap-1.5"><Factory size={12} className="text-green-600"/> WH-PATNA-01</span></td>
+                  <td className="px-4 py-3 text-xs font-bold text-red-500">4</td>
+                  <td className="px-4 py-3"><span className="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full">Healthy</span></td>
+                </tr>
+                <tr onClick={() => navigate('/warehouses')} className="hover:bg-gray-50 cursor-pointer">
+                  <td className="px-4 py-3"><span className="text-xs font-bold text-gray-900 flex items-center gap-1.5"><Factory size={12} className="text-green-600"/> WH-PURNEA-01</span></td>
+                  <td className="px-4 py-3 text-xs font-bold text-red-500">8</td>
+                  <td className="px-4 py-3"><span className="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full">Healthy</span></td>
+                </tr>
+                <tr onClick={() => navigate('/warehouses')} className="hover:bg-gray-50 cursor-pointer">
+                  <td className="px-4 py-3"><span className="text-xs font-bold text-gray-900 flex items-center gap-1.5"><Factory size={12} className="text-green-600"/> WH-KISHANGANJ-01</span></td>
+                  <td className="px-4 py-3 text-xs font-bold text-red-500">7</td>
+                  <td className="px-4 py-3"><span className="bg-yellow-100 text-yellow-700 text-[10px] font-bold px-2 py-0.5 rounded-full">Warning</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* 4. Order Fulfillment Pipeline & Quick Actions */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        {/* Pipeline */}
+        <div className="xl:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-6 overflow-hidden">
+          <h2 className="text-sm font-black text-gray-800 mb-8">Order Fulfillment Pipeline <span className="text-[10px] font-semibold text-gray-400 ml-2">Real-time Order Flow</span></h2>
+          <div className="flex items-center justify-between px-2 relative">
+            {/* Connecting line */}
+            <div className="absolute top-6 left-10 right-10 h-px border-t-2 border-dashed border-gray-200 z-0"></div>
+            
+            {[
+              { label: 'Processing', count: orders.filter(o => o.status === 'PLACED').length, icon: ClipboardList, color: 'border-green-500 bg-white text-green-600', fill: 'bg-green-50' },
+              { label: 'Ready for Packing', count: orders.filter(o => o.status === 'CONFIRMED').length, icon: Package, color: 'border-purple-500 bg-white text-purple-600', fill: 'bg-purple-50' },
+              { label: 'Packed', count: orders.filter(o => o.status === 'READY_FOR_PACKING').length, icon: PackageCheck, color: 'border-blue-500 bg-white text-blue-600', fill: 'bg-blue-50' },
+              { label: 'Out for Delivery', count: orders.filter(o => o.status === 'OUT_FOR_DELIVERY').length, icon: Truck, color: 'border-teal-500 bg-white text-teal-600', fill: 'bg-teal-50' },
+              { label: 'Delivered', count: orders.filter(o => o.status === 'DELIVERED').length, icon: CheckCircle, color: 'border-green-600 bg-green-600 text-white', fill: 'bg-green-600' }
+            ].map((step, i) => (
+              <div key={i} onClick={() => navigate('/orders')} className="flex flex-col items-center group cursor-pointer z-10 w-24">
+                <div className={`w-12 h-12 rounded-full border-2 flex items-center justify-center mb-3 shadow-sm transition-transform group-hover:scale-110 ${step.color} ${i === 4 ? step.fill : ''}`}>
+                  <step.icon size={20} className={i === 4 ? 'text-white' : ''} />
                 </div>
-                <div className="flex items-center space-x-2">
-                  <span className="font-black text-gray-900">{d.count}</span>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Orders</span>
-                </div>
+                <span className="text-[11px] font-bold text-gray-800 text-center leading-tight mb-0.5">{step.label}</span>
+                <span className="text-[10px] text-gray-500 font-semibold">{step.count} Orders</span>
               </div>
             ))}
-            {districtData.length === 0 && (
-              <p className="text-center text-gray-400 text-xs py-10 uppercase font-bold italic tracking-widest">No regional data yet</p>
-            )}
+          </div>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <h2 className="text-sm font-black text-gray-800 mb-4">Quick Actions</h2>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: 'Create Order', icon: ShoppingCart, path: '/orders' },
+              { label: 'Add GRN', icon: PackageCheck, path: '/grn' },
+              { label: 'Stock Transfer', icon: RefreshCcw, path: '/transfers' },
+              { label: 'Add Product', icon: Package, path: '/products' },
+              { label: 'View Reports', icon: BarChart3, path: '/reports' },
+              { label: 'Add User', icon: UserPlus, path: '/staff' }
+            ].map((action, i) => (
+              <button 
+                key={i}
+                onClick={() => navigate(action.path)}
+                className="flex items-center gap-2 p-3 rounded-xl border border-gray-200 hover:border-green-500 hover:bg-green-50 hover:text-green-700 transition-all text-gray-700 shadow-sm group"
+              >
+                <action.icon size={16} className="text-gray-400 group-hover:text-green-600" />
+                <span className="text-[10px] font-bold whitespace-nowrap">{action.label}</span>
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Recent Orders */}
-        <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-          <div className="p-8 border-b border-gray-50 flex justify-between items-center bg-white/50 backdrop-blur sticky top-0 z-10">
-            <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter">Recent Activity</h3>
-            <button
-              onClick={() => navigate('/orders')}
-              className="text-[10px] font-black text-primary uppercase tracking-[0.2em] hover:underline decoration-2 underline-offset-4 px-4 py-2 bg-green-50 rounded-full"
-            >
-              View All Orders
-            </button>
-          </div>
-          <div className="flex-1">
-             <DataTable
-                columns={orderColumns}
-                data={orders.slice(0, 5)}
-                loading={ordersLoading}
-              />
-          </div>
-        </div>
-
-        {/* Low Stock Alerts */}
-        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter flex items-center">
-              <AlertTriangle className="text-orange-500 mr-2" size={24} />
-              Critical Stock
-            </h3>
-            <button
-              onClick={() => navigate('/products')}
-              className="text-[10px] font-black bg-red-50 text-red-500 px-3 py-1 rounded-full uppercase hover:bg-red-100 transition-colors"
-            >
-              {lowStockProducts.length} Items
-            </button>
-          </div>
-          <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
-            {lowStockProducts.length > 0 ? lowStockProducts.map((p, i) => (
-              <div key={i} className="flex flex-col space-y-4 p-5 bg-gray-50/50 rounded-3xl border border-gray-100 group hover:bg-white hover:shadow-xl hover:shadow-red-50 hover:border-red-100 transition-all duration-500">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="h-14 w-14 bg-white rounded-2xl border border-gray-100 p-1 overflow-hidden shadow-inner group-hover:scale-105 transition-transform">
-                      <img src={p.images?.[0]} className="w-full h-full object-cover rounded-xl" alt="" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-black text-gray-900 tracking-tight">{p.name}</h4>
-                      <p className="text-[10px] text-red-500 font-black uppercase tracking-widest mt-1 italic">Only {p.stock} units left</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex flex-col space-y-2">
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="text"
-                      placeholder="Batch #"
-                      value={refillBatches[p.id] || ''}
-                      onChange={(e) => setRefillBatches({...refillBatches, [p.id]: e.target.value})}
-                      className="w-24 bg-white border border-gray-200 rounded-xl px-3 py-2 text-[10px] font-bold outline-none focus:border-red-400"
-                    />
-                    <input
-                      type="number"
-                      placeholder="+ Qty"
-                      value={refillQuantities[p.id] || ''}
-                      onChange={(e) => setRefillQuantities({...refillQuantities, [p.id]: e.target.value})}
-                      className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-[10px] font-bold outline-none focus:border-red-400"
-                    />
-                  </div>
-                  <button
-                    onClick={() => handleRefill(p)}
-                    disabled={updatingId === p.id}
-                    className="w-full bg-red-500 text-white py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-600 shadow-lg shadow-red-100 active:scale-95 transition-all flex items-center justify-center space-x-2"
-                  >
-                    {updatingId === p.id ? '...' : <CheckCircle size={12} />}
-                    <span>Confirm GRN Refill</span>
-                  </button>
-                </div>
-              </div>
-            )) : (
-              <div className="flex flex-col items-center justify-center py-20 text-gray-300">
-                <PackageSearch size={48} strokeWidth={1} className="mb-4 opacity-20" />
-                <p className="text-xs font-black uppercase tracking-widest">Inventory is healthy</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

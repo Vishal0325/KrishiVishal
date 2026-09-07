@@ -14,6 +14,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { useAuth } from '../hooks/useAuth';
 import DataTable from '../components/common/DataTable';
+import PageHeader from '../components/common/PageHeader';
 import { addAuditLog } from '../services/logger';
 import { formatCurrency } from '../utils/formatters';
 import { callReceiveGrn } from '../services/inventory';
@@ -425,32 +426,25 @@ const GoodsReceipt = () => {
   const activePOs = purchaseOrders.filter(p => ['ISSUED_TO_SUPPLIER', 'CONFIRMED', 'PARTIALLY_RECEIVED'].includes(p.status));
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-            <PackageCheck className="mr-3 text-[#1b5e20]" size={28} />
-            Goods Received Note (GRN)
-          </h1>
-          <p className="text-xs font-medium text-gray-500 mt-0.5">
-            Receive incoming vendor stock, record supplier GST invoices, and update inventory balances.
-          </p>
-        </div>
-
-        <button
-          onClick={() => {
-            setIsCreateModalOpen(true);
-            if (activePOs.length > 0) {
-              handleSelectPO(activePOs[0].id);
-            }
-          }}
-          className="bg-[#1b5e20] text-white px-6 py-3 rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-[#2e7d32] transition-all flex items-center group active:scale-95"
-        >
-          <Plus size={18} className="mr-2 group-hover:scale-110 transition-transform" />
-          Create Goods Receipt (GRN)
-        </button>
-      </div>
+    <div className="space-y-6 pb-10 animate-in fade-in duration-300">
+      <PageHeader
+        title="Goods Received Note (GRN) ERP"
+        subtitle="Receive incoming vendor stock, record supplier GST invoices, and update warehouse stock balances."
+        actions={
+          <button
+            onClick={() => {
+              setIsCreateModalOpen(true);
+              if (activePOs.length > 0) {
+                handleSelectPO(activePOs[0].id);
+              }
+            }}
+            className="bg-[#1b5e20] text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider shadow-sm hover:bg-[#2e7d32] transition-all flex items-center group active:scale-95"
+          >
+            <Plus size={16} className="mr-2 group-hover:scale-110 transition-transform" />
+            Create Goods Receipt (GRN)
+          </button>
+        }
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">

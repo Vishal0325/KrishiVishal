@@ -11,6 +11,14 @@ import { db, auth } from "../firebase/config";
  * - UPDATE_CATEGORY
  * - DELETE_CATEGORY
  * - UPDATE_ORDER
+ * - UPLOAD_DOCUMENT
+ * - VERIFY_DOCUMENT
+ * - REJECT_DOCUMENT
+ * - ARCHIVE_DOCUMENT
+ * - CREATE_EMPLOYEE
+ * - UPDATE_EMPLOYEE
+ * - CREATE_RIDER_HR
+ * - UPDATE_RIDER_HR
  */
 
 export async function addAuditLog(action, resource, resourceId, details = {}) {

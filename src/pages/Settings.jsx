@@ -4,6 +4,7 @@ import { db } from '../firebase/config';
 import { Settings as SettingsIcon, Save, Truck, CreditCard, ShieldCheck, Info, Bell, Trash2, UserPlus, HelpCircle, AlertTriangle, Package, MessageCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ConfirmDialog from '../components/common/ConfirmDialog';
+import PageHeader from '../components/common/PageHeader';
 
 const Settings = () => {
   const [activeTab, setActiveTab] = useState('general');
@@ -34,6 +35,9 @@ const Settings = () => {
     enableAiSupervisor: true,
     enableOnlinePayments: true,
     enableDeliveryTracking: true,
+    enablePlatformFee: true,
+    enableHandlingCharge: true,
+    enablePackagingFee: true,
     gsp: {
         activeProvider: 'MOCK',
         mode: 'SANDBOX'
@@ -102,15 +106,13 @@ const Settings = () => {
         onCancel={() => setShowConfirm(false)}
         type="danger"
       />
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-            <SettingsIcon className="mr-3 text-primary" size={28} />
-            System Configuration
-          </h1>
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-11">Manage global application behaviors</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Application Settings"
+        subtitle="Configure global application behaviors, logistics, payments, GST compliance, and feature flags"
+        actions={[
+          { label: 'Save Settings', icon: Save, onClick: handleSave, variant: 'primary' }
+        ]}
+      />
 
       <div className="flex flex-col lg:flex-row gap-10">
         {/* Navigation Tabs */}
@@ -508,7 +510,10 @@ const Settings = () => {
                     {[
                       { key: 'enableAiSupervisor', label: 'AI Supervisor System', desc: 'Toggle AI-driven inventory and support modules.' },
                       { key: 'enableOnlinePayments', label: 'Razorpay Integration', desc: 'Allow users to pay online via UPI/Cards.' },
-                      { key: 'enableDeliveryTracking', label: 'Real-time Tracking', desc: 'Enable GPS tracking for delivery partners.' }
+                      { key: 'enableDeliveryTracking', label: 'Real-time Tracking', desc: 'Enable GPS tracking for delivery partners.' },
+                      { key: 'enablePlatformFee', label: 'Platform Fee', desc: 'Apply a fixed platform fee to customer carts.' },
+                      { key: 'enableHandlingCharge', label: 'Handling Charge', desc: 'Apply handling charges for order processing.' },
+                      { key: 'enablePackagingFee', label: 'Packaging Fee', desc: 'Apply packaging fees to secure items.' }
                     ].map(flag => (
                       <div key={flag.key} className="bg-gray-50 p-6 rounded-3xl border border-gray-100 flex items-center justify-between transition-all hover:bg-white hover:shadow-md">
                         <div className="space-y-1">

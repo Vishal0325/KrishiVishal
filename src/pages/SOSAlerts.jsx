@@ -3,6 +3,7 @@ import { collection, query, onSnapshot, updateDoc, doc, serverTimestamp, orderBy
 import { db } from '../firebase/config';
 import { AlertTriangle, CheckCircle, ExternalLink, MapPin, Clock, User } from 'lucide-react';
 import toast from 'react-hot-toast';
+import PageHeader from '../components/common/PageHeader';
 
 const SOSAlerts = () => {
   const [alerts, setAlerts] = useState([]);
@@ -40,14 +41,11 @@ const SOSAlerts = () => {
   const resolvedAlerts = alerts.filter(a => a.status === 'RESOLVED');
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="page-header">
-        <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-          <AlertTriangle className="mr-3 text-red-600" size={28} />
-          Emergency SOS Dashboard
-        </h1>
-        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1 ml-11">Monitor and respond to rider emergencies</p>
-      </div>
+    <div className="space-y-8 animate-in fade-in duration-300">
+      <PageHeader
+        title="Emergency SOS Response Room"
+        subtitle="Real-time incident response, SOS telemetry, rider safety broadcasts, and emergency resolution"
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-red-50 p-6 rounded-[2rem] border border-red-100 flex items-center justify-between">

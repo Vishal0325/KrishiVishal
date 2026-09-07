@@ -1,0 +1,47 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function for admin check
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.admin == true ||
+        request.auth.token.role in ['SuperAdmin', 'HRAdmin', 'Admin', 'WarehouseManager', 'Operations']
+      );
+    }
+    
+    // Workforce Documents Storage Rules
+    match /workforce-documents/{allPaths=**} {
+      // Admins and authenticated staff can read and write workforce documents
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (
+        isAdmin() || 
+        // File size limit: 20MB, allowed content types (images, pdfs, docs)
+        (request.resource.size < 20 * 1024 * 1024 &&
+         request.resource.contentType.matches('image/.*|application/pdf|application/msword|application/vnd.openxmlformats-officedocument.wordprocessingml.document'))
+      );
+    }
+    
+    // General assets and avatars
+    match /avatars/{userId}/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+    }
+    
+    // Product images and public assets
+    match /products/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // Default fallback
+    match /{allPaths=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

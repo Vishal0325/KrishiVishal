@@ -22,6 +22,7 @@ import { collection, query, orderBy, onSnapshot, limit, addDoc, Timestamp } from
 import { db, functions } from "../firebase/config";
 import { httpsCallable } from "firebase/functions";
 import DataTable from "../components/common/DataTable";
+import PageHeader from "../components/common/PageHeader";
 import {
   BarChart,
   Bar,
@@ -36,6 +37,7 @@ import toast from "react-hot-toast";
 
 const Finance = () => {
   const [ledger, setLedger] = useState([]);
+  const [totalWalletLiability, setTotalWalletLiability] = useState(0);
   const [summary, setSummary] = useState({
     totalRevenue: 0,
     grossProfit: 0,
@@ -102,7 +104,22 @@ const Finance = () => {
     const unsubscribeLedger = onSnapshot(q, (snapshot) => {
       setLedger(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-    return () => unsubscribeLedger();
+
+    const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      let total = 0;
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        if (data.walletBalance && Number(data.walletBalance) > 0) {
+          total += Number(data.walletBalance);
+        }
+      });
+      setTotalWalletLiability(total);
+    });
+
+    return () => {
+      unsubscribeLedger();
+      unsubscribeUsers();
+    };
   }, [dateRange]);
 
   const handleReconcile = async (e) => {
@@ -226,49 +243,48 @@ const Finance = () => {
   );
 
   return (
-    <div className="space-y-10 animate-in fade-in duration-500 pb-20">
+    <div className="space-y-8 animate-in fade-in duration-300 pb-10">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight flex items-center uppercase">
-            <IndianRupee className="mr-3 text-primary" size={32} />
-            Finance Intelligence
-          </h1>
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] ml-11">Immutable Ledger V4</p>
-        </div>
+      <PageHeader
+        title="Finance Intelligence & Ledger"
+        subtitle="Immutable ledger, revenue analytics, expense tracking, GST compliance, and reconciliation"
+        actions={[
+          { label: 'Export CSV', icon: Download, onClick: exportToCsv, variant: 'secondary' },
+          { label: 'Reconcile Payout', icon: Plus, onClick: () => setIsReconModalOpen(true), variant: 'primary' }
+        ]}
+      />
 
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex bg-white p-1 rounded-3xl border border-gray-100 shadow-sm">
-            {['Today', 'Last 7 Days', 'Last 30 Days', 'Current Month'].map(range => (
-              <button
-                key={range}
-                onClick={() => setDateRange(range)}
-                className={`px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all ${
-                  dateRange === range ? 'bg-primary text-white shadow-lg shadow-green-100' : 'text-gray-400 hover:text-gray-600'
-                }`}
-              >
-                {range}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center bg-white p-1 rounded-3xl border border-gray-100 shadow-sm">
-             <button
-               onClick={() => setIsExpenseModalOpen(true)}
-               className="px-5 py-2 bg-red-900 text-white rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-red-800 transition-all shadow-lg shadow-red-100"
-             >
-               Record Expense
-             </button>
-             <div className="h-4 w-px bg-gray-100 mx-2" />
-             <button
-               onClick={() => setIsReconModalOpen(true)}
-               className="px-5 py-2 bg-blue-600 text-white rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
-             >
-               Reconcile
-             </button>
-             <button onClick={exportToCsv} className="p-2 text-gray-400 hover:text-primary transition-colors ml-1">
-               <Download size={18} />
-             </button>
-          </div>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex bg-white p-1 rounded-3xl border border-gray-100 shadow-sm">
+          {['Today', 'Last 7 Days', 'Last 30 Days', 'Current Month'].map(range => (
+            <button
+              key={range}
+              onClick={() => setDateRange(range)}
+              className={`px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all ${
+                dateRange === range ? 'bg-primary text-white shadow-lg shadow-green-100' : 'text-gray-400 hover:text-gray-600'
+              }`}
+            >
+              {range}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center bg-white p-1 rounded-3xl border border-gray-100 shadow-sm">
+           <button
+             onClick={() => setIsExpenseModalOpen(true)}
+             className="px-5 py-2 bg-red-600 text-white rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-red-700 transition-all shadow-lg shadow-red-100"
+           >
+             Record Expense
+           </button>
+           <div className="h-4 w-px bg-gray-100 mx-2" />
+           <button
+             onClick={() => setIsReconModalOpen(true)}
+             className="px-5 py-2 bg-blue-600 text-white rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
+           >
+             Reconcile
+           </button>
+           <button onClick={exportToCsv} className="p-2 text-gray-400 hover:text-primary transition-colors ml-1">
+             <Download size={18} />
+           </button>
         </div>
       </div>
 
@@ -315,6 +331,12 @@ const Finance = () => {
                 <div className="flex justify-between text-xs font-bold border-b border-white/10 pb-3">
                   <span className="text-green-200 uppercase">Refunds Processed</span>
                   <span>₹{summary.refunds.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex justify-between text-xs font-bold border-b border-white/10 pb-3">
+                  <span className="text-amber-200 uppercase flex items-center gap-1">
+                    <Wallet size={12} /> Customer Wallet Balance
+                  </span>
+                  <span className="text-amber-300">₹{totalWalletLiability.toLocaleString('en-IN')}</span>
                 </div>
                 <div className="flex justify-between text-xs font-bold">
                   <span className="text-green-200 uppercase">Returns Count</span>

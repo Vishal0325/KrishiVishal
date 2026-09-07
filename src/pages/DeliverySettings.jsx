@@ -16,6 +16,7 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase/config";
 import { formatCurrency } from "../utils/formatters";
 import toast from "react-hot-toast";
+import PageHeader from "../components/common/PageHeader";
 
 export default function DeliverySettings() {
   const [loading, setLoading] = useState(true);
@@ -106,32 +107,14 @@ export default function DeliverySettings() {
   const simResult = calculateSimulatedFee();
 
   return (
-    <div className="p-8 space-y-8 animate-in fade-in duration-300">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center space-x-3">
-          <div className="p-3 bg-emerald-100 text-emerald-800 rounded-2xl">
-            <Truck size={28} />
-          </div>
-          <div>
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight">
-              Dynamic Delivery Fee Rules (दूरी अनुसार डिलीवरी चार्ज)
-            </h1>
-            <p className="text-xs text-gray-500 font-medium">
-              वेयरहाउस से किलोमीटर दूरी और कार्ट राशि के आधार पर डिलीवरी शुल्क निर्धारित करें
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="flex items-center space-x-2 bg-emerald-800 hover:bg-emerald-900 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-800/20 active:scale-95 transition-all disabled:opacity-50"
-        >
-          <Save size={16} />
-          <span>{saving ? "Saving Changes..." : "Save Delivery Rules"}</span>
-        </button>
-      </div>
+    <div className="space-y-8 animate-in fade-in duration-300 pb-10">
+      <PageHeader
+        title="Dynamic Delivery Fee Rules & Zones"
+        subtitle="Configure distance tiers (km), order cart thresholds, heavy bag surcharges, and live simulator"
+        actions={[
+          { label: saving ? "Saving..." : "Save Delivery Rules", icon: Save, onClick: handleSave, variant: "primary" }
+        ]}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Rules Configuration Panel */}

@@ -9,6 +9,7 @@ import {
 import { db } from '../firebase/config';
 import { addAuditLog } from '../services/logger';
 import { formatCurrency } from '../utils/formatters';
+import PageHeader from '../components/common/PageHeader';
 import {
   ArrowLeft,
   FileText,
@@ -24,7 +25,9 @@ import {
   Loader2,
   ShieldCheck,
   MapPin,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Package,
+  Hash
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -109,65 +112,95 @@ const PurchaseOrderDetail = () => {
 
   const currentStatusIndex = STATUS_ORDER.indexOf(po.status);
   const isCancelled = po.status === 'CANCELLED';
+  const totalItems = (po.items || []).reduce((acc, i) => acc + (i.quantity || 0), 0);
+  const totalValue = po.totalEstimatedAmount || (po.items || []).reduce((acc, i) => acc + ((i.quantity || 0) * (i.estimatedCostPrice || 0)), 0);
+
+  // Build PageHeader actions
+  const headerActions = [
+    { label: 'Print PO', icon: Printer, onClick: handlePrint, variant: 'secondary' }
+  ];
+  if (po.status === 'ISSUED_TO_SUPPLIER') {
+    headerActions.push({
+      label: 'Confirm Supplier Order',
+      icon: CheckCircle2,
+      onClick: () => updatePOStatus('CONFIRMED', 'Supplier accepted and confirmed order'),
+      variant: 'primary',
+      disabled: updatingStatus
+    });
+  }
+  if (['CONFIRMED', 'PARTIALLY_RECEIVED'].includes(po.status)) {
+    headerActions.push({
+      label: 'Mark All Received',
+      icon: ShieldCheck,
+      onClick: () => updatePOStatus('COMPLETED', 'All items received at central hub'),
+      variant: 'primary',
+      disabled: updatingStatus
+    });
+  }
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
+    <div className="space-y-6 max-w-6xl mx-auto pb-10 animate-in fade-in duration-300">
       {/* Top Action Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden">
         <button
           onClick={() => navigate('/procurement')}
-          className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-wider text-gray-600 hover:text-gray-900 transition-colors"
+          className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-gray-500 hover:text-gray-900 transition-colors"
         >
           <ArrowLeft size={16} />
           Back to Procurement
         </button>
+      </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handlePrint}
-            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-xl text-xs font-bold transition-all shadow-sm"
-          >
-            <Printer size={16} />
-            Print PO
-          </button>
+      <PageHeader
+        title={`Purchase Order — ${po.poNumber}`}
+        subtitle={`Supplier: ${po.supplierName || 'N/A'} • ${totalItems} items • ${formatCurrency(totalValue)} total`}
+        actions={headerActions}
+      />
 
-          {po.status === 'ISSUED_TO_SUPPLIER' && (
-            <button
-              onClick={() => updatePOStatus('CONFIRMED', 'Supplier accepted and confirmed order')}
-              disabled={updatingStatus}
-              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-indigo-100"
-            >
-              <CheckCircle2 size={16} />
-              Confirm Supplier Order
-            </button>
-          )}
-
-          {['CONFIRMED', 'PARTIALLY_RECEIVED'].includes(po.status) && (
-            <button
-              onClick={() => updatePOStatus('COMPLETED', 'All items received at central hub')}
-              disabled={updatingStatus}
-              className="flex items-center gap-2 px-5 py-2.5 bg-[#1b5e20] hover:bg-[#2e7d32] text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-green-100"
-            >
-              <ShieldCheck size={16} />
-              Mark All Received (Completed)
-            </button>
-          )}
-
-          {!isCancelled && po.status !== 'COMPLETED' && (
-            <button
-              onClick={() => {
-                if (window.confirm('Cancel this purchase order?')) {
-                  updatePOStatus('CANCELLED', 'PO cancelled by admin');
-                }
-              }}
-              disabled={updatingStatus}
-              className="px-4 py-2.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-xs font-bold transition-all"
-            >
-              Cancel PO
-            </button>
-          )}
+      {/* Quick Metric Summary */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 print:hidden">
+        <div className="bg-white rounded-2xl border border-gray-100 p-4">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Status</p>
+          <span className={`inline-flex items-center gap-1.5 text-xs font-black px-3 py-1 rounded-full uppercase tracking-wider mt-1 ${
+            po.status === 'COMPLETED' ? 'bg-green-100 text-green-800' :
+            po.status === 'CONFIRMED' ? 'bg-indigo-100 text-indigo-800' :
+            po.status === 'ISSUED_TO_SUPPLIER' ? 'bg-blue-100 text-blue-800' :
+            po.status === 'CANCELLED' ? 'bg-red-100 text-red-800' :
+            'bg-gray-100 text-gray-700'
+          }`}>
+            {po.status?.replace(/_/g, ' ')}
+          </span>
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-100 p-4">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Items</p>
+          <p className="text-xl font-black text-gray-900 mt-1">{po.items?.length || 0}</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-100 p-4">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total Qty</p>
+          <p className="text-xl font-black text-gray-900 mt-1">{totalItems}</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-100 p-4">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Est. Value</p>
+          <p className="text-xl font-black text-[#1b5e20] mt-1">{formatCurrency(totalValue)}</p>
         </div>
       </div>
+
+      {/* Cancel Button */}
+      {!isCancelled && po.status !== 'COMPLETED' && (
+        <div className="print:hidden">
+          <button
+            onClick={() => {
+              if (window.confirm('Cancel this purchase order?')) {
+                updatePOStatus('CANCELLED', 'PO cancelled by admin');
+              }
+            }}
+            disabled={updatingStatus}
+            className="px-4 py-2.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-xs font-bold transition-all"
+          >
+            Cancel PO
+          </button>
+        </div>
+      )}
 
       {/* Printable PO Sheet */}
       <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-8 space-y-8 print:border-none print:shadow-none print:p-0">
@@ -297,24 +330,27 @@ const PurchaseOrderDetail = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 font-bold text-gray-900">
-                {(po.items || []).map((item, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50/50">
-                    <td className="py-3 px-4 text-gray-400 font-medium">{idx + 1}</td>
-                    <td className="py-3 px-4 font-black">{item.productName}</td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="font-mono text-[11px] text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                        {item.orderId ? `#${item.orderId.slice(0, 8)}` : 'STOCK_PROC'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right text-gray-800">{item.quantity} units</td>
-                    <td className="py-3 px-4 text-right text-gray-600 font-mono">
-                      {formatCurrency(item.estimatedCostPrice || 0)}
-                    </td>
-                    <td className="py-3 px-4 text-right font-black text-gray-900 font-mono">
-                      {formatCurrency(item.totalPrice || (item.quantity * item.estimatedCostPrice) || 0)}
-                    </td>
-                  </tr>
-                ))}
+                {(po.items || []).map((item, idx) => {
+                  const lineTotal = item.totalPrice || (item.quantity * item.estimatedCostPrice) || 0;
+                  return (
+                    <tr key={idx} className="hover:bg-gray-50/50">
+                      <td className="py-3 px-4 text-gray-400 font-medium">{idx + 1}</td>
+                      <td className="py-3 px-4 font-black">{item.productName}</td>
+                      <td className="py-3 px-4 text-center">
+                        <span className="font-mono text-[11px] text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                          {item.orderId ? `#${item.orderId.slice(0, 8)}` : 'STOCK_PROC'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right text-gray-800">{item.quantity} units</td>
+                      <td className="py-3 px-4 text-right text-gray-600 font-mono">
+                        {formatCurrency(item.estimatedCostPrice || 0)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-black text-gray-900 font-mono">
+                        {formatCurrency(lineTotal)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
               <tfoot className="bg-gray-50/80 font-black border-t border-gray-200 text-gray-900">
                 <tr>
@@ -322,11 +358,11 @@ const PurchaseOrderDetail = () => {
                     Total Estimated Order Value
                   </td>
                   <td className="py-4 px-4 text-right font-black text-gray-900">
-                    {po.totalItemsCount || (po.items || []).reduce((acc, i) => acc + (i.quantity || 0), 0)} units
+                    {po.totalItemsCount || totalItems} units
                   </td>
                   <td></td>
                   <td className="py-4 px-4 text-right text-base font-black text-[#1b5e20] font-mono">
-                    {formatCurrency(po.totalEstimatedAmount || 0)}
+                    {formatCurrency(totalValue)}
                   </td>
                 </tr>
               </tfoot>

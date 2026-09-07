@@ -18,6 +18,7 @@ import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase/config";
 import toast from "react-hot-toast";
 import DataTable from "../components/common/DataTable";
+import PageHeader from "../components/common/PageHeader";
 import { revokeRiderAccess, whitelistRiderPhone, deleteWhitelistedRider } from "../services/riderManagement";
 import { useAuth } from "../hooks/useAuth";
 
@@ -273,28 +274,22 @@ const Riders = () => {
   ];
 
   return (
-    <div className="space-y-8 pb-20">
-      {/* Header & Tabs */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight flex items-center uppercase">
-            <Bike className="mr-3 text-primary" size={32} />
-            Fleet Control
-          </h1>
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] ml-11">Manage delivery operations & security gate</p>
-        </div>
-        <div className="flex bg-white p-1 rounded-3xl border border-gray-100 shadow-sm">
-          <button
-            onClick={() => setActiveTab('active')}
-            className={`px-6 py-2 rounded-3xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'active' ? 'bg-green-900 text-white shadow-md' : 'text-gray-400 hover:bg-gray-50'}`}>
-            Live Fleet ({stats.total})
-          </button>
-          <button
-            onClick={() => setActiveTab('whitelist')}
-            className={`px-6 py-2 rounded-3xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'whitelist' ? 'bg-green-900 text-white shadow-md' : 'text-gray-400 hover:bg-gray-50'}`}>
-            Security Gate ({whitelistedList.length})
-          </button>
-        </div>
+    <div className="space-y-8 pb-20 animate-in fade-in duration-300">
+      <PageHeader
+        title="Rider Fleet Control & Security Gate ERP"
+        subtitle="Manage active delivery riders, real-time online status, phone whitelisting, and access revocation."
+      />
+      <div className="flex bg-white p-1 rounded-3xl border border-gray-100 shadow-sm w-fit">
+        <button
+          onClick={() => setActiveTab('active')}
+          className={`px-6 py-2 rounded-3xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'active' ? 'bg-primary text-white shadow-md' : 'text-gray-400 hover:bg-gray-50'}`}>
+          Live Fleet ({stats.total})
+        </button>
+        <button
+          onClick={() => setActiveTab('whitelist')}
+          className={`px-6 py-2 rounded-3xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'whitelist' ? 'bg-primary text-white shadow-md' : 'text-gray-400 hover:bg-gray-50'}`}>
+          Security Gate ({whitelistedList.length})
+        </button>
       </div>
 
       {activeTab === 'active' ? (

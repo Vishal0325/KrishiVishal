@@ -5,6 +5,7 @@ import { BarChart3, Download, TrendingUp, AlertCircle, FileText, PieChart as Pie
 import SalesChart from '../components/charts/SalesChart';
 import OrdersBarChart from '../components/charts/OrdersBarChart';
 import CategoryPieChart from '../components/charts/CategoryPieChart';
+import PageHeader from '../components/common/PageHeader';
 import { formatCurrency } from '../utils/formatters';
 
 const Reports = () => {
@@ -132,31 +133,27 @@ const Reports = () => {
   };
 
   return (
-    <div className="space-y-10 pb-20 animate-in fade-in duration-700">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight flex items-center uppercase">
-            <BarChart3 className="mr-3 text-primary" size={32} />
-            Analytics Intelligence
-          </h1>
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] ml-11">Advanced data visualization & insights</p>
-        </div>
+    <div className="space-y-8 pb-10 animate-in fade-in duration-300">
+      <PageHeader
+        title="Reports & Analytics Center"
+        subtitle="Advanced data visualization, sales analytics, GST reports, and inventory insights"
+        actions={[
+          { label: 'GST Report', icon: Download, onClick: exportGstReport, variant: 'secondary' },
+          { label: 'Inventory Valuation', icon: Download, onClick: exportInventoryValuation, variant: 'secondary' }
+        ]}
+      />
 
-        <div className="flex items-center space-x-3">
-          <div className="flex bg-white p-1.5 rounded-2xl border border-gray-100 shadow-sm">
-            {['7D', '30D', 'All'].map(r => (
-              <button
-                key={r}
-                onClick={() => setDateRange(r)}
-                className={`px-5 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${dateRange === r ? 'bg-primary text-white shadow-xl shadow-green-100' : 'text-gray-400 hover:bg-gray-50'}`}
-              >
-                {r}
-              </button>
-            ))}
-          </div>
-          <button className="p-3 bg-white border border-gray-100 rounded-2xl text-primary hover:border-primary transition-all shadow-sm group active:scale-95">
-            <Download size={20} className="group-hover:translate-y-0.5 transition-transform" />
-          </button>
+      <div className="flex items-center justify-end space-x-3">
+        <div className="flex bg-white p-1.5 rounded-2xl border border-gray-100 shadow-sm">
+          {['7D', '30D', 'All'].map(r => (
+            <button
+              key={r}
+              onClick={() => setDateRange(r)}
+              className={`px-5 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${dateRange === r ? 'bg-primary text-white shadow-xl shadow-green-100' : 'text-gray-400 hover:bg-gray-50'}`}
+            >
+              {r}
+            </button>
+          ))}
         </div>
       </div>
 

@@ -18,6 +18,7 @@ import {
 import { collection, onSnapshot, doc, setDoc, deleteDoc } from "firebase/firestore";
 import { db } from "../firebase/config";
 import toast from "react-hot-toast";
+import PageHeader from "../components/common/PageHeader";
 
 export default function Warehouses() {
   const [warehouses, setWarehouses] = useState([]);
@@ -187,35 +188,24 @@ export default function Warehouses() {
   );
 
   return (
-    <div className="p-8 space-y-8 animate-in fade-in duration-300">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center space-x-3">
-          <div className="p-3 bg-emerald-100 text-emerald-800 rounded-2xl">
-            <Building2 size={28} />
-          </div>
-          <div>
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight">
-              Multi-Warehouse & Regional Hubs (मल्टी-वेयरहाउस प्रबंधन)
-            </h1>
-            <p className="text-xs text-gray-500 font-medium">
-              पूर्णिया, कटिहार, अररिया एवं अन्य क्षेत्रीय डिपो और डार्क स्टोर्स का प्रबंधन
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={() => {
-            setEditingHub(null);
-            setFormData(initialForm);
-            setIsModalOpen(true);
-          }}
-          className="flex items-center space-x-2 bg-emerald-800 hover:bg-emerald-900 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-800/20 active:scale-95 transition-all"
-        >
-          <Plus size={16} />
-          <span>+ Add Regional Hub</span>
-        </button>
-      </div>
+    <div className="space-y-8 pb-10 animate-in fade-in duration-300">
+      <PageHeader
+        title="Multi-Warehouse & Regional Hubs ERP"
+        subtitle="Manage Purnea, Katihar, Araria regional depots, dark stores, and inter-hub stock allocations."
+        actions={
+          <button
+            onClick={() => {
+              setEditingHub(null);
+              setFormData(initialForm);
+              setIsModalOpen(true);
+            }}
+            className="bg-[#1b5e20] text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider shadow-sm hover:bg-[#2e7d32] transition-all flex items-center group active:scale-95"
+          >
+            <Plus size={16} className="mr-2" />
+            <span>Add Regional Hub</span>
+          </button>
+        }
+      />
 
       {/* Summary Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">

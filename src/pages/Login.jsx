@@ -1,13 +1,33 @@
 import React, { useState } from 'react';
 import { auth } from '../firebase/config';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { ShieldCheck, Mail, Lock, Loader2 } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  const handleResetPassword = async () => {
+    if (!email.trim()) {
+      toast.error('Please enter your email address first.');
+      return;
+    }
+    
+    setResetting(true);
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      toast.success('Password reset link sent to your email!');
+    } catch (err) {
+      console.error("Password reset error:", err);
+      toast.error(err.message || 'Failed to send reset email.');
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -60,7 +80,17 @@ const Login = () => {
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-400 uppercase ml-1">Password</label>
+            <div className="flex justify-between items-center ml-1">
+              <label className="text-xs font-bold text-gray-400 uppercase">Password</label>
+              <button 
+                type="button" 
+                onClick={handleResetPassword}
+                disabled={resetting}
+                className="text-[11px] font-bold text-green-700 hover:text-green-800 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                {resetting ? 'Sending...' : 'Forgot Password?'}
+              </button>
+            </div>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
               <input

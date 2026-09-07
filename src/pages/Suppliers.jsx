@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, Timestamp, query, orderBy } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import DataTable from '../components/common/DataTable';
+import PageHeader from '../components/common/PageHeader';
 import { addAuditLog } from '../services/logger';
 import {
   Search, Plus, Edit2, Trash2, X, Factory, Phone, Mail, MapPin,
@@ -249,21 +250,20 @@ const Suppliers = () => {
   );
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-          <Factory className="mr-3 text-[#1b5e20]" size={28} />
-          Suppliers
-        </h1>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-[#1b5e20] text-white px-6 py-3 rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-[#2e7d32] transition-all flex items-center group active:scale-95"
-        >
-          <Plus size={18} className="mr-2 group-hover:scale-110 transition-transform" />
-          Add Supplier
-        </button>
-      </div>
+    <div className="space-y-6 pb-10 animate-in fade-in duration-300">
+      <PageHeader
+        title="Supplier & Vendor Directory ERP"
+        subtitle="Manage seed manufacturers, fertilizer distributors, GSTIN compliance, payment terms, and vendor ledgers."
+        actions={
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="bg-[#1b5e20] text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider shadow-sm hover:bg-[#2e7d32] transition-all flex items-center group active:scale-95"
+          >
+            <Plus size={16} className="mr-2 group-hover:scale-110 transition-transform" />
+            Add Supplier
+          </button>
+        }
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

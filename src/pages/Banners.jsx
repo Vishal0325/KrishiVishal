@@ -4,6 +4,7 @@ import { db, storage } from '../firebase/config';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Image as ImageIcon, Plus, Trash2, X, Link as LinkIcon, Eye, MoveHorizontal, AlertCircle, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import PageHeader from '../components/common/PageHeader';
 
 const Banners = () => {
   const [banners, setBanners] = useState([]);
@@ -73,20 +74,14 @@ const Banners = () => {
   };
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-          <ImageIcon className="mr-3 text-primary" size={28} />
-          Marketing Banners
-        </h1>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-[#1b5e20] text-white px-6 py-3 rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-[#2e7d32] transition-all flex items-center group active:scale-95"
-        >
-          <Plus size={18} className="mr-2 group-hover:rotate-90 transition-transform" />
-          Create Banner
-        </button>
-      </div>
+    <div className="space-y-8 pb-10 animate-in fade-in duration-300">
+      <PageHeader
+        title="Promotional Banners & Carousels"
+        subtitle="Manage home screen promotional carousels, priority ordering, banner graphics, and deep links"
+        actions={[
+          { label: 'Create Banner', icon: Plus, onClick: () => setIsModalOpen(true), variant: 'primary' }
+        ]}
+      />
 
       {/* Banner Preview Section */}
       <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">

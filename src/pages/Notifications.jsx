@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, onSnapshot, orderBy, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import DataTable from '../components/common/DataTable';
+import PageHeader from '../components/common/PageHeader';
 import { Bell, Send, History, X, CheckCircle2, MessageSquare, Info, Target, Calendar } from 'lucide-react';
 import { formatDateTime } from '../utils/formatters';
 import toast from 'react-hot-toast';
@@ -56,13 +57,11 @@ const Notifications = () => {
   ];
 
   return (
-    <div className="max-w-6xl mx-auto space-y-10 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center">
-          <Bell className="mr-3 text-primary" size={28} />
-          Broadcast Center
-        </h1>
-      </div>
+    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-300 pb-10">
+      <PageHeader
+        title="Broadcast Notifications Center"
+        subtitle="Send push notifications to all farmers, specific segments, or topics"
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
         {/* Composition Panel */}
@@ -96,7 +95,7 @@ const Notifications = () => {
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 text-primary-dark flex items-center"><Info size={12} className="mr-1" /> Alert Title</label>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center"><Info size={12} className="mr-1" /> Alert Title</label>
                 <input
                   required
                   value={formData.title}
@@ -131,7 +130,7 @@ const Notifications = () => {
           <div className="bg-orange-50 p-6 rounded-3xl border border-orange-100 flex items-start space-x-4 shadow-sm">
             <Target className="text-orange-500 shrink-0 mt-1" size={20} />
             <div>
-              <h4 className="text-xs font-black text-orange-800 uppercase tracking-widest mb-1 text-primary-dark">Pro Tip</h4>
+              <h4 className="text-xs font-black text-orange-800 uppercase tracking-widest mb-1">Pro Tip</h4>
               <p className="text-[11px] font-bold text-orange-700/70 leading-relaxed italic">
                 Emojis like 🚜, 🌾 or 🌱 increase user engagement by up to 40% in agricultural apps.
               </p>
