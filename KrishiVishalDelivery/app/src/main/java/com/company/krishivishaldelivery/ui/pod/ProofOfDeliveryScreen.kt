@@ -51,6 +51,8 @@ import java.io.ByteArrayOutputStream
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
+import com.company.krishivishaldelivery.ui.components.RuralOfflineBanner
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProofOfDeliveryScreen(
@@ -60,6 +62,9 @@ fun ProofOfDeliveryScreen(
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val orderState by viewModel.orders.collectAsState()
+    val isConnected by viewModel.isConnected.collectAsState()
+    val pendingSyncCount by viewModel.pendingSyncCount.collectAsState()
+    val isSyncing by viewModel.isSyncing.collectAsState()
     val order = (orderState as? Resource.Success)?.data?.find { it.id == orderId }
     
     var capturedPhoto by remember { mutableStateOf<Bitmap?>(null) }
@@ -75,14 +80,22 @@ fun ProofOfDeliveryScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Proof of Delivery") },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+            Column {
+                TopAppBar(
+                    title = { Text("Proof of Delivery") },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        }
                     }
-                }
-            )
+                )
+                RuralOfflineBanner(
+                    isConnected = isConnected,
+                    pendingSyncCount = pendingSyncCount,
+                    isSyncing = isSyncing,
+                    onSyncNow = { viewModel.triggerManualSync() }
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
@@ -98,9 +111,92 @@ fun ProofOfDeliveryScreen(
             order?.let {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Order #${it.id}", fontWeight = FontWeight.Bold)
-                        Text("Customer: ${it.userName}")
-                        Text("Address: ${it.address}")
+                        Text("Order #${it.id.takeLast(8).uppercase()}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("Customer: ${it.userName}", fontWeight = FontWeight.Medium)
+                        Text("Address: ${it.address}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (it.isCOD) {
+                            Text(
+                                "COD Amount: ₹${it.codAmount}",
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFFE65100),
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Multi-Parcel / Item Handover Checklist
+            var verifiedParcelIndices by remember { mutableStateOf<Set<Int>>(emptySet()) }
+            val totalParcels = order?.items?.size ?: 1
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF9FBE7)),
+                border = BorderStroke(1.dp, Color(0xFFC0CA33)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "📦 पार्सल हैंडओवर चेकलिस्ट (Item Handover)",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 14.sp,
+                            color = Color(0xFF33691E)
+                        )
+                        Text(
+                            "${verifiedParcelIndices.size}/$totalParcels Handed Over",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (verifiedParcelIndices.size == totalParcels) Color(0xFF2E7D32) else Color(0xFFE65100)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    order?.items?.forEachIndexed { index, item ->
+                        val isChecked = verifiedParcelIndices.contains(index)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = isChecked,
+                                onCheckedChange = {
+                                    verifiedParcelIndices = if (it) {
+                                        verifiedParcelIndices + index
+                                    } else {
+                                        verifiedParcelIndices - index
+                                    }
+                                },
+                                colors = CheckboxDefaults.colors(checkedColor = Color(0xFF2E7D32))
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Box ${index + 1} of $totalParcels: ${item.productName}",
+                                    fontWeight = if (isChecked) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 13.sp
+                                )
+                                Text("Qty: ${item.quantity}", fontSize = 11.sp, color = Color.Gray)
+                            }
+                        }
+                    }
+
+                    if (verifiedParcelIndices.size < totalParcels) {
+                        Text(
+                            "⚠️ कृपया किसान को सभी डिब्बे सौंपने के बाद टिक करें।",
+                            fontSize = 11.sp,
+                            color = Color(0xFFD32F2F),
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
                     }
                 }
             }

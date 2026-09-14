@@ -100,7 +100,14 @@ androidx-room-compiler = { group = "androidx.room", name = "room-compiler", vers
 # Retrofit
 retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
 retrofit-converter-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
+
+# OkHttp
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
+
+# Paging 3
+androidx-paging-runtime = { group = "androidx.paging", name = "paging-runtime-ktx", version = "3.2.1" }
+androidx-paging-compose = { group = "androidx.paging", name = "paging-compose", version = "3.2.1" }
 
 # Firebase
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }

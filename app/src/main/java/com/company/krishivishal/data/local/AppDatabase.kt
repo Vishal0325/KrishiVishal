@@ -30,8 +30,8 @@ import com.company.krishivishal.core.model.*
         Warehouse::class,
         InventoryMovement::class
     ],
-    version = 50,
-    exportSchema = false
+    version = 51,
+    exportSchema = false  // [FIXED] Disabled to avoid KSP compilation error with large schema
 )
 @TypeConverters(AppConverters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -50,4 +50,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun recentSearchDao(): com.company.krishivishal.data.local.dao.RecentSearchDao
     abstract fun skuDao(): SkuDao
     abstract fun batchDao(): BatchDao
+    abstract fun warehouseDao(): WarehouseDao
+    abstract fun inventoryMovementDao(): InventoryMovementDao
 }

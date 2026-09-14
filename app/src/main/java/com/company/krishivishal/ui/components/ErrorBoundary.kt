@@ -43,14 +43,14 @@ fun ErrorBoundary(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "Oops! Something went wrong",
+                    text = "कुछ गलत हो गया / Something went wrong",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "We've encountered an unexpected error on this screen. Our team has been notified.",
+                    text = "स्क्रीन लोड करने में समस्या आई है। कृपया दोबारा प्रयास करें।\n(An unexpected error occurred. Please try again.)",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.Gray,
                     textAlign = TextAlign.Center
@@ -70,7 +70,7 @@ fun ErrorBoundary(
                         containerColor = MaterialTheme.colorScheme.primary
                     )
                 ) {
-                    Text("Try Again")
+                    Text("दोबारा कोशिश करें (Retry)")
                 }
             }
         }

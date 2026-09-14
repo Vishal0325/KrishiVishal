@@ -4,6 +4,7 @@ import com.company.krishivishal.core.model.*
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
 import java.util.UUID
+import timber.log.Timber
 
 fun DocumentSnapshot.toProduct(): Product? {
     val data = this.data ?: return null
@@ -22,7 +23,7 @@ fun DocumentSnapshot.toProduct(): Product? {
             isReturnable = (data["isReturnable"] ?: true).toString().toBoolean()
         }
     } catch (e: Exception) {
-        android.util.Log.e("FirestoreMapper", "Error mapping product ${this.id}: ${e.message}")
+        Timber.e(e, "Error mapping product ${this.id}: ${e.message}")
         null
     }
 }
@@ -122,7 +123,10 @@ private fun mapVariant(vMap: Map<*, *>, productId: String): Variant {
     val vDiscount = (vMap["discountPercent"] ?: vMap["discount"] ?: calculatedDiscount).toString().toIntOrNull() ?: calculatedDiscount
     val vLabel = (vMap["label"] ?: vMap["size"] ?: vMap["weight"] ?: "").toString()
     val vSize = (vMap["size"] ?: vMap["weight"] ?: vMap["packSize"] ?: vLabel).toString()
+    // FIX (DB Alignment): Read both legacy stock and warehouse-synced availableStock/committedStock
     val vStock = (vMap["stock"] ?: vMap["stockQuantity"] ?: vMap["stockCount"] ?: 10).toString().toIntOrNull() ?: 10
+    val vAvailableStock = (vMap["availableStock"] ?: vStock).toString().toIntOrNull() ?: vStock
+    val vCommittedStock = (vMap["committedStock"] ?: 0).toString().toIntOrNull() ?: 0
 
     return Variant(
         id = (vMap["id"] ?: UUID.randomUUID().toString()).toString(),
@@ -135,7 +139,11 @@ private fun mapVariant(vMap: Map<*, *>, productId: String): Variant {
         discountPercent = vDiscount,
         isBestSeller = (vMap["isBestSeller"] ?: false).toString().toBoolean(),
         stock = vStock,
+        availableStock = vAvailableStock,
+        committedStock = vCommittedStock,
         label = vLabel,
+        skuCode = (vMap["skuCode"] ?: vMap["sku"] ?: "").toString(),
+        barcode = (vMap["barcode"] ?: "").toString(),
         mfgDate = vMap["mfgDate"] as? Timestamp,
         expiryDate = vMap["expiryDate"] as? Timestamp
     )

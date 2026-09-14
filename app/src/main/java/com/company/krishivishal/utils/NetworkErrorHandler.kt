@@ -23,9 +23,9 @@ object NetworkErrorHandler {
             return context.getString(R.string.error_technical)
         }
 
-        // 2. Log the full technical error to Logcat safely
+        // 2. Log the full technical error safely to Timber & Crashlytics with full stack trace
         try {
-            android.util.Log.e("NetworkErrorHandler", "Technical Error [${throwable.javaClass.simpleName}]: ${throwable.message}")
+            Timber.e(throwable, "Technical Error [${throwable.javaClass.simpleName}]: ${throwable.message}")
         } catch (e: Exception) {
             // Silence logging errors to prevent recursive crashes
         }

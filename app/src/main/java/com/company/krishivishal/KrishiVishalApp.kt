@@ -52,13 +52,13 @@ class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provide
     }
 
     @Inject
-    lateinit var analyticsTracker: dagger.Lazy<AnalyticsTracker>
+    lateinit var analyticsTracker: AnalyticsTracker
 
     @Inject
-    lateinit var errorReporter: dagger.Lazy<CrashlyticsErrorReporter>
+    lateinit var errorReporter: CrashlyticsErrorReporter
 
     @Inject
-    lateinit var crashlyticsTree: dagger.Lazy<CrashlyticsTree>
+    lateinit var crashlyticsTree: CrashlyticsTree
 
     override fun newImageLoader(): ImageLoader {
         val activityManager = getSystemService<ActivityManager>()
@@ -78,6 +78,15 @@ class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provide
                     .build()
             }
             .crossfade(true)
+            // OPTIMIZATION: Use RGB_565 on low-RAM devices to halve bitmap memory usage (2 bytes/px vs 4 bytes/px)
+            // preventing OutOfMemory errors on entry-level farmer devices.
+            .allowRgb565(isLowRam)
+            // OPTIMIZATION: Enable hardware bitmaps on modern devices to offload textures directly to GPU memory.
+            .allowHardware(!isLowRam && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
+            // respectCacheHeaders = false: Firebase Storage URLs include a content-hash token
+            // (e.g., ?token=...) so each unique image URL is effectively immutable.
+            // Ignoring server cache headers means we cache aggressively locally, which is safe
+            // because product image URLs change when the image changes.
             .respectCacheHeaders(false)
             .build()
     }
@@ -92,7 +101,7 @@ class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provide
         try {
             FirebaseApp.initializeApp(this)
         } catch (e: Exception) {
-            android.util.Log.e("KrishiVishalApp", "FirebaseApp init failed", e)
+            Timber.e(e, "FirebaseApp init failed")
         }
 
         // 2. Setup Timber & Crashlytics
@@ -101,7 +110,15 @@ class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provide
         try {
             FirebaseCrashlytics.getInstance().setCrashlyticsCollectionEnabled(!BuildConfig.DEBUG)
         } catch (e: Exception) {
-            android.util.Log.e("KrishiVishalApp", "Crashlytics init failed", e)
+            Timber.e(e, "Crashlytics init failed")
+        }
+
+        // [FIXED] Point #166: Initialize injected objects on UI thread before background use
+        try {
+            errorReporter // Force eager initialization
+            analyticsTracker // Force eager initialization
+        } catch (e: Exception) {
+            Timber.e(e, "Eager injection initialization failed")
         }
 
         // 3. Setup App Check — Move to background to improve App Start Time
@@ -118,7 +135,7 @@ class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provide
                     )
                 }
             } catch (e: Exception) {
-                android.util.Log.e("KrishiVishalApp", "App Check init failed", e)
+                Timber.e(e, "App Check init failed")
             }
         }
 
@@ -129,8 +146,12 @@ class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provide
         if (BuildConfig.DEBUG) {
             Timber.plant(Timber.DebugTree())
         } else {
-            // Accessing .get() on Lazy to initialize when needed
-            Timber.plant(crashlyticsTree.get())
+            // Initialize crashlytics tree
+            try {
+                Timber.plant(crashlyticsTree)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to plant CrashlyticsTree")
+            }
         }
     }
 }

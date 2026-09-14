@@ -5,6 +5,7 @@ build/
 local.properties
 keystore.properties
 *.jks
+*.keystore
 .kotlin/
 captures/
 .externalNativeBuild/
@@ -15,3 +16,9 @@ node_modules/
 dist/
 .env
 scripts/service-account-key.json
+
+# Security — NEVER commit these
+google-services.json
+
+# Sensitive config (contains cert pins, API keys, keystore passwords)
+gradle.properties

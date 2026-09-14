@@ -26,9 +26,14 @@ import androidx.compose.ui.res.stringResource
 import com.company.krishivishaldelivery.R
 import com.company.krishivishal.core.model.Order
 import com.company.krishivishal.core.model.OrderStatus
+import com.company.krishivishal.core.util.Resource
 import com.company.krishivishaldelivery.ui.dashboard.DashboardViewModel
 import com.company.krishivishaldelivery.ui.components.StatusBadge
-import com.company.krishivishal.core.util.Resource
+import com.company.krishivishaldelivery.ui.order_detail.components.DynamicUpiQrDialog
+import com.company.krishivishaldelivery.ui.order_detail.components.ReattemptDialog
+import com.company.krishivishaldelivery.utils.VoicePromptHelper
+
+import com.company.krishivishaldelivery.ui.components.RuralOfflineBanner
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,8 +44,18 @@ fun OrderDetailScreen(
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val ordersResource by viewModel.orders.collectAsState()
+    val isConnected by viewModel.isConnected.collectAsState()
+    val pendingSyncCount by viewModel.pendingSyncCount.collectAsState()
+    val isSyncing by viewModel.isSyncing.collectAsState()
     val context = LocalContext.current
     var showConfirmDialog by remember { mutableStateOf<String?>(null) }
+    var showUpiQrDialog by remember { mutableStateOf(false) }
+    var showReattemptDialog by remember { mutableStateOf(false) }
+    val voiceHelper = remember { VoicePromptHelper(context) }
+
+    DisposableEffect(Unit) {
+        onDispose { voiceHelper.shutdown() }
+    }
 
     val order = (ordersResource as? Resource.Success<List<Order>>)?.data?.find { it.id == orderId }
 
@@ -75,19 +90,27 @@ fun OrderDetailScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.order_details), fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
+            Column {
+                TopAppBar(
+                    title = { Text(stringResource(R.string.order_details), fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 )
-            )
+                RuralOfflineBanner(
+                    isConnected = isConnected,
+                    pendingSyncCount = pendingSyncCount,
+                    isSyncing = isSyncing,
+                    onSyncNow = { viewModel.triggerManualSync() }
+                )
+            }
         }
     ) { padding ->
         if (order == null) {
@@ -116,14 +139,30 @@ fun OrderDetailScreen(
                         item {
                             Card(
                                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0))
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                                shape = RoundedCornerShape(14.dp)
                             ) {
-                                Row(
+                                Column(
                                     modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically
+                                    horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Text(stringResource(R.string.cash_to_collect, order.codAmount), fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = Color(0xFFE65100))
+                                    Text(
+                                        stringResource(R.string.cash_to_collect, order.codAmount),
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 20.sp,
+                                        color = Color(0xFFE65100)
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Button(
+                                        onClick = { showUpiQrDialog = true },
+                                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("किसान हेतु UPI QR कोड दिखाएं (Scan to Pay)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    }
                                 }
                             }
                         }
@@ -283,12 +322,35 @@ fun OrderDetailScreen(
                 ActionBottomBar(
                     order = order,
                     onDeliverClick = { showConfirmDialog = "DELIVERED" },
-                    onStatusChange = { newStatus ->
-                        showConfirmDialog = newStatus
-                    }
+                    onStatusChange = { newStatus -> showConfirmDialog = newStatus },
+                    onReattemptClick = { showReattemptDialog = true }
                 )
             }
         }
+    }
+
+    if (showUpiQrDialog && order != null) {
+        DynamicUpiQrDialog(
+            orderId = order.id,
+            farmerName = order.userName.ifBlank { "किसान ग्राहक" },
+            amount = if (order.isCOD && order.codAmount > 0) order.codAmount else order.totalAmount,
+            onDismiss = { showUpiQrDialog = false }
+        )
+    }
+
+    if (showReattemptDialog && order != null) {
+        ReattemptDialog(
+            orderId = order.id,
+            onDismiss = { showReattemptDialog = false },
+            onSubmit = { reason, notes, isRTO ->
+                viewModel.reportDeliveryFailure(order.id, reason, notes, isRTO) { success ->
+                    showReattemptDialog = false
+                    if (success) {
+                        onNavigateBack()
+                    }
+                }
+            }
+        )
     }
 }
 
@@ -335,12 +397,22 @@ fun SummaryRow(label: String, value: String, isBold: Boolean = false) {
 }
 
 @Composable
-fun ActionBottomBar(order: Order, onDeliverClick: () -> Unit, onStatusChange: (String) -> Unit) {
+fun ActionBottomBar(
+    order: Order,
+    onDeliverClick: () -> Unit,
+    onStatusChange: (String) -> Unit,
+    onReattemptClick: () -> Unit
+) {
     Surface(
         shadowElevation = 8.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Box(modifier = Modifier.padding(16.dp)) {
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             val (buttonText, nextStatus) = when (order.status) {
                 OrderStatus.ASSIGNED.name -> "START PICKUP" to OrderStatus.PICKED_UP.name
                 OrderStatus.PICKED_UP.name -> "OUT FOR DELIVERY" to OrderStatus.OUT_FOR_DELIVERY.name
@@ -357,11 +429,26 @@ fun ActionBottomBar(order: Order, onDeliverClick: () -> Unit, onStatusChange: (S
                             onStatusChange(nextStatus)
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
                 ) {
                     Text(buttonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            }
+
+            // Reattempt / Failure button when out for delivery or picked up
+            if (order.status == OrderStatus.OUT_FOR_DELIVERY.name || order.status == OrderStatus.PICKED_UP.name) {
+                OutlinedButton(
+                    onClick = onReattemptClick,
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD32F2F)),
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFD32F2F))
+                ) {
+                    Icon(Icons.Default.WarningAmber, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("डिलीवरी समस्या / पुनः प्रयास (Report Issue / Reattempt)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
         }

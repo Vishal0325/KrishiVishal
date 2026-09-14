@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
+import timber.log.Timber
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -88,7 +89,7 @@ class AuthViewModel @Inject constructor(
 
             override fun onVerificationFailed(e: FirebaseException) {
                 _uiState.update { it.copy(isLoading = false, error = e.localizedMessage) }
-                android.util.Log.e("AuthViewModel", "SMS Verification Failed: ${e.message}")
+                Timber.e(e, "SMS Verification Failed: ${e.message}")
                 
                 viewModelScope.launch {
                     val message = when {
@@ -129,7 +130,7 @@ class AuthViewModel @Inject constructor(
         }
 
         if (verificationId.isEmpty()) {
-            android.util.Log.e("AuthViewModel", "verificationId is empty during verifyOtp")
+            Timber.e("verificationId is empty during verifyOtp")
             viewModelScope.launch {
                 _uiEvent.emit(AuthUiEvent.ShowSnackbar("OTP session expired. Please resend OTP."))
             }
@@ -143,7 +144,7 @@ class AuthViewModel @Inject constructor(
                     handleAuthResource(resource)
                 }
             } catch (e: Exception) {
-                android.util.Log.e("AuthViewModel", "Unexpected error in verifyOtp: ${e.message}")
+                Timber.e(e, "Unexpected error in verifyOtp: ${e.message}")
                 _uiState.update { it.copy(isLoading = false, error = e.localizedMessage) }
                 _uiEvent.emit(AuthUiEvent.ShowSnackbar(e.localizedMessage ?: "Verification Failed"))
             }
@@ -173,7 +174,7 @@ class AuthViewModel @Inject constructor(
                             try {
                                 referralRepository.applyReferralCode(_uiState.value.referralCode).collect()
                             } catch (e: Exception) {
-                                android.util.Log.e("AuthViewModel", "Failed to apply referral code: ${e.message}")
+                                Timber.e(e, "Failed to apply referral code: ${e.message}")
                             }
                         }
                     }
@@ -196,16 +197,13 @@ class AuthViewModel @Inject constructor(
                                 cartRepository.clearCart("guest_user").collect()
                             }
                         } catch (e: Exception) {
-                            android.util.Log.e("AuthViewModel", "Sync failed: ${e.message}")
+                            Timber.e(e, "Sync failed: ${e.message}")
                         }
                     }
                 }
             }
             is Resource.Error -> {
-                android.util.Log.e(
-                    "AuthViewModel",
-                    "Auth resource failed inside handleAuthResource: ${resource.message}"
-                )
+                Timber.e("Auth resource failed inside handleAuthResource: ${resource.message}")
                 _uiState.update { it.copy(isLoading = false, error = resource.message) }
                 _uiEvent.emit(AuthUiEvent.ShowSnackbar(resource.message ?: "Action Failed"))
             }

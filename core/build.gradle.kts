@@ -55,7 +55,7 @@ dependencies {
     ksp(libs.androidx.room.compiler)
 
     // GSON
-    implementation(libs.retrofit.converter.gson)
+    api(libs.retrofit.converter.gson)
 
     // Testing
     testImplementation(libs.junit)

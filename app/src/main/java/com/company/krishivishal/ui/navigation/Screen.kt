@@ -50,5 +50,5 @@ sealed class Screen(val route: String) {
     }
     object MyReturns : Screen("my_returns")
     object Wallet : Screen("wallet")
-    
+    object FarmProfile : Screen("farm_profile")
 }

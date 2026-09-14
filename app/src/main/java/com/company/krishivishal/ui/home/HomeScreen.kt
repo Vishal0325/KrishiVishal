@@ -67,6 +67,7 @@ fun HomeScreen(
     onViewAllBrands: () -> Unit = {},
     onViewAllProducts: () -> Unit = {},
     onSearchClick: () -> Unit = {},
+    onFarmProfileClick: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -156,6 +157,18 @@ fun HomeScreen(
                     item {
                         if (uiState.isLoadingFeed) BannerShimmer()
                         else BannerSection(Resource.Success(uiState.banners))
+                    }
+
+                    // Feature 1: Farmer Onboarding Farm Setup Advisory Banner
+                    val user = uiState.currentUser
+                    val isFarmProfileIncomplete = (user?.totalLand ?: 0.0) == 0.0 || user?.cropAllocations.isNullOrEmpty()
+                    if (isFarmProfileIncomplete) {
+                        item {
+                            FarmSetupBanner(
+                                user = user,
+                                onClick = onFarmProfileClick
+                            )
+                        }
                     }
 
                     item {

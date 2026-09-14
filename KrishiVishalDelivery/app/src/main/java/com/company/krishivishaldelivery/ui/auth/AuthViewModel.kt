@@ -249,15 +249,18 @@ class AuthViewModel @Inject constructor(
 
                                 // 2. Set users collection
                                 val userRef = firestore.collection("users").document(firebaseUser.uid)
-                                val userData = mapOf(
+                                val userData = mutableMapOf<String, Any>(
                                     "id" to firebaseUser.uid,
                                     "phone" to normalizedPhone,
                                     "name" to riderName,
-                                    "role" to "Rider",
                                     "riderSerialId" to serialId,
                                     "riderIdDisplay" to displayId,
                                     "updatedAt" to FieldValue.serverTimestamp()
                                 )
+                                // Do not update role if user already exists to avoid Permission Denied
+                                if (userDoc == null || !userDoc.exists()) {
+                                    userData["role"] = "Rider"
+                                }
                                 batch.set(userRef, userData, SetOptions.merge())
 
                                 // 3. Set whitelisted_riders collection
@@ -267,8 +270,10 @@ class AuthViewModel @Inject constructor(
                                     "riderIdDisplay" to displayId,
                                     "registeredAt" to FieldValue.serverTimestamp()
                                 )
-                                if (normalizedPhone.isNotEmpty()) {
-                                    val wRef1 = firestore.collection("whitelisted_riders").document(normalizedPhone)
+                                // Use the exact document ID found in whitelist (can be plain phone or normalized)
+                                val whitelistedIdToUpdate = whitelistedDoc?.id ?: normalizedPhone
+                                if (whitelistedIdToUpdate.isNotEmpty()) {
+                                    val wRef1 = firestore.collection("whitelisted_riders").document(whitelistedIdToUpdate)
                                     batch.set(wRef1, whitelistUpdate, SetOptions.merge())
                                 }
 

@@ -37,6 +37,8 @@ class OrderRepository @Inject constructor(
         }
     }
 
+    fun getPendingSyncCount(): Flow<Int> = deliveryDao.getPendingSyncCount()
+
     suspend fun syncAssignedOrders(riderId: String) {
         try {
             val todayStart = java.util.Calendar.getInstance().apply {
@@ -145,9 +147,37 @@ class OrderRepository @Inject constructor(
         }
     }
 
-    suspend fun fetchOrderForPreview(orderId: String): Order? {
-        val doc = firestore.collection("orders").document(orderId).get().await()
-        return doc.toObject(Order::class.java)
+    suspend fun fetchOrderForPreview(scannedRawText: String): Order? {
+        val cleanId = extractOrderIdFromScan(scannedRawText)
+        val doc = firestore.collection("orders").document(cleanId).get().await()
+        if (doc.exists()) {
+            return doc.toObject(Order::class.java)
+        }
+        // Fallback: check if id matches prefix
+        return try {
+            val snap = firestore.collection("orders").whereEqualTo("id", cleanId).get().await()
+            snap.documents.firstOrNull()?.toObject(Order::class.java)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun extractOrderIdFromScan(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            try {
+                val json = org.json.JSONObject(trimmed)
+                if (json.has("orderId")) return json.getString("orderId")
+                if (json.has("id")) return json.getString("id")
+            } catch (e: Exception) {
+                Timber.w(e, "JSON parse fallback on scanned raw text")
+            }
+        }
+        if (trimmed.startsWith("AWB-")) {
+            val parts = trimmed.split("-")
+            if (parts.size >= 2) return parts[1]
+        }
+        return trimmed
     }
 
     suspend fun acceptOrderByScan(orderId: String, riderId: String): Order {
@@ -198,6 +228,43 @@ class OrderRepository @Inject constructor(
         ).await()
     }
 
+    suspend fun reportDeliveryFailure(
+        orderId: String,
+        riderId: String,
+        reason: String,
+        notes: String,
+        isRTO: Boolean
+    ): Boolean {
+        return try {
+            val targetStatus = if (isRTO) "RTO_INITIATED" else "REATTEMPT_SCHEDULED"
+            val attemptLog = mapOf(
+                "riderId" to riderId,
+                "reason" to reason,
+                "notes" to notes,
+                "status" to targetStatus,
+                "timestamp" to System.currentTimeMillis()
+            )
+
+            // 1. Update Firestore
+            firestore.collection("orders").document(orderId).update(
+                mapOf(
+                    "status" to targetStatus,
+                    "ndrReason" to reason,
+                    "ndrNotes" to notes,
+                    "lastAttemptAt" to FieldValue.serverTimestamp(),
+                    "attemptHistory" to FieldValue.arrayUnion(attemptLog)
+                )
+            ).await()
+
+            // 2. Update local DB
+            deliveryDao.updateOrderStatus(orderId, targetStatus, false)
+            true
+        } catch (e: Exception) {
+            Timber.e(e, "reportDeliveryFailure failed for order $orderId")
+            false
+        }
+    }
+
     suspend fun uploadProofOfDelivery(orderId: String, photoBytes: ByteArray?, signatureBytes: ByteArray?): Boolean {
         return try {
             val storage = FirebaseStorage.getInstance()
@@ -206,13 +273,17 @@ class OrderRepository @Inject constructor(
             photoBytes?.let {
                 val ref = storage.reference.child("orders/$orderId/pod_photo.jpg")
                 ref.putBytes(it).await()
-                updates["podPhoto"] = ref.downloadUrl.await().toString()
+                val url = ref.downloadUrl.await().toString()
+                updates["podPhoto"] = url
+                updates["podPhotoUrl"] = url
             }
 
             signatureBytes?.let {
                 val ref = storage.reference.child("orders/$orderId/signature.png")
                 ref.putBytes(it).await()
-                updates["podSignature"] = ref.downloadUrl.await().toString()
+                val url = ref.downloadUrl.await().toString()
+                updates["podSignature"] = url
+                updates["podSignatureUrl"] = url
             }
 
             if (updates.size > 1) {

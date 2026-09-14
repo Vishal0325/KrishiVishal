@@ -26,5 +26,6 @@ data class HomeUiState(
     val seasonalProducts: List<Product> = emptyList(),
     val recentlyViewedProducts: List<Product> = emptyList(),
     val config: com.company.krishivishal.core.model.AppConfig? = null,
-    val personalizedProducts: List<Product> = emptyList()
+    val personalizedProducts: List<Product> = emptyList(),
+    val currentUser: com.company.krishivishal.core.model.User? = null
 )

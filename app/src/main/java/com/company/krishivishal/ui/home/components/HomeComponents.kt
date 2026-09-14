@@ -1,5 +1,8 @@
 package com.company.krishivishal.ui.home.components
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -10,16 +13,18 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -568,3 +573,211 @@ fun SearchSuggestionsRow(
         )
     }
 }
+
+@Composable
+fun FarmSetupBanner(
+    user: User?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isDismissed by rememberSaveable { mutableStateOf(false) }
+
+    val hasLand = (user?.totalLand ?: 0.0) > 0.0
+    val hasCrops = !user?.cropAllocations.isNullOrEmpty()
+    val completionPercent = when {
+        hasLand && hasCrops -> 100
+        hasLand || hasCrops -> 50
+        else -> 0
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize(animationSpec = tween(300))
+    ) {
+        // Expanded State Banner
+        AnimatedVisibility(
+            visible = !isDismissed,
+            enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(300)),
+            exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(300))
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .clickable { onClick() },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color.Transparent
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                border = BorderStroke(1.dp, PrimaryGreen.copy(alpha = 0.2f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            brush = Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF1B5E20), // Dark green
+                                    Color(0xFF2E7D32), // Primary green
+                                    Color(0xFF388E3C)  // Vibrant green
+                                )
+                            )
+                        )
+                        .padding(16.dp)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Top Row: Status badge & Dismiss icon
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color.White.copy(alpha = 0.18f),
+                                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.35f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (completionPercent > 0) "⚡ $completionPercent% Complete" else "⚡ Kisan Advisory",
+                                        color = Color(0xFFFFD54F),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = { isDismissed = true },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss farm setup banner",
+                                    tint = Color.White.copy(alpha = 0.75f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Title
+                        Text(
+                            text = "🌾 Apne Khet & Fasal ki Jaankari Bharein",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            lineHeight = 22.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Subtitle
+                        Text(
+                            text = "Paayein visheshagyon se muft kisan salah aur tailored khad/keetnashak offers!",
+                            fontSize = 12.5.sp,
+                            color = Color.White.copy(alpha = 0.92f),
+                            lineHeight = 17.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Bottom Row: Status Indicator & Action CTA Button
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = when {
+                                    hasLand && !hasCrops -> "Khet darj hai • Fasal baaki"
+                                    !hasLand && hasCrops -> "Fasal darj hai • Khet baaki"
+                                    else -> "Bina kisi shulk ke"
+                                },
+                                fontSize = 11.5.sp,
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontWeight = FontWeight.Medium
+                            )
+
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = com.company.krishivishal.ui.theme.AccentOrange,
+                                shadowElevation = 2.dp,
+                                modifier = Modifier.clickable { onClick() }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Abhi Bharein ➔",
+                                        color = Color.White,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Collapsed / Permanent Status Indicator (visible when dismissed)
+        AnimatedVisibility(
+            visible = isDismissed,
+            enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(300)),
+            exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(300))
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .clickable { onClick() },
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                border = BorderStroke(0.5.dp, PrimaryGreen.copy(alpha = 0.35f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(text = "🌾", fontSize = 13.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Khet & Fasal Setup Incomplete ($completionPercent%)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { isDismissed = false }
+                    ) {
+                        Text(
+                            text = "Abhi Bharein ➔",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = PrimaryGreen
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+

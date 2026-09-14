@@ -30,19 +30,29 @@
 -dontwarn javax.annotation.**
 
 # Gson
+-dontwarn sun.misc.**
 -keep class com.google.gson.** { *; }
 -keep class com.google.gson.reflect.TypeToken
 -keep class * implements com.google.gson.TypeAdapter
+-keep class * implements com.google.gson.TypeAdapterFactory
+-keep class * implements com.google.gson.JsonSerializer
+-keep class * implements com.google.gson.JsonDeserializer
 -keep @com.google.gson.annotations.SerializedName class * { *; }
+# Prevent R8 from leaving Data object members always null
+-keepclassmembers,allowobfuscation class * {
+  @com.google.gson.annotations.SerializedName <fields>;
+}
 
-# Firebase & GMS (Modern SDKs have internal consumer rules, keep only if needed for specific logic)
-# -keep class com.google.firebase.** { *; }
-# -keep class com.google.android.gms.** { *; }
+# Firebase & GMS
+-keep class com.google.firebase.** { *; }
+-keep class com.google.android.gms.** { *; }
 -dontwarn com.google.firebase.**
 -dontwarn com.google.android.gms.**
 
 # Razorpay
--keep class com.razorpay.** {*;}
+-keep class com.razorpay.** { *; }
+-keepclassmembers class com.razorpay.** { *; }
+-keep interface com.razorpay.** { *; }
 -dontwarn com.razorpay.**
 -keepattributes *Annotation*
 -keepattributes JavascriptInterface

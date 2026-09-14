@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
+import timber.log.Timber
 
 enum class CheckoutSource {
     CART, BUY_NOW
@@ -76,6 +77,7 @@ class CheckoutViewModel @Inject constructor(
     private val walletRepository: WalletRepository,
     private val configRepository: com.company.krishivishal.data.repository.ConfigRepository,
     private val paymentResilienceManager: com.company.krishivishal.performance.PaymentResilienceManager,
+    private val firebaseAuth: com.google.firebase.auth.FirebaseAuth,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -388,10 +390,10 @@ class CheckoutViewModel @Inject constructor(
 
         if (userId.isBlank() || userId == "guest_user") {
             // Fallback: check FirebaseAuth directly in case the flow hasn't emitted yet
-            val fbUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+            val fbUser = firebaseAuth.currentUser
             if (fbUser != null && !fbUser.isAnonymous) {
                 userId = fbUser.uid
-                android.util.Log.w("CheckoutVM", "userId was blank, recovered from FirebaseAuth: $userId")
+                timber.log.Timber.w("userId was blank, recovered from FirebaseAuth: $userId")
             } else {
                 _uiState.update { it.copy(error = "Login karo pehle order karne ke liye.") }
                 return

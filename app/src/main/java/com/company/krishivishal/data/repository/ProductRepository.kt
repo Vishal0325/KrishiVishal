@@ -99,7 +99,7 @@ class ProductRepositoryImpl @Inject constructor(
     )
 
     override fun getProductsPaged(pageSize: Int): Flow<PagingData<Product>> {
-        return Pager<QuerySnapshot, Product>(
+        return Pager(
             config = PagingConfig(
                 pageSize = pageSize,
                 enablePlaceholders = false

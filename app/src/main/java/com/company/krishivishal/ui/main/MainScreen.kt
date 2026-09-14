@@ -1,12 +1,6 @@
 package com.company.krishivishal.ui.main
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
@@ -33,6 +27,7 @@ import com.company.krishivishal.core.model.Order
 import com.company.krishivishal.ui.cart.CartScreen
 import com.company.krishivishal.ui.profile.ProfileScreen
 import com.company.krishivishal.ui.profile.EditProfileScreen
+import com.company.krishivishal.ui.profile.FarmProfileScreen
 import com.company.krishivishal.ui.wishlist.WishlistScreen
 import com.company.krishivishal.ui.address.AddressScreen
 import com.company.krishivishal.ui.order.OrderScreen
@@ -283,7 +278,8 @@ fun MainScreen(
                     onViewAllCrops = { navController.navigate(Screen.Crops.route) },
                     onViewAllBrands = { navController.navigate(Screen.BrandList.route) },
                     onViewAllProducts = { navController.navigate(Screen.AllProducts.route) },
-                    onSearchClick = { navController.navigate(Screen.GlobalSearch.route) }
+                    onSearchClick = { navController.navigate(Screen.GlobalSearch.route) },
+                    onFarmProfileClick = { navController.navigate(Screen.FarmProfile.route) }
                 )
             }
 
@@ -333,6 +329,12 @@ fun MainScreen(
 
             composable("editProfile") {
                 EditProfileScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(Screen.FarmProfile.route) {
+                FarmProfileScreen(
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -566,9 +568,22 @@ fun MainScreen(
                         template = billTemplate,
                         appConfig = appConfig
                     )
-                } else {
+                } else if (orderHistoryState.isLoading) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+                        CircularProgressIndicator(color = com.company.krishivishal.ui.theme.PrimaryGreen)
+                    }
+                } else {
+                    Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Invoice not found or still loading", fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = { navController.popBackStack() },
+                                colors = ButtonDefaults.buttonColors(containerColor = com.company.krishivishal.ui.theme.PrimaryGreen)
+                            ) {
+                                Text("Go Back")
+                            }
+                        }
                     }
                 }
             }

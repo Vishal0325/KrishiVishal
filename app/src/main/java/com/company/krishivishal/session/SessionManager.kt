@@ -10,8 +10,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
-import java.util.Timer
-import java.util.TimerTask
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,8 +35,8 @@ class SessionManager @Inject constructor(
         private const val TOKEN_CHECK_INTERVAL_MS = 5 * 60 * 1000L
     }
 
-    private var sessionTimer: Timer? = null
-    private var tokenCheckTimer: Timer? = null
+    private var sessionJob: Job? = null
+    private var tokenCheckJob: Job? = null
     private var lastActivityTime = System.currentTimeMillis()
     // Coroutine scope for background Firebase token refresh tasks
     private val refreshScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -128,19 +129,12 @@ class SessionManager @Inject constructor(
      */
     private fun startSessionTimeoutMonitor() {
         stopSessionTimeoutMonitor()
-        
-        sessionTimer = Timer().apply {
-            scheduleAtFixedRate(
-                object : TimerTask() {
-                    override fun run() {
-                        checkSessionTimeout()
-                    }
-                },
-                SESSION_TIMEOUT_MS,
-                SESSION_TIMEOUT_MS
-            )
+        sessionJob = refreshScope.launch {
+            while (isActive) {
+                delay(SESSION_TIMEOUT_MS)
+                checkSessionTimeout()
+            }
         }
-        
         Timber.d("Session timeout monitor started")
     }
 
@@ -161,8 +155,8 @@ class SessionManager @Inject constructor(
      * Stop session timeout monitor
      */
     private fun stopSessionTimeoutMonitor() {
-        sessionTimer?.cancel()
-        sessionTimer = null
+        sessionJob?.cancel()
+        sessionJob = null
     }
 
     /**
@@ -170,19 +164,12 @@ class SessionManager @Inject constructor(
      */
     private fun startTokenExpiryMonitor() {
         stopTokenExpiryMonitor()
-        
-        tokenCheckTimer = Timer().apply {
-            scheduleAtFixedRate(
-                object : TimerTask() {
-                    override fun run() {
-                        checkTokenExpiry()
-                    }
-                },
-                TOKEN_CHECK_INTERVAL_MS,
-                TOKEN_CHECK_INTERVAL_MS
-            )
+        tokenCheckJob = refreshScope.launch {
+            while (isActive) {
+                delay(TOKEN_CHECK_INTERVAL_MS)
+                checkTokenExpiry()
+            }
         }
-        
         Timber.d("Token expiry monitor started")
     }
 
@@ -233,8 +220,8 @@ class SessionManager @Inject constructor(
      * Stop token expiry monitor
      */
     private fun stopTokenExpiryMonitor() {
-        tokenCheckTimer?.cancel()
-        tokenCheckTimer = null
+        tokenCheckJob?.cancel()
+        tokenCheckJob = null
     }
 
     /**

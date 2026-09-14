@@ -243,23 +243,30 @@ service cloud.firestore {
         (
           isRider() &&
           resource.data.riderId == request.auth.uid &&
-          // C2: Strictly prohibit rider direct status mutation (transitions handled via Cloud Functions)
-          request.resource.data
-            .diff(resource.data)
-            .affectedKeys()
-            .hasOnly([
-              'deliveryStatus',
-              'deliveryLocation',
-              'deliveryProof',
-              'deliveryProofUrl',
-              'podPhoto',
-              'podPhotoUrl',
-              'podSignature',
-              'riderNote',
-              'updatedAt',
-              'syncId',
-              'rejectionHistory'
-            ])
+            request.resource.data
+              .diff(resource.data)
+              .affectedKeys()
+              .hasOnly([
+                'status',
+                'deliveryStatus',
+                'deliveryLocation',
+                'deliveryProof',
+                'deliveryProofUrl',
+                'podPhoto',
+                'podPhotoUrl',
+                'podSignature',
+                'podSignatureUrl',
+                'riderNote',
+                'updatedAt',
+                'syncId',
+                'rejectionHistory',
+                'ndrReason',
+                'ndrNotes',
+                'lastAttemptAt',
+                'attemptHistory',
+                'isCashDeposited',
+                'cashDepositedAt'
+              ])
         ) ||
         (
           // Blocker 7: allow rider to self-assign unassigned orders
@@ -650,6 +657,17 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+
+    // ============================================================
+    // CASH DEPOSITS
+    // ============================================================
+    
+    match /cash_deposits/{id} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow create: if isRider() && request.resource.data.riderId == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
 
     // ============================================================
     // DEFAULT DENY

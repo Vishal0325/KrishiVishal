@@ -40,6 +40,7 @@ import com.company.krishivishaldelivery.data.model.OptimizedStop
 import com.company.krishivishaldelivery.data.model.OptimizedTrip
 import com.company.krishivishaldelivery.service.RiderLocationService
 import com.company.krishivishal.core.util.Resource
+import com.company.krishivishaldelivery.ui.components.RuralOfflineBanner
 import com.company.krishivishaldelivery.ui.components.StatusBadge
 import com.company.krishivishaldelivery.ui.theme.PrimaryGreen
 
@@ -56,6 +57,8 @@ fun DashboardScreen(
     val returnsResource by viewModel.returns.collectAsState()
     val optimizedTrip by viewModel.optimizedTrip.collectAsState()
     val isConnected by viewModel.isConnected.collectAsState()
+    val pendingSyncCount by viewModel.pendingSyncCount.collectAsState()
+    val isSyncing by viewModel.isSyncing.collectAsState()
     val incentiveProgress by viewModel.incentiveProgress.collectAsState()
     val codCashInHand by viewModel.codCashInHand.collectAsState()
     val isCodVaultLimitExceeded by viewModel.isCodVaultLimitExceeded.collectAsState()
@@ -123,11 +126,12 @@ fun DashboardScreen(
                     }
                 }
                 
-                AnimatedVisibility(visible = !isConnected) {
-                    Box(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.error).padding(4.dp), contentAlignment = Alignment.Center) {
-                        Text("Offline - changes will sync automatically", color = MaterialTheme.colorScheme.onError, fontSize = 12.sp)
-                    }
-                }
+                RuralOfflineBanner(
+                    isConnected = isConnected,
+                    pendingSyncCount = pendingSyncCount,
+                    isSyncing = isSyncing,
+                    onSyncNow = { viewModel.triggerManualSync() }
+                )
             }
         },
         floatingActionButton = {

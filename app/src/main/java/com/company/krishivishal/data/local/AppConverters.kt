@@ -61,4 +61,20 @@ class AppConverters {
     fun toOrderItemList(list: List<OrderItem>): String {
         return Gson().toJson(list)
     }
+
+    @TypeConverter
+    fun fromCropAllocationList(value: String?): List<com.company.krishivishal.core.model.CropAllocation> {
+        if (value.isNullOrBlank()) return emptyList()
+        val listType = object : TypeToken<List<com.company.krishivishal.core.model.CropAllocation>>() {}.type
+        return try {
+            Gson().fromJson(value, listType) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    @TypeConverter
+    fun toCropAllocationList(list: List<com.company.krishivishal.core.model.CropAllocation>?): String {
+        return Gson().toJson(list ?: emptyList<com.company.krishivishal.core.model.CropAllocation>())
+    }
 }

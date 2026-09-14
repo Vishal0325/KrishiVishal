@@ -361,6 +361,19 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * Migration from 50 to 51
+     * Adds 'age', 'totalLand', 'landUnit', and 'cropAllocations' columns to 'users' table.
+     */
+    val MIGRATION_50_51 = object : Migration(50, 51) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE users ADD COLUMN age INTEGER")
+            db.execSQL("ALTER TABLE users ADD COLUMN totalLand REAL NOT NULL DEFAULT 0.0")
+            db.execSQL("ALTER TABLE users ADD COLUMN landUnit TEXT NOT NULL DEFAULT 'Katha'")
+            db.execSQL("ALTER TABLE users ADD COLUMN cropAllocations TEXT NOT NULL DEFAULT '[]'")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_33_34,
         MIGRATION_34_35,
@@ -371,7 +384,8 @@ object DatabaseMigrations {
         MIGRATION_42_43,
         MIGRATION_43_48,
         MIGRATION_48_49,
-        MIGRATION_49_50
+        MIGRATION_49_50,
+        MIGRATION_50_51
     )
 }
 

@@ -55,5 +55,21 @@ data class User(
 
     @ColumnInfo(name = "fcmToken")
     @SerializedName("fcmToken")
-    val fcmToken: String? = null
+    val fcmToken: String? = null,
+
+    @ColumnInfo(name = "age")
+    @SerializedName("age")
+    val age: Int? = null,
+
+    @ColumnInfo(name = "totalLand", defaultValue = "0")
+    @SerializedName("totalLand")
+    val totalLand: Double = 0.0,
+
+    @ColumnInfo(name = "landUnit", defaultValue = "'Katha'")
+    @SerializedName("landUnit")
+    val landUnit: String = "Katha",
+
+    @ColumnInfo(name = "cropAllocations")
+    @SerializedName("cropAllocations")
+    val cropAllocations: List<CropAllocation> = emptyList()
 ) : Parcelable

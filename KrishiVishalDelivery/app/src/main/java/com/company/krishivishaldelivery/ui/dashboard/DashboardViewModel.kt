@@ -51,6 +51,10 @@ class DashboardViewModel @Inject constructor(
     private val _incentiveSlabs = MutableStateFlow<List<IncentiveSlab>>(emptyList())
 
     val isConnected = connectivityObserver.isConnected.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    val pendingSyncCount: StateFlow<Int> = orderRepository.getPendingSyncCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val isSyncing = MutableStateFlow(false)
 
     // COD Vault Limit State
     val codCashInHand: StateFlow<Double> = orders.map { res ->
@@ -109,6 +113,34 @@ class DashboardViewModel @Inject constructor(
 
     init {
         loadData()
+        observeNetworkRecovery()
+    }
+
+    private fun observeNetworkRecovery() {
+        viewModelScope.launch {
+            isConnected.collect { connected ->
+                if (connected && currentRiderId.isNotEmpty()) {
+                    triggerManualSync()
+                }
+            }
+        }
+    }
+
+    fun triggerManualSync() {
+        val riderId = currentRiderId
+        if (riderId.isNotEmpty()) {
+            viewModelScope.launch {
+                isSyncing.value = true
+                try {
+                    orderRepository.syncPendingOrders()
+                    orderRepository.syncAssignedOrders(riderId)
+                } catch (e: Exception) {
+                    // Log sync exception
+                } finally {
+                    isSyncing.value = false
+                }
+            }
+        }
     }
 
     private fun loadData() {
@@ -285,6 +317,27 @@ class DashboardViewModel @Inject constructor(
             loadOrders(currentRiderId)
         }
         return result
+    }
+
+    fun reportDeliveryFailure(
+        orderId: String,
+        reason: String,
+        notes: String,
+        isRTO: Boolean,
+        onComplete: (Boolean) -> Unit = {}
+    ) {
+        val riderId = currentRiderId
+        if (riderId.isNotEmpty()) {
+            viewModelScope.launch {
+                val success = orderRepository.reportDeliveryFailure(orderId, riderId, reason, notes, isRTO)
+                if (success) {
+                    loadOrders(riderId)
+                }
+                onComplete(success)
+            }
+        } else {
+            onComplete(false)
+        }
     }
 
     suspend fun uploadProofOfDelivery(orderId: String, photo: ByteArray?, signature: ByteArray?) =

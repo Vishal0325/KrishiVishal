@@ -28,6 +28,8 @@ import com.company.krishivishaldelivery.ui.profile.ProfileViewModel
 import com.company.krishivishal.core.util.Resource
 import com.google.firebase.auth.FirebaseAuth
 
+import com.company.krishivishaldelivery.ui.profile.components.UploadKycDialog
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
@@ -39,6 +41,7 @@ fun ProfileScreen(
     val auth = FirebaseAuth.getInstance()
     val riderResource by viewModel.riderProfile.collectAsState()
     var showEditDialog by remember { mutableStateOf(false) }
+    var showKycDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -82,12 +85,46 @@ fun ProfileScreen(
                     Text(rider?.name ?: "New Rider", fontWeight = FontWeight.Bold, fontSize = 20.sp)
                     Text("ID: ${rider?.riderIdDisplay ?: "KV-PENDING"}", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Text(rider?.phone ?: "No Phone", color = Color.Gray, fontSize = 12.sp)
+                    
+                    // KYC Verification Status Tag
+                    val kycLabel = when (rider?.kycStatus) {
+                        "VERIFIED" -> "✓ KYC सत्यापित (Verified)"
+                        "PENDING_VERIFICATION" -> "⏳ KYC समीक्षा जारी (In Review)"
+                        "REJECTED" -> "✕ KYC अस्वीकृत (Action Required)"
+                        else -> "⚠️ KYC दस्तावेज बाकी हैं"
+                    }
+                    val kycBg = when (rider?.kycStatus) {
+                        "VERIFIED" -> Color(0xFFE8F5E9)
+                        "PENDING_VERIFICATION" -> Color(0xFFFFF3E0)
+                        "REJECTED" -> Color(0xFFFFEBEE)
+                        else -> Color(0xFFEDE7F6)
+                    }
+                    val kycColor = when (rider?.kycStatus) {
+                        "VERIFIED" -> Color(0xFF2E7D32)
+                        "PENDING_VERIFICATION" -> Color(0xFFE65100)
+                        "REJECTED" -> Color(0xFFC62828)
+                        else -> Color(0xFF4527A0)
+                    }
+                    Surface(
+                        color = kycBg,
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        Text(
+                            text = kycLabel,
+                            color = kycColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
 
             item {
-                ProfileOption(Icons.Default.AccountBalance, "Bank Details", rider?.bankAccount ?: "Add Account") { showEditDialog = true }
-                ProfileOption(Icons.Default.DirectionsBike, "Vehicle Details", "${rider?.vehicleType}: ${rider?.vehicleNumber}") { showEditDialog = true }
+                ProfileOption(Icons.Default.VerifiedUser, "KYC & Verification Docs", "${rider?.documents?.size ?: 0} Uploaded • Tap to update") { showKycDialog = true }
+                ProfileOption(Icons.Default.AccountBalance, "Bank Details", rider?.bankAccount?.ifBlank { "Add Account" } ?: "Add Account") { showEditDialog = true }
+                ProfileOption(Icons.Default.DirectionsBike, "Vehicle Details", "${rider?.vehicleType ?: "BIKE"}: ${rider?.vehicleNumber?.ifBlank { "Add Number" } ?: "Add Number"}") { showEditDialog = true }
                 ProfileOption(Icons.Default.Settings, "App Settings", "Theme, Notifications") { onSettingsClick() }
                 ProfileOption(Icons.Default.SupportAgent, "Contact Support", "24/7 help available") { onSupportClick() }
                 ProfileOption(Icons.Default.DeleteForever, stringResource(R.string.delete_account_data), "Permanent removal") { showDeleteConfirm = true }
@@ -112,6 +149,23 @@ fun ProfileScreen(
                 onSave = { name, acc, bName, ifsc, vNum, vType ->
                     viewModel.updateProfile(name, acc, bName, ifsc, vNum, vType)
                     showEditDialog = false
+                }
+            )
+        }
+
+        if (showKycDialog) {
+            UploadKycDialog(
+                rider = rider,
+                onDismiss = { showKycDialog = false },
+                onUpload = { docType, bytes ->
+                    viewModel.uploadDocument(docType, bytes) { success ->
+                        showKycDialog = false
+                        if (success) {
+                            Toast.makeText(context, "दस्तावेज सफलतापूर्वक अपलोड हो गया", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "दस्तावेज अपलोड विफल", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
             )
         }

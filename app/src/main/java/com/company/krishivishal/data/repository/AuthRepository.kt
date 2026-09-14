@@ -18,6 +18,7 @@ import com.company.krishivishal.utils.safeCall
 import com.company.krishivishal.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import timber.log.Timber
 
 import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
@@ -120,16 +121,16 @@ class AuthRepositoryImpl @Inject constructor(
 
     override suspend fun signInAnonymously(): Resource<User> = withContext(ioDispatcher) {
         try {
-            android.util.Log.d(TAG, "Starting anonymous sign in...")
+            Timber.d("Starting anonymous sign in...")
             val result = auth.signInAnonymously().await()
             val firebaseUser = result.user ?: throw Exception("Anonymous sign in failed")
-            android.util.Log.d(TAG, "Anonymous sign in SUCCESS")
+            Timber.d("Anonymous sign in SUCCESS")
             val user = User(id = firebaseUser.uid, name = "Guest User")
             userDao.insertUser(user)
             sessionManager.startSession(firebaseUser.uid)
             Resource.Success(user)
         } catch (e: Exception) {
-            android.util.Log.e(TAG, "Anonymous sign in ERROR: ${e.message}")
+            Timber.e(e, "Anonymous sign in ERROR: ${e.message}")
             Resource.Error(e.message ?: "Anonymous Login Error")
         }
     }
@@ -173,7 +174,7 @@ class AuthRepositoryImpl @Inject constructor(
                 tokenManager.clearTokens()
                 secureStorage.clearAllData()
             } catch (e: Exception) {
-                android.util.Log.e(TAG, "Error during logout cleanup: ${e.message}", e)
+                Timber.e(e, "Error during logout cleanup: ${e.message}")
             }
         }
     }
@@ -213,7 +214,7 @@ class AuthRepositoryImpl @Inject constructor(
             .setCallbacks(callbacks)
             .build()
         
-        android.util.Log.d(TAG, "Starting SMS verification for: ${maskPhone(normalizedPhone)} with SMS Retriever")
+        Timber.d("Starting SMS verification for: ${maskPhone(normalizedPhone)} with SMS Retriever")
         PhoneAuthProvider.verifyPhoneNumber(options)
     }
 
@@ -221,7 +222,7 @@ class AuthRepositoryImpl @Inject constructor(
         val result = auth.signInWithCredential(credential).await()
         val firebaseUser = result.user ?: throw Exception("Sign in failed")
 
-        android.util.Log.d(TAG, "Credential sign-in succeeded")
+        Timber.d("Credential sign-in succeeded")
 
         val userDoc = firestore.collection("users").document(firebaseUser.uid).get().await()
         var user = userDoc.toObject(User::class.java)

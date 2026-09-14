@@ -37,8 +37,17 @@ class CalculateCartTotalsUseCase @Inject constructor() {
             val variant = item.variant
             val quantity = item.cartItem.quantity
             
-            val mrp = if (variant != null) variant.basePrice else product.getEffectiveMrp()
-            val sellingPrice = if (variant != null) variant.price else product.getEffectiveSellingPrice()
+            val sellingPrice = if (variant != null) {
+                if (variant.price > 0.0) variant.price else if (variant.basePrice > 0.0) variant.basePrice else product.getEffectiveSellingPrice()
+            } else {
+                product.getEffectiveSellingPrice()
+            }
+
+            val mrp = (if (variant != null) {
+                if (variant.basePrice > 0.0) variant.basePrice else if (variant.price > 0.0) variant.price else product.getEffectiveMrp()
+            } else {
+                product.getEffectiveMrp()
+            }).coerceAtLeast(sellingPrice)
             
             subtotal += mrp * quantity
             totalSavings += (mrp - sellingPrice).coerceAtLeast(0.0) * quantity

@@ -217,6 +217,7 @@ fun DetailedTaxTemplate(order: Order, appConfig: com.company.krishivishal.core.m
             order.items.forEach { 
                 Row(Modifier.padding(8.dp)) {
                     Column(Modifier.weight(2.5f)) {
+                        Text(it.productName, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         val label = it.variantLabel
                         if (!label.isNullOrBlank()) {
                             Text(label, fontSize = 9.sp, color = Color.Gray)
@@ -266,6 +267,7 @@ fun TableSectionDark(order: Order) {
         order.items.forEach { item ->
             Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column(modifier = Modifier.weight(1f)) {
+                    Text(item.productName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     val label = item.variantLabel
                     if (!label.isNullOrBlank()) {
                         Text(label, color = Color.White.copy(0.7f), fontSize = 12.sp)
@@ -305,6 +307,7 @@ fun TableSection(order: Order) {
                     .padding(12.dp)
             ) {
                 Column(modifier = Modifier.weight(3f)) {
+                    Text(item.productName, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     val label = item.variantLabel
                     if (!label.isNullOrBlank()) {
                         Text(label, fontSize = 11.sp, color = Color.Gray)

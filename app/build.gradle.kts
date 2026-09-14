@@ -71,7 +71,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            val releaseSigning = signingConfigs.findByName("release")
+            if (releaseSigning?.storeFile != null && releaseSigning.storeFile?.exists() == true) {
+                signingConfig = releaseSigning
+            }
         }
     }
     compileOptions {
@@ -89,10 +92,12 @@ android {
     }
     lint {
         abortOnError = false
-        checkReleaseBuilds = false
+        checkReleaseBuilds = true
         disable += "RememberInComposition"
         disable += "FlowOperatorInvokedInComposition"
         disable += "FrequentlyChangingValue"
+        htmlReport = true
+        xmlReport = true
     }
     packaging {
         jniLibs {
@@ -143,11 +148,11 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // Paging3 for efficient data loading (नया जोड़ा गया ⚡)
-    implementation("androidx.paging:paging-runtime-ktx:3.2.1")
-    implementation("androidx.paging:paging-compose:3.2.1")
+    implementation(libs.androidx.paging.runtime)
+    implementation(libs.androidx.paging.compose)
 
     // OkHttp & OkHttp Logging for certificate pinning
-    implementation("com.squareup.okhttp3:okhttp:4.11.0") // नया जोड़ा गया 🔒
+    implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
 
     // Lifecycle
@@ -194,11 +199,8 @@ dependencies {
     // DataStore
     implementation(libs.androidx.datastore.preferences)
 
-    // Coil & Glide for image loading
-    implementation("io.coil-kt:coil:2.6.0") // नया जोड़ा गया 🖼️
+    // Coil for image loading (coil core is included transitively by coil-compose)
     implementation(libs.coil.compose)
-    implementation(libs.glide)
-    ksp(libs.glide.compiler)
 
     // Startup
     implementation(libs.androidx.startup)
@@ -206,7 +208,6 @@ dependencies {
     // WorkManager
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.hilt.work)
-    ksp(libs.hilt.compiler)
 
     // Google Maps
     implementation("com.google.maps.android:maps-compose:6.1.2")
@@ -225,7 +226,6 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     androidTestImplementation(libs.hilt.android.testing)
-    ksp(libs.hilt.compiler)
     kspAndroidTest(libs.hilt.compiler)
 
     // Compose

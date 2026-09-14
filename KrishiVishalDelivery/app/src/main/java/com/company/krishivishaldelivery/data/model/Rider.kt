@@ -23,5 +23,11 @@ data class Rider(
     val vehicleType: String = "BIKE", // BIKE, SCOOTER, CYCLE
     val vehicleNumber: String = "",
     val fuelAllowance: Double = 0.0,
-    val shiftStartTime: Long = 0
+    val shiftStartTime: Long = 0,
+    // KYC & Documents
+    val kycStatus: String = "NOT_SUBMITTED", // NOT_SUBMITTED, PENDING_VERIFICATION, VERIFIED, REJECTED
+    val documents: Map<String, String> = emptyMap(), // "dl", "aadhaar", "rc", "pan" -> imageUrl
+    val drivingLicenseNumber: String = "",
+    val aadhaarNumber: String = "",
+    val panNumber: String = ""
 )

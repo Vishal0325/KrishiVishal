@@ -11,6 +11,7 @@ import javax.inject.Inject
 
 import com.company.krishivishal.utils.CSVUtil
 import kotlinx.coroutines.flow.flowOn
+import timber.log.Timber
 import kotlinx.coroutines.Dispatchers
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -66,7 +67,7 @@ class BulkManageProductsUseCase @Inject constructor(
                         products.add(product)
                         count++
                     } else {
-                        android.util.Log.w("CSVImport", "Skipping invalid row: name='$name', weight='$weight'")
+                        Timber.w("CSVImport: Skipping invalid row: name='$name', weight='$weight'")
                     }
                 }
                 line = reader.readLine()

@@ -49,4 +49,40 @@ class PlaceOrderUseCaseTest {
             )
         }
     }
+
+    @Test
+    fun `placeOrder with ONLINE payment method should map to RAZORPAY_ONLINE for backend compatibility`() = runTest {
+        val userId = "u1"
+        val product = Product(id = "p1", name = "Product 1", basePrice = 100.0)
+        val cartItem = CartItem(id = "c1", userId = userId, productId = "p1", variantId = null, quantity = 1)
+        val items = listOf(CartWithProduct(cartItem, product, null))
+        val address = Address(
+            fullName = "Ramesh Kumar",
+            houseNo = "45",
+            street = "Main Road",
+            ward = "W2",
+            block = "B2",
+            district = "Patna",
+            state = "Bihar",
+            pincode = "800001",
+            landmark = "Near Mandir",
+            mobileNumber = "9876543210"
+        )
+
+        every {
+            orderRepository.createOrderViaFunction(any(), any(), any(), any(), any(), any(), any())
+        } returns flowOf(Resource.Success(com.company.krishivishal.data.repository.CreateOrderResult("orderId", 150.0, "654321", "rzp_order_123")))
+
+        useCase(userId, items, address, paymentMethod = "ONLINE").collect {}
+
+        verify {
+            orderRepository.createOrderViaFunction(
+                cartItems = match { it.size == 1 },
+                address = "Ramesh Kumar, 45, Main Road, W2, B2, Patna, Bihar - 800001 (Landmark: Near Mandir)",
+                paymentMethod = "RAZORPAY_ONLINE", // Verifies fix #4
+                userName = "Ramesh Kumar",
+                userPhone = "9876543210"
+            )
+        }
+    }
 }

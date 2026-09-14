@@ -38,8 +38,11 @@ import com.razorpay.Checkout
 import com.razorpay.PaymentData
 import com.company.krishivishal.payment.PaymentHandler
 import androidx.lifecycle.lifecycleScope
+import timber.log.Timber
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
@@ -64,12 +67,12 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // 1. Preload Razorpay (Must be on UI thread for WebView initialization)
-        lifecycleScope.launch {
+        // [FIXED] Point #164: Move Razorpay preload off-thread to prevent ANR on slow networks
+        lifecycleScope.launch(Dispatchers.Default) {
             try {
                 Checkout.preload(applicationContext)
             } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Razorpay preload failed", e)
+                Timber.e(e, "Razorpay preload failed")
             }
         }
         
@@ -81,7 +84,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
         if (intentData?.action == Intent.ACTION_VIEW) {
             val uri = intentData.data
             if (uri != null && !isValidDeepLink(uri)) {
-                android.util.Log.e("MainActivity", "Invalid deeplink attempted: $uri")
+                Timber.e("Invalid deeplink attempted: $uri")
                 finish()
                 return
             }
@@ -202,34 +205,69 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     }
 
     override fun onPaymentSuccess(razorpayPaymentId: String?, data: PaymentData?) {
+        // [FIXED] Point #165: Add timeout to payment handler to prevent hanging
         lifecycleScope.launch {
-            paymentHandler.onPaymentSuccess(
-                razorpayPaymentId = razorpayPaymentId,
-                razorpayOrderId = data?.orderId,
-                razorpaySignature = data?.signature
-            )
+            try {
+                withTimeout(10_000L) { // 10 second timeout
+                    paymentHandler.onPaymentSuccess(
+                        razorpayPaymentId = razorpayPaymentId,
+                        razorpayOrderId = data?.orderId,
+                        razorpaySignature = data?.signature
+                    )
+                }
+            } catch (e: TimeoutCancellationException) {
+                Timber.e("Payment success handler timeout")
+            } catch (e: Exception) {
+                Timber.e(e, "Payment success handler error")
+            }
         }
     }
 
     override fun onPaymentError(code: Int, description: String?, data: PaymentData?) {
+        // [FIXED] Point #165: Add timeout to error handler
         lifecycleScope.launch {
-            paymentHandler.onPaymentError(code, description)
+            try {
+                withTimeout(10_000L) { // 10 second timeout
+                    paymentHandler.onPaymentError(code, description)
+                }
+            } catch (e: TimeoutCancellationException) {
+                Timber.e("Payment error handler timeout")
+            } catch (e: Exception) {
+                Timber.e(e, "Payment error handler exception")
+            }
         }
     }
 
     private fun isValidDeepLink(uri: Uri): Boolean {
+        // [FIXED] Point #164: Comprehensive deeplink validation with path traversal prevention
         val validHosts = listOf("krishivishal.app", "krishivishal.com", "www.krishivishal.com")
         val host = uri.host ?: return false
         
         // Host must be whitelisted
         if (!validHosts.contains(host)) {
+            Timber.w("Invalid deeplink host: $host")
             return false
         }
         
         // Path must be valid
         val path = uri.path ?: return false
-        return path.startsWith("/product/") || 
-               path.startsWith("/order/") || 
-               path.startsWith("/category/")
+        val validPathPrefixes = listOf("/product/", "/order/", "/category/")
+        if (!validPathPrefixes.any { path.startsWith(it) }) {
+            Timber.w("Invalid deeplink path: $path")
+            return false
+        }
+        
+        // Extract ID and validate format (alphanumeric, dash, underscore only)
+        val id = path.split("/").lastOrNull() ?: return false
+        if (id.isEmpty()) {
+            Timber.w("Empty ID in deeplink")
+            return false
+        }
+        
+        val isValidFormat = id.matches(Regex("^[a-zA-Z0-9_-]+$"))
+        if (!isValidFormat) {
+            Timber.w("Invalid ID format in deeplink: $id")
+        }
+        return isValidFormat
     }
 }

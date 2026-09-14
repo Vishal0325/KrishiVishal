@@ -18,6 +18,9 @@ interface DeliveryDao {
     @Query("SELECT * FROM delivery_orders WHERE isPendingSync = 1")
     suspend fun getPendingSyncOrders(): List<DeliveryOrderEntity>
 
+    @Query("SELECT COUNT(*) FROM delivery_orders WHERE isPendingSync = 1")
+    fun getPendingSyncCount(): Flow<Int>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrders(orders: List<DeliveryOrderEntity>)
 

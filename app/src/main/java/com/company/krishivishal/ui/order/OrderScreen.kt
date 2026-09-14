@@ -579,6 +579,7 @@ val OrderStatus.color: Color
         OrderStatus.PLACED -> Color(0xFF2196F3)
         OrderStatus.CONFIRMED -> Color(0xFF4CAF50)
         OrderStatus.ASSIGNED -> Color(0xFF4CAF50)
+        OrderStatus.PROCUREMENT_PENDING -> Color(0xFFFF9800)
         OrderStatus.PICKED_UP -> Color(0xFFFF9800)
         OrderStatus.SHIPPED -> Color(0xFFFF9800)
         OrderStatus.OUT_FOR_DELIVERY -> Color(0xFF9C27B0)

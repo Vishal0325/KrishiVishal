@@ -20,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -65,8 +66,16 @@ fun ProfileScreen(
         }
 
         item {
+            FarmProfileSummaryCard(
+                user = userProfile,
+                onClick = { navController.navigate(Screen.FarmProfile.route) }
+            )
+        }
+
+        item {
             val menuItems = remember(isAdmin) {
                 val baseItems = mutableListOf(
+                    MenuOption("Mera Khet & Fasal (Farm Profile)", Icons.Default.Agriculture, Screen.FarmProfile.route),
                     MenuOption("My Wallet", Icons.Default.AccountBalanceWallet, Screen.Wallet.route),
                     MenuOption("Refer & Earn", Icons.Default.CardGiftcard, Screen.Referral.route),
                     MenuOption("Orders", Icons.Default.Inventory, Screen.Orders.route),
@@ -105,7 +114,17 @@ fun ProfileHeader(
     onEditClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (user == null) return
+    val displayName = user?.name?.takeIf { it.isNotBlank() } ?: "KrishiVishal User"
+    val displayPhone = user?.phone?.takeIf { it.isNotBlank() } ?: "Phone not registered"
+    val locationText = if (defaultAddress != null) {
+        val parts = listOfNotNull(
+            defaultAddress.district.ifBlank { null },
+            defaultAddress.state.ifBlank { null }
+        )
+        if (parts.isNotEmpty()) parts.joinToString(", ") else (user?.location?.ifBlank { "Bihar, India" } ?: "Bihar, India")
+    } else {
+        user?.location?.takeIf { it.isNotBlank() } ?: "Bihar, India"
+    }
 
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -136,27 +155,17 @@ fun ProfileHeader(
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = user.name.ifBlank { "Vishal Kumar" },
+                    text = displayName,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = user.phone ?: "+91 95555 12345",
+                    text = displayPhone,
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp)
                 )
-                
-                val locationText = if (defaultAddress != null) {
-                    val parts = listOfNotNull(
-                        defaultAddress.district.ifBlank { null },
-                        defaultAddress.state.ifBlank { null }
-                    )
-                    if (parts.isNotEmpty()) parts.joinToString(", ") else user.location
-                } else {
-                    user.location
-                }
                 
                 Text(
                     text = locationText,
@@ -252,6 +261,137 @@ fun QuickStatsRow(
     }
 }
 
+@Composable
+fun FarmProfileSummaryCard(
+    user: User?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val totalLand = user?.totalLand ?: 0.0
+    val unit = user?.landUnit?.ifBlank { "Katha" } ?: "Katha"
+    val crops = user?.cropAllocations ?: emptyList()
+    val totalAllocated = crops.sumOf { it.allocatedArea }
+    val hasData = totalLand > 0.0 || crops.isNotEmpty()
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFFF1F8E9) // Soft light green
+        ),
+        border = BorderStroke(1.dp, Color(0xFFC8E6C9))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFF2E7D32),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Agriculture,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier
+                                .padding(8.dp)
+                                .fillMaxSize()
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "मेरा खेत और फसल",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = Color(0xFF1B5E20)
+                        )
+                        Text(
+                            text = "Farm & Crop Profile",
+                            fontSize = 11.sp,
+                            color = Color(0xFF388E3C)
+                        )
+                    }
+                }
+
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = "Open Farm Profile",
+                    tint = Color(0xFF2E7D32),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            if (hasData) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text("Total Land", fontSize = 10.sp, color = Color(0xFF558B2F))
+                            Text(
+                                text = "${String.format("%.1f", totalLand)} $unit",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color(0xFF1B5E20)
+                            )
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text("Crops Registered", fontSize = 10.sp, color = Color(0xFF558B2F))
+                            Text(
+                                text = "${crops.size} Crops (${String.format("%.1f", totalAllocated)} $unit)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color(0xFF1B5E20),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    text = "ज़मीन और बोई गई फसलें जोड़ें — मौसम व कीट संबंधित सटीक सलाह पाएं →",
+                    fontSize = 12.sp,
+                    color = Color(0xFF2E7D32),
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+}
 
 @Composable
 fun StatCard(

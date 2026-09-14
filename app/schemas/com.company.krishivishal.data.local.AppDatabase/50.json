@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 48,
-    "identityHash": "b8de467e2bab869f2d8725d8fff7f40e",
+    "version": 50,
+    "identityHash": "7241aaeb6cd6d75b5edc6ba9d73e060b",
     "entities": [
       {
         "tableName": "users",
@@ -570,7 +570,7 @@
       },
       {
         "tableName": "variants",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `productId` TEXT NOT NULL, `size` TEXT NOT NULL, `price` REAL NOT NULL, `basePrice` REAL NOT NULL, `discountPercent` INTEGER NOT NULL, `isBestSeller` INTEGER NOT NULL, `mfgDate` INTEGER, `expiryDate` INTEGER, `stock` INTEGER NOT NULL, `batchNumber` TEXT NOT NULL, `label` TEXT NOT NULL, `weight` TEXT NOT NULL, `unit` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`productId`) REFERENCES `products`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `productId` TEXT NOT NULL, `size` TEXT NOT NULL, `price` REAL NOT NULL, `basePrice` REAL NOT NULL, `discountPercent` INTEGER NOT NULL, `isBestSeller` INTEGER NOT NULL, `mfgDate` INTEGER, `expiryDate` INTEGER, `stock` INTEGER NOT NULL, `batchNumber` TEXT NOT NULL, `label` TEXT NOT NULL, `weight` TEXT NOT NULL, `unit` TEXT NOT NULL, `skuCode` TEXT NOT NULL DEFAULT '', `barcode` TEXT NOT NULL DEFAULT '', `reorderLevel` INTEGER NOT NULL DEFAULT 0, `availableStock` INTEGER NOT NULL DEFAULT 0, `committedStock` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`id`), FOREIGN KEY(`productId`) REFERENCES `products`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -653,6 +653,41 @@
             "columnName": "unit",
             "affinity": "TEXT",
             "notNull": true
+          },
+          {
+            "fieldPath": "skuCode",
+            "columnName": "skuCode",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "barcode",
+            "columnName": "barcode",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "reorderLevel",
+            "columnName": "reorderLevel",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "availableStock",
+            "columnName": "availableStock",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "committedStock",
+            "columnName": "committedStock",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
           }
         ],
         "primaryKey": {
@@ -670,6 +705,24 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_variants_productId` ON `${TABLE_NAME}` (`productId`)"
+          },
+          {
+            "name": "index_variants_skuCode",
+            "unique": false,
+            "columnNames": [
+              "skuCode"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_variants_skuCode` ON `${TABLE_NAME}` (`skuCode`)"
+          },
+          {
+            "name": "index_variants_barcode",
+            "unique": false,
+            "columnNames": [
+              "barcode"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_variants_barcode` ON `${TABLE_NAME}` (`barcode`)"
           }
         ],
         "foreignKeys": [
@@ -724,7 +777,7 @@
       },
       {
         "tableName": "cart_items",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `productId` TEXT NOT NULL, `variantId` TEXT, `quantity` INTEGER NOT NULL, `isSelected` INTEGER NOT NULL, `timestamp` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `productId` TEXT NOT NULL, `variantId` TEXT, `quantity` INTEGER NOT NULL, `skuCode` TEXT, `isSelected` INTEGER NOT NULL, `timestamp` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -754,6 +807,11 @@
             "columnName": "quantity",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "skuCode",
+            "columnName": "skuCode",
+            "affinity": "TEXT"
           },
           {
             "fieldPath": "isSelected",
@@ -806,7 +864,7 @@
       },
       {
         "tableName": "orders",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `items` TEXT NOT NULL, `totalAmount` REAL NOT NULL, `paymentMethod` TEXT NOT NULL, `paymentStatus` TEXT NOT NULL, `razorpayPaymentId` TEXT, `address` TEXT NOT NULL, `status` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `expectedDelivery` INTEGER NOT NULL, `riderId` TEXT NOT NULL, `isCOD` INTEGER NOT NULL, `codAmount` REAL NOT NULL, `isSettledByAdmin` INTEGER NOT NULL, `targetLat` REAL NOT NULL, `targetLng` REAL NOT NULL, `customerOTP` TEXT NOT NULL, `userName` TEXT NOT NULL, `userPhone` TEXT NOT NULL, `collectedCash` REAL NOT NULL, `isCashDeposited` INTEGER NOT NULL, `totalTax` REAL NOT NULL, `taxableTotal` REAL NOT NULL, `cgst` REAL NOT NULL, `sgst` REAL NOT NULL, `igst` REAL NOT NULL, `subtotal` REAL NOT NULL, `totalDiscount` REAL NOT NULL, `deliveryCharges` REAL NOT NULL, `platformFee` REAL NOT NULL, `handlingCharge` REAL NOT NULL, `packagingFee` REAL NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `items` TEXT NOT NULL, `totalAmount` REAL NOT NULL, `paymentMethod` TEXT NOT NULL, `paymentStatus` TEXT NOT NULL, `razorpayPaymentId` TEXT, `address` TEXT NOT NULL, `landmark` TEXT NOT NULL DEFAULT '', `status` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `expectedDelivery` INTEGER NOT NULL, `riderId` TEXT NOT NULL, `isCOD` INTEGER NOT NULL, `codAmount` REAL NOT NULL, `isSettledByAdmin` INTEGER NOT NULL, `targetLat` REAL NOT NULL, `targetLng` REAL NOT NULL, `customerOTP` TEXT NOT NULL, `userName` TEXT NOT NULL, `userPhone` TEXT NOT NULL, `collectedCash` REAL NOT NULL, `isCashDeposited` INTEGER NOT NULL, `totalTax` REAL NOT NULL, `taxableTotal` REAL NOT NULL, `cgst` REAL NOT NULL, `sgst` REAL NOT NULL, `igst` REAL NOT NULL, `subtotal` REAL NOT NULL, `totalDiscount` REAL NOT NULL, `deliveryCharges` REAL NOT NULL, `platformFee` REAL NOT NULL, `handlingCharge` REAL NOT NULL, `packagingFee` REAL NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -854,6 +912,13 @@
             "columnName": "address",
             "affinity": "TEXT",
             "notNull": true
+          },
+          {
+            "fieldPath": "landmark",
+            "columnName": "landmark",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
           },
           {
             "fieldPath": "status",
@@ -1070,7 +1135,18 @@
           "columnNames": [
             "productId"
           ]
-        }
+        },
+        "indices": [
+          {
+            "name": "index_wishlist_items_userId",
+            "unique": false,
+            "columnNames": [
+              "userId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_wishlist_items_userId` ON `${TABLE_NAME}` (`userId`)"
+          }
+        ]
       },
       {
         "tableName": "search_history",
@@ -1561,7 +1637,20 @@
             "recommendedProductId",
             "type"
           ]
-        }
+        },
+        "indices": [
+          {
+            "name": "index_product_recommendations_sourceProductId_type_position",
+            "unique": false,
+            "columnNames": [
+              "sourceProductId",
+              "type",
+              "position"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_product_recommendations_sourceProductId_type_position` ON `${TABLE_NAME}` (`sourceProductId`, `type`, `position`)"
+          }
+        ]
       },
       {
         "tableName": "recently_viewed",
@@ -1592,7 +1681,19 @@
             "userId",
             "productId"
           ]
-        }
+        },
+        "indices": [
+          {
+            "name": "index_recently_viewed_userId_timestamp",
+            "unique": false,
+            "columnNames": [
+              "userId",
+              "timestamp"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recently_viewed_userId_timestamp` ON `${TABLE_NAME}` (`userId`, `timestamp`)"
+          }
+        ]
       },
       {
         "tableName": "recent_searches",
@@ -1623,11 +1724,540 @@
             "id"
           ]
         }
+      },
+      {
+        "tableName": "skus",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`skuCode` TEXT NOT NULL, `productId` TEXT NOT NULL, `name` TEXT NOT NULL, `categoryCode` TEXT NOT NULL, `itemCode` TEXT NOT NULL, `varietyCode` TEXT NOT NULL, `gradeCode` TEXT NOT NULL, `packCode` TEXT NOT NULL, `brandCode` TEXT NOT NULL, `unit` TEXT NOT NULL, `size` TEXT NOT NULL, `mrp` REAL NOT NULL, `consumerPrice` REAL NOT NULL, `dealerPrice` REAL NOT NULL, `landingCost` REAL NOT NULL, `totalStock` INTEGER NOT NULL, `availableStock` INTEGER NOT NULL, `committedStock` INTEGER NOT NULL, `hsnCode` TEXT NOT NULL, `gstRate` REAL NOT NULL, `barcode` TEXT NOT NULL, `reorderLevel` INTEGER NOT NULL, `minStockLimit` INTEGER NOT NULL, `isActive` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`skuCode`))",
+        "fields": [
+          {
+            "fieldPath": "skuCode",
+            "columnName": "skuCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productId",
+            "columnName": "productId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryCode",
+            "columnName": "categoryCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemCode",
+            "columnName": "itemCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "varietyCode",
+            "columnName": "varietyCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gradeCode",
+            "columnName": "gradeCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "packCode",
+            "columnName": "packCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "brandCode",
+            "columnName": "brandCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unit",
+            "columnName": "unit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "size",
+            "columnName": "size",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mrp",
+            "columnName": "mrp",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "consumerPrice",
+            "columnName": "consumerPrice",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dealerPrice",
+            "columnName": "dealerPrice",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "landingCost",
+            "columnName": "landingCost",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalStock",
+            "columnName": "totalStock",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "availableStock",
+            "columnName": "availableStock",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "committedStock",
+            "columnName": "committedStock",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hsnCode",
+            "columnName": "hsnCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gstRate",
+            "columnName": "gstRate",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "barcode",
+            "columnName": "barcode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reorderLevel",
+            "columnName": "reorderLevel",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "minStockLimit",
+            "columnName": "minStockLimit",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "isActive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "skuCode"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_skus_productId",
+            "unique": false,
+            "columnNames": [
+              "productId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_skus_productId` ON `${TABLE_NAME}` (`productId`)"
+          },
+          {
+            "name": "index_skus_barcode",
+            "unique": false,
+            "columnNames": [
+              "barcode"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_skus_barcode` ON `${TABLE_NAME}` (`barcode`)"
+          },
+          {
+            "name": "index_skus_isActive",
+            "unique": false,
+            "columnNames": [
+              "isActive"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_skus_isActive` ON `${TABLE_NAME}` (`isActive`)"
+          }
+        ]
+      },
+      {
+        "tableName": "batches",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`batchId` TEXT NOT NULL, `skuCode` TEXT NOT NULL, `batchNumber` TEXT NOT NULL, `mfgDate` INTEGER, `expiryDate` INTEGER, `stock` INTEGER NOT NULL, `warehouseId` TEXT NOT NULL, `binLocation` TEXT NOT NULL, `supplierId` TEXT NOT NULL, `purchaseOrderId` TEXT NOT NULL, `grnId` TEXT NOT NULL, `landingCost` REAL NOT NULL, `qualityStatus` TEXT NOT NULL, `isActive` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`batchId`))",
+        "fields": [
+          {
+            "fieldPath": "batchId",
+            "columnName": "batchId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "skuCode",
+            "columnName": "skuCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "batchNumber",
+            "columnName": "batchNumber",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mfgDate",
+            "columnName": "mfgDate",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "expiryDate",
+            "columnName": "expiryDate",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "stock",
+            "columnName": "stock",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "warehouseId",
+            "columnName": "warehouseId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "binLocation",
+            "columnName": "binLocation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "supplierId",
+            "columnName": "supplierId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "purchaseOrderId",
+            "columnName": "purchaseOrderId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "grnId",
+            "columnName": "grnId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "landingCost",
+            "columnName": "landingCost",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "qualityStatus",
+            "columnName": "qualityStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "isActive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "batchId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_batches_skuCode",
+            "unique": false,
+            "columnNames": [
+              "skuCode"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_batches_skuCode` ON `${TABLE_NAME}` (`skuCode`)"
+          },
+          {
+            "name": "index_batches_expiryDate",
+            "unique": false,
+            "columnNames": [
+              "expiryDate"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_batches_expiryDate` ON `${TABLE_NAME}` (`expiryDate`)"
+          },
+          {
+            "name": "index_batches_warehouseId",
+            "unique": false,
+            "columnNames": [
+              "warehouseId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_batches_warehouseId` ON `${TABLE_NAME}` (`warehouseId`)"
+          },
+          {
+            "name": "index_batches_qualityStatus",
+            "unique": false,
+            "columnNames": [
+              "qualityStatus"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_batches_qualityStatus` ON `${TABLE_NAME}` (`qualityStatus`)"
+          }
+        ]
+      },
+      {
+        "tableName": "warehouses",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `city` TEXT NOT NULL, `state` TEXT NOT NULL, `type` TEXT NOT NULL, `isActive` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "city",
+            "columnName": "city",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "isActive",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "inventory_movements",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`movementId` TEXT NOT NULL, `movementType` TEXT NOT NULL, `skuCode` TEXT NOT NULL, `batchId` TEXT, `batchNumber` TEXT, `warehouseId` TEXT NOT NULL, `quantity` INTEGER NOT NULL, `availableBefore` INTEGER NOT NULL, `availableAfter` INTEGER NOT NULL, `committedBefore` INTEGER NOT NULL, `committedAfter` INTEGER NOT NULL, `referenceId` TEXT NOT NULL, `actorId` TEXT NOT NULL, `actorRole` TEXT NOT NULL, `reason` TEXT NOT NULL, `note` TEXT NOT NULL, `idempotencyKey` TEXT, `timestamp` INTEGER NOT NULL, PRIMARY KEY(`movementId`))",
+        "fields": [
+          {
+            "fieldPath": "movementId",
+            "columnName": "movementId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "movementType",
+            "columnName": "movementType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "skuCode",
+            "columnName": "skuCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "batchId",
+            "columnName": "batchId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "batchNumber",
+            "columnName": "batchNumber",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "warehouseId",
+            "columnName": "warehouseId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quantity",
+            "columnName": "quantity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "availableBefore",
+            "columnName": "availableBefore",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "availableAfter",
+            "columnName": "availableAfter",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "committedBefore",
+            "columnName": "committedBefore",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "committedAfter",
+            "columnName": "committedAfter",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "referenceId",
+            "columnName": "referenceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorId",
+            "columnName": "actorId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorRole",
+            "columnName": "actorRole",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reason",
+            "columnName": "reason",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idempotencyKey",
+            "columnName": "idempotencyKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "movementId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_inventory_movements_skuCode",
+            "unique": false,
+            "columnNames": [
+              "skuCode"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_inventory_movements_skuCode` ON `${TABLE_NAME}` (`skuCode`)"
+          },
+          {
+            "name": "index_inventory_movements_timestamp",
+            "unique": false,
+            "columnNames": [
+              "timestamp"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_inventory_movements_timestamp` ON `${TABLE_NAME}` (`timestamp`)"
+          },
+          {
+            "name": "index_inventory_movements_referenceId",
+            "unique": false,
+            "columnNames": [
+              "referenceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_inventory_movements_referenceId` ON `${TABLE_NAME}` (`referenceId`)"
+          }
+        ]
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b8de467e2bab869f2d8725d8fff7f40e')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7241aaeb6cd6d75b5edc6ba9d73e060b')"
     ]
   }
 }

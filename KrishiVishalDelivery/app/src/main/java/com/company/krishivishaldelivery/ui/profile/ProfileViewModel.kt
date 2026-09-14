@@ -54,6 +54,16 @@ class ProfileViewModel @Inject constructor(
         }
     }
 
+    fun uploadDocument(docType: String, imageBytes: ByteArray, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val res = riderRepository.uploadRiderDocument(currentRiderId, docType, imageBytes)
+            onResult(res is Resource.Success)
+            if (res is Resource.Success) {
+                loadRiderProfile()
+            }
+        }
+    }
+
     fun deleteAccount() {
         viewModelScope.launch {
             try {

@@ -41,7 +41,12 @@ class KrishiMartFirebaseService : FirebaseMessagingService() {
         
         val title = message.notification?.title ?: message.data["title"]
         val body = message.notification?.body ?: message.data["body"]
+        val imageUrl = message.notification?.imageUrl?.toString()
+            ?: message.data["imageUrl"]
+            ?: message.data["image"]
+            ?: message.data["bannerUrl"]
         val type = message.data["type"] ?: "GENERAL"
+        val targetId = message.data["targetId"] ?: message.data["orderId"] ?: message.data["productId"]
         val data = message.data["data"]
 
         if (title != null || body != null) {
@@ -54,13 +59,14 @@ class KrishiMartFirebaseService : FirebaseMessagingService() {
 
             serviceScope.launch {
                 repository.saveNotification(notification)
-            }
-
-            // Handle specific navigation or UI updates for returns
-            if (type == "RETURN_UPDATE") {
-                notificationHelper.showNotification(title ?: "Return Update", body ?: "Aapka return request update hua hai.")
-            } else {
-                notificationHelper.showNotification(title ?: "Notification", body ?: "")
+                // Display rich notification with optional BigPicture banner image and channel routing
+                notificationHelper.showRichNotification(
+                    title = title,
+                    message = body,
+                    imageUrl = imageUrl,
+                    type = type,
+                    targetId = targetId
+                )
             }
         }
     }

@@ -293,8 +293,12 @@ fun CartListItem(
                     }
                 }
                 
-                val sellingPrice = item.variant?.price ?: if ((item.product?.discountedPrice ?: 0.0) > 0) item.product?.discountedPrice ?: 0.0 else if ((item.product?.price ?: 0.0) > 0) item.product?.price ?: 0.0 else item.product?.basePrice ?: 0.0
-                val mrp = item.variant?.basePrice ?: if ((item.product?.mrp ?: 0.0) > 0) item.product?.mrp ?: 0.0 else item.product?.basePrice ?: 0.0
+                val sellingPrice = item.variant?.price?.takeIf { it > 0.0 }
+                    ?: item.variant?.basePrice?.takeIf { it > 0.0 }
+                    ?: item.product?.getEffectiveSellingPrice() ?: 0.0
+                val mrp = (item.variant?.basePrice?.takeIf { it > 0.0 }
+                    ?: item.variant?.price?.takeIf { it > 0.0 }
+                    ?: item.product?.getEffectiveMrp() ?: 0.0).coerceAtLeast(sellingPrice)
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("₹${sellingPrice.toInt()}", color = PrimaryGreen, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)

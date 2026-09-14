@@ -398,7 +398,15 @@ data class Product(
     @get:PropertyName("mixingCompatibility")
     @set:PropertyName("mixingCompatibility")
     var mixingCompatibility: String = ""
-) : Parcelable
+) : Parcelable {
+    fun getEffectiveSellingPrice(): Double {
+        return if (discountedPrice > 0.0) discountedPrice else if (basePrice > 0.0) basePrice else price
+    }
+
+    fun getEffectiveMrp(): Double {
+        return if (mrp > 0.0) mrp else getEffectiveSellingPrice()
+    }
+}
 
 @Parcelize
 data class RecommendationResult(

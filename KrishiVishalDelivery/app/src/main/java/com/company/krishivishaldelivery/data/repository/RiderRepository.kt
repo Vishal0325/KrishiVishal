@@ -86,6 +86,30 @@ class RiderRepository @Inject constructor(
         }
     }
 
+    suspend fun uploadRiderDocument(
+        riderId: String,
+        docType: String,
+        imageBytes: ByteArray
+    ): Resource<String> {
+        return try {
+            val storageRef = com.google.firebase.storage.FirebaseStorage.getInstance().reference
+                .child("riders/$riderId/documents/${docType}_${System.currentTimeMillis()}.jpg")
+            storageRef.putBytes(imageBytes).await()
+            val downloadUrl = storageRef.downloadUrl.await().toString()
+
+            val updates = mapOf(
+                "documents.$docType" to downloadUrl,
+                "kycStatus" to "PENDING_VERIFICATION",
+                "lastKycSubmissionAt" to System.currentTimeMillis()
+            )
+            firestore.collection("riders").document(riderId).update(updates).await()
+            Resource.Success(downloadUrl)
+        } catch (e: Exception) {
+            Timber.e(e, "uploadRiderDocument failed for docType: $docType")
+            Resource.Error(e.localizedMessage ?: "Failed to upload document")
+        }
+    }
+
     suspend fun updateRiderProfile(riderId: String, updates: Map<String, Any>) {
         firestore.collection("riders").document(riderId).update(updates).await()
     }

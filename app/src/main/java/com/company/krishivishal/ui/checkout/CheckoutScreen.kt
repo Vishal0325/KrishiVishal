@@ -368,7 +368,9 @@ fun OrderSummaryItem(
     onQuantityChange: (Int) -> Unit,
     onRemove: () -> Unit
 ) {
-    val sellingPrice = item.variant?.price ?: if ((item.product?.discountedPrice ?: 0.0) > 0) item.product?.discountedPrice ?: 0.0 else if ((item.product?.price ?: 0.0) > 0) item.product?.price ?: 0.0 else item.product?.basePrice ?: 0.0
+    val sellingPrice = item.variant?.price?.takeIf { it > 0.0 }
+        ?: item.variant?.basePrice?.takeIf { it > 0.0 }
+        ?: item.product?.getEffectiveSellingPrice() ?: 0.0
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),

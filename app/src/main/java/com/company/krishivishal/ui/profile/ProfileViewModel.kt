@@ -147,4 +147,48 @@ class ProfileViewModel @Inject constructor(
             }
         }
     }
+
+    private val _isSavingFarmProfile = MutableStateFlow(false)
+    val isSavingFarmProfile: StateFlow<Boolean> = _isSavingFarmProfile.asStateFlow()
+
+    private val _farmProfileSaveStatus = MutableSharedFlow<Resource<Unit>>()
+    val farmProfileSaveStatus: SharedFlow<Resource<Unit>> = _farmProfileSaveStatus.asSharedFlow()
+
+    fun updateFarmProfile(
+        age: Int?,
+        totalLand: Double,
+        landUnit: String,
+        cropAllocations: List<com.company.krishivishal.core.model.CropAllocation>,
+        onResult: ((Boolean, String?) -> Unit)? = null
+    ) {
+        val currentUser = _userProfile.value ?: return
+        val updatedUser = currentUser.copy(
+            age = age,
+            totalLand = totalLand,
+            landUnit = landUnit,
+            cropAllocations = cropAllocations
+        )
+        viewModelScope.launch {
+            _isSavingFarmProfile.value = true
+            authRepository.updateUser(updatedUser).collectLatest { res ->
+                when (res) {
+                    is Resource.Success -> {
+                        _isSavingFarmProfile.value = false
+                        _userProfile.value = updatedUser
+                        _farmProfileSaveStatus.emit(Resource.Success(Unit))
+                        onResult?.invoke(true, null)
+                    }
+                    is Resource.Error -> {
+                        _isSavingFarmProfile.value = false
+                        _farmProfileSaveStatus.emit(Resource.Error(res.message ?: "Failed to save profile"))
+                        onResult?.invoke(false, res.message)
+                    }
+                    is Resource.Loading -> {
+                        _isSavingFarmProfile.value = true
+                    }
+                    is Resource.Idle -> {}
+                }
+            }
+        }
+    }
 }

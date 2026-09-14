@@ -20,6 +20,9 @@ import com.company.krishivishal.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import timber.log.Timber
+
+import com.google.firebase.auth.FirebaseAuth
 
 /**
  * Result of a successful order creation.
@@ -67,6 +70,7 @@ class OrderRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val functions: FirebaseFunctions,
     private val orderDao: OrderDao,
+    private val auth: FirebaseAuth,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : OrderRepository {
 
@@ -97,7 +101,6 @@ class OrderRepositoryImpl @Inject constructor(
         emit(Resource.Loading())
 
         // Step 1: Ensure user is authenticated with a fresh, valid token
-        val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
         val currentUser = auth.currentUser
         if (currentUser == null) {
             emit(Resource.Error("लॉगिन ज़रूरी है! कृपया लॉगिन करें।"))
@@ -111,17 +114,17 @@ class OrderRepositoryImpl @Inject constructor(
                 val tokenResult = currentUser.getIdToken(true).await()
                 freshToken = tokenResult.token
                 if (!freshToken.isNullOrBlank()) {
-                    android.util.Log.d("OrderRepo", "Token refreshed on attempt $attempt: ${freshToken.take(10)}...")
+                    Timber.d("Token refreshed on attempt $attempt")
                     break
                 }
             } catch (e: Exception) {
-                android.util.Log.w("OrderRepo", "Token refresh attempt $attempt failed: ${e.message}")
+                Timber.w("Token refresh attempt $attempt failed: ${e.message}")
                 if (attempt < 3) kotlinx.coroutines.delay(500L * attempt)
             }
         }
 
         if (freshToken.isNullOrBlank()) {
-            android.util.Log.e("OrderRepo", "Token refresh completely failed after 3 attempts")
+            Timber.e("Token refresh completely failed after 3 attempts")
             emit(Resource.Error("Authentication failed. Please logout and login again."))
             return@flow
         }
@@ -135,7 +138,8 @@ class OrderRepositoryImpl @Inject constructor(
                 hashMapOf(
                     "productId" to it.productId,
                     "quantity" to it.quantity,
-                    "variantId" to it.variantId
+                    "variantId" to it.variantId,
+                    "skuCode" to (it.skuCode ?: "")  // FIX: Cloud Function requires skuCode to look up SKU from Firestore
                 )
             },
             "address" to address,
@@ -150,7 +154,7 @@ class OrderRepositoryImpl @Inject constructor(
         var lastException: Exception? = null
         for (attempt in 1..2) {
             try {
-                android.util.Log.d("OrderRepo", "Calling createOrder via Firebase SDK (attempt $attempt)...")
+                Timber.d("Calling createOrder via Firebase SDK (attempt $attempt)...")
 
                 val result = functions
                     .getHttpsCallable("createOrder")
@@ -172,7 +176,7 @@ class OrderRepositoryImpl @Inject constructor(
                 val customerOTP = resultMap["customerOTP"] as? String ?: ""
                 val razorpayOrderId = resultMap["razorpayOrderId"] as? String
 
-                android.util.Log.d("OrderRepo", "Order Success! ID: $orderId, RZP Order: $razorpayOrderId")
+                Timber.d("Order Success! ID: $orderId, RZP Order: $razorpayOrderId")
                 emit(Resource.Success(CreateOrderResult(
                     orderId = orderId,
                     totalAmount = totalAmount,
@@ -181,16 +185,16 @@ class OrderRepositoryImpl @Inject constructor(
                 )))
                 return@flow
             } catch (e: Exception) {
-                android.util.Log.e("OrderRepo", "Order attempt $attempt - Error: ${e.javaClass.simpleName}: ${e.message}")
+                Timber.e(e, "Order attempt $attempt - Error: ${e.javaClass.simpleName}: ${e.message}")
                 lastException = e
                 // If UNAUTHENTICATED on first attempt, refresh token once more and retry
                 if (attempt == 1 && e.message?.contains("UNAUTHENTICATED", ignoreCase = true) == true) {
-                    android.util.Log.w("OrderRepo", "UNAUTHENTICATED on attempt 1, refreshing token and retrying...")
+                    Timber.w("UNAUTHENTICATED on attempt 1, refreshing token and retrying...")
                     try {
                         currentUser.getIdToken(true).await()
                         kotlinx.coroutines.delay(800)
                     } catch (tokenEx: Exception) {
-                        android.util.Log.e("OrderRepo", "Retry token refresh also failed: ${tokenEx.message}")
+                        Timber.e(tokenEx, "Retry token refresh also failed: ${tokenEx.message}")
                     }
                 } else if (attempt == 1) {
                     // Retry with small backoff for transient network errors
@@ -249,6 +253,10 @@ class OrderRepositoryImpl @Inject constructor(
     )
 
     override fun updateOrderStatus(orderId: String, status: OrderStatus): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
+        // SECURITY NOTE: This direct Firestore write is ADMIN-ONLY.
+        // Customer-facing order cancellations must use cancelOrder() which calls the Cloud Function.
+        // Firestore security rules block non-admin direct writes to order status.
+        Timber.w("updateOrderStatus() called directly — ensure this is admin-only context for orderId: $orderId")
         firestore.collection("orders").document(orderId).update("status", status.name).await()
         
         val localOrder = orderDao.getOrderById(orderId)

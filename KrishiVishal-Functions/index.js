@@ -24,6 +24,7 @@ const recommendations = require('./inventory/recommendations');
 const adminTools = require('./admin/aiSupervisor');
 const sla = require('./admin/slaMonitor');
 const messaging = require('./messaging/notifications');
+const cropAdvisory = require('./messaging/cropAdvisory');
 
 // --- ORDERS ---
 exports.createOrder = orders.createOrder;
@@ -110,6 +111,9 @@ exports.generateEWayBill = onCall({ region: 'asia-south1' }, async (request) => 
     return result;
 });
 
-// --- MESSAGING ---
+// --- MESSAGING & ADVISORY ---
 exports.processOutbox = messaging.processOutbox;
 exports.sendBroadcastNotification = messaging.sendBroadcastNotification;
+exports.cronCropAdvisory = cropAdvisory.cronCropAdvisory;
+exports.runCropAdvisoryEngine = cropAdvisory.runCropAdvisoryEngine;
+

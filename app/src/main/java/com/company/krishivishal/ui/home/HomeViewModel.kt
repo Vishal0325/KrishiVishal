@@ -215,8 +215,10 @@ class HomeViewModel @Inject constructor(
                 }
                 if (user != null && !isAnon) {
                     _currentUser.value = user
+                    _uiState.update { it.copy(currentUser = user) }
                 } else {
                     _currentUser.value = null
+                    _uiState.update { it.copy(currentUser = null) }
                 }
             }
         }

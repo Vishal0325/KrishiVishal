@@ -204,7 +204,17 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
                 }
             }
 
-            const totalAmount = (subtotal - totalDiscount) + totalTax + 50;
+            // FIX (DB Alignment #6): Delivery charge was hardcoded to 50.
+            // Now fetched from settings/config (same doc Admin Panel Settings.jsx writes to).
+            // Supports freeDeliveryAbove threshold configured by Admin.
+            const settingsSnap = await transaction.get(db.collection("settings").doc("config"));
+            const settingsData = settingsSnap.exists ? settingsSnap.data() : {};
+            const configuredDeliveryCharge = Number(settingsData.deliveryCharge) || 50;
+            const freeDeliveryAbove = Number(settingsData.freeDeliveryAbove) || 0;
+            const netCartValue = subtotal - totalDiscount;
+            const deliveryCharge = (freeDeliveryAbove > 0 && netCartValue >= freeDeliveryAbove) ? 0 : configuredDeliveryCharge;
+
+            const totalAmount = netCartValue + totalTax + deliveryCharge;
             const initialStatus = hasOnDemandItems ? "PROCUREMENT_PENDING" : "PLACED";
             const order = {
                 id: orderId,
@@ -213,8 +223,10 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
                 userPhone: `+91${cleanPhone}`,
                 address,
                 items,
-                totalAmount,
+                subtotal: netCartValue,
                 totalTax,
+                deliveryCharge,
+                totalAmount,
                 paymentMethod,
                 paymentStatus: "PENDING",
                 status: initialStatus,
@@ -233,7 +245,14 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
             orderOtp = otp;
         });
 
-        const finalAmount = (subtotal - totalDiscount) + totalTax + 50;
+        // Recalculate for Razorpay (reads from same settings snap — use cached values)
+        const settingsForRzp = await db.collection("settings").doc("config").get();
+        const stData = settingsForRzp.exists ? settingsForRzp.data() : {};
+        const cfgDelivery = Number(stData.deliveryCharge) || 50;
+        const cfgFreeAbove = Number(stData.freeDeliveryAbove) || 0;
+        const netCart = subtotal - totalDiscount;
+        const finalDelivery = (cfgFreeAbove > 0 && netCart >= cfgFreeAbove) ? 0 : cfgDelivery;
+        const finalAmount = netCart + totalTax + finalDelivery;
 
         // ── Razorpay Order Creation (ONLINE payments only) ──────────────────
         // For RAZORPAY_ONLINE, we create a server-side Razorpay Order to lock
@@ -308,18 +327,8 @@ exports.cancelOrder = onCall({ region: REGION }, async (request) => {
             return; // Already cancelled
         }
 
-        // Release reserved inventory
-        const selfStockItems = (currentData.items || []).filter(item => item.fulfillmentType !== 'ON_DEMAND');
-        if (selfStockItems.length > 0) {
-            await releaseOrderStock(transaction, {
-                orderId,
-                items: selfStockItems,
-                actorId: context.auth.uid,
-                actorRole: isAdmin ? "ADMIN" : "CUSTOMER",
-                reason: reason || "Order cancelled",
-                idempotencyKey: `ORDER:${orderId}:CANCEL_RELEASE`
-            });
-        }
+        // Stock release is now handled atomically by Admin Panel's onOrderUpdate trigger
+        // which listens to the "CANCELLED" status change and properly updates warehouse_inventory.
 
         transaction.update(orderRef, {
             status: "CANCELLED",
@@ -652,6 +661,8 @@ exports.generateSignedQRPayload = onCall({ region: REGION }, async (request) => 
     }
     const secretToUse = hmacSecret || 'KV_MASTER_QR_SECRET_PURNEA_2026';
 
+    const salt = crypto.randomBytes(8).toString('hex');
+    const timestamp = Date.now();
     const rawPayload = `${orderId}|${orderData.totalAmount || 0}|${salt}|${timestamp}`;
     const hash = crypto.createHmac('sha256', secretToUse).update(rawPayload).digest('hex');
 
