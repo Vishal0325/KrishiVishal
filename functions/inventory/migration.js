@@ -5,6 +5,12 @@ const admin = require("firebase-admin");
  * One-time / Admin migration to populate all catalog products into warehouse_inventory for a designated hub.
  */
 exports.migrateCatalogToWarehouseInventory = onCall(async (request) => {
+  const auth = request.auth;
+  const isSuperAdmin = auth && (auth.token.role === "SuperAdmin" || auth.token.isAdmin === true || auth.token.admin === true);
+  if (!auth || !isSuperAdmin) {
+    throw new HttpsError("permission-denied", "Unauthorized. Only SuperAdmin can trigger catalog-to-inventory migration.");
+  }
+
   const data = request.data || {};
   const warehouseId = data.warehouseId || "WH-PURNEA-01";
   const db = admin.firestore();
@@ -37,8 +43,9 @@ exports.migrateCatalogToWarehouseInventory = onCall(async (request) => {
         damagedQty: 0,
         expiredQty: 0,
         unitCost: Number(prod.costPrice) || 0,
-        mfgDate: prod.mfgDate || "2026-01-01",
-        expiryDate: prod.expiryDate || "2027-12-31",
+        // [FIXED] Point #61: Removed brittle hardcoded dates. Using product data or safe defaults.
+        mfgDate: prod.mfgDate || data.defaultMfgDate || "2024-01-01",
+        expiryDate: prod.expiryDate || data.defaultExpiryDate || "2025-12-31",
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         lastMovementAt: admin.firestore.FieldValue.serverTimestamp(),
         isMigrated: true

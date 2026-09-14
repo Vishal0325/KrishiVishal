@@ -2,34 +2,14 @@ import { collection, doc, setDoc, getDoc, getDocs, query, where, orderBy, server
 import { db } from "../firebase/config";
 import { addAuditLog } from "./logger";
 
-// Generate a sequential ID (e.g., KV-EMP-000001)
+// [FIXED] Point #93: Moved ID generation to server-side Cloud Function
 export async function generateWorkforceId(type = 'EMP') {
-  const counterRef = doc(db, 'system_counters', `workforce_${type.toLowerCase()}`);
-  
-  // Use a transaction to ensure unique sequential IDs
-  // Note: For client-side, we use runTransaction. Since this is an admin panel, 
-  // we could use Cloud Functions, but doing it here is fine as long as we use transaction.
-  const { runTransaction } = await import("firebase/firestore");
-  
   try {
-    const newId = await runTransaction(db, async (transaction) => {
-      const counterDoc = await transaction.get(counterRef);
-      let currentSeq = 0;
-      
-      if (counterDoc.exists()) {
-        currentSeq = counterDoc.data().seq || 0;
-      }
-      
-      const nextSeq = currentSeq + 1;
-      const formattedSeq = String(nextSeq).padStart(6, '0');
-      const generatedId = `KV-${type}-${formattedSeq}`;
-      
-      transaction.set(counterRef, { seq: nextSeq }, { merge: true });
-      
-      return generatedId;
-    });
-    
-    return newId;
+    const { getFunctions, httpsCallable } = await import("firebase/functions");
+    const functions = getFunctions();
+    const generateId = httpsCallable(functions, "generateWorkforceId");
+    const result = await generateId({ type });
+    return result.data.workforceId;
   } catch (error) {
     console.error("Error generating workforce ID:", error);
     throw new Error("Failed to generate ID");
@@ -52,6 +32,11 @@ export async function createEmployee(employeeData) {
     };
     
     await setDoc(docRef, payload);
+
+    // [FIXED] Point #114: Initialize leave balance during employee creation instead of loop in UI
+    const { initializeLeaveBalance } = await import("./leaveService");
+    await initializeLeaveBalance(employeeId, `${employeeData.firstName} ${employeeData.lastName}`.trim(), employeeData.department);
+
     await addAuditLog("CREATE_EMPLOYEE", "Employee", employeeId, { employeeId });
     
     return employeeId;

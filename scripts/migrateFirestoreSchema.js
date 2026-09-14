@@ -24,7 +24,7 @@ async function migrateOrdersCollection() {
 
   try {
     const snapshot = await db.collection('orders').get();
-    console.log(`Total orders to migrate: ${snapshot.size}`);
+    console.log('LOG:', `Total orders to migrate: ${snapshot.size}`);
 
     let batch = db.batch();
     let operationCount = 0;
@@ -34,7 +34,7 @@ async function migrateOrdersCollection() {
 
       // Skip if already migrated
       if (orderData.paymentDetails?.transactionId) {
-        console.log(`✓ Order ${doc.id} already migrated`);
+        console.log('LOG:', `✓ Order ${doc.id} already migrated`);
         continue;
       }
 
@@ -67,12 +67,12 @@ async function migrateOrdersCollection() {
         // Execute batch when limit reached
         if (operationCount >= BATCH_SIZE) {
           await batch.commit();
-          console.log(`✓ Committed ${operationCount} order updates`);
+          console.log('LOG:', `✓ Committed ${operationCount} order updates`);
           batch = db.batch();
           operationCount = 0;
         }
       } else {
-        console.log(`[DRY RUN] Would update order: ${doc.id}`, updatedData);
+        console.log('LOG:', `[DRY RUN] Would update order: ${doc.id}`, updatedData);
       }
 
       processedCount++;
@@ -81,10 +81,10 @@ async function migrateOrdersCollection() {
     // Final batch commit
     if (operationCount > 0 && !DRY_RUN) {
       await batch.commit();
-      console.log(`✓ Final batch: Committed ${operationCount} order updates`);
+      console.log('LOG:', `✓ Final batch: Committed ${operationCount} order updates`);
     }
 
-    console.log(`✅ Orders migration complete. Processed: ${processedCount}, Errors: ${errorCount}`);
+    console.log('LOG:', `✅ Orders migration complete. Processed: ${processedCount}, Errors: ${errorCount}`);
   } catch (error) {
     console.error('❌ Orders migration failed:', error);
     throw error;
@@ -102,7 +102,7 @@ async function migrateReturnsCollection() {
 
   try {
     const snapshot = await db.collection('returns').get();
-    console.log(`Total returns to migrate: ${snapshot.size}`);
+    console.log('LOG:', `Total returns to migrate: ${snapshot.size}`);
 
     let batch = db.batch();
     let operationCount = 0;
@@ -112,7 +112,7 @@ async function migrateReturnsCollection() {
 
       // Skip if already migrated
       if (returnData.financials?.totalAmount !== undefined) {
-        console.log(`✓ Return ${doc.id} already migrated`);
+        console.log('LOG:', `✓ Return ${doc.id} already migrated`);
         continue;
       }
 
@@ -160,12 +160,12 @@ async function migrateReturnsCollection() {
         // Execute batch when limit reached
         if (operationCount >= BATCH_SIZE) {
           await batch.commit();
-          console.log(`✓ Committed ${operationCount} return updates`);
+          console.log('LOG:', `✓ Committed ${operationCount} return updates`);
           batch = db.batch();
           operationCount = 0;
         }
       } else {
-        console.log(`[DRY RUN] Would update return: ${doc.id}`, updatedData);
+        console.log('LOG:', `[DRY RUN] Would update return: ${doc.id}`, updatedData);
       }
 
       processedCount++;
@@ -174,10 +174,10 @@ async function migrateReturnsCollection() {
     // Final batch commit
     if (operationCount > 0 && !DRY_RUN) {
       await batch.commit();
-      console.log(`✓ Final batch: Committed ${operationCount} return updates`);
+      console.log('LOG:', `✓ Final batch: Committed ${operationCount} return updates`);
     }
 
-    console.log(`✅ Returns migration complete. Processed: ${processedCount}, Errors: ${errorCount}`);
+    console.log('LOG:', `✅ Returns migration complete. Processed: ${processedCount}, Errors: ${errorCount}`);
   } catch (error) {
     console.error('❌ Returns migration failed:', error);
     throw error;
@@ -197,7 +197,7 @@ async function verifyMigration() {
       const sample = ordersSnapshot.docs[0].data();
       const hasPaymentDetails = sample.paymentDetails?.transactionId !== undefined;
       const hasCancellationFields = sample.cancelled !== undefined;
-      console.log(`Orders schema check: Payment Details ✓, Cancellation Fields ${hasPaymentDetails && hasCancellationFields ? '✓' : '✗'}`);
+      console.log('LOG:', `Orders schema check: Payment Details ✓, Cancellation Fields ${hasPaymentDetails && hasCancellationFields ? '✓' : '✗'}`);
     }
 
     // Check returns
@@ -205,7 +205,7 @@ async function verifyMigration() {
     if (!returnsSnapshot.empty) {
       const sample = returnsSnapshot.docs[0].data();
       const hasFinancials = sample.financials?.totalAmount !== undefined;
-      console.log(`Returns schema check: Financials Sub-object ${hasFinancials ? '✓' : '✗'}`);
+      console.log('LOG:', `Returns schema check: Financials Sub-object ${hasFinancials ? '✓' : '✗'}`);
     }
 
     console.log('✅ Verification complete');
@@ -219,7 +219,7 @@ async function verifyMigration() {
  */
 async function runMigration() {
   console.log('🚀 Starting Firestore Schema Migration v1.0 → v2.0');
-  console.log(`DRY_RUN: ${DRY_RUN}\n`);
+  console.log('LOG:', `DRY_RUN: ${DRY_RUN}\n`);
 
   try {
     await migrateOrdersCollection();

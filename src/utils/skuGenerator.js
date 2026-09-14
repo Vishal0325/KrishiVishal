@@ -124,7 +124,7 @@ export const UNIT_NAME_TO_CODE = {
 };
 
 // Full 6-segment SKU regex
-export const SKU_REGEX = /^[A-Z]{2}-[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{2}-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
+export const SKU_REGEX = /^[A-Z]{2}-[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{2}-[A-Z0-9]{5,6}-[A-Z0-9]{3}$/;
 
 /**
  * Returns smart default HSN and GST rate for a given category.
@@ -174,9 +174,9 @@ export function generateSkuCode({
   const vvv = (varietyCode || 'STD').toUpperCase().padStart(3, 'X').slice(0, 3);
   const gg = (gradeCode || 'A1').toUpperCase().padStart(2, 'X').slice(0, 2);
 
-  // Format Size/Unit: SSSUU (e.g., 500ML, 001KG)
+  // Format Size/Unit: SSSUU or SSSSUU (e.g., 500ML, 1000ML)
   const sizeNum = parseInt(size, 10) || 1;
-  const sss = sizeNum.toString().padStart(3, '0').slice(-3);
+  const sss = sizeNum.toString().padStart(3, '0').slice(-4);
   const uu = (unit || 'PC').toUpperCase().padStart(2, 'X').slice(0, 2);
   const sssuu = `${sss}${uu}`;
 
@@ -192,7 +192,11 @@ export function generateSkuCode({
  * @returns {string} Fully validated SKU code
  */
 export function autoDeriveSkuFromProduct(product = {}) {
-  if (!product) return 'OT-GEN-STD-A1-001PC-GEN';
+  // [FIXED] Point #68: Removed weak default SKU to prevent mass collisions.
+  // Explicit product data is now required or we generate a truly unique (though non-standard) fallback.
+  if (!product || (!product.name && !product.skuCode)) {
+    return `ERR-UNK-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+  }
 
   // 1. If explicit valid SKU provided, use it
   if (product.skuCode && SKU_REGEX.test(product.skuCode.trim().toUpperCase())) {
@@ -206,15 +210,15 @@ export function autoDeriveSkuFromProduct(product = {}) {
 
   // 3. Derive Brand Code (BBB)
   const brandRaw = (product.brandCode || product.brand || 'GEN').toString().trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-  const bbb = brandRaw.length >= 3 ? brandRaw.slice(0, 3) : brandRaw.padEnd(3, '0');
+  const bbb = brandRaw.length >= 3 ? brandRaw.slice(0, 3) : brandRaw.padEnd(3, 'X');
 
   // 4. Derive Item Code (III) from Name or Item
   const nameClean = (product.name || product.item || 'GEN').toString().trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-  const iii = nameClean.length >= 3 ? nameClean.slice(0, 3) : nameClean.padEnd(3, '0');
+  const iii = nameClean.length >= 3 ? nameClean.slice(0, 3) : nameClean.padEnd(3, 'X');
 
   // 5. Derive Variety Code (VVV) from subcategory / variety
   const varClean = (product.variety || product.subCategory || 'STD').toString().trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-  const vvv = varClean.length >= 3 ? varClean.slice(0, 3) : varClean.padEnd(3, '0');
+  const vvv = varClean.length >= 3 ? varClean.slice(0, 3) : varClean.padEnd(3, 'X');
 
   // 6. Grade (GG)
   const gg = (product.grade || 'A1').toString().trim().toUpperCase().slice(0, 2).padEnd(2, '1');
@@ -286,9 +290,9 @@ export function validateSku(skuCode) {
     };
   }
 
-  // Pack parsing (3 digits + 2 letters unit, e.g. 050KG, 500ML)
-  const sizeStr = pack.slice(0, 3);
-  const unit = pack.slice(3);
+  // Pack parsing (3-4 digits + 2 letters unit, e.g. 050KG, 1000ML)
+  const sizeStr = pack.slice(0, pack.length - 2);
+  const unit = pack.slice(-2);
   const sizeNum = parseInt(sizeStr, 10);
 
   if (isNaN(sizeNum) || sizeNum <= 0) {

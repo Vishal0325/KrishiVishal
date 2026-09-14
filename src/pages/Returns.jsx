@@ -48,9 +48,12 @@ const Returns = () => {
       getDoc(doc(db, 'orders', selectedReturn.orderId)).then(snap => {
         if (snap.exists()) setSelectedOrderDetails(snap.data());
       });
+      // [FIXED] Point #164 & #168: Clear admin note when selecting a different return request
+      setAdminNote(selectedReturn.adminNote || '');
     } else {
       setSelectedOrderDetails(null);
       setSelectedRiderId('');
+      setAdminNote('');
     }
   }, [selectedReturn]);
 

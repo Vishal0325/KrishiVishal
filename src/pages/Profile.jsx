@@ -1,32 +1,102 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { Save, User, Mail, Lock, Camera } from 'lucide-react';
+import { Save, User, Mail, Lock, Camera, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { updateProfile, updatePassword, updateEmail } from 'firebase/auth';
+import { auth, storage } from '../firebase/config';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const Profile = () => {
   const { user, role } = useAuth();
   
   const [formData, setFormData] = useState({
-    name: 'Admin',
-    email: 'admin@krishivishal.com',
-    userId: 'RBA-001',
+    name: '',
+    email: '',
+    userId: '',
     password: '',
     confirmPassword: ''
   });
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (user) {
+      setFormData(prev => ({
+        ...prev,
+        name: user.displayName || '',
+        email: user.email || '',
+        userId: user.uid
+      }));
+      setPhotoPreview(user.photoURL || `https://api.dicebear.com/7.x/notionists/svg?seed=${user.displayName?.split(' ')[0] || 'Admin'}&backgroundColor=e5e7eb`);
+    }
+  }, [user]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = (e) => {
+  const handlePhotoChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        toast.error("Image size should be less than 2MB");
+        return;
+      }
+      setPhotoFile(file);
+      setPhotoPreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (formData.password && formData.password !== formData.confirmPassword) {
       toast.error("Passwords don't match");
       return;
     }
-    // Handle profile update logic here
-    toast.success("Profile updated successfully!");
+
+    setIsSaving(true);
+    try {
+      let updatedPhotoURL = user.photoURL;
+
+      // 1. Upload new photo if selected
+      if (photoFile) {
+        const fileRef = ref(storage, `avatars/${user.uid}`);
+        await uploadBytes(fileRef, photoFile);
+        updatedPhotoURL = await getDownloadURL(fileRef);
+      }
+
+      // 2. Update Profile (Name & Photo)
+      if (formData.name !== user.displayName || photoFile) {
+        await updateProfile(auth.currentUser, {
+          displayName: formData.name,
+          photoURL: updatedPhotoURL
+        });
+      }
+
+      // 3. Update Email if changed (Will require re-auth usually, but keeping it simple)
+      if (formData.email !== user.email) {
+        await updateEmail(auth.currentUser, formData.email);
+      }
+
+      // 4. Update Password if provided
+      if (formData.password) {
+        await updatePassword(auth.currentUser, formData.password);
+        setFormData(prev => ({ ...prev, password: '', confirmPassword: '' }));
+      }
+
+      toast.success("Profile updated successfully! Refresh to see changes globally.");
+      // Optional: force reload to reflect changes in sidebar/topbar immediately
+      setTimeout(() => window.location.reload(), 1500);
+
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || "Failed to update profile");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -38,10 +108,11 @@ const Profile = () => {
         </div>
         <button 
           onClick={handleSubmit}
-          className="flex items-center gap-2 px-6 py-2.5 bg-green-700 text-white rounded-xl text-sm font-bold shadow-md hover:bg-green-800 transition-colors"
+          disabled={isSaving}
+          className="flex items-center gap-2 px-6 py-2.5 bg-green-700 text-white rounded-xl text-sm font-bold shadow-md hover:bg-green-800 transition-colors disabled:opacity-70"
         >
-          <Save size={16} />
-          Save Changes
+          {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+          {isSaving ? 'Saving...' : 'Save Changes'}
         </button>
       </div>
 
@@ -49,13 +120,23 @@ const Profile = () => {
         {/* Left Column: Avatar & Basic Info */}
         <div className="md:col-span-1 space-y-6">
           <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm flex flex-col items-center text-center relative">
-            <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-100 border-4 border-white shadow-lg mb-4 relative group cursor-pointer">
-              <img src="https://api.dicebear.com/7.x/notionists/svg?seed=Admin&backgroundColor=e5e7eb" alt="Profile" className="w-full h-full object-cover" />
+            <div 
+              className="w-24 h-24 rounded-full overflow-hidden bg-gray-100 border-4 border-white shadow-lg mb-4 relative group cursor-pointer"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <img src={photoPreview} alt="Profile" className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                 <Camera size={20} className="text-white" />
               </div>
             </div>
-            <h2 className="text-lg font-bold text-gray-900">{formData.name}</h2>
+            <input 
+              type="file" 
+              ref={fileInputRef}
+              onChange={handlePhotoChange}
+              accept="image/*"
+              className="hidden"
+            />
+            <h2 className="text-lg font-bold text-gray-900 capitalize">{formData.name || 'User'}</h2>
             <span className="inline-block px-3 py-1 bg-green-100 text-green-800 text-xs font-bold rounded-full mt-2">
               {role || "Super Admin"}
             </span>

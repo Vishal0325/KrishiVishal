@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, Timestamp, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, Timestamp, query, orderBy, where, limit, getDocs } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import DataTable from '../components/common/DataTable';
 import PageHeader from '../components/common/PageHeader';
@@ -41,6 +41,22 @@ const EMPTY_FORM = {
   leadTimeDays: 2,
   status: 'ACTIVE',
 };
+
+// Form field helper placed outside to prevent unmounting/focus loss on re-renders
+const InputField = ({ label, value, onChange, required, type = 'text', placeholder, error, className = '' }) => (
+  <div className={`space-y-1 ${className}`}>
+    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{label}</label>
+    <input
+      type={type}
+      required={required}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      className={`w-full px-4 py-3 bg-gray-50 border ${error ? 'border-red-300 ring-2 ring-red-100' : 'border-gray-100'} rounded-xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900 text-sm`}
+    />
+    {error && <p className="text-[10px] text-red-500 font-bold ml-1">{error}</p>}
+  </div>
+);
 
 const Suppliers = () => {
   const [suppliers, setSuppliers] = useState([]);
@@ -132,13 +148,26 @@ const Suppliers = () => {
   };
 
   const deleteSupplier = async (supplier) => {
-    if (!window.confirm(`Delete supplier "${supplier.name}"? This action cannot be undone.`)) return;
+    // [FIXED] Point #117: Implemented Foreign Key check before deletion and support for Soft Delete
     try {
+      // 1. Check if supplier has any associated Purchase Orders (Foreign Key Guard)
+      const poQ = query(collection(db, 'purchase_orders'), where('supplierId', '==', supplier.id), limit(1));
+      const { getDocs } = await import("firebase/firestore");
+      const poSnap = await getDocs(poQ);
+
+      if (!poSnap.empty) {
+        toast.error(`Cannot delete supplier "${supplier.name}". They have existing Purchase Orders. Mark as INACTIVE instead.`);
+        return;
+      }
+
+      if (!window.confirm(`Delete supplier "${supplier.name}"? This action cannot be undone.`)) return;
+
       await deleteDoc(doc(db, 'suppliers', supplier.id));
       await addAuditLog('DELETE_SUPPLIER', 'Supplier', supplier.id, { name: supplier.name });
       toast.success('Supplier deleted');
     } catch (error) {
-      toast.error('Delete failed');
+      console.error(error);
+      toast.error('Delete operation failed');
     }
   };
 
@@ -232,22 +261,6 @@ const Suppliers = () => {
       )
     }
   ];
-
-  // -- Form field helper
-  const InputField = ({ label, value, onChange, required, type = 'text', placeholder, error, className = '' }) => (
-    <div className={`space-y-1 ${className}`}>
-      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{label}</label>
-      <input
-        type={type}
-        required={required}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        className={`w-full px-4 py-3 bg-gray-50 border ${error ? 'border-red-300 ring-2 ring-red-100' : 'border-gray-100'} rounded-xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900 text-sm`}
-      />
-      {error && <p className="text-[10px] text-red-500 font-bold ml-1">{error}</p>}
-    </div>
-  );
 
   return (
     <div className="space-y-6 pb-10 animate-in fade-in duration-300">

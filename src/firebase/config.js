@@ -23,14 +23,19 @@ const app = initializeApp(firebaseConfig);
 
 // Initialize App Check with reCAPTCHA Enterprise
 if (typeof window !== "undefined") {
-  const recaptchaKey = import.meta.env.VITE_RECAPTCHA_ENTERPRISE_KEY || "6LedsXMtAAAAACuRJBugHB610wgPZ9ILlD4BFUcl";
-  try {
-    initializeAppCheck(app, {
-      provider: new ReCaptchaEnterpriseProvider(recaptchaKey),
-      isTokenAutoRefreshEnabled: true
-    });
-  } catch (err) {
-    console.warn("Firebase AppCheck initialization skipped or already active:", err.message);
+  // [FIXED] Point #60: Removed hardcoded reCAPTCHA fallback key to prevent exposure. Must be provided via .env
+  const recaptchaKey = import.meta.env.VITE_RECAPTCHA_ENTERPRISE_KEY;
+  if (recaptchaKey) {
+    try {
+      initializeAppCheck(app, {
+        provider: new ReCaptchaEnterpriseProvider(recaptchaKey),
+        isTokenAutoRefreshEnabled: true
+      });
+    } catch (err) {
+      console.warn("Firebase AppCheck initialization skipped or already active:", err.message);
+    }
+  } else {
+    console.warn("Firebase AppCheck disabled: VITE_RECAPTCHA_ENTERPRISE_KEY is missing.");
   }
 }
 

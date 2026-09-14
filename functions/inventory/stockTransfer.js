@@ -2,12 +2,21 @@ const functions = require("firebase-functions/v1");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 
-exports.createStockTransfer = onCall(async (request) => {
-  const data = request.data;
-  const context = { auth: request.auth };
+function verifyTransferRole(context) {
+  const callerIsAdmin = context.auth && (context.auth.token.isAdmin === true || context.auth.token.admin === true);
+  const callerRole = context.auth?.token?.role;
   if (!context.auth) {
     throw new HttpsError("unauthenticated", "Unauthorized.");
   }
+  if (!callerIsAdmin && !['SuperAdmin', 'WarehouseManager', 'Operations', 'Admin'].includes(callerRole)) {
+    throw new HttpsError("permission-denied", "Unauthorized. Only warehouse staff or admins can perform stock transfers.");
+  }
+}
+
+exports.createStockTransfer = onCall(async (request) => {
+  const data = request.data;
+  const context = { auth: request.auth };
+  verifyTransferRole(context);
 
   const { sourceWarehouseId, destinationWarehouseId, items, reason } = data;
 
@@ -47,9 +56,7 @@ exports.createStockTransfer = onCall(async (request) => {
 exports.approveStockTransfer = onCall(async (request) => {
   const data = request.data;
   const context = { auth: request.auth };
-  if (!context.auth) {
-    throw new HttpsError("unauthenticated", "Unauthorized.");
-  }
+  verifyTransferRole(context);
 
   const { transferId } = data;
   const db = admin.firestore();
@@ -113,7 +120,7 @@ exports.approveStockTransfer = onCall(async (request) => {
 exports.dispatchStockTransfer = onCall(async (request) => {
   const data = request.data;
   const context = { auth: request.auth };
-    if (!context.auth) throw new HttpsError("unauthenticated", "Unauthorized.");
+  verifyTransferRole(context);
     
     const { transferId } = data;
     const db = admin.firestore();
@@ -167,10 +174,64 @@ exports.dispatchStockTransfer = onCall(async (request) => {
     }
 });
 
+/**
+ * [FIXED] Point #113: Added cancelStockTransfer to release reserved stock if a transfer is cancelled.
+ */
+exports.cancelStockTransfer = onCall(async (request) => {
+  const data = request.data;
+  const context = { auth: request.auth };
+  verifyTransferRole(context);
+
+  const { transferId, reason } = data;
+  const db = admin.firestore();
+
+  try {
+    await db.runTransaction(async (transaction) => {
+      const transferRef = db.collection("stock_transfers").doc(transferId);
+      const transferDoc = await transaction.get(transferRef);
+
+      if (!transferDoc.exists) throw new HttpsError("not-found", "Transfer not found.");
+
+      const transferData = transferDoc.data();
+      const currentStatus = transferData.status;
+
+      // Only REQUESTED or APPROVED transfers can be cancelled and have stock released
+      if (!['REQUESTED', 'APPROVED'].includes(currentStatus)) {
+        throw new HttpsError("failed-precondition", "Cannot cancel transfer in current status.");
+      }
+
+      // If APPROVED, we must release the transferReservedQty back to availableQty
+      if (currentStatus === 'APPROVED') {
+        for (const item of transferData.items) {
+          const inventoryId = `${transferData.sourceWarehouseId}_${item.skuId}_${item.batchId}`;
+          const inventoryRef = db.collection("warehouse_inventory").doc(inventoryId);
+
+          transaction.update(inventoryRef, {
+            availableQty: admin.firestore.FieldValue.increment(item.quantity),
+            transferReservedQty: admin.firestore.FieldValue.increment(-item.quantity),
+            lastMovementAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+      }
+
+      transaction.update(transferRef, {
+        status: "CANCELLED",
+        cancelledBy: context.auth.uid,
+        cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+        cancellationReason: reason || "",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+    return { success: true };
+  } catch (error) {
+    throw new HttpsError("internal", error.message);
+  }
+});
+
 exports.receiveStockTransfer = onCall(async (request) => {
   const data = request.data;
   const context = { auth: request.auth };
-    if (!context.auth) throw new HttpsError("unauthenticated", "Unauthorized.");
+  verifyTransferRole(context);
     
     const { transferId } = data;
     const db = admin.firestore();
@@ -187,12 +248,17 @@ exports.receiveStockTransfer = onCall(async (request) => {
           throw new HttpsError("failed-precondition", "Transfer must be IN_TRANSIT to receive.");
         }
   
-        // Destination warehouse gains the stock
+        // Step 1: Read all destination inventory documents first (all reads before writes)
+        const invReads = [];
         for (const item of transferData.items) {
           const inventoryId = `${transferData.destinationWarehouseId}_${item.skuId}_${item.batchId}`;
           const inventoryRef = db.collection("warehouse_inventory").doc(inventoryId);
           const invDoc = await transaction.get(inventoryRef);
+          invReads.push({ item, inventoryRef, invDoc });
+        }
 
+        // Step 2: Perform all writes
+        for (const { item, inventoryRef, invDoc } of invReads) {
           if (invDoc.exists) {
             transaction.update(inventoryRef, {
                 availableQty: admin.firestore.FieldValue.increment(item.quantity),
@@ -239,4 +305,58 @@ exports.receiveStockTransfer = onCall(async (request) => {
     } catch (error) {
         throw new HttpsError("internal", error.message);
     }
+});
+
+/**
+ * [FIXED] Point #113: Added cancelStockTransfer to release reserved stock if a transfer is cancelled.
+ */
+exports.cancelStockTransfer = onCall(async (request) => {
+  const data = request.data;
+  const context = { auth: request.auth };
+  if (!context.auth) throw new HttpsError("unauthenticated", "Unauthorized.");
+
+  const { transferId, reason } = data;
+  const db = admin.firestore();
+
+  try {
+    await db.runTransaction(async (transaction) => {
+      const transferRef = db.collection("stock_transfers").doc(transferId);
+      const transferDoc = await transaction.get(transferRef);
+
+      if (!transferDoc.exists) throw new HttpsError("not-found", "Transfer not found.");
+
+      const transferData = transferDoc.data();
+      const currentStatus = transferData.status;
+
+      // Only REQUESTED or APPROVED transfers can be cancelled and have stock released
+      if (!['REQUESTED', 'APPROVED'].includes(currentStatus)) {
+        throw new HttpsError("failed-precondition", "Cannot cancel transfer in current status.");
+      }
+
+      // If APPROVED, we must release the transferReservedQty back to availableQty
+      if (currentStatus === 'APPROVED') {
+        for (const item of transferData.items) {
+          const inventoryId = `${transferData.sourceWarehouseId}_${item.skuId}_${item.batchId}`;
+          const inventoryRef = db.collection("warehouse_inventory").doc(inventoryId);
+
+          transaction.update(inventoryRef, {
+            availableQty: admin.firestore.FieldValue.increment(item.quantity),
+            transferReservedQty: admin.firestore.FieldValue.increment(-item.quantity),
+            lastMovementAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+      }
+
+      transaction.update(transferRef, {
+        status: "CANCELLED",
+        cancelledBy: context.auth.uid,
+        cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+        cancellationReason: reason || "",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+    return { success: true };
+  } catch (error) {
+    throw new HttpsError("internal", error.message);
+  }
 });

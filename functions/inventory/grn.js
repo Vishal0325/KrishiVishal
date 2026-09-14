@@ -9,11 +9,19 @@ const admin = require("firebase-admin");
 exports.receiveGrn = onCall(async (request) => {
   const data = request.data;
   const context = { auth: request.auth };
-  // Authentication check
+  // Authentication and Authorization check
+  const callerIsAdmin = context.auth && (context.auth.token.isAdmin === true || context.auth.token.admin === true);
+  const callerRole = context.auth?.token?.role;
   if (!context.auth) {
     throw new HttpsError(
       "unauthenticated",
       "Only authenticated users can receive GRN."
+    );
+  }
+  if (!callerIsAdmin && !['SuperAdmin', 'WarehouseManager', 'Operations', 'Admin'].includes(callerRole)) {
+    throw new HttpsError(
+      "permission-denied",
+      "Unauthorized. Only warehouse staff or admins can receive GRN."
     );
   }
 

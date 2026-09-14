@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { Truck, MapPin, Package, CheckCircle, Clock, Map as MapIcon, Navigation, Route, Sparkles } from 'lucide-react';
+import { Truck, MapPin, Package, CheckCircle, Clock, Map as MapIcon, Navigation, Route, Sparkles, ShieldCheck } from 'lucide-react';
 import DataTable from '../components/common/DataTable';
 import PageHeader from '../components/common/PageHeader';
+import ProofOfDeliveryModal from '../components/orders/ProofOfDeliveryModal';
 import toast from 'react-hot-toast';
 
 /**
@@ -72,15 +73,22 @@ const Trips = () => {
   const [activeTrips, setActiveTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [optimizedTrips, setOptimizedTrips] = useState(new Set()); // track which trips are optimized
+  const [selectedPodOrder, setSelectedPodOrder] = useState(null);
+  const [isPodOpen, setIsPodOpen] = useState(false);
 
   useEffect(() => {
+    // [FIXED] Point #111 & #161: Proper nested listener cleanup to prevent exponential memory leaks
+    let unsubOrders = null;
+
     const unsubRiders = onSnapshot(collection(db, 'riders'), (riderSnap) => {
+      if (unsubOrders) unsubOrders(); // Cleanup previous order listener before starting new one
+
       const qOrders = query(
         collection(db, 'orders'),
         where('status', 'in', ['ASSIGNED', 'PICKED_UP', 'OUT_FOR_DELIVERY'])
       );
 
-      const unsubOrders = onSnapshot(qOrders, (orderSnap) => {
+      unsubOrders = onSnapshot(qOrders, (orderSnap) => {
         const ridersWithTrips = new Map();
 
         orderSnap.docs.forEach(doc => {
@@ -106,14 +114,14 @@ const Trips = () => {
           const trip = ridersWithTrips.get(order.riderId);
           trip.orderCount++;
 
-          // Extract structured location for grouping
           const locationParts = extractLocationParts(order.address);
 
           trip.stops.push({
             orderId: doc.id,
+            order: { id: doc.id, ...order },
             address: locationParts.raw || order.address?.address || order.address || 'No Address',
             status: order.status,
-            customerName: order.address?.name || 'Customer',
+            customerName: order.address?.name || order.userName || 'Customer',
             _location: locationParts,
           });
         });
@@ -121,11 +129,12 @@ const Trips = () => {
         setActiveTrips(Array.from(ridersWithTrips.values()));
         setLoading(false);
       });
-
-      return () => unsubOrders();
     });
 
-    return () => unsubRiders();
+    return () => {
+      unsubRiders();
+      if (unsubOrders) unsubOrders();
+    };
   }, []);
 
   const handleOptimizeRoute = (riderId) => {
@@ -270,12 +279,25 @@ const Trips = () => {
                                     <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Stop #{idx + 1}</span>
                                     <h4 className="font-black text-gray-900">Order KV-{stop.orderId.slice(-6)}</h4>
                                   </div>
-                                  <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border ${
-                                    stop.status === 'OUT_FOR_DELIVERY' ? 'bg-orange-50 text-orange-700 border-orange-100' :
-                                    'bg-blue-50 text-blue-700 border-blue-100'
-                                  }`}>
-                                    {stop.status.replace(/_/g, ' ')}
-                                  </span>
+                                  <div className="flex items-center space-x-2">
+                                    <button
+                                      onClick={() => {
+                                        setSelectedPodOrder(stop.order);
+                                        setIsPodOpen(true);
+                                      }}
+                                      className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-[10px] font-extrabold flex items-center space-x-1 transition"
+                                      title="Inspect POD & OTP"
+                                    >
+                                      <ShieldCheck size={12} />
+                                      <span>POD / OTP</span>
+                                    </button>
+                                    <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border ${
+                                      stop.status === 'OUT_FOR_DELIVERY' ? 'bg-orange-50 text-orange-700 border-orange-100' :
+                                      'bg-blue-50 text-blue-700 border-blue-100'
+                                    }`}>
+                                      {stop.status.replace(/_/g, ' ')}
+                                    </span>
+                                  </div>
                                 </div>
                                 <div className="space-y-2">
                                     <p className="text-xs font-bold text-gray-600 flex items-center">
@@ -351,6 +373,18 @@ const Trips = () => {
             </div>
         </div>
       </div>
+
+      {/* Proof of Delivery & OTP Audit Modal */}
+      {isPodOpen && selectedPodOrder && (
+        <ProofOfDeliveryModal
+          order={selectedPodOrder}
+          isOpen={isPodOpen}
+          onClose={() => {
+            setIsPodOpen(false);
+            setSelectedPodOrder(null);
+          }}
+        />
+      )}
     </div>
   );
 };

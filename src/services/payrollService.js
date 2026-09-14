@@ -8,7 +8,8 @@ import {
   where,
   orderBy,
   serverTimestamp,
-  updateDoc
+  updateDoc,
+  writeBatch
 } from "firebase/firestore";
 import { db, auth } from "../firebase/config";
 import { addAuditLog } from "./logger";
@@ -59,12 +60,18 @@ export function calculateSalaryBreakdown(monthlyGross, options = {}) {
   const employeeEsic = isEsicApplicable ? Math.ceil(gross * 0.0075) : 0;
   const employerEsic = isEsicApplicable ? Math.ceil(gross * 0.0325) : 0;
 
-  // 3. Professional Tax (PT): Standard Slab (₹150 to ₹200/month)
+  // 3. Professional Tax (PT): State-wise slabs
   let pt = 0;
   if (options.enablePt !== false) {
-    if (gross > 25000) pt = 200;
-    else if (gross > 15000) pt = 150;
-    else if (gross > 10000) pt = 100;
+    // [FIXED] Point #115: Support dynamic state-wise PT slabs from config instead of hardcoded Bihar defaults
+    const ptSlabs = options.ptSlabs || [
+      { threshold: 25000, amount: 200 },
+      { threshold: 15000, amount: 150 },
+      { threshold: 10000, amount: 100 }
+    ];
+
+    const matchedSlab = ptSlabs.find(s => gross > s.threshold);
+    pt = matchedSlab ? matchedSlab.amount : 0;
   }
 
   // 4. TDS on Salary (Estimated Monthly)
@@ -159,6 +166,17 @@ export async function getPayrollRuns(monthStr) {
   }
 }
 
+// [FIXED] Point #102 helper: Fetch payslips from sub-collection
+export async function getPayslipsByRun(runId) {
+  try {
+    const snapshot = await getDocs(collection(db, "monthly_payroll_runs", runId, "payslips"));
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error("Error fetching payslips for run:", runId, error);
+    throw error;
+  }
+}
+
 export async function generateMonthlyPayroll(monthStr, employeesWithSalaries) {
   try {
     const user = auth.currentUser;
@@ -225,13 +243,25 @@ export async function generateMonthlyPayroll(monthStr, employeesWithSalaries) {
       totalNet,
       totalPf,
       totalEsic,
-      payslips,
+      // [FIXED] Point #102: Removed massive payslips array from main document to avoid 1MB limit.
+      // Individual payslips are now stored in a sub-collection.
       generatedBy: user?.email || "admin",
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
 
-    await setDoc(docRef, payload);
+    const { writeBatch } = await import("firebase/firestore");
+    const batch = writeBatch(db);
+
+    batch.set(docRef, payload);
+
+    // Save individual payslips in sub-collection
+    payslips.forEach(slip => {
+      const slipRef = doc(db, "monthly_payroll_runs", runId, "payslips", slip.payslipId);
+      batch.set(slipRef, slip);
+    });
+
+    await batch.commit();
     await addAuditLog("GENERATE_PAYROLL", "MonthlyPayroll", runId, { month: monthStr, totalNet });
     return payload;
   } catch (error) {

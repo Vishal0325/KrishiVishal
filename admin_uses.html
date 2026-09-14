@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KrishiVishal - 100% Manual Operations Guide</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Hind:wght@400;500;600;700&display=swap');
+        body { font-family: 'Hind', sans-serif; scroll-behavior: smooth; }
+        .field-label { font-weight: 700; color: #1e293b; font-size: 0.875rem; display: block; margin-bottom: 0.25rem; }
+        .field-desc { font-size: 0.75rem; color: #64748b; line-height: 1.25; margin-bottom: 1rem; }
+        .manual-card { background: white; border-radius: 2.5rem; padding: 2.5rem; border: 1px solid #e2e8f0; margin-bottom: 3rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        .hub-badge { padding: 0.5rem 1rem; border-radius: 9999px; font-weight: 900; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 p-4 md:p-10">
+    <div class="max-w-5xl mx-auto">
+
+        <header class="mb-16 border-b-8 border-green-600 pb-10 text-center md:text-left">
+            <h1 class="text-6xl font-black text-green-800 tracking-tighter italic mb-4">KrishiVishal Admin</h1>
+            <h2 class="text-3xl font-bold text-slate-700 uppercase tracking-tight">100% Manual Work Transparency Guide</h2>
+            <p class="text-slate-500 mt-4 text-xl max-w-3xl">सिस्टम में स्टाफ को कहाँ-कहाँ क्या टाइप करना है और कौन से बटन दबाने हैं—एक भी फील्ड नहीं छूटेगी।</p>
+        </header>
+
+        <!-- 1. Catalog & Product Setup -->
+        <div class="manual-card">
+            <div class="flex items-center justify-between mb-8">
+                <span class="hub-badge bg-emerald-100 text-emerald-700">Catalog Action Center</span>
+                <span class="text-xs font-bold text-slate-400">Page: Products Setup</span>
+            </div>
+            <h3 class="text-3xl font-black mb-6 text-slate-800 underline decoration-emerald-400 decoration-8 underline-offset-8">01. Adding a New Product (सामान की एंट्री)</h3>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-10">
+                <div>
+                    <label class="field-label">Product Title:</label>
+                    <p class="field-desc">सामान का नाम + वजन (जैसे: <i>Zinc Sulfate 33% 1Kg</i>)</p>
+
+                    <label class="field-label">Category & Sub-Category:</label>
+                    <p class="field-desc">लिस्ट में से पहले मुख्य ग्रुप (जैसे: <i>Pesticide</i>) फिर उसका सब-ग्रुप (जैसे: <i>Fungicide</i>) चुनें।</p>
+
+                    <label class="field-label">Pricing Matrix:</label>
+                    <p class="field-desc"><b>MRP:</b> पैकेट वाला दाम। <br><b>Selling Price:</b> किसान का दाम। <br><b>Cost Price:</b> कंपनी की खरीद।</p>
+                </div>
+                <div>
+                    <label class="field-label">HSN & Tax:</label>
+                    <p class="field-desc">बिलिंग के लिए 8 डिजिट का HSN कोड भरें और 5%, 12% या 18% GST चुनें।</p>
+
+                    <label class="field-label">Batch & Expiry:</label>
+                    <p class="field-desc">पैकेट से देखकर <b>Batch No.</b> और <b>Expiry Date</b> (Calendar से) जरूर भरें।</p>
+
+                    <label class="field-label">Product Image:</label>
+                    <p class="field-desc">"Upload" बटन दबाकर गैलरी से साफ़ फोटो चुनें। फोटो का साइज 2MB से कम रखें।</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Order Fulfillment & Packing -->
+        <div class="manual-card">
+            <div class="flex items-center justify-between mb-8">
+                <span class="hub-badge bg-blue-100 text-blue-700">Operations Action Center</span>
+                <span class="text-xs font-bold text-slate-400">Page: Orders & Packing Station</span>
+            </div>
+            <h3 class="text-3xl font-black mb-6 text-slate-800 underline decoration-blue-400 decoration-8 underline-offset-8">02. Order Dispatch (आर्डर भेजना)</h3>
+
+            <div class="space-y-6">
+                <div class="bg-blue-50 p-6 rounded-3xl border border-blue-100">
+                    <p class="font-bold text-blue-900 mb-2">Packing Station Checklist (मैनुअल टिक-मार्क):</p>
+                    <p class="text-sm text-blue-700 leading-relaxed">आर्डर के अंदर मौजूद हर सामान के आगे एक <b>Checkbox</b> होगा। स्टाफ को सामान डिब्बे में डालते समय उस पर क्लिक करना होगा। जब तक सब 'Tick' नहीं होंगे, बिल प्रिंट नहीं होगा।</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="field-label">Select Rider:</label>
+                        <p class="field-desc">लिस्ट में से उस राइडर का नाम चुनें जिसके पास गाड़ी खाली है।</p>
+                    </div>
+                    <div>
+                        <label class="field-label">Proof of Delivery (QC):</label>
+                        <p class="field-desc">आर्डर डिलीवर होने के बाद राइडर द्वारा भेजी फोटो को एडमिन को यहाँ 'Verify' बटन दबाकर पास करना है।</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. Finance & Denominations -->
+        <div class="manual-card">
+            <div class="flex items-center justify-between mb-8">
+                <span class="hub-badge bg-rose-100 text-rose-700">Finance Action Center</span>
+                <span class="text-xs font-bold text-slate-400">Page: Cash Reconciliation</span>
+            </div>
+            <h3 class="text-3xl font-black mb-6 text-slate-800 underline decoration-rose-400 decoration-8 underline-offset-8">03. Cash Settlement (नकद हिसाब)</h3>
+
+            <div class="bg-slate-900 text-white p-8 rounded-3xl shadow-inner mb-6">
+                <p class="text-xs font-black text-rose-400 uppercase tracking-widest mb-4">Denomination Box (नोटों की गिनती):</p>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="bg-white/10 p-3 rounded-xl border border-white/10"><span class="text-[10px] block opacity-60">500 x</span> <input type="number" placeholder="Qty" class="bg-transparent w-full font-bold outline-none"></div>
+                    <div class="bg-white/10 p-3 rounded-xl border border-white/10"><span class="text-[10px] block opacity-60">200 x</span> <input type="number" placeholder="Qty" class="bg-transparent w-full font-bold outline-none"></div>
+                    <div class="bg-white/10 p-3 rounded-xl border border-white/10"><span class="text-[10px] block opacity-60">100 x</span> <input type="number" placeholder="Qty" class="bg-transparent w-full font-bold outline-none"></div>
+                    <div class="bg-white/10 p-3 rounded-xl border border-white/10"><span class="text-[10px] block opacity-60">Coins</span> <input type="number" placeholder="Amt" class="bg-transparent w-full font-bold outline-none"></div>
+                </div>
+                <div class="mt-6">
+                    <label class="field-label text-white">Bank UTR / Transaction No:</label>
+                    <p class="text-[10px] opacity-50 mb-2">जब यह पैसा बैंक में जमा हो जाए, तो यहाँ बैंक का रेफरेंस नंबर टाइप करना है।</p>
+                    <input type="text" placeholder="Ex: 42100874521" class="w-full bg-white/5 border border-white/20 p-3 rounded-xl font-mono text-sm">
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. Agri-Doctor Support Desk -->
+        <div class="manual-card">
+            <div class="flex items-center justify-between mb-8">
+                <span class="hub-badge bg-sky-100 text-sky-700">Advisory Action Center</span>
+                <span class="text-xs font-bold text-slate-400">Page: Kisan Call Center</span>
+            </div>
+            <h3 class="text-3xl font-black mb-6 text-slate-800 underline decoration-sky-400 decoration-8 underline-offset-8">04. Tele-Advisory (डॉक्टर की पर्ची)</h3>
+
+            <div class="space-y-4">
+                <div class="field-box">
+                    <label class="field-label">Problem Reported (बीमारी):</label>
+                    <textarea placeholder="किसान ने क्या समस्या बताई?" class="w-full bg-transparent outline-none text-sm h-12"></textarea>
+                </div>
+                <div class="field-box border-emerald-200 bg-emerald-50">
+                    <label class="field-label text-emerald-800">Prescription (दवाई की सलाह):</label>
+                    <textarea placeholder="कौन सी दवा और कितनी मात्रा में देनी है?" class="w-full bg-transparent outline-none text-sm h-20"></textarea>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="field-box">
+                        <label class="field-label">Follow-up Date:</label>
+                        <p class="text-[10px] opacity-60">किसान को दोबारा कब फोन करना है?</p>
+                        <input type="date" class="bg-transparent outline-none text-sm w-full mt-1">
+                    </div>
+                    <div class="field-box">
+                        <label class="field-label">Recommended SKU:</label>
+                        <p class="text-[10px] opacity-60">कैटलॉग में से कोई सामान जोड़ें</p>
+                        <input type="text" placeholder="Search Product..." class="bg-transparent outline-none text-sm w-full mt-1">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 5. Procurement & Stock Audit -->
+        <div class="manual-card">
+            <div class="flex items-center justify-between mb-8">
+                <span class="hub-badge bg-cyan-100 text-cyan-700">Warehouse Action Center</span>
+                <span class="text-xs font-bold text-slate-400">Page: Physical Stock Audit</span>
+            </div>
+            <h3 class="text-3xl font-black mb-6 text-slate-800 underline decoration-cyan-400 decoration-8 underline-offset-8">05. Inventory Audit (स्टॉक मिलान)</h3>
+
+            <div class="flex gap-10 items-center">
+                <div class="flex-1">
+                    <label class="field-label">System Count (A):</label>
+                    <p class="text-2xl font-black text-slate-400 tracking-tighter">100 (Auto)</p>
+                </div>
+                <div class="text-3xl font-black text-slate-300">vs</div>
+                <div class="flex-1">
+                    <label class="field-label text-orange-600">Actual Count (B):</label>
+                    <input type="number" placeholder="हाथ से गिनकर भरें" class="w-full bg-orange-50 border-2 border-orange-200 p-4 rounded-2xl font-black text-2xl outline-none">
+                </div>
+            </div>
+            <p class="mt-6 text-xs text-slate-500 italic"><b>नोट:</b> अगर 'A' और 'B' में फर्क है, तो "Reason for Variance" बॉक्स में कारण (जैसे: <i>Damaged in Handling</i>) टाइप करना अनिवार्य है।</p>
+        </div>
+
+        <!-- 6. Staff & Role Assignment -->
+        <div class="manual-card">
+            <div class="flex items-center justify-between mb-8">
+                <span class="hub-badge bg-slate-800 text-white">Security Action Center</span>
+                <span class="text-xs font-bold text-slate-400">Page: Staff Management</span>
+            </div>
+            <h3 class="text-3xl font-black mb-6 text-slate-800 underline decoration-slate-400 decoration-8 underline-offset-8">06. Staff Access (किसे क्या अनुमति है)</h3>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="field-box">
+                    <label class="field-label">Reporting To:</label>
+                    <p class="text-xs text-slate-500">यह स्टाफ किसे रिपोर्ट करेगा (Hierarchy Level) - ड्रॉपडाउन से बॉस का नाम चुनें।</p>
+                </div>
+                <div class="field-box">
+                    <label class="field-label">Assigned Hub/Warehouse:</label>
+                    <p class="text-xs text-slate-500">स्टाफ को किस वेयरहाउस की चाबी (Access) देनी है।</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 7. KYC Verification Final -->
+        <div class="manual-card mb-24">
+            <div class="flex items-center justify-between mb-8">
+                <span class="hub-badge bg-orange-100 text-orange-700">Compliance Action Center</span>
+                <span class="text-xs font-bold text-slate-400">Page: Document Verification</span>
+            </div>
+            <h3 class="text-3xl font-black mb-6 text-slate-800 underline decoration-orange-400 decoration-8 underline-offset-8">07. Document QC (कागजों की जाँच)</h3>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-10">
+                <div class="bg-slate-100 aspect-video rounded-3xl flex items-center justify-center border-2 border-dashed border-slate-300">
+                    <p class="text-[10px] font-black uppercase text-slate-400">Aadhaar/License Image Preview</p>
+                </div>
+                <div class="space-y-4">
+                    <button class="w-full py-4 bg-green-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-lg shadow-green-100">Approve Document</button>
+                    <button class="w-full py-4 bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-lg shadow-red-100">Reject Document</button>
+                    <div class="field-box">
+                        <label class="field-label">Rejection Reason (if rejected):</label>
+                        <input type="text" placeholder="जैसे: Photo blur hai" class="w-full bg-transparent outline-none text-sm">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="text-center text-slate-400 border-t border-slate-200 pt-12 pb-24">
+            <p class="font-black text-slate-500 tracking-tighter text-2xl">KrishiVishal Enterprise</p>
+            <p class="text-[10px] uppercase tracking-[0.5em] mt-2 font-bold italic">Fields & Button Logic Verified • 2026 Admin Operations</p>
+        </footer>
+    </div>
+</body>
+</html>

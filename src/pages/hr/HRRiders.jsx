@@ -132,14 +132,14 @@ const HRRiders = () => {
           color="blue"
         />
         <MetricCard
-          title="Compliant (Mock)"
+          title="Active / Compliant"
           value={riders.filter(r => r.status === "Active").length}
           icon={ShieldCheck}
           color="green"
         />
         <MetricCard
-          title="Non-Compliant (Mock)"
-          value={0}
+          title="Pending / Action Required"
+          value={riders.filter(r => r.status !== "Active").length}
           icon={AlertTriangle}
           color="orange"
         />

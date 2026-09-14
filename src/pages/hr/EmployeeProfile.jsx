@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { getEmployeeById } from "../../services/workforceService";
+import { getDocumentsByOwner } from "../../services/documentService";
 import LoadingSpinner from "../../components/common/LoadingSpinner";
 import StatusBadge from "../../components/common/StatusBadge";
 
@@ -31,11 +32,13 @@ const EmployeeProfile = () => {
   const { employeeId } = useParams();
   const navigate = useNavigate();
   const [employee, setEmployee] = useState(null);
+  const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("Documents");
 
   useEffect(() => {
     fetchEmployee();
+    fetchDocuments();
   }, [employeeId]);
 
   const fetchEmployee = async () => {
@@ -49,6 +52,17 @@ const EmployeeProfile = () => {
       }
     } catch (err) {
       toast.error("Error loading profile");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchDocuments = async () => {
+    try {
+      const data = await getDocumentsByOwner(employeeId);
+      setDocuments(data);
+    } catch (err) {
+      console.error(err);
     } finally {
       setLoading(false);
     }

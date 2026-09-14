@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 
 import App from "./App.jsx";
+import { WarehouseProvider } from "./context/WarehouseContext";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
@@ -13,7 +14,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         v7_relativeSplatPath: true,
       }}
     >
-      <App />
+      <WarehouseProvider>
+        <App />
+      </WarehouseProvider>
     </BrowserRouter>
   </React.StrictMode>,
 );

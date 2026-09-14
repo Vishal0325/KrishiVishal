@@ -12,8 +12,13 @@ exports.adjustInventory = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Unauthorized.");
   }
 
-  const { skuCode, adjustment, reason, batchId, warehouseId } = data;
+  const callerIsAdmin = auth && (auth.token.isAdmin === true || auth.token.admin === true);
+  const callerRole = auth?.token?.role;
+  if (!callerIsAdmin && !['SuperAdmin', 'WarehouseManager', 'Operations', 'Admin'].includes(callerRole)) {
+    throw new HttpsError("permission-denied", "Unauthorized. Only warehouse managers or admins can modify stock.");
+  }
 
+  const { skuCode, adjustment, reason, batchId, warehouseId, unitCost } = data;
 
   if (!skuCode || adjustment === undefined || !warehouseId || !batchId) {
     throw new HttpsError("invalid-argument", "Missing required fields.");
@@ -34,7 +39,7 @@ exports.adjustInventory = onCall(async (request) => {
         if (parsedAdjustment < 0) {
           throw new HttpsError("failed-precondition", "Insufficient stock.");
         }
-        // Create it if it doesn't exist and we're adding stock
+        // [FIXED] Point #139: Record unit cost during manual adjustments to maintain accurate inventory valuation
         transaction.set(inventoryRef, {
           warehouseId,
           skuId: skuCode,
@@ -44,7 +49,7 @@ exports.adjustInventory = onCall(async (request) => {
           transferReservedQty: 0,
           damagedQty: 0,
           expiredQty: 0,
-          unitCost: 0,
+          unitCost: Number(unitCost) || 0,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           lastMovementAt: admin.firestore.FieldValue.serverTimestamp(),
         });
@@ -53,10 +58,15 @@ exports.adjustInventory = onCall(async (request) => {
         if (currentData.availableQty + parsedAdjustment < 0) {
           throw new HttpsError("failed-precondition", "Insufficient stock.");
         }
-        transaction.update(inventoryRef, {
+        const updatePayload = {
           availableQty: admin.firestore.FieldValue.increment(parsedAdjustment),
           lastMovementAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        };
+        // Update cost if provided
+        if (unitCost !== undefined) {
+          updatePayload.unitCost = Number(unitCost);
+        }
+        transaction.update(inventoryRef, updatePayload);
       }
 
       // 2. Global SKU update
@@ -95,6 +105,12 @@ exports.writeOffStock = onCall(async (request) => {
 
   if (!auth) {
     throw new HttpsError("unauthenticated", "Unauthorized.");
+  }
+
+  const callerIsAdmin = auth && (auth.token.isAdmin === true || auth.token.admin === true);
+  const callerRole = auth?.token?.role;
+  if (!callerIsAdmin && !['SuperAdmin', 'WarehouseManager', 'Operations', 'Admin'].includes(callerRole)) {
+    throw new HttpsError("permission-denied", "Unauthorized. Only warehouse managers or admins can write off stock.");
   }
 
   const { skuCode, batchId, quantity, type, reason, warehouseId } = data;

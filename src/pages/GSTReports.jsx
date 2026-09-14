@@ -37,31 +37,29 @@ const GSTReports = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Listen to Orders (Sales)
+  // [FIXED] Point #111: Managed multiple listeners with a single cleanup to prevent memory leaks
   useEffect(() => {
-    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(q, (snap) => {
+    const unsubs = [];
+
+    const qOrders = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+    const unsubOrders = onSnapshot(qOrders, (snap) => {
       setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     });
-    return unsub;
-  }, []);
+    unsubs.push(unsubOrders);
 
-  // Listen to Goods Receipts (Inward purchases for ITC)
-  useEffect(() => {
-    const q = query(collection(db, 'goods_receipts'), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(q, (snap) => {
+    const qGRNs = query(collection(db, 'goods_receipts'), orderBy('createdAt', 'desc'));
+    const unsubGRNs = onSnapshot(qGRNs, (snap) => {
       setGoodsReceipts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-    return unsub;
-  }, []);
+    unsubs.push(unsubGRNs);
 
-  // Listen to Products (HSN Code & GST Rate lookup)
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'products'), (snap) => {
+    const unsubProducts = onSnapshot(collection(db, 'products'), (snap) => {
       setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-    return unsub;
+    unsubs.push(unsubProducts);
+
+    return () => unsubs.forEach(unsub => unsub());
   }, []);
 
   // Filter by selected month
@@ -93,7 +91,9 @@ const GSTReports = () => {
   const hsnSummaryMap = {};
 
   monthOrders.forEach(order => {
-    const isInterstate = (order.address?.state || 'Bihar').toLowerCase() !== 'bihar';
+    // [FIXED] Point #63: Robust interstate check using GST state codes and normalized names
+    const stateRaw = (order.address?.state || 'Bihar').toString().toLowerCase().trim();
+    const isInterstate = !['bihar', 'br', '10'].includes(stateRaw);
     
     (order.items || []).forEach(item => {
       const { hsnCode, gstRate } = getProductInfo(item.productId);
@@ -152,14 +152,36 @@ const GSTReports = () => {
   let totalInputIGST = 0;
 
   const itcEntries = monthGRNs.map(grn => {
-    const taxable = Number(grn.totalGRNAmount || 0) / 1.18; // assume 18% average input rate
-    const itcAmount = Number(grn.totalGRNAmount || 0) - taxable;
-    const cgst = itcAmount / 2;
-    const sgst = itcAmount / 2;
+    let taxable = 0;
+    let cgst = 0;
+    let sgst = 0;
+    let igst = 0;
+
+    // [FIXED] Point #58: Calculate actual ITC based on item-wise GST rates instead of hardcoded 18%
+    (grn.items || []).forEach(item => {
+      const { gstRate } = getProductInfo(item.productId);
+      const lineTotal = Number(item.lineTotal || 0);
+      const itemTaxable = lineTotal / (1 + (gstRate / 100));
+      const itemTax = lineTotal - itemTaxable;
+
+      taxable += itemTaxable;
+
+      // [FIXED] Point #63: Robust interstate check using GST state codes and normalized names
+      const stateRaw = (grn.supplierState || 'Bihar').toString().toLowerCase().trim();
+      const isInterstate = !['bihar', 'br', '10'].includes(stateRaw);
+
+      if (isInterstate) {
+        igst += itemTax;
+      } else {
+        cgst += itemTax / 2;
+        sgst += itemTax / 2;
+      }
+    });
 
     totalInwardTaxable += taxable;
     totalInputCGST += cgst;
     totalInputSGST += sgst;
+    totalInputIGST += igst;
 
     return {
       id: grn.id,
@@ -171,7 +193,8 @@ const GSTReports = () => {
       taxableValue: taxable,
       cgst,
       sgst,
-      totalITC: itcAmount,
+      igst,
+      totalITC: cgst + sgst + igst,
       status: grn.supplierGstin ? 'MATCHED' : 'UNREGISTERED_NO_ITC'
     };
   });

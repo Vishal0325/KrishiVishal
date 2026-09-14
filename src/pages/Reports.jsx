@@ -7,6 +7,7 @@ import OrdersBarChart from '../components/charts/OrdersBarChart';
 import CategoryPieChart from '../components/charts/CategoryPieChart';
 import PageHeader from '../components/common/PageHeader';
 import { formatCurrency } from '../utils/formatters';
+import toast from 'react-hot-toast';
 
 const Reports = () => {
   const [dateRange, setDateRange] = useState('30D');
@@ -55,30 +56,41 @@ const Reports = () => {
       }
     });
 
-    // If no order data yet, show some dummy distribution to avoid empty chart
-    if (Object.keys(categories).length === 0) {
-      return [
-        { name: 'Seeds', value: 400 },
-        { name: 'Fertilizers', value: 300 },
-        { name: 'Pesticides', value: 200 },
-        { name: 'Other', value: 100 },
-      ];
-    }
-
     return Object.entries(categories)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
   }, [orders]);
 
-  const salesData = [
-    { date: 'Mon', revenue: 4500, orders: 12 },
-    { date: 'Tue', revenue: 5200, orders: 15 },
-    { date: 'Wed', revenue: 3800, orders: 10 },
-    { date: 'Thu', revenue: 6100, orders: 18 },
-    { date: 'Fri', revenue: 5900, orders: 16 },
-    { date: 'Sat', revenue: 7200, orders: 22 },
-    { date: 'Sun', revenue: 8400, orders: 25 },
-  ];
+  const salesData = useMemo(() => {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const last7Days = [];
+    const now = new Date();
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dayName = days[d.getDay()];
+      const dateStr = d.toISOString().split('T')[0];
+      last7Days.push({ key: dateStr, date: dayName, revenue: 0, orders: 0 });
+    }
+
+    orders.forEach(o => {
+      let orderDate = null;
+      if (o.createdAt?.toDate) orderDate = o.createdAt.toDate();
+      else if (o.createdAt) orderDate = new Date(o.createdAt);
+
+      if (orderDate) {
+        const orderDateStr = orderDate.toISOString().split('T')[0];
+        const match = last7Days.find(d => d.key === orderDateStr);
+        if (match) {
+          match.revenue += Number(o.totalAmount || 0);
+          match.orders += 1;
+        }
+      }
+    });
+
+    return last7Days.map(({ date, revenue, orders }) => ({ date, revenue, orders }));
+  }, [orders]);
 
   const exportGstReport = () => {
     const headers = ["Order ID", "Date", "Customer", "Total Amount", "Taxable Value", "GST Amount", "CGST", "SGST"];

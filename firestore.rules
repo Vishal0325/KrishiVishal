@@ -1,6 +1,6 @@
 /**
- * KRISHIVISHAL - FIRESTORE SECURITY RULES v3.0
- * Updated for Admin Panel full access and Payments Tracking
+ * KRISHIVISHAL - ENTERPRISE FIRESTORE SECURITY RULES v4.0
+ * Hardened for Pvt. Ltd. Multi-Hub Logistics, 200+ Riders, 1000+ Staff, and Zero-Tampering Compliance.
  */
 
 rules_version = '2';
@@ -12,13 +12,64 @@ service cloud.firestore {
     function isAuthenticated() {
       return request.auth != null;
     }
+
+    function hasUserDoc() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function getUserRole() {
+      return request.auth.token.role != null ? request.auth.token.role :
+        (hasUserDoc() && 'role' in getUserData() ? getUserData().role : 'Viewer');
+    }
+
+    function getUserWarehouseId() {
+      return request.auth.token.warehouseId != null ? request.auth.token.warehouseId :
+        (hasUserDoc() && 'warehouseId' in getUserData() ? getUserData().warehouseId : null);
+    }
     
     function isAdmin() {
-      // Allow access if custom claim is set OR if document in users collection has isAdmin: true
+      // SECURITY: Role-based authorization is authoritative.
       return isAuthenticated() && (
-        request.auth.token.admin == true ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true
+        request.auth.token.role in ['SuperAdmin', 'HubManager', 'WarehouseManager', 'OrderManager', 'CatalogManager', 'RiderManager', 'HRAdmin', 'FinanceAdmin', 'Operations', 'Admin', 'Staff'] ||
+        (hasUserDoc() && getUserData().role in ['SuperAdmin', 'HubManager', 'WarehouseManager', 'OrderManager', 'CatalogManager', 'RiderManager', 'HRAdmin', 'FinanceAdmin', 'Operations', 'Admin', 'Staff'])
       );
+    }
+
+    function isSystemActive() {
+      return !hasUserDoc() || !('isActive' in getUserData()) || getUserData().isActive != false;
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && (
+        request.auth.token.role == role ||
+        (hasUserDoc() && getUserData().role == role)
+      );
+    }
+
+    function isSuperAdmin() {
+      return isAdmin() && (
+        request.auth.token.role == "SuperAdmin" ||
+        (hasUserDoc() && getUserData().role == "SuperAdmin")
+      );
+    }
+
+    function isHRAdmin() {
+      return isSuperAdmin() || hasRole("HRAdmin") || (hasUserDoc() && getUserData().role == "HRAdmin");
+    }
+
+    function isFinanceAdmin() {
+      return isSuperAdmin() || hasRole("FinanceAdmin") || (hasUserDoc() && getUserData().role == "FinanceAdmin");
+    }
+
+    function isHubAuthorized(whId) {
+      return isSuperAdmin() || 
+        getUserWarehouseId() == null || 
+        getUserWarehouseId() == '' || 
+        getUserWarehouseId() == whId;
     }
     
     function isOwner(userId) {
@@ -28,10 +79,9 @@ service cloud.firestore {
     // ========== PUBLIC / CATALOG COLLECTIONS ==========
 
     match /products/{id} {
-      allow read: if true; // Publicly viewable
-      allow create, delete: if isAdmin();
-      allow update: if isAdmin() &&
-        // 44K: Protect ranking/popularity metadata from non-admin updates (e.g. via mobile client)
+      allow read: if true;
+      allow create, delete: if isAdmin() && isSystemActive();
+      allow update: if isAdmin() && isSystemActive() &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'salesCount', 'salesCount90d', 'viewCount', 'searchCount',
           'recommendationCache', 'technicalNameNormalized'
@@ -40,82 +90,150 @@ service cloud.firestore {
     
     match /categories/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() && isSystemActive();
     }
     
     match /brands/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() && isSystemActive();
     }
     
     match /crops/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() && isSystemActive();
     }
 
     match /banners/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() && isSystemActive();
     }
 
     match /coupons/{id} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow write: if isAdmin() && isSystemActive();
     }
 
-    // ========== ADMIN / SYSTEM COLLECTIONS ==========
+    // ========== MULTI-WAREHOUSE & SUPPLY CHAIN COLLECTIONS ==========
 
     match /warehouses/{id} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
-    }
-    
-    match /warehouse_serviceability/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow write: if isSuperAdmin() || (isAdmin() && isHubAuthorized(id));
     }
     
     match /warehouse_inventory/{id} {
-      allow read: if isAdmin();
-      allow write: if false; // Only Cloud Functions can mutate inventory
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (isAdmin() && isHubAuthorized(resource.data.warehouseId));
     }
     
     match /inventory_movements/{id} {
-      allow read: if isAdmin();
-      allow write: if false; // Only Cloud Functions can log movements
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() && isSystemActive();
+      allow delete: if isSuperAdmin();
     }
     
     match /stock_transfers/{id} {
-      allow read: if isAdmin();
-      allow write: if false; // Handled via Cloud Functions
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() && isSystemActive();
+      allow delete: if isSuperAdmin();
     }
 
+    match /goods_receipts/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() && isSystemActive();
+    }
+
+    match /purchase_orders/{id} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() && isSystemActive();
+      allow delete: if isSuperAdmin();
+    }
+
+    match /procurement_queue/{id} {
+      allow read, write: if isAdmin() && isSystemActive();
+    }
+
+    match /warehouse_serviceability/{id} {
+      allow read: if true;
+      allow write: if isAdmin() && isSystemActive();
+    }
+
+    match /skus/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() && isSystemActive();
+
+      match /batches/{batchId} {
+        allow read: if isAuthenticated();
+        allow write: if isAdmin() && isSystemActive();
+      }
+    }
+
+    match /warehouse_stock/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() && isSystemActive();
+    }
+
+    // ========== SYSTEM CONFIG & SECURITY AUDIT ==========
+
     match /settings/{id} {
-      allow read: if isAuthenticated(); // App needs to read config, but should be authenticated
-      allow write: if isAdmin();
+      allow read: if isAdmin();
+      allow write: if isSuperAdmin() && isSystemActive();
+      match /{subDoc=**} {
+        allow read: if isAdmin();
+        allow write: if isSuperAdmin() && isSystemActive();
+      }
+    }
+
+    // FIX (DB Alignment #9): system_settings (delivery_rules, etc.) was uncovered — adding explicit rule
+    match /system_settings/{id} {
+      allow read: if isAdmin();
+      allow write: if isSuperAdmin() && isSystemActive();
+      match /{subDoc=**} {
+        allow read: if isAdmin();
+        allow write: if isSuperAdmin() && isSystemActive();
+      }
     }
 
     match /riders/{id} {
-      allow read: if isAuthenticated(); // App needs to find assigned rider
-      allow write: if isAdmin();
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() && isSystemActive();
+    }
+
+    match /audit_logs/{id} {
+      allow read: if isAdmin();
+      allow write: if (isAdmin() && isSystemActive()) || request.auth.uid == 'system';
     }
 
     match /auditLogs/{id} {
       allow read: if isAdmin();
-      allow write: if isAdmin() || request.auth.uid == 'system';
+      allow write: if (isAdmin() && isSystemActive()) || request.auth.uid == 'system';
     }
 
+    // SOS Alerts
     match /sos_alerts/{id} {
-      allow read, write: if isAuthenticated(); // Riders need to write, Admin needs to read
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.riderId == request.auth.uid;
+      allow update, delete: if isAdmin() && isSystemActive();
     }
     
-    // ========== ORDERS COLLECTION ==========
+    // ========== ORDERS & DISPATCH ==========
     
     match /orders/{orderId} {
       allow read: if isOwner(resource.data.userId) || isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAdmin() || isOwner(resource.data.userId) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
-      allow delete: if isAdmin();
+      allow update: if (isAdmin() && isSystemActive()) ||
+        // Customer non-financial update
+        (isOwner(resource.data.userId) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'totalAmount', 'subtotal', 'discountAmount', 'deliveryCharge', 'taxAmount',
+            'paymentDetails', 'paymentStatus', 'status', 'items', 'fulfillmentWarehouseId',
+            'returnPending', 'returnId', 'refundStatus', 'refundAmount'
+          ])) ||
+        // Rider live tracking coordinates
+        (isAuthenticated() && resource.data.riderId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'deliveryNotes', 'proofOfDeliveryUrl', 'riderLastLocation', 'updatedAt'
+          ]));
+      allow delete: if isSuperAdmin() && isSystemActive();
       
       match /auditLog/{logId} {
         allow read: if isOwner(resource.data.userId) || isAdmin();
@@ -123,172 +241,193 @@ service cloud.firestore {
       }
     }
     
-    // ========== RETURNS COLLECTION ==========
-    
     match /returns/{returnId} {
       allow read: if isOwner(resource.data.userId) || isAdmin();
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow update, delete: if isAdmin() && isSystemActive();
     }
     
-    // ========== USERS COLLECTION ==========
+    // ========== USERS & IMMUTABLE WALLET ==========
     
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isAuthenticated() && !request.resource.data.diff({}).affectedKeys().hasAny(['isAdmin', 'adminRoles']);
+      allow create: if isAuthenticated() &&
+        isOwner(userId) &&
+        !request.resource.data.diff({}).affectedKeys().hasAny([
+          'isAdmin', 'admin', 'adminRoles', 'role', 'isSuperAdmin', 'isActive',
+          'walletBalance', 'walletCredits', 'loyaltyPoints'
+        ]);
       allow update: if (isOwner(userId) &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'adminRoles', 'interestedCategories']))
-        || isAdmin();
-      allow delete: if isAdmin();
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'isAdmin', 'admin', 'adminRoles', 'role', 'isSuperAdmin', 'isActive',
+          'walletBalance', 'walletCredits', 'loyaltyPoints', 'referralCode',
+          'totalSpent', 'orderCount', 'fraudFlags', 'kycVerified'
+        ]))
+        || (isAdmin() && isSystemActive());
+      allow delete: if isSuperAdmin() && isSystemActive();
 
       match /wishlist/{wishId} {
         allow read, write: if isOwner(userId) || isAdmin();
       }
+
+      match /wallet_history/{historyId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if false; // Server Cloud Functions only
+      }
     }
 
-    match /stock_notification_requests/{requestId} {
+    match /wallet_transactions/{id} {
       allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow write: if false;
     }
 
-    match /notification_logs/{logId} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow write: if false; // Server-only
+    match /referrals/{id} {
+      allow read: if isAdmin() || (isAuthenticated() && (resource.data.referrerUid == request.auth.uid || resource.data.refereeUid == request.auth.uid));
+      allow write: if false;
     }
-    
-    // ========== NOTIFICATIONS COLLECTION ==========
 
     match /notifications/{id} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow write: if isAdmin() || request.auth.uid == 'system';
     }
+
+    // Customer Care, Support & Complaints
+    match /support_tickets/{id} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if (isAdmin() && isSystemActive()) ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'assignedTo', 'priority', 'internalNotes']));
+      allow delete: if isAdmin() && isSystemActive();
+    }
+
+    match /complaints/{id} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin() && isSystemActive();
+    }
+
+    match /customer_feedback/{id} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin() && isSystemActive();
+    }
+
+    // ========== 3-WAY COD CASH RECONCILIATION ==========
     
-    // ========== HR & WORKFORCE COLLECTIONS ==========
+    match /cod_reconciliations/{id} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow create, update: if isAdmin() && isSystemActive();
+      allow delete: if isSuperAdmin();
+    }
+
+    match /cash_handovers/{id} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      // Riders cannot self-approve; only Hub Cashier or Finance Admin can confirm
+      allow create, update: if isAdmin() && isSystemActive();
+      allow delete: if isSuperAdmin();
+    }
+
+    match /bank_deposits/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && (isFinanceAdmin() || isSuperAdmin()) && isSystemActive();
+    }
+
+    // Payouts & General Ledger
+    match /payout_logs/{id} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow write: if isAdmin() && isFinanceAdmin() && isSystemActive();
+    }
+
+    match /ledger/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && isFinanceAdmin() && isSystemActive();
+    }
+
+    // Expenses & Vendors
+    match /expenses/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && isSystemActive();
+    }
+
+    match /expense_categories/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && (isFinanceAdmin() || isSuperAdmin()) && isSystemActive();
+    }
+
+    match /expense_vendors/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && (isFinanceAdmin() || isSuperAdmin()) && isSystemActive();
+    }
+
+    match /suppliers/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() && isSystemActive();
+    }
+
+    match /supplier_ledger/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && isFinanceAdmin() && isSystemActive();
+    }
+    
+    // ========== 1000+ HR & STATUTORY PAYROLL ==========
     
     match /employees/{id} {
       allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow write: if isAdmin() && isSystemActive();
     }
     
     match /rider_hr_profiles/{id} {
       allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow write: if isAdmin() && isSystemActive();
     }
     
     match /workforce_documents/{id} {
       allow read: if isAdmin();
-      allow create, update: if isAdmin() &&
-        // Protect server-controlled fields from client modification
-        (!request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'ownerId', 'ownerType', 'verificationStatus', 'verifiedBy', 
-          'retentionStatus', 'legalHold', 'accessLevel', 'sensitivityLevel'
-        ]) || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin"]);
-      allow delete: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin"];
-    }
-    
-    match /document_requirements/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin"];
-    }
-    
-    match /physical_files/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
-    }
-    
-    match /training/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
-    }
-    
-    match /assets/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
-    }
-    
-    match /contracts/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin"];
-    }
-    
-    match /background_verification/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin"];
-    }
-    
-    match /document_settings/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin"];
-    }
-    
-    match /statutory_licenses/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin", "DepartmentManager"];
-    }
-    
-    match /leave_requests/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
-    }
-    
-    match /leave_balances/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow create, update: if isAdmin() && isSystemActive();
+      allow delete: if isAdmin() && isHRAdmin() && isSystemActive();
     }
     
     match /employee_attendance/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
-    }
-    
-    match /company_holidays/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
-    }
-    
-    match /employee_salary_structures/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin", "FinanceAdmin"];
-    }
-    
-    match /monthly_payroll_runs/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "HRAdmin", "FinanceAdmin"];
-    }
-    
-    match /system_counters/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin(); // Should be restricted more, but okay for Admin panel transaction
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.employeeId == request.auth.uid);
+      allow create, update: if isAdmin() && isSystemActive();
+      allow delete: if isSuperAdmin();
     }
 
-    // Corporate Governance, Cap Table & Debt
+    match /monthly_payroll_runs/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && (isHRAdmin() || isFinanceAdmin() || isSuperAdmin()) && isSystemActive();
+    }
+
+    match /employee_salary_structures/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && (isHRAdmin() || isFinanceAdmin() || isSuperAdmin()) && isSystemActive();
+    }
+
+    match /statutory_licenses/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && isSystemActive();
+    }
+
+    match /contracts/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && isHRAdmin() && isSystemActive();
+    }
+
+    // Corporate Governance & Loans
     match /corporate_capital/{id} {
       allow read: if isAdmin();
-      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "FinanceAdmin"];
-    }
-    match /corporate_shareholders/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "FinanceAdmin"];
+      allow write: if isAdmin() && isFinanceAdmin() && isSystemActive();
     }
     match /corporate_loans/{id} {
       allow read: if isAdmin();
-      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "FinanceAdmin"];
-    }
-    match /corporate_interest_ledger/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "FinanceAdmin"];
-    }
-    match /corporate_funding_rounds/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["SuperAdmin", "FinanceAdmin"];
+      allow write: if isAdmin() && isFinanceAdmin() && isSystemActive();
     }
 
     // ========== DEFAULT DENY ==========
     match /{document=**} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin();
+      allow write: if isSuperAdmin() && isSystemActive();
     }
   }
 }

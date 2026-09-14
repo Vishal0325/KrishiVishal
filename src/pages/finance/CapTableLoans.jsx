@@ -41,6 +41,7 @@ import {
   calculateMonthlyInterestAndTDS,
   simulateDilution
 } from "../../services/capTableService";
+import { exportToExcel, exportToPDF } from "../../utils/exportUtils";
 
 const CapTableLoans = () => {
   const [activeTab, setActiveTab] = useState("captable");
@@ -434,6 +435,13 @@ const CapTableLoans = () => {
               title="Refresh Data"
             >
               <RefreshCw size={18} />
+            </button>
+            <button
+              onClick={() => exportToExcel(shareholders, "CapTable", "Shareholders")}
+              className="p-2 bg-green-50 text-green-700 border border-green-200 rounded-xl hover:bg-green-100 transition-colors"
+              title="Export to Excel"
+            >
+              <Download size={18} />
             </button>
             {activeTab === "captable" && (
               <button

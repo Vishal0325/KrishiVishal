@@ -10,7 +10,8 @@ import {
   serverTimestamp, 
   updateDoc, 
   deleteDoc,
-  runTransaction 
+  runTransaction,
+  writeBatch 
 } from "firebase/firestore";
 import { db, auth } from "../firebase/config";
 import { addAuditLog } from "./logger";
@@ -36,7 +37,8 @@ export async function getPhysicalFiles(filters = {}) {
 export async function createPhysicalFile(fileData) {
   try {
     const user = auth.currentUser;
-    const fileId = fileData.fileCode || `FILE-${Date.now().toString().slice(-6)}`;
+    // [FIXED] Point #128: Using larger random string to prevent ID collisions
+    const fileId = fileData.fileCode || `FILE-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
     const docRef = doc(db, "physical_files", fileId);
 
     const payload = {
@@ -77,9 +79,7 @@ export async function checkoutPhysicalFile(fileId, checkoutData) {
     const docRef = doc(db, "physical_files", fileId);
     const docSnap = await getDoc(docRef);
 
-    if (!docSnap.exists()) throw new Error("File not found");
-    const currentData = docSnap.data();
-
+    const historyRef = collection(db, "physical_files", fileId, "checkout_history");
     const historyEntry = {
       action: "CHECKOUT",
       borrowerName: checkoutData.borrowerName,
@@ -87,17 +87,24 @@ export async function checkoutPhysicalFile(fileId, checkoutData) {
       checkoutDate: new Date().toISOString(),
       expectedReturnDate: checkoutData.expectedReturnDate || null,
       handledBy: user?.email || "admin",
+      createdAt: serverTimestamp()
     };
 
-    const updatedHistory = [historyEntry, ...(currentData.checkoutHistory || [])];
+    // [FIXED] Point #126: Store history in sub-collection instead of massive array to avoid 1MB document limit
+    const { writeBatch } = await import("firebase/firestore");
+    const batch = writeBatch(db);
 
-    await updateDoc(docRef, {
+    batch.update(docRef, {
       status: "CHECKED_OUT",
       currentBorrower: checkoutData.borrowerName,
       lastCheckedOutAt: serverTimestamp(),
-      checkoutHistory: updatedHistory,
       updatedAt: serverTimestamp(),
     });
+
+    const newHistoryDocRef = doc(historyRef);
+    batch.set(newHistoryDocRef, historyEntry);
+
+    await batch.commit();
 
     await addAuditLog("CHECKOUT_PHYSICAL_FILE", "PhysicalFile", fileId, checkoutData);
     return true;
@@ -116,6 +123,7 @@ export async function returnPhysicalFile(fileId, returnData) {
     if (!docSnap.exists()) throw new Error("File not found");
     const currentData = docSnap.data();
 
+    const historyRef = collection(db, "physical_files", fileId, "checkout_history");
     const historyEntry = {
       action: "RETURN",
       returnedBy: returnData.returnedBy || currentData.currentBorrower,
@@ -123,17 +131,23 @@ export async function returnPhysicalFile(fileId, returnData) {
       condition: returnData.condition || "Good",
       notes: returnData.notes || "",
       handledBy: user?.email || "admin",
+      createdAt: serverTimestamp()
     };
 
-    const updatedHistory = [historyEntry, ...(currentData.checkoutHistory || [])];
+    const { writeBatch } = await import("firebase/firestore");
+    const batch = writeBatch(db);
 
-    await updateDoc(docRef, {
+    batch.update(docRef, {
       status: "IN_STORAGE",
       currentBorrower: null,
       lastReturnedAt: serverTimestamp(),
-      checkoutHistory: updatedHistory,
       updatedAt: serverTimestamp(),
     });
+
+    const newHistoryDocRef = doc(historyRef);
+    batch.set(newHistoryDocRef, historyEntry);
+
+    await batch.commit();
 
     await addAuditLog("RETURN_PHYSICAL_FILE", "PhysicalFile", fileId, returnData);
     return true;
@@ -164,7 +178,8 @@ export async function getExitRequests(filters = {}) {
 export async function createExitRequest(exitData) {
   try {
     const user = auth.currentUser;
-    const exitId = `EXIT-${Date.now().toString().slice(-6)}`;
+    // [FIXED] Point #170: Robust ID generation
+    const exitId = `EXIT-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
     const docRef = doc(db, "exit_requests", exitId);
 
     const defaultChecklist = {
@@ -250,6 +265,19 @@ export async function finalizeExit(exitId, settlementData = {}) {
 
     const exitData = docSnap.data();
 
+    // [FIXED] Point #125: Verify all company assets are returned before finalizing exit
+    if (exitData.employeeId) {
+      const assetsQ = query(
+        collection(db, "assets"),
+        where("assignedToId", "==", exitData.employeeId),
+        where("status", "==", "ALLOCATED")
+      );
+      const assetsSnap = await getDocs(assetsQ);
+      if (!assetsSnap.empty) {
+        throw new Error(`Cannot finalize exit. Employee still has ${assetsSnap.size} company assets allocated. Please mark them as returned first.`);
+      }
+    }
+
     await updateDoc(docRef, {
       status: "COMPLETED",
       settlementStatus: "PROCESSED",
@@ -304,7 +332,8 @@ export async function getCompanyAssets(filters = {}) {
 
 export async function createCompanyAsset(assetData) {
   try {
-    const assetId = assetData.assetTag || `AST-${Date.now().toString().slice(-6)}`;
+    // [FIXED] Point #170: Robust ID generation
+    const assetId = assetData.assetTag || `AST-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
     const docRef = doc(db, "assets", assetId);
 
     const payload = {
@@ -346,6 +375,7 @@ export async function allocateCompanyAsset(assetId, allocationData) {
     if (!docSnap.exists()) throw new Error("Asset not found");
 
     const currentData = docSnap.data();
+    const historyRef = collection(db, "assets", assetId, "allocation_history");
     const historyEntry = {
       action: "ALLOCATE",
       assignedToId: allocationData.assignedToId,
@@ -355,19 +385,26 @@ export async function allocateCompanyAsset(assetId, allocationData) {
       condition: allocationData.condition || "Good",
       notes: allocationData.notes || "",
       allocatedBy: user?.email || "admin",
+      createdAt: serverTimestamp()
     };
 
-    const updatedHistory = [historyEntry, ...(currentData.allocationHistory || [])];
+    // [FIXED] Point #126: Store history in sub-collection instead of massive array to avoid 1MB document limit
+    const { writeBatch } = await import("firebase/firestore");
+    const batch = writeBatch(db);
 
-    await updateDoc(docRef, {
+    batch.update(docRef, {
       status: "ALLOCATED",
       assignedToId: allocationData.assignedToId,
       assignedToName: allocationData.assignedToName,
       assignedToType: allocationData.assignedToType || "Employee",
       allocatedAt: serverTimestamp(),
-      allocationHistory: updatedHistory,
       updatedAt: serverTimestamp(),
     });
+
+    const newHistoryDocRef = doc(historyRef);
+    batch.set(newHistoryDocRef, historyEntry);
+
+    await batch.commit();
 
     await addAuditLog("ALLOCATE_ASSET", "CompanyAsset", assetId, allocationData);
     return true;
@@ -385,6 +422,7 @@ export async function returnCompanyAsset(assetId, returnData) {
     if (!docSnap.exists()) throw new Error("Asset not found");
 
     const currentData = docSnap.data();
+    const historyRef = collection(db, "assets", assetId, "allocation_history");
     const historyEntry = {
       action: "RETURN",
       returnedById: currentData.assignedToId,
@@ -393,19 +431,25 @@ export async function returnCompanyAsset(assetId, returnData) {
       condition: returnData.condition || "Good",
       notes: returnData.notes || "",
       handledBy: user?.email || "admin",
+      createdAt: serverTimestamp()
     };
 
-    const updatedHistory = [historyEntry, ...(currentData.allocationHistory || [])];
+    const { writeBatch } = await import("firebase/firestore");
+    const batch = writeBatch(db);
 
-    await updateDoc(docRef, {
+    batch.update(docRef, {
       status: returnData.condition === "Damaged" ? "UNDER_REPAIR" : "IN_STOCK",
       assignedToId: null,
       assignedToName: null,
       assignedToType: null,
       lastReturnedAt: serverTimestamp(),
-      allocationHistory: updatedHistory,
       updatedAt: serverTimestamp(),
     });
+
+    const newHistoryDocRef = doc(historyRef);
+    batch.set(newHistoryDocRef, historyEntry);
+
+    await batch.commit();
 
     await addAuditLog("RETURN_ASSET", "CompanyAsset", assetId, returnData);
     return true;
@@ -438,7 +482,8 @@ export async function getContracts(filters = {}) {
 
 export async function createContract(contractData) {
   try {
-    const contractId = contractData.contractCode || `CNT-${Date.now().toString().slice(-6)}`;
+    // [FIXED] Point #170: Robust ID generation
+    const contractId = contractData.contractCode || `CNT-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
     const docRef = doc(db, "contracts", contractId);
 
     const payload = {
@@ -491,7 +536,8 @@ export async function getBGVRecords(filters = {}) {
 
 export async function createBGVRecord(bgvData) {
   try {
-    const bgvId = `BGV-${Date.now().toString().slice(-6)}`;
+    // [FIXED] Point #170: Robust ID generation
+    const bgvId = `BGV-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
     const docRef = doc(db, "background_verification", bgvId);
 
     const defaultChecks = {
@@ -554,7 +600,8 @@ export async function getTrainingRecords(filters = {}) {
 
 export async function createTrainingRecord(trainingData) {
   try {
-    const trainingId = `TRN-${Date.now().toString().slice(-6)}`;
+    // [FIXED] Point #170: Robust ID generation
+    const trainingId = `TRN-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
     const docRef = doc(db, "training", trainingId);
 
     const payload = {

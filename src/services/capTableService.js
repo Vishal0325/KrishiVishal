@@ -9,7 +9,8 @@ import {
   deleteDoc, 
   query, 
   orderBy, 
-  serverTimestamp 
+  serverTimestamp,
+  runTransaction 
 } from "firebase/firestore";
 import { db } from "../firebase/config";
 
@@ -25,7 +26,11 @@ export const getCapitalStructure = async () => {
     if (snap.exists()) {
       return snap.data();
     }
-    // Default config if not initialized
+
+    // [FIXED] Point #133: Fetch defaults from global config instead of hardcoding
+    const configSnap = await getDoc(doc(db, "settings", "config"));
+    const globalConfig = configSnap.exists() ? configSnap.data() : {};
+
     const defaultConfig = {
       authorizedCapital: 1000000, // ₹10,00,000
       authorizedShares: 100000,
@@ -33,8 +38,8 @@ export const getCapitalStructure = async () => {
       paidUpCapital: 100000, // ₹1,00,000
       totalIssuedShares: 10000,
       currency: "INR",
-      cinNumber: "U01111BR2026PTC000000",
-      rocJurisdiction: "RoC Patna / Bihar",
+      cinNumber: globalConfig.cinNumber || "U01111BR2026PTC000000",
+      rocJurisdiction: globalConfig.rocJurisdiction || "RoC Patna / Bihar",
       updatedAt: new Date().toISOString()
     };
     await setDoc(docRef, defaultConfig);
@@ -76,16 +81,40 @@ export const getShareholders = async () => {
 
 export const addShareholder = async (data) => {
   try {
-    const colRef = collection(db, "corporate_shareholders");
-    const docRef = await addDoc(colRef, {
-      ...data,
-      sharesCount: Number(data.sharesCount) || 0,
-      investmentAmount: Number(data.investmentAmount) || 0,
-      faceValue: Number(data.faceValue) || 10,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+    const { runTransaction, collection, doc } = await import("firebase/firestore");
+
+    // [FIXED] Point #124: Use a transaction to atomically add shareholder and update company paid-up capital
+    return await runTransaction(db, async (transaction) => {
+      const colRef = collection(db, "corporate_shareholders");
+      const capitalDocRef = doc(db, "corporate_capital", CAPITAL_DOC_ID);
+
+      const newShareholderRef = doc(colRef);
+      const sharesCount = Number(data.sharesCount) || 0;
+      const investmentAmount = Number(data.investmentAmount) || 0;
+      const faceValue = Number(data.faceValue) || 10;
+
+      transaction.set(newShareholderRef, {
+        ...data,
+        sharesCount,
+        investmentAmount,
+        faceValue,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+
+      // Update aggregate paid-up capital
+      const capitalSnap = await transaction.get(capitalDocRef);
+      if (capitalSnap.exists()) {
+        const capData = capitalSnap.data();
+        transaction.update(capitalDocRef, {
+          paidUpCapital: (Number(capData.paidUpCapital) || 0) + investmentAmount,
+          totalIssuedShares: (Number(capData.totalIssuedShares) || 0) + sharesCount,
+          updatedAt: new Date().toISOString()
+        });
+      }
+
+      return newShareholderRef.id;
     });
-    return docRef.id;
   } catch (error) {
     console.error("Error adding shareholder:", error);
     throw error;
@@ -136,20 +165,27 @@ export const getCorporateLoans = async () => {
 export const addCorporateLoan = async (data) => {
   try {
     const colRef = collection(db, "corporate_loans");
-    const principal = Number(data.principalAmount) || 0;
-    const rate = Number(data.interestRate) || 0;
+    // [FIXED] Point #132: Added robust number parsing to prevent NaN in finance modules
+    const principal = parseFloat(String(data.principalAmount).replace(/[^0-9.]/g, '')) || 0;
+    const rate = parseFloat(String(data.interestRate).replace(/[^0-9.]/g, '')) || 0;
+    const tenure = parseInt(String(data.tenureMonths).replace(/[^0-9]/g, '')) || 12;
+
+    // [FIXED] Point #159: Fetch dynamic TDS rate from settings instead of hardcoded 10%
+    const configSnap = await getDoc(doc(db, "settings", "config"));
+    const tdsRate = configSnap.exists() ? (Number(configSnap.data().tdsRateCorporateLoan) || 10) / 100 : 0.10;
+
     const isTds = data.isTdsApplicable !== false;
     
     // Monthly interest calculation
     const monthlyInterest = (principal * rate) / (12 * 100);
-    const monthlyTds = isTds ? (monthlyInterest * 0.10) : 0;
+    const monthlyTds = isTds ? (monthlyInterest * tdsRate) : 0;
     const netMonthlyInterest = monthlyInterest - monthlyTds;
 
     const docRef = await addDoc(colRef, {
       ...data,
       principalAmount: principal,
       interestRate: rate,
-      tenureMonths: Number(data.tenureMonths) || 12,
+      tenureMonths: tenure,
       monthlyInterest,
       monthlyTds,
       netMonthlyInterest,
@@ -212,38 +248,57 @@ export const getInterestLedger = async (loanId = null) => {
 
 export const recordInterestPayment = async (data) => {
   try {
-    const colRef = collection(db, "corporate_interest_ledger");
-    const docRef = await addDoc(colRef, {
-      ...data,
-      grossInterest: Number(data.grossInterest) || 0,
-      tdsDeducted: Number(data.tdsDeducted) || 0,
-      netPaid: Number(data.netPaid) || 0,
-      principalRepaid: Number(data.principalRepaid) || 0,
-      paymentDate: data.paymentDate || new Date().toISOString().split("T")[0],
-      createdAt: new Date().toISOString()
-    });
+    // [FIXED] Point #70: Use runTransaction to ensure atomic update of ledger and loan outstanding
+    return await runTransaction(db, async (transaction) => {
+      const colRef = collection(db, "corporate_interest_ledger");
+      const ledgerDocRef = doc(colRef);
 
-    // Update loan outstanding
-    if (data.loanId && data.principalRepaid > 0) {
-      const loanRef = doc(db, "corporate_loans", data.loanId);
-      const loanSnap = await getDoc(loanRef);
-      if (loanSnap.exists()) {
-        const currentLoan = loanSnap.data();
-        const newOutstanding = Math.max(0, (currentLoan.outstandingPrincipal || 0) - Number(data.principalRepaid));
-        const newTotalInterest = (currentLoan.totalInterestPaid || 0) + Number(data.netPaid);
-        const newTotalTds = (currentLoan.totalTdsDeducted || 0) + Number(data.tdsDeducted);
-        
-        await updateDoc(loanRef, {
-          outstandingPrincipal: newOutstanding,
-          totalInterestPaid: newTotalInterest,
-          totalTdsDeducted: newTotalTds,
-          status: newOutstanding === 0 ? "Closed" : "Active",
-          updatedAt: new Date().toISOString()
-        });
+      const payload = {
+        ...data,
+        grossInterest: Number(data.grossInterest) || 0,
+        tdsDeducted: Number(data.tdsDeducted) || 0,
+        netPaid: Number(data.netPaid) || 0,
+        principalRepaid: Number(data.principalRepaid) || 0,
+        paymentDate: data.paymentDate || new Date().toISOString().split("T")[0],
+        createdAt: new Date().toISOString()
+      };
+
+      transaction.set(ledgerDocRef, payload);
+
+      // Update loan outstanding
+      if (data.loanId) {
+        const loanRef = doc(db, "corporate_loans", data.loanId);
+        const loanSnap = await transaction.get(loanRef);
+        if (loanSnap.exists()) {
+          const currentLoan = loanSnap.data();
+          const newOutstanding = Math.max(0, (currentLoan.outstandingPrincipal || 0) - Number(data.principalRepaid || 0));
+          const newTotalInterest = (currentLoan.totalInterestPaid || 0) + Number(data.netPaid || 0);
+          const newTotalTds = (currentLoan.totalTdsDeducted || 0) + Number(data.tdsDeducted || 0);
+
+          transaction.update(loanRef, {
+            outstandingPrincipal: newOutstanding,
+            totalInterestPaid: newTotalInterest,
+            totalTdsDeducted: newTotalTds,
+            status: newOutstanding === 0 ? "Closed" : "Active",
+            updatedAt: new Date().toISOString()
+          });
+        }
       }
-    }
 
-    return docRef.id;
+      // [FIXED] Point #127: Record corresponding entry in company's main financial ledger
+      const mainLedgerRef = doc(collection(db, "ledger"));
+      transaction.set(mainLedgerRef, {
+        account: "CORPORATE_DEBT_INTEREST",
+        type: "DEBIT",
+        amount: Number(data.netPaid) || 0,
+        description: `Interest repayment for Loan ID: ${data.loanId}`,
+        referenceId: ledgerDocRef.id,
+        timestamp: serverTimestamp(),
+        actorId: "SYSTEM_FINANCE"
+      });
+
+      return ledgerDocRef.id;
+    });
   } catch (error) {
     console.error("Error recording interest payment:", error);
     throw error;
@@ -267,8 +322,9 @@ export const getFundingRounds = async () => {
 export const addFundingRound = async (data) => {
   try {
     const colRef = collection(db, "corporate_funding_rounds");
-    const targetAmount = Number(data.targetAmount) || 0;
-    const preMoneyValuation = Number(data.preMoneyValuation) || 0;
+    // [FIXED] Point #132: Robust number parsing for funding rounds
+    const targetAmount = parseFloat(String(data.targetAmount).replace(/[^0-9.]/g, '')) || 0;
+    const preMoneyValuation = parseFloat(String(data.preMoneyValuation).replace(/[^0-9.]/g, '')) || 0;
     const postMoneyValuation = preMoneyValuation + targetAmount;
     const dilutionPercent = postMoneyValuation > 0 ? ((targetAmount / postMoneyValuation) * 100) : 0;
 
@@ -298,12 +354,14 @@ export const calculateMonthlyInterestAndTDS = (principal, annualRate, isTdsAppli
   const monthlyTds = isTdsApplicable ? (monthlyInterest * 0.10) : 0;
   const netMonthlyInterest = monthlyInterest - monthlyTds;
 
+  // [FIXED] Point #71: Removed mid-calculation rounding to preserve financial precision.
+  // Values are kept as floating point numbers and should be rounded only at display or final ledger entry.
   return {
-    grossMonthlyInterest: Math.round(monthlyInterest),
-    tdsDeduction: Math.round(monthlyTds),
-    netMonthlyInterest: Math.round(netMonthlyInterest),
-    annualGrossInterest: Math.round(monthlyInterest * 12),
-    annualTds: Math.round(monthlyTds * 12)
+    grossMonthlyInterest: parseFloat(monthlyInterest.toFixed(4)),
+    tdsDeduction: parseFloat(monthlyTds.toFixed(4)),
+    netMonthlyInterest: parseFloat(netMonthlyInterest.toFixed(4)),
+    annualGrossInterest: parseFloat((monthlyInterest * 12).toFixed(4)),
+    annualTds: parseFloat((monthlyTds * 12).toFixed(4))
   };
 };
 

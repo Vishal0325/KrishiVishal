@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../../firebase/config";
+import toast from "react-hot-toast";
 import PageHeader from "../../components/common/PageHeader";
 import { getHRDashboardMetrics } from "../../services/hrExtendedService";
 import {
@@ -27,10 +30,15 @@ const HRDashboard = () => {
   const fetchMetrics = async () => {
     try {
       setRefreshing(true);
-      const data = await getHRDashboardMetrics();
-      setMetrics(data);
+      // [FIXED] Point #131: Fetch summarized metrics from a single document or Cloud Function
+      // instead of performing O(N) reads across 9 collections on the client.
+      const { getFunctions, httpsCallable } = await import('firebase/functions');
+      const syncFn = httpsCallable(getFunctions(), 'syncHRMetrics');
+      const res = await syncFn();
+      setMetrics(res.data.metrics);
     } catch (error) {
       console.error("Failed to load HR dashboard metrics:", error);
+      toast.error("Metric sync failed. Check cloud permissions.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -38,7 +46,18 @@ const HRDashboard = () => {
   };
 
   useEffect(() => {
-    fetchMetrics();
+    // Attempt to load from cached summary first
+    getDoc(doc(db, "system_summaries", "hr")).then(snap => {
+       if (snap.exists()) {
+          setMetrics(snap.data());
+          setLoading(false);
+       } else {
+          fetchMetrics();
+       }
+    }).catch((err) => {
+       console.error("Error reading cached HR summary:", err);
+       fetchMetrics();
+    });
   }, []);
 
   return (
@@ -119,7 +138,7 @@ const HRDashboard = () => {
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Verification Queue</p>
                   <h3 className="text-2xl font-bold text-amber-600 mt-1">{metrics?.pendingVerification || 0}</h3>
                   <p className="text-xs text-gray-500 mt-2">
-                    <span className="text-emerald-600 font-medium">{metrics?.verifiedDocs || 0}</span> Verified Docs
+                    Synced: {metrics?.lastSyncedAt ? (metrics.lastSyncedAt.toDate ? metrics.lastSyncedAt.toDate().toLocaleString() : new Date(metrics.lastSyncedAt).toLocaleString()) : 'Never'}
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center">

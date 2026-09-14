@@ -26,7 +26,7 @@ exports.processDocumentExpiry = functions.pubsub.schedule('every day 00:00')
 
       let expiredCount = 0;
       let expiringSoonCount = 0;
-      const batch = db.batch();
+      let batch = db.batch();
       let batchOperations = 0;
 
       for (const docSnap of activeDocsSnap.docs) {
@@ -88,6 +88,8 @@ exports.processDocumentExpiry = functions.pubsub.schedule('every day 00:00')
         if (batchOperations >= 400) {
           await batch.commit();
           batchOperations = 0;
+          // [FIXED] Point #38: Re-initialize batch after commit
+          batch = db.batch();
         }
       }
 
@@ -142,13 +144,17 @@ exports.getSecureDocumentAccess = functions.https.onCall(async (data, context) =
     const callerUid = context.auth.uid;
     
     // 2. Fetch caller role
-    let isAdmin = context.auth.token && (context.auth.token.admin === true || ['SuperAdmin', 'HRAdmin', 'Admin'].includes(context.auth.token.role));
+    let isAdmin = context.auth.token && (
+      context.auth.token.admin === true ||
+      context.auth.token.isAdmin === true ||
+      ['SuperAdmin', 'HRAdmin', 'Admin'].includes(context.auth.token.role)
+    );
     
     if (!isAdmin) {
       const userRef = await db.collection('users').doc(callerUid).get();
       if (userRef.exists) {
         const userData = userRef.data();
-        isAdmin = userData.isAdmin === true || ['SuperAdmin', 'HRAdmin', 'Admin'].includes(userData.role);
+        isAdmin = userData.admin === true || userData.isAdmin === true || ['SuperAdmin', 'HRAdmin', 'Admin'].includes(userData.role);
       }
     }
 

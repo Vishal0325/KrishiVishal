@@ -36,7 +36,7 @@ import toast from 'react-hot-toast';
 const ExpenseForm = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const { categories, vendors, loading: dataLoading } = useExpenseData();
 
   const [loading, setLoading] = useState(id ? true : false);
@@ -129,42 +129,68 @@ const ExpenseForm = () => {
     if (!formData.subtotal || parseFloat(formData.subtotal) <= 0) return toast.error("Invalid amount");
 
     setSaving(true);
+    const selectedCategory = categories.find(c => c.id === formData.categoryId);
+    const selectedVendor = vendors.find(v => v.id === formData.vendorId);
+
+    const sub = parseFloat(formData.subtotal) || 0;
+    const disc = parseFloat(formData.discount) || 0;
+    const taxable = Math.max(0, sub - disc);
+    let cgst = 0; let sgst = 0; let igst = 0;
+    if (formData.taxType === 'GST') {
+      cgst = (taxable * (parseFloat(formData.cgstRate) || 0)) / 100;
+      sgst = (taxable * (parseFloat(formData.sgstRate) || 0)) / 100;
+    } else if (formData.taxType === 'IGST') {
+      igst = (taxable * (parseFloat(formData.igstRate) || 0)) / 100;
+    }
+    const other = parseFloat(formData.otherCharges) || 0;
+    const off = parseFloat(formData.roundOff) || 0;
+    const total = taxable + cgst + sgst + igst + other + off;
+
+    const payload = {
+      ...formData,
+      categoryName: selectedCategory?.name || 'Other',
+      vendorName: selectedVendor?.name || 'Self',
+      subtotalMinor: Math.round(sub * 100),
+      discountMinor: Math.round(disc * 100),
+      taxableAmountMinor: Math.round(taxable * 100),
+      cgstMinor: Math.round(cgst * 100),
+      sgstMinor: Math.round(sgst * 100),
+      igstMinor: Math.round(igst * 100),
+      otherChargesMinor: Math.round(other * 100),
+      roundOffMinor: Math.round(off * 100),
+      totalAmountMinor: Math.round(total * 100),
+      createdByName: user?.displayName || user?.email?.split('@')[0] || 'Admin',
+      createdByEmail: user?.email || '',
+      createdByRole: role || 'Admin'
+    };
+
     try {
-      const selectedCategory = categories.find(c => c.id === formData.categoryId);
-      const selectedVendor = vendors.find(v => v.id === formData.vendorId);
+      // 1. Try Cloud Function first
+      try {
+        const { getFunctions, httpsCallable } = await import('firebase/functions');
+        const saveExpense = httpsCallable(getFunctions(), 'saveExpense');
+        const result = await saveExpense({ id, formData: payload });
+        if (result?.data?.success) {
+          toast.success(id ? "Expense updated successfully" : "Expense created and pending approval");
+          navigate('/finance-desk?tab=expenses');
+          return;
+        }
+      } catch (cfErr) {
+        console.warn("Cloud function saveExpense unavailable, falling back to direct Firestore:", cfErr);
+      }
 
-      const payload = {
-        ...formData,
-        categoryName: selectedCategory?.name || 'Other',
-        vendorName: selectedVendor?.name || 'Self',
-
-        // Convert to minor units (Paise)
-        subtotalMinor: Math.round(parseFloat(formData.subtotal) * 100),
-        discountMinor: Math.round(parseFloat(formData.discount) * 100),
-        taxableAmountMinor: Math.round(calculatedTotals.taxableAmount * 100),
-        cgstMinor: Math.round(calculatedTotals.cgstAmount * 100),
-        sgstMinor: Math.round(calculatedTotals.sgstAmount * 100),
-        igstMinor: Math.round(calculatedTotals.igstAmount * 100),
-        otherChargesMinor: Math.round(parseFloat(formData.otherCharges) * 100),
-        roundOffMinor: Math.round(parseFloat(formData.roundOff) * 100),
-        totalAmountMinor: Math.round(calculatedTotals.totalAmount * 100),
-
-        // Date objects
-        expenseDate: new Date(formData.expenseDate),
-        dueDate: formData.dueDate ? new Date(formData.dueDate) : null
-      };
-
+      // 2. Direct Firestore fallback via expenseService
       if (id) {
-        await expenseService.updateExpense(id, payload, user.uid);
+        await expenseService.updateExpense(id, payload, user?.uid || 'admin');
         toast.success("Expense updated successfully");
       } else {
-        await expenseService.createExpense(payload, user.uid);
+        await expenseService.createExpense(payload, user?.uid || 'admin');
         toast.success("Expense created and pending approval");
       }
-      navigate('/expenses');
+      navigate('/finance-desk?tab=expenses');
     } catch (err) {
       console.error(err);
-      toast.error("Failed to save expense");
+      toast.error("Failed to save expense: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -212,7 +238,7 @@ const ExpenseForm = () => {
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <button
-            onClick={() => navigate('/expenses')}
+            onClick={() => navigate('/finance-desk?tab=expenses')}
             className="p-3 bg-white border border-gray-100 rounded-2xl text-gray-400 hover:text-primary transition-all shadow-sm"
           >
             <ArrowLeft size={24} />
@@ -311,7 +337,7 @@ const ExpenseForm = () => {
             <div className="flex items-center justify-between">
                <div className="flex items-center space-x-3">
                   <div className="p-2 bg-blue-50 rounded-xl text-blue-600"><IndianRupee size={20}/></div>
-                  <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter">Amount & Tax</h3>
+                  <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter">Amount {'&'} Tax</h3>
                </div>
                <div className="flex bg-gray-100 p-1 rounded-2xl">
                  {['NONE', 'GST', 'IGST'].map(type => (
@@ -430,7 +456,7 @@ const ExpenseForm = () => {
         {/* Right Column: Sidebar (Status, Attachments) */}
         <div className="space-y-8">
            <section className="bg-white p-8 rounded-[3rem] border border-gray-100 shadow-sm space-y-6">
-              <h3 className="text-xs font-black text-gray-900 uppercase tracking-[0.2em] mb-4">Lifecycle & Timeline</h3>
+              <h3 className="text-xs font-black text-gray-900 uppercase tracking-[0.2em] mb-4">Lifecycle {'&'} Timeline</h3>
 
               <div className="space-y-4">
                  <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100 flex items-center justify-between">

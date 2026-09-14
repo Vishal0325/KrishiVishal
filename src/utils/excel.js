@@ -34,29 +34,23 @@ export function createWorksheetFromJson(workbook, data, name) {
   return worksheet;
 }
 
-export async function readWorksheetAsJson(file) {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(await file.arrayBuffer());
-  const worksheet = workbook.worksheets[0];
-  if (!worksheet) return [];
-
-  const headers = worksheet.getRow(1).values.slice(1).map((header) => String(header ?? ""));
-  const rows = [];
-  worksheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
-    const values = row.values.slice(1);
-    const parsedRow = {};
-    headers.forEach((header, index) => {
-      const cellValue = values[index];
-      if (cellValue && typeof cellValue === "object" && "result" in cellValue) {
-        parsedRow[header] = cellValue.result ?? "";
-      } else if (cellValue && typeof cellValue === "object" && "text" in cellValue) {
-        parsedRow[header] = cellValue.text ?? "";
-      } else {
-        parsedRow[header] = cellValue ?? "";
-      }
-    });
-    rows.push(parsedRow);
+export function readWorksheetAsJson(file) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const worker = new Worker(new URL('../workers/excelWorker.js', import.meta.url), { type: 'module' });
+      worker.onmessage = (e) => {
+        if (e.data.success) resolve(e.data.rows);
+        else reject(new Error(e.data.error));
+        worker.terminate();
+      };
+      worker.onerror = (e) => {
+        reject(e);
+        worker.terminate();
+      };
+      const arrayBuffer = await file.arrayBuffer();
+      worker.postMessage({ fileBuffer: arrayBuffer }, [arrayBuffer]);
+    } catch (err) {
+      reject(err);
+    }
   });
-  return rows;
 }

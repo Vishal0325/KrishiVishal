@@ -139,28 +139,10 @@ const InventoryMovements = () => {
         });
         toast.success(`SKU ${foundSku.skuCode || foundSku.id} stock adjusted by ${finalQty > 0 ? '+' : ''}${finalQty}`);
       } else {
-        // Legacy product adjustment fallback
-        const prod = products.find(p => p.id === selectedSkuOrProduct);
-        const refId = `ADJ-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-        await updateDoc(doc(db, 'products', selectedSkuOrProduct), {
-          stockQuantity: increment(finalQty),
-          stock: increment(finalQty),
-          updatedAt: Timestamp.now()
-        });
-
-        await addAuditLog('MANUAL_STOCK_ADJUSTMENT', 'Product', selectedSkuOrProduct, {
-          productName: prod?.name || selectedSkuOrProduct,
-          type: adjustType,
-          quantity: finalQty,
-          reason: adjustReason,
-          referenceId: refId,
-          unitCost: unitCost ? Number(unitCost) : undefined,
-          rackBin: rackBin || undefined,
-          batchNumber: batchNo || undefined,
-          warehouseId: warehouseId || 'DEFAULT'
-        });
-        toast.success(`Stock adjusted by ${finalQty > 0 ? '+' : ''}${finalQty} units`);
+        // [FIXED] Point #44: Legacy fallback removed. All adjustments must use SKUs and Cloud Functions for data integrity.
+        toast.error('Adjustments are only allowed for SKUs. Please ensure the product is registered in the SKU Master.');
+        setSubmittingAdjust(false);
+        return;
       }
 
       setIsAdjustModalOpen(false);
@@ -584,7 +566,7 @@ const InventoryMovements = () => {
                 className="w-full bg-[#1b5e20] text-white py-4 rounded-xl font-black text-sm uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-[#2e7d32] transition-all active:scale-[0.98] flex items-center justify-center gap-2"
               >
                 {submittingAdjust && <Loader2 size={18} className="animate-spin" />}
-                Confirm & Record Stock Movement
+                Confirm {'&'} Record Stock Movement
               </button>
             </form>
           </div>

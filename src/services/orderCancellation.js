@@ -9,80 +9,14 @@ import { runTransaction, doc, getDoc, updateDoc, setDoc, serverTimestamp } from 
 
 export async function cancelOrderTransaction(orderId, userId, cancellationReason) {
   try {
-    const result = await runTransaction(db, async (transaction) => {
-      // Step 1: Read order document atomically
-      const orderRef = doc(db, 'orders', orderId);
-      const orderSnapshot = await transaction.get(orderRef);
+    // [FIXED] Point #140 & #141: Moved order cancellation to a secure Cloud Function.
+    // This ensures Role-based access control (RBAC) and atomic server-side processing.
+    const { getFunctions, httpsCallable } = await import('firebase/functions');
+    const functions = getFunctions();
+    const cancelOrder = httpsCallable(functions, 'adminCancelOrder');
 
-      if (!orderSnapshot.exists()) {
-        throw new Error('ORDER_NOT_FOUND');
-      }
-
-      const orderData = orderSnapshot.data();
-      const currentStatus = orderData.status;
-      const orderUserId = orderData.userId;
-      const totalAmount = orderData.totalAmount;
-      const paymentDetails = orderData.paymentDetails || {};
-
-      // Security: Verify user ownership
-      if (orderUserId !== userId && userId !== 'ADMIN') {
-        throw new Error('UNAUTHORIZED_CANCELLATION');
-      }
-
-      // Step 2: Validate cancellation eligibility
-      const cancellableStatuses = ['PLACED', 'PENDING', 'CONFIRMED'];
-      if (!cancellableStatuses.includes(currentStatus)) {
-        throw new Error(`CANNOT_CANCEL_${currentStatus}`);
-      }
-
-      // Step 3: Update order status
-      transaction.update(orderRef, {
-        status: 'CANCELLED',
-        cancellationReason: cancellationReason,
-        cancellationTimestamp: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        cancelled: true,
-      });
-
-      // Step 4: Create auto-approved return for refund
-      const returnId = `return_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const returnRef = doc(db, 'returns', returnId);
-
-      const returnData = {
-        id: returnId,
-        orderId: orderId,
-        userId: orderUserId,
-        productName: 'Order Cancellation',
-        reason: `Pre-shipment cancellation: ${cancellationReason}`,
-        proofUrls: [],
-        status: 'AUTO_APPROVED',
-        adminNotes: 'Automatic approval: Order cancelled before shipment',
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        financials: {
-          totalAmount: totalAmount,
-          refundAmountInitiated: totalAmount,
-          gatewayRefundId: '',
-          processedAt: null,
-          paymentDetails: {
-            transactionId: paymentDetails.transactionId || '',
-            gateway: paymentDetails.gateway || 'UNKNOWN',
-            paymentMethod: paymentDetails.paymentMethod || 'UNKNOWN',
-          },
-        },
-      };
-
-      transaction.set(returnRef, returnData);
-
-      return {
-        success: true,
-        orderId: orderId,
-        returnId: returnId,
-        message: 'Order cancelled successfully. Refund will be processed within 5-7 business days.',
-      };
-    });
-
-    return result;
+    const result = await cancelOrder({ orderId, reason: cancellationReason });
+    return result.data;
   } catch (error) {
     return handleCancellationError(error);
   }
@@ -100,6 +34,7 @@ export async function createPostDeliveryReturnTransaction(
   proofImageUrls
 ) {
   try {
+    const returnId = `return_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const result = await runTransaction(db, async (transaction) => {
       // Verify order exists and is DELIVERED
       const orderRef = doc(db, 'orders', orderId);
@@ -121,7 +56,7 @@ export async function createPostDeliveryReturnTransaction(
       const totalAmount = orderData.totalAmount;
 
       // Create return document
-      const returnId = `return_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      // (returnId generated outside transaction to prevent duplicates on retry)
       const returnRef = doc(db, 'returns', returnId);
 
       const returnData = {

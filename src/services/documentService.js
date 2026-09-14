@@ -27,7 +27,8 @@ export async function uploadWorkforceDocument(file, metadata, onProgress) {
           const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
           
           // Create Firestore metadata record
-          const documentId = `DOC-${Date.now()}`;
+          // [FIXED] Point #149: Using more secure unique ID pattern to prevent document collisions
+          const documentId = `DOC-${Math.random().toString(36).slice(2, 12).toUpperCase()}`;
           const docRef = doc(db, "workforce_documents", documentId);
           
           const documentPayload = {
@@ -39,7 +40,9 @@ export async function uploadWorkforceDocument(file, metadata, onProgress) {
             documentType: metadata.documentType,
             documentCategory: metadata.documentCategory,
             documentName: metadata.documentName,
-            documentNumber: metadata.documentNumber || null,
+            // [FIXED] Point #151: Only store masked document number in the main collection to prevent PII leak.
+            // Original number should be verified at upload time and discarded or stored in a secure vault.
+            documentNumber: maskDocumentNumber(metadata.documentNumber),
             maskedDocumentNumber: maskDocumentNumber(metadata.documentNumber),
             fileName: file.name,
             storagePath: path,

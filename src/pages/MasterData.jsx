@@ -38,9 +38,8 @@ const MasterData = () => {
       setLoading(false);
     });
 
-    // Load prerequisites for parent selection
-    const unsubCats = onSnapshot(collection(db, 'categories'), (snap) => {
-        // Note: Using existing categories collection for Item parents
+    // [FIXED] Point #152: Standardized categories path to master_data/categories/records
+    const unsubCats = onSnapshot(collection(db, 'master_data', 'categories', 'records'), (snap) => {
         setCategories(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 

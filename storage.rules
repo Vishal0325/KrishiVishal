@@ -11,35 +11,56 @@ service firebase.storage {
     function isAdmin() {
       return isAuthenticated() && (
         request.auth.token.admin == true ||
-        request.auth.token.role in ['SuperAdmin', 'HRAdmin', 'Admin', 'WarehouseManager', 'Operations']
+        request.auth.token.isAdmin == true ||
+        request.auth.token.role in ['SuperAdmin', 'HRAdmin', 'Admin', 'WarehouseManager', 'Operations', 'FinanceAdmin']
       );
     }
     
-    // Workforce Documents Storage Rules
+    // Workforce Documents Storage Rules (ID Cards, Contracts, Passports, Aadhaar)
     match /workforce-documents/{allPaths=**} {
-      // Admins and authenticated staff can read and write workforce documents
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && (
-        isAdmin() || 
-        // File size limit: 20MB, allowed content types (images, pdfs, docs)
-        (request.resource.size < 20 * 1024 * 1024 &&
-         request.resource.contentType.matches('image/.*|application/pdf|application/msword|application/vnd.openxmlformats-officedocument.wordprocessingml.document'))
+      // Only SuperAdmin, HRAdmin and verified Admins can read workforce documents
+      allow read: if isAuthenticated() && (
+        request.auth.token.role in ['SuperAdmin', 'HRAdmin'] ||
+        request.auth.token.isAdmin == true ||
+        request.auth.token.admin == true
       );
+      allow write: if isAuthenticated() && isAdmin() &&
+        request.resource.size < 20 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*|application/pdf|application/msword|application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     }
     
-    // General assets and avatars
+    // User profile avatars
+    match /avatars/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (request.auth.uid == userId || isAdmin()) &&
+        request.resource.size < 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+    }
     match /avatars/{userId}/{fileName} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow write: if isAuthenticated() && (request.auth.uid == userId || isAdmin()) &&
+        request.resource.size < 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
     }
     
-    // Product images and public assets
-    match /products/{allPaths=**} {
-      allow read: if true;
-      allow write: if isAdmin();
+    // Public Catalog & Media Assets (products, categories, brands, crops, banners)
+    match /{folder}/{allPaths=**} {
+      allow read: if folder in ['products', 'categories', 'brands', 'crops', 'banners', 'public'];
+      allow write: if isAdmin() &&
+        request.resource.size < 15 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*|video/.*|application/pdf');
+    }
+
+    // Expense Receipts & Invoices (Restricted to Admins)
+    match /expenses/{allPaths=**} {
+      allow read, write: if isAdmin();
+    }
+
+    match /invoices/{allPaths=**} {
+      allow read, write: if isAdmin();
     }
     
-    // Default fallback
+    // Default fallback: Admin only
     match /{allPaths=**} {
       allow read, write: if isAdmin();
     }

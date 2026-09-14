@@ -1,45 +1,34 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from "firebase/auth";
+import { getAuth } from "firebase/auth";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import { doc, setDoc, updateDoc, collection, getDocs, query, where, serverTimestamp } from "firebase/firestore";
-import { db, firebaseConfig } from "../firebase/config";
+import { db, firebaseConfig, auth } from "../firebase/config";
 
-// Initialize a secondary Firebase app instance
-// This is necessary so that creating a new staff account doesn't log out the current SuperAdmin
-const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
-const secondaryAuth = getAuth(secondaryApp);
+const functions = getFunctions(initializeApp(firebaseConfig));
 
 /**
  * Creates a new staff member account and saves their role/details in Firestore.
  */
-export async function createStaffMember(email, password, name, role) {
+export async function createStaffMember(email, password, name, role, warehouseId = null, hierarchyData = {}) {
   try {
-    // Create the user in Firebase Auth using the secondary instance
-    const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
-    const user = userCredential.user;
+    const createStaff = httpsCallable(functions, 'createStaffMember');
+    const result = await createStaff({ email, password, name, role });
+    const uid = result?.data?.uid;
+    
+    const updates = {
+      updatedAt: serverTimestamp(),
+      ...(warehouseId ? { warehouseId } : {}),
+      ...(hierarchyData.reportsTo ? { reportsTo: hierarchyData.reportsTo } : {}),
+      ...(hierarchyData.designation ? { designation: hierarchyData.designation } : {}),
+      ...(hierarchyData.department ? { department: hierarchyData.department } : {}),
+      ...(hierarchyData.hierarchyLevel ? { hierarchyLevel: Number(hierarchyData.hierarchyLevel) } : { hierarchyLevel: 4 })
+    };
 
-    // Send a password reset email immediately so they can set their own secure password
-    try {
-      await sendPasswordResetEmail(secondaryAuth, email);
-    } catch (emailErr) {
-      console.warn("Failed to send initial reset email, but user was created.", emailErr);
+    if (uid) {
+      await updateDoc(doc(db, "users", uid), updates);
     }
 
-    // Immediately sign out from the secondary instance to clear state
-    await signOut(secondaryAuth);
-
-    // Save staff details in the 'users' collection (where useAuth reads from)
-    await setDoc(doc(db, "users", user.uid), {
-      uid: user.uid,
-      email: user.email,
-      name: name,
-      role: role,
-      isAdmin: true, // They are part of the admin panel
-      isActive: true, // Active by default
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-
-    return { success: true, uid: user.uid };
+    return { success: true, uid };
   } catch (error) {
     console.error("Error creating staff:", error);
     throw error;
@@ -47,7 +36,7 @@ export async function createStaffMember(email, password, name, role) {
 }
 
 /**
- * Updates a staff member's role or status.
+ * Updates a staff member's role, hub, or reporting hierarchy.
  */
 export async function updateStaffDetails(uid, updates) {
   try {

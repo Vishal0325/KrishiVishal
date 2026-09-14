@@ -73,7 +73,7 @@ const FinancialStatements = () => {
 
   const cashInflow = orders.filter(o => o.status === 'DELIVERED').reduce((sum, o) => sum + (o.totalAmount || 0), 0);
   const cashOutflowToSuppliers = ledgerEntries.reduce((sum, e) => sum + (e.debit || 0), 0);
-  const cashBalance = Math.max(50000, cashInflow - cashOutflowToSuppliers); // minimum working float
+  const cashBalance = Math.max(0, cashInflow - cashOutflowToSuppliers);
 
   const accountsReceivable = orders.filter(o => ['OUT_FOR_DELIVERY', 'RIDER_ASSIGNED'].includes(o.status)).reduce((sum, o) => sum + (o.totalAmount || 0), 0);
   const totalCurrentAssets = inventoryAssetValue + cashBalance + accountsReceivable;

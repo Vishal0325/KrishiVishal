@@ -5,14 +5,8 @@ import { db } from "../firebase/config";
  * Fetches hierarchical master data for SKU generation.
  */
 export async function fetchMasterData(collectionName, parentCode = null) {
-  // UNIFIED FETCH LOGIC
-  // 1. Check if it's a top-level collection (categories, brands)
-  if (collectionName === 'categories' || collectionName === 'brands') {
-    const snapshot = await getDocs(collection(db, collectionName));
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  }
-
-  // 2. Otherwise look in master_data sub-collections
+  // [FIXED] Point #152: Standardized all master data access to use the sub-collection pattern
+  // to prevent data fragmentation between top-level and nested collections.
   const ref = collection(db, "master_data", collectionName, "records");
   let q = query(ref, orderBy("name"));
 

@@ -9,9 +9,13 @@ const files = [
   'functions/orders/warehouseAllocator.js'
 ];
 
+const baseDir = path.resolve(__dirname, '..');
+
 files.forEach(file => {
-  const filePath = path.join(__dirname, '..', file);
-  if (!fs.existsSync(filePath)) return;
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+  const safeRelPath = path.normalize(file).replace(/^(\.\.(\/|\\|$))+/, '');
+  const filePath = path.resolve(baseDir, safeRelPath);
+  if (!filePath.startsWith(baseDir) || !fs.existsSync(filePath)) return;
   
   let content = fs.readFileSync(filePath, 'utf8');
   

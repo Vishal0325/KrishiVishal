@@ -24,12 +24,14 @@ import {
   CheckCircle,
   FileSpreadsheet,
   RefreshCw,
-  UserCheck
+  UserCheck,
+  ShieldCheck
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { printShippingLabel, printInvoice } from '../utils/PrintService';
+import { printShippingLabel, printThermalShippingLabel, printInvoice } from '../utils/PrintService';
 import { sendOrderConfirmationWhatsApp, sendOutForDeliveryWhatsApp } from '../services/whatsappService';
 import StatusTimeline from '../components/common/StatusTimeline';
+import ProofOfDeliveryModal from '../components/orders/ProofOfDeliveryModal';
 
 const Orders = () => {
   const navigate = useNavigate();
@@ -44,6 +46,8 @@ const Orders = () => {
   const [hubFilter, setHubFilter] = useState('All');
   const [warehouses, setWarehouses] = useState([]);
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(false);
+  const [podModalOrder, setPodModalOrder] = useState(null);
+  const [isPodModalOpen, setIsPodModalOpen] = useState(false);
 
   useEffect(() => {
     // If state passed filter or selectedOrderId
@@ -53,6 +57,8 @@ const Orders = () => {
   }, [location.state]);
 
   useEffect(() => {
+    const unsubs = [];
+
     getDoc(doc(db, 'settings', 'config')).then(snap => {
       if (snap.exists()) setAutoPrintEnabled(snap.data().autoPrintNewOrders || false);
     });
@@ -60,7 +66,7 @@ const Orders = () => {
     const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
     let initialLoad = true;
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribeOrders = onSnapshot(q, (snapshot) => {
       const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setOrders(ordersData);
       setLoading(false);
@@ -75,25 +81,52 @@ const Orders = () => {
           if (change.type === "added") {
             const newOrder = { id: change.doc.id, ...change.doc.data() };
             if (newOrder.status === 'PLACED') {
-              toast(`New Order! Printing Label...`, { icon: '🖨️' });
-              printShippingLabel(newOrder);
+              // [FIXED] Point #54: Browsers block auto-printing. Show toast with action button instead.
+              toast((t) => (
+                <div className="flex items-center gap-3">
+                  <span className="font-bold text-xs uppercase tracking-tight">New Order!</span>
+                  <button
+                    onClick={() => {
+                      printShippingLabel(newOrder);
+                      toast.dismiss(t.id);
+                    }}
+                    className="bg-[#1b5e20] text-white px-3 py-1 rounded-lg font-black text-[10px] uppercase shadow-sm"
+                  >
+                    🖨️ Print Label
+                  </button>
+                </div>
+              ), { duration: 10000 });
             }
           }
         });
       }
       initialLoad = false;
     });
+    unsubs.push(unsubscribeOrders);
 
     const unsubRiders = onSnapshot(collection(db, 'riders'), (snapshot) => {
       setRiders(snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name || doc.id, warehouseId: doc.data().warehouseId })));
     });
+    unsubs.push(unsubRiders);
 
     const unsubWarehouses = onSnapshot(collection(db, 'warehouses'), (snapshot) => {
       setWarehouses(snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name, code: doc.data().code })));
     });
+    unsubs.push(unsubWarehouses);
 
-    return () => { unsubscribe(); unsubRiders(); unsubWarehouses(); };
-  }, [location.state?.selectedOrderId, autoPrintEnabled]);
+    // [FIXED] Point #111: Centralized cleanup for massive real-time listeners to prevent memory leaks
+    return () => unsubs.forEach(unsub => unsub());
+  }, [autoPrintEnabled]);
+
+  // [FIXED] Point #62: Improved Deep-link handling for selected order to handle async data loading
+  useEffect(() => {
+    if (location.state?.selectedOrderId && orders.length > 0) {
+      const target = orders.find(o => o.id === location.state.selectedOrderId);
+      if (target && !selectedOrder) {
+        setSelectedOrder(target);
+      }
+    }
+  }, [location.state?.selectedOrderId, orders, selectedOrder]);
 
   const handleAssignRider = async (orderId, riderId) => {
     try {
@@ -115,9 +148,7 @@ const Orders = () => {
         updatedAt: Timestamp.now()
       });
       toast.success(`Order status updated to ${newStatus}`);
-      if (selectedOrder && selectedOrder.id === orderId) {
-        setSelectedOrder(prev => ({ ...prev, status: newStatus }));
-      }
+      // [FIXED] Point #56: Rely on real-time onSnapshot listener for data consistency, removed manual local state update
     } catch (error) {
       toast.error('Update failed: ' + error.message);
     }
@@ -234,6 +265,18 @@ const Orders = () => {
               <PackageCheck size={16} />
             </button>
           )}
+          {['DELIVERED', 'OUT_FOR_DELIVERY', 'ASSIGNED', 'PICKED_UP'].includes(o.status) && (
+            <button
+              onClick={() => {
+                setPodModalOrder(o);
+                setIsPodModalOpen(true);
+              }}
+              className="p-1.5 hover:bg-emerald-600 hover:text-white text-emerald-700 rounded-lg transition-colors bg-emerald-50"
+              title="View POD Photo, Signature & OTP Audit"
+            >
+              <ShieldCheck size={16} />
+            </button>
+          )}
           <button
             onClick={() => setSelectedOrder(o)}
             className="p-1.5 hover:bg-gray-100 text-gray-600 rounded-lg transition-colors"
@@ -242,9 +285,9 @@ const Orders = () => {
             <Eye size={16} />
           </button>
           <button
-            onClick={() => printShippingLabel(o)}
+            onClick={() => printThermalShippingLabel(o)}
             className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors"
-            title="Print Shipping Label"
+            title="Print 4x6 Thermal Shipping Label"
           >
             <Printer size={16} />
           </button>
@@ -423,7 +466,10 @@ const Orders = () => {
                 >
                   <option value="">Select Rider...</option>
                   {riders.filter(r => !r.warehouseId || r.warehouseId === selectedOrder.fulfillmentWarehouseId).map(r => (
-                    <option key={r.id} value={r.id}>{r.name} {r.warehouseId ? '' : '(Global)'}</option>
+                    <option key={r.id} value={r.id}>
+                      {/* [FIXED] Point #69: Show rider availability and online status to prevent blind assignment */}
+                      {r.name} {r.currentOrderId ? '⚠️ (Busy)' : '✅ (Idle)'} {r.online ? '🟢 Online' : '⚪ Offline'}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -556,7 +602,7 @@ const Orders = () => {
             </section>
 
             {/* Quick Actions Footer */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-2">
               <button
                 onClick={() => printInvoice(selectedOrder)}
                 className="bg-gray-800 text-white py-3 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 hover:bg-black transition-all"
@@ -565,11 +611,21 @@ const Orders = () => {
                 <span>Invoice</span>
               </button>
               <button
-                onClick={() => printShippingLabel(selectedOrder)}
+                onClick={() => printThermalShippingLabel(selectedOrder)}
                 className="bg-[#1b5e20] text-white py-3 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 hover:bg-[#2e7d32] transition-all"
               >
                 <Package size={15} />
-                <span>Label</span>
+                <span>4x6 Label</span>
+              </button>
+              <button
+                onClick={() => {
+                  setPodModalOrder(selectedOrder);
+                  setIsPodModalOpen(true);
+                }}
+                className="bg-emerald-700 text-white py-3 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 hover:bg-emerald-800 transition-all shadow-sm"
+              >
+                <ShieldCheck size={15} />
+                <span>POD & OTP</span>
               </button>
               <button
                 onClick={() => sendOrderConfirmationWhatsApp(selectedOrder)}
@@ -579,7 +635,7 @@ const Orders = () => {
                 <span>WA Confirm</span>
               </button>
               <button
-                onClick={() => sendOutForDeliveryWhatsApp(selectedOrder, '1234')}
+                onClick={() => sendOutForDeliveryWhatsApp(selectedOrder, selectedOrder.customerOTP || '1234')}
                 className="bg-[#128C7E] text-white py-3 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 hover:bg-[#075E54] transition-all"
               >
                 <Truck size={15} />
@@ -589,6 +645,18 @@ const Orders = () => {
           </div>
         )}
       </DetailDrawer>
+
+      {/* Proof of Delivery & OTP Audit Modal */}
+      {isPodModalOpen && podModalOrder && (
+        <ProofOfDeliveryModal
+          order={podModalOrder}
+          isOpen={isPodModalOpen}
+          onClose={() => {
+            setIsPodModalOpen(false);
+            setPodModalOrder(null);
+          }}
+        />
+      )}
     </div>
   );
 };

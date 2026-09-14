@@ -95,14 +95,8 @@ const LeaveAttendance = () => {
       setLeaveRequests(reqsData);
       setLeaveBalances(balsData);
       setHolidays(holsData);
-
-      // Auto-initialize balance for any new employee missing a balance ledger
-      for (const emp of empsData) {
-        const hasBal = balsData.some(b => b.employeeId === (emp.employeeId || emp.id));
-        if (!hasBal) {
-          initializeLeaveBalance(emp.employeeId || emp.id, `${emp.firstName} ${emp.lastName}`.trim(), emp.department);
-        }
-      }
+      // [FIXED] Point #114: Removed expensive initialization loop.
+      // Leave balance is now initialized during employee creation.
     } catch (error) {
       console.error("Failed to load leave & attendance data:", error);
     } finally {

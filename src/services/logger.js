@@ -1,5 +1,5 @@
-import { collection, addDoc, Timestamp } from "firebase/firestore";
-import { db, auth } from "../firebase/config";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../firebase/config";
 
 /**
  * Valid Action Types:
@@ -19,21 +19,31 @@ import { db, auth } from "../firebase/config";
  * - UPDATE_EMPLOYEE
  * - CREATE_RIDER_HR
  * - UPDATE_RIDER_HR
+ * - INITIATE_EXIT
+ * - FINALIZE_EXIT
+ * - APPLY_LEAVE
+ * - UPDATE_LEAVE_STATUS
+ * - MARK_ATTENDANCE
+ * - CREATE_TRAINING
+ * - UPDATE_TRAINING
+ * - UPDATE_SETTINGS
+ * - CREATE_SUPPORT_TICKET
+ * - UPDATE_CAPITAL_STRUCTURE
+ * - ADD_SHAREHOLDER
+ * - ADD_CORPORATE_LOAN
+ * - RECORD_INTEREST_PAYMENT
+ * - UPDATE_SALARY_STRUCTURE
+ * - GENERATE_PAYROLL
  */
 
 export async function addAuditLog(action, resource, resourceId, details = {}) {
   try {
-    const user = auth.currentUser;
-    if (!user) return; // Silent return if not logged in (e.g. system actions)
-
-    await addDoc(collection(db, "audit_logs"), {
-      userId: user.uid,
-      userEmail: user.email,
+    const addSecureAuditLog = httpsCallable(functions, "addSecureAuditLog");
+    await addSecureAuditLog({
       action,
-      resource, // e.g. "Product", "Category", "Order"
-      resourceId, // e.g. "prod_123"
-      details, // object containing old/new values
-      timestamp: Timestamp.now(),
+      module: resource,
+      entityId: resourceId,
+      details,
     });
   } catch (error) {
     console.error("Failed to write audit log:", error);

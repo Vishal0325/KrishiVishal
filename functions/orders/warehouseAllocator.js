@@ -28,7 +28,9 @@ exports.allocateOrderWarehouse = functions.firestore
       const address = orderData.shippingAddress || {};
       const targetPincode = address.pincode || address.zip || "";
 
-      let allocatedWarehouseId = "WH-PURNEA-01"; // Fallback/Default
+      // [FIXED] Point #138: Fetch default warehouse from config instead of hardcoding
+      const configSnap = await db.collection("settings").doc("config").get();
+      let allocatedWarehouseId = configSnap.exists ? configSnap.data().defaultFulfillmentWarehouse : "WH-PURNEA-01";
 
       // 1. Fetch Serviceable Warehouses for Pincode
       if (targetPincode) {
@@ -64,52 +66,68 @@ exports.allocateOrderWarehouse = functions.firestore
         createdAt: admin.firestore.FieldValue.serverTimestamp()
       });
 
-      // 4. Real-time Inventory Reservation & Movements Logging
-      const items = orderData.items || [];
+      // 4. Real-time Inventory Reservation & Movements Logging (Inside Transaction)
+      // [FIXED] Points #48 & #137: Use Firestore Transaction for atomic stock reservation with strict read-before-write order
       let hasInsufficientStock = false;
+      await db.runTransaction(async (transaction) => {
+        const items = orderData.items || [];
+        const invReads = [];
 
-      for (const item of items) {
-        const skuId = item.productId || item.skuId || item.id;
-        const qty = Number(item.quantity) || 1;
-        if (!skuId) continue;
+        // All reads must precede all writes in Firestore transactions
+        for (const item of items) {
+          const skuId = item.productId || item.skuId || item.id;
+          const qty = Number(item.quantity) || 1;
+          if (!skuId) continue;
 
-        const invQuery = await db.collection("warehouse_inventory")
-          .where("warehouseId", "==", allocatedWarehouseId)
-          .where("skuId", "==", skuId)
-          .limit(1)
-          .get();
+          const invQuery = await db.collection("warehouse_inventory")
+            .where("warehouseId", "==", allocatedWarehouseId)
+            .where("skuId", "==", skuId)
+            .limit(1)
+            .get();
 
-        if (!invQuery.empty) {
-          const invDoc = invQuery.docs[0];
-          const invData = invDoc.data();
-          const avail = Number(invData.availableQty) || 0;
+          if (!invQuery.empty) {
+            const invRef = invQuery.docs[0].ref;
+            const freshDoc = await transaction.get(invRef);
+            invReads.push({ skuId, qty, invRef, freshDoc });
+          } else {
+            invReads.push({ skuId, qty, invRef: null, freshDoc: null });
+          }
+        }
 
-          if (avail >= qty) {
-            await invDoc.ref.update({
-              availableQty: admin.firestore.FieldValue.increment(-qty),
-              reservedQty: admin.firestore.FieldValue.increment(qty),
-              lastMovementAt: admin.firestore.FieldValue.serverTimestamp()
-            });
+        // Now execute all writes
+        for (const { skuId, qty, invRef, freshDoc } of invReads) {
+          if (invRef && freshDoc && freshDoc.exists) {
+            const invData = freshDoc.data();
+            const avail = Number(invData.availableQty) || 0;
 
-            await db.collection("inventory_movements").add({
-              warehouseId: allocatedWarehouseId,
-              skuId: skuId,
-              batchId: invData.batchId || "DEFAULT",
-              quantity: -qty,
-              movementType: "ORDER_RESERVED",
-              referenceId: orderId,
-              timestamp: admin.firestore.FieldValue.serverTimestamp()
-            });
+            if (avail >= qty) {
+              transaction.update(invRef, {
+                availableQty: admin.firestore.FieldValue.increment(-qty),
+                reservedQty: admin.firestore.FieldValue.increment(qty),
+                lastMovementAt: admin.firestore.FieldValue.serverTimestamp()
+              });
+
+              const movementRef = db.collection("inventory_movements").doc();
+              transaction.set(movementRef, {
+                warehouseId: allocatedWarehouseId,
+                skuId: skuId,
+                batchId: invData.batchId || "DEFAULT",
+                quantity: -qty,
+                movementType: "ORDER_RESERVED",
+                referenceId: orderId,
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+              });
+            } else {
+              hasInsufficientStock = true;
+            }
           } else {
             hasInsufficientStock = true;
           }
-        } else {
-          hasInsufficientStock = true;
         }
-      }
 
-      await db.collection("orders").doc(orderId).update({
-        stockReservationStatus: hasInsufficientStock ? "PENDING_STOCK" : "FULLY_RESERVED"
+        transaction.update(db.collection("orders").doc(orderId), {
+          stockReservationStatus: hasInsufficientStock ? "PENDING_STOCK" : "FULLY_RESERVED"
+        });
       });
 
       // 5. Log Audit
@@ -135,8 +153,10 @@ exports.allocateOrderWarehouse = functions.firestore
 exports.overrideOrderWarehouse = onCall(async (request) => {
   const data = request.data;
   const context = { auth: request.auth };
-  if (!context.auth) {
-    throw new HttpsError("unauthenticated", "Unauthorized.");
+  const callerIsAdmin = context.auth && (context.auth.token.isAdmin === true || context.auth.token.admin === true);
+  const callerRole = context.auth?.token?.role;
+  if (!context.auth || (!callerIsAdmin && !['SuperAdmin', 'OrderManager', 'Admin'].includes(callerRole))) {
+    throw new HttpsError("permission-denied", "Unauthorized access. Only Order Managers or Admins can override warehouses.");
   }
 
   const { orderId, newWarehouseId, reason } = data;
@@ -155,23 +175,110 @@ exports.overrideOrderWarehouse = onCall(async (request) => {
       throw new HttpsError("not-found", "Order not found.");
     }
 
-    const currentWarehouse = orderDoc.data().fulfillmentWarehouseId;
+    const orderData = orderDoc.data();
+    const currentWarehouse = orderData.fulfillmentWarehouseId;
 
-    await orderRef.update({
-      fulfillmentWarehouseId: newWarehouseId,
-      fulfillmentAssignmentType: "ADMIN_OVERRIDE",
-      fulfillmentAssignedAt: admin.firestore.FieldValue.serverTimestamp(),
-      fulfillmentAssignedBy: context.auth.uid,
-    });
+    if (currentWarehouse !== newWarehouseId && !['CANCELLED', 'DELIVERED'].includes(orderData.status)) {
+      const items = orderData.items || [];
+      const batch = db.batch();
 
-    await db.collection("audit_logs").add({
-      action: "OVERRIDE_ORDER_WAREHOUSE",
-      resource: "Order",
-      resourceId: orderId,
-      warehouseId: newWarehouseId,
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      details: { oldWarehouse: currentWarehouse, newWarehouse: newWarehouseId, reason, actor: context.auth.uid },
-    });
+      for (const item of items) {
+        const skuId = item.productId || item.skuId || item.id;
+        const qty = Number(item.quantity) || 1;
+        if (!skuId) continue;
+
+        // 1. Release reserved stock from old warehouse
+        if (currentWarehouse) {
+          const oldInvQ = await db.collection("warehouse_inventory")
+            .where("warehouseId", "==", currentWarehouse)
+            .where("skuId", "==", skuId)
+            .limit(1)
+            .get();
+
+          if (!oldInvQ.empty) {
+            const oldDoc = oldInvQ.docs[0];
+            const currentReserved = Number(oldDoc.data().reservedQty) || 0;
+            const releaseQty = Math.min(qty, currentReserved);
+            batch.update(oldDoc.ref, {
+              availableQty: admin.firestore.FieldValue.increment(releaseQty),
+              reservedQty: admin.firestore.FieldValue.increment(-releaseQty),
+              lastMovementAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            const m1 = db.collection("inventory_movements").doc();
+            batch.set(m1, {
+              warehouseId: currentWarehouse,
+              skuId,
+              quantity: releaseQty,
+              movementType: "OVERRIDE_RELEASE",
+              referenceId: orderId,
+              timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+          }
+        }
+
+        // 2. Reserve stock in new warehouse
+        const newInvQ = await db.collection("warehouse_inventory")
+          .where("warehouseId", "==", newWarehouseId)
+          .where("skuId", "==", skuId)
+          .limit(1)
+          .get();
+
+        if (!newInvQ.empty) {
+          const newDoc = newInvQ.docs[0];
+          batch.update(newDoc.ref, {
+            availableQty: admin.firestore.FieldValue.increment(-qty),
+            reservedQty: admin.firestore.FieldValue.increment(qty),
+            lastMovementAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+
+          const m2 = db.collection("inventory_movements").doc();
+          batch.set(m2, {
+            warehouseId: newWarehouseId,
+            skuId,
+            quantity: -qty,
+            movementType: "OVERRIDE_RESERVE",
+            referenceId: orderId,
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+          });
+        }
+      }
+
+      batch.update(orderRef, {
+        fulfillmentWarehouseId: newWarehouseId,
+        fulfillmentAssignmentType: "ADMIN_OVERRIDE",
+        fulfillmentAssignedAt: admin.firestore.FieldValue.serverTimestamp(),
+        fulfillmentAssignedBy: context.auth.uid,
+      });
+
+      const auditRef = db.collection("audit_logs").doc();
+      batch.set(auditRef, {
+        action: "OVERRIDE_ORDER_WAREHOUSE",
+        resource: "Order",
+        resourceId: orderId,
+        warehouseId: newWarehouseId,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        details: { oldWarehouse: currentWarehouse, newWarehouse: newWarehouseId, reason, actor: context.auth.uid },
+      });
+
+      await batch.commit();
+    } else {
+      await orderRef.update({
+        fulfillmentWarehouseId: newWarehouseId,
+        fulfillmentAssignmentType: "ADMIN_OVERRIDE",
+        fulfillmentAssignedAt: admin.firestore.FieldValue.serverTimestamp(),
+        fulfillmentAssignedBy: context.auth.uid,
+      });
+
+      await db.collection("audit_logs").add({
+        action: "OVERRIDE_ORDER_WAREHOUSE",
+        resource: "Order",
+        resourceId: orderId,
+        warehouseId: newWarehouseId,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        details: { oldWarehouse: currentWarehouse, newWarehouse: newWarehouseId, reason, actor: context.auth.uid },
+      });
+    }
 
     return { success: true };
   } catch (error) {

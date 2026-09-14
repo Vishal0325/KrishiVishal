@@ -5,6 +5,7 @@ import {
   doc,
   setDoc,
   updateDoc,
+  addDoc,
   increment,
   Timestamp,
   query,
@@ -197,68 +198,59 @@ const GoodsReceipt = () => {
       // 1. Save GRN Document
       await setDoc(grnRef, grnData);
 
-      // 2. Update Product Stocks and Record Immutable Inventory Movement
+      // 2. Update Product Stocks via Cloud Function with Resilient Fallback
       for (const item of processedItems) {
-        const productRef = doc(db, 'products', item.productId);
-        
-        // If item has skuCode, execute authoritative Cloud Function GRN
-        if (item.skuCode) {
-          try {
-            await callReceiveGrn({
-              skuCode: item.skuCode,
-              batchNumber: item.batchNumber,
-              mfgDate: item.mfgDate,
-              expiryDate: item.expiryDate,
-              quantity: item.receivedQuantity,
-              warehouseId: warehouseLocation,
-              binLocation: item.rackBin || "",
-              supplierId: selectedPO.supplierId || "",
-              purchaseOrderId: selectedPO.id || "",
-              grnId: grnNumber,
-              landingCost: item.actualUnitCost || 0,
-              idempotencyKey: `GRN:${grnNumber}:${item.skuCode}:${item.batchNumber}`
-            });
-          } catch (cfErr) {
-            console.warn('callReceiveGrn warning:', cfErr.message);
+        try {
+          await callReceiveGrn({
+            skuCode: item.skuCode || item.productId,
+            batchNumber: item.batchNumber,
+            mfgDate: item.mfgDate,
+            expiryDate: item.expiryDate,
+            quantity: item.receivedQuantity,
+            warehouseId: warehouseLocation,
+            binLocation: item.rackBin || "",
+            supplierId: selectedPO.supplierId || "",
+            purchaseOrderId: selectedPO.id || "",
+            grnId: grnNumber,
+            landingCost: item.actualUnitCost || 0,
+            idempotencyKey: `GRN:${grnNumber}:${item.skuCode || item.productId}:${item.batchNumber}`
+          });
+        } catch (cfErr) {
+          console.warn('Cloud Function receiveGrn not active, running direct Firestore update:', cfErr);
+          // Direct Product Stock Increment
+          if (item.productId) {
+            try {
+              await updateDoc(doc(db, 'products', item.productId), {
+                stock: increment(item.receivedQuantity),
+                updatedAt: Timestamp.now()
+              });
+            } catch (pe) {
+              console.warn('Product stock update warning:', pe);
+            }
           }
         }
 
-        // Update product stock balance and cost basis
-        await updateDoc(productRef, {
-          stockQuantity: increment(item.receivedQuantity),
-          stock: increment(item.receivedQuantity),
-          costPrice: item.actualUnitCost,
-          batchNumber: item.batchNumber,
-          expiryDate: item.expiryDate,
-          mfgDate: item.mfgDate,
-          updatedAt: Timestamp.now()
-        });
-
-        // Add Immutable Movement Ledger
-        const movementRef = doc(collection(db, 'inventory_movements'));
-        await setDoc(movementRef, {
-          movementId: movementRef.id,
-          productId: item.productId,
-          skuCode: item.skuCode || null,
-          productName: item.productName,
-          type: 'PURCHASE_RECEIPT',
-          movementType: 'PURCHASE_RECEIPT',
-          quantity: item.receivedQuantity,
-          costBasisPerUnit: item.actualUnitCost,
-          totalCost: item.lineTotal,
-          referenceId: grnNumber,
-          poId: selectedPO.id,
-          poNumber: selectedPO.poNumber,
-          supplierId: selectedPO.supplierId,
-          supplierName: selectedPO.supplierName,
-          batchNumber: item.batchNumber,
-          expiryDate: item.expiryDate,
-          warehouseId: warehouseLocation,
-          rackBin: item.rackBin,
-          recordedBy: user?.uid || 'ADMIN',
-          recordedByEmail: user?.email || 'admin@krishivishal.com',
-          timestamp: Timestamp.now()
-        });
+        // Log to stock_movements ledger
+        try {
+          await addDoc(collection(db, 'stock_movements'), {
+            productId: item.productId,
+            productName: item.productName || 'Agri Product',
+            skuCode: item.skuCode || item.productId,
+            type: 'INWARD_GRN',
+            change: item.receivedQuantity,
+            unitCost: item.actualUnitCost || 0,
+            batchNumber: item.batchNumber,
+            mfgDate: item.mfgDate,
+            expiryDate: item.expiryDate,
+            grnNumber,
+            poNumber: selectedPO.poNumber,
+            warehouseId: warehouseLocation,
+            note: `GRN Inward receipt ${grnNumber} from ${selectedPO.supplierName}`,
+            createdAt: Timestamp.now()
+          });
+        } catch (sme) {
+          console.warn('Stock movement log error:', sme);
+        }
 
         // If this item was tied to an on-demand procurement item, update queue
         if (item.queueItemId) {

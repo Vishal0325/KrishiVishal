@@ -30,8 +30,17 @@ import {
   UserCheck,
   MessageSquare,
   ThumbsUp,
-  Clock
+  Clock,
+  Sprout,
+  Wheat,
+  Tractor,
+  Layers,
+  Leaf,
+  PieChart,
+  BarChart3,
+  MapPin
 } from 'lucide-react';
+import { getFarmerAge, getLandSize, getLandUnit, getCropAllocations } from './Customers';
 
 const CRMDashboard = () => {
   const { user } = useAuth();
@@ -117,8 +126,31 @@ const CRMDashboard = () => {
     let churnRiskCount = 0;
     let activeThirtyDays = 0;
 
+    // [FIXED] Point #101: Pre-index orders by userId and phone to avoid O(N*M) complexity
+    const ordersByUser = {};
+    const ordersByPhone = {};
+
+    orders.forEach(o => {
+      if (o.userId) {
+        if (!ordersByUser[o.userId]) ordersByUser[o.userId] = [];
+        ordersByUser[o.userId].push(o);
+      }
+      if (o.userPhone) {
+        if (!ordersByPhone[o.userPhone]) ordersByPhone[o.userPhone] = [];
+        ordersByPhone[o.userPhone].push(o);
+      }
+    });
+
     customers.forEach(c => {
-      const userOrders = orders.filter(o => o.userId === c.id || (c.phone && o.userPhone === c.phone));
+      const uOrders = ordersByUser[c.id] || [];
+      const pOrders = c.phone ? (ordersByPhone[c.phone] || []) : [];
+
+      // Fast merge using Map to avoid nested loops
+      const userOrdersMap = new Map();
+      uOrders.forEach(o => userOrdersMap.set(o.id, o));
+      pOrders.forEach(o => userOrdersMap.set(o.id, o));
+      const userOrders = Array.from(userOrdersMap.values());
+
       const totalSpent = userOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
       const ordersCount = userOrders.length;
 
@@ -189,6 +221,14 @@ const CRMDashboard = () => {
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
   }, [complaints]);
 
+  // [FIXED] Point #92: Utility to mask PII (Phone numbers) in CRM view
+  const maskPhone = (phone) => {
+    if (!phone) return '—';
+    const s = String(phone);
+    if (s.length < 10) return s;
+    return s.substring(0, 3) + 'XXXX' + s.substring(s.length - 3);
+  };
+
   // Unified Live Realtime Activity Stream (Latest 10)
   const unifiedActivityStream = useMemo(() => {
     const events = [];
@@ -234,6 +274,86 @@ const CRMDashboard = () => {
 
     return events.sort((a, b) => b.timestamp - a.timestamp).slice(0, 10);
   }, [tickets, complaints, feedbackList]);
+
+  // Farm & Crop Agronomy Intelligence (Top Cultivated Crops, Land Holding, Age Demographics)
+  const farmIntelligence = useMemo(() => {
+    // 1. Top Cultivated Crops
+    const cropMap = {};
+    let totalCultivatedArea = 0;
+
+    // 2. Land Holding Distribution
+    // Marginal <10 Katha, Small 10-30 Katha, Medium 30-50 Katha, Large >50 Katha
+    const landHolding = {
+      marginal: { key: 'marginal', label: 'Marginal (<10 Katha)', count: 0, color: 'bg-blue-500', barColor: '#3b82f6', text: 'text-blue-700', bg: 'bg-blue-50', badge: '< 10 Katha' },
+      small: { key: 'small', label: 'Small (10–30 Katha)', count: 0, color: 'bg-emerald-500', barColor: '#10b981', text: 'text-emerald-700', bg: 'bg-emerald-50', badge: '10–30 Katha' },
+      medium: { key: 'medium', label: 'Medium (30–50 Katha)', count: 0, color: 'bg-amber-500', barColor: '#f59e0b', text: 'text-amber-700', bg: 'bg-amber-50', badge: '30–50 Katha' },
+      large: { key: 'large', label: 'Large (>50 Katha)', count: 0, color: 'bg-purple-500', barColor: '#8b5cf6', text: 'text-purple-700', bg: 'bg-purple-50', badge: '> 50 Katha' },
+    };
+
+    // 3. Farmer Age Demographics
+    // Young <30, Mid 30-50, Senior >50
+    const ageCohorts = {
+      young: { key: 'young', label: 'Young Agronomists (<30 Yrs)', count: 0, color: 'bg-emerald-500', barColor: '#10b981', text: 'text-emerald-700', bg: 'bg-emerald-50', range: '<30 Yrs', icon: '🌱' },
+      mid: { key: 'mid', label: 'Mid-Career Farmers (30–50 Yrs)', count: 0, color: 'bg-blue-500', barColor: '#3b82f6', text: 'text-blue-700', bg: 'bg-blue-50', range: '30–50 Yrs', icon: '🌾' },
+      senior: { key: 'senior', label: 'Senior Veterans (>50 Yrs)', count: 0, color: 'bg-amber-500', barColor: '#f59e0b', text: 'text-amber-700', bg: 'bg-amber-50', range: '>50 Yrs', icon: '🎖️' },
+    };
+
+    let totalRecordedLand = 0;
+    let farmersWithLand = 0;
+    let farmersWithAge = 0;
+
+    customers.forEach(c => {
+      // Crops
+      const crops = getCropAllocations(c);
+      crops.forEach(cr => {
+        const name = cr.name?.trim() || 'Unknown Crop';
+        const area = Number(cr.area) || 0;
+        if (!cropMap[name]) {
+          cropMap[name] = { name, totalArea: 0, farmerCount: 0, unit: cr.unit || 'Katha' };
+        }
+        cropMap[name].totalArea += area;
+        cropMap[name].farmerCount += 1;
+        totalCultivatedArea += area;
+      });
+
+      // Land Holding
+      const land = getLandSize(c);
+      if (land > 0) {
+        farmersWithLand++;
+        totalRecordedLand += land;
+        if (land < 10) landHolding.marginal.count++;
+        else if (land <= 30) landHolding.small.count++;
+        else if (land <= 50) landHolding.medium.count++;
+        else landHolding.large.count++;
+      }
+
+      // Age
+      const age = getFarmerAge(c);
+      if (age !== null && age > 0) {
+        farmersWithAge++;
+        if (age < 30) ageCohorts.young.count++;
+        else if (age <= 50) ageCohorts.mid.count++;
+        else ageCohorts.senior.count++;
+      }
+    });
+
+    const topCrops = Object.values(cropMap)
+      .sort((a, b) => b.totalArea - a.totalArea)
+      .slice(0, 6);
+
+    const avgLand = farmersWithLand > 0 ? (totalRecordedLand / farmersWithLand).toFixed(1) : 0;
+
+    return {
+      topCrops,
+      totalCultivatedArea,
+      landHoldingList: Object.values(landHolding),
+      farmersWithLand,
+      totalRecordedLand,
+      avgLand,
+      ageCohortsList: Object.values(ageCohorts),
+      farmersWithAge
+    };
+  }, [customers]);
 
   return (
     <div className="space-y-6">
@@ -522,6 +642,196 @@ const CRMDashboard = () => {
                 </Link>
               ))
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Regional Farm & Agronomy Intelligence Section */}
+      <div className="space-y-4 pt-2">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-gray-100 pb-3">
+          <div>
+            <h2 className="text-lg font-black text-gray-900 tracking-tight flex items-center gap-2">
+              <Tractor className="text-[#1b5e20]" size={22} />
+              Regional Farm &amp; Agronomy Intelligence
+            </h2>
+            <p className="text-xs text-gray-500 font-medium">
+              Aggregated crop allocations, land holding distribution, and farmer demographic segmentation across all registered farmers.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold text-gray-600 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-100 flex items-center gap-1.5">
+              <Wheat size={14} className="text-[#1b5e20]" />
+              <span className="font-black text-[#1b5e20]">{farmIntelligence.totalCultivatedArea} Katha</span> Total Cultivated
+            </span>
+            <span className="text-xs font-bold text-gray-600 bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200/70 flex items-center gap-1.5">
+              <Layers size={14} className="text-gray-600" />
+              <span className="font-black text-gray-900">~{farmIntelligence.avgLand} Katha</span> Avg Holding
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Widget 1: Top Cultivated Crops in Region */}
+          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider flex items-center gap-2">
+                <Leaf size={16} className="text-[#1b5e20]" />
+                Top Cultivated Crops in Region
+              </h3>
+              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
+                Aggregated
+              </span>
+            </div>
+
+            {farmIntelligence.topCrops.length === 0 ? (
+              <div className="py-12 text-center text-xs text-gray-400">
+                <Sprout size={32} className="mx-auto text-gray-300 mb-2" />
+                No crop allocations recorded yet across farmers.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {farmIntelligence.topCrops.map((crop, idx) => {
+                  const pct = farmIntelligence.totalCultivatedArea > 0
+                    ? Math.round((crop.totalArea / farmIntelligence.totalCultivatedArea) * 100)
+                    : 0;
+                  const rankColors = ['bg-amber-400 text-amber-950', 'bg-slate-300 text-slate-800', 'bg-amber-600 text-white', 'bg-gray-100 text-gray-700'];
+                  return (
+                    <div key={crop.name} className="p-3 bg-gray-50 rounded-2xl border border-gray-100/80 space-y-2 hover:bg-gray-100/50 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black ${rankColors[idx] || rankColors[3]}`}>
+                            #{idx + 1}
+                          </span>
+                          <span className="text-xs font-black text-gray-900">{crop.name}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-mono text-xs font-black text-emerald-800">
+                            {crop.totalArea} {crop.unit}
+                          </span>
+                          <span className="text-[10px] text-gray-400 font-bold ml-1.5">
+                            ({crop.farmerCount} farmer{crop.farmerCount === 1 ? '' : 's'})
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="w-full bg-gray-200/70 h-2 rounded-full overflow-hidden">
+                        <div
+                          className="bg-[#1b5e20] h-full rounded-full transition-all"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[10px] text-gray-400 font-bold">
+                        <span>Regional Share</span>
+                        <span className="font-mono text-gray-700">{pct}%</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Widget 2: Land Holding Distribution */}
+          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider flex items-center gap-2">
+                <Layers size={16} className="text-[#1b5e20]" />
+                Land Holding Distribution
+              </h3>
+              <span className="text-[10px] font-bold text-gray-400 font-mono">
+                {farmIntelligence.farmersWithLand} Recorded
+              </span>
+            </div>
+
+            <div className="space-y-4">
+              {farmIntelligence.landHoldingList.map(item => {
+                const total = farmIntelligence.farmersWithLand;
+                const pct = total > 0 ? Math.round((item.count / total) * 100) : 0;
+                return (
+                  <div key={item.key} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-bold">
+                      <span className={`flex items-center gap-1.5 ${item.text}`}>
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.barColor }} />
+                        {item.label}
+                      </span>
+                      <span className="font-mono text-gray-900">
+                        {item.count} <span className="text-gray-400 font-normal">({pct}%)</span>
+                      </span>
+                    </div>
+
+                    <div className="w-full bg-gray-100 h-2.5 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${pct}%`, backgroundColor: item.barColor }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div className="pt-3 border-t border-gray-100 grid grid-cols-2 gap-2 text-center">
+                <div className="p-2.5 bg-gray-50 rounded-xl">
+                  <p className="text-[9px] font-black uppercase text-gray-400">Total Tracked Land</p>
+                  <p className="text-sm font-black text-gray-900 font-mono mt-0.5">
+                    {farmIntelligence.totalRecordedLand} Katha
+                  </p>
+                </div>
+                <div className="p-2.5 bg-gray-50 rounded-xl">
+                  <p className="text-[9px] font-black uppercase text-gray-400">Avg Land / Farmer</p>
+                  <p className="text-sm font-black text-gray-900 font-mono mt-0.5">
+                    {farmIntelligence.avgLand} Katha
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Widget 3: Farmer Age Demographics */}
+          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider flex items-center gap-2">
+                <Users size={16} className="text-[#1b5e20]" />
+                Farmer Age Demographics
+              </h3>
+              <span className="text-[10px] font-bold text-gray-400 font-mono">
+                {farmIntelligence.farmersWithAge} Cohort Sample
+              </span>
+            </div>
+
+            <div className="space-y-4">
+              {farmIntelligence.ageCohortsList.map(cohort => {
+                const total = farmIntelligence.farmersWithAge;
+                const pct = total > 0 ? Math.round((cohort.count / total) * 100) : 0;
+                return (
+                  <div key={cohort.key} className="p-3.5 bg-gray-50 rounded-2xl border border-gray-100 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{cohort.icon}</span>
+                        <div>
+                          <p className="text-xs font-black text-gray-900">{cohort.label}</p>
+                          <p className="text-[10px] text-gray-400 font-medium">Cohort bracket: {cohort.range}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-mono text-sm font-black text-gray-900">{cohort.count}</span>
+                        <span className="text-[10px] text-gray-500 font-bold block">{pct}%</span>
+                      </div>
+                    </div>
+
+                    <div className="w-full bg-gray-200/80 h-2 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${pct}%`, backgroundColor: cohort.barColor }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+
+              <p className="text-[10px] text-gray-400 italic text-center pt-1">
+                Data dynamically categorized from KYC profiles and farmer mobile app submissions.
+              </p>
+            </div>
           </div>
         </div>
       </div>

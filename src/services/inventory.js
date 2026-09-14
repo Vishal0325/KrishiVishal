@@ -1,9 +1,79 @@
-import { collection, addDoc, getDocs, Timestamp } from "firebase/firestore";
+import { collection, addDoc, getDocs, Timestamp, doc, runTransaction, serverTimestamp } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "../firebase/config";
 import Papa from "papaparse";
 import ExcelJS from "exceljs";
 import { createWorksheetFromJson, downloadWorkbook } from "../utils/excel";
+
+/**
+ * Concurrency-Safe Atomic Stock Reservation.
+ * Prevents overselling during high-volume peak seasons across 50+ admins.
+ */
+export async function reserveStockAtomic(productId, requestedQty, orderId = null) {
+  return await runTransaction(db, async (transaction) => {
+    const productRef = doc(db, "products", productId);
+    const productDoc = await transaction.get(productRef);
+    if (!productDoc.exists()) {
+      throw new Error(`Product ${productId} not found`);
+    }
+    const currentStock = Number(productDoc.data().stock) || 0;
+    if (currentStock < requestedQty) {
+      throw new Error(`Insufficient stock for ${productDoc.data().name || productId}. Available: ${currentStock}, Requested: ${requestedQty}`);
+    }
+    const updatedStock = currentStock - requestedQty;
+    transaction.update(productRef, {
+      stock: updatedStock,
+      updatedAt: serverTimestamp()
+    });
+
+    // Record audit stock movement within transaction
+    const movementRef = doc(collection(db, "stock_movements"));
+    transaction.set(movementRef, {
+      productId,
+      type: "ORDER_RESERVATION",
+      change: -requestedQty,
+      previousStock: currentStock,
+      newStock: updatedStock,
+      orderId: orderId || null,
+      createdAt: serverTimestamp()
+    });
+
+    return { success: true, previousStock: currentStock, newStock: updatedStock };
+  });
+}
+
+/**
+ * Concurrency-Safe Atomic Stock Release (e.g. on order cancellation/return).
+ */
+export async function releaseStockAtomic(productId, returnQty, reason = "ORDER_CANCELLED") {
+  return await runTransaction(db, async (transaction) => {
+    const productRef = doc(db, "products", productId);
+    const productDoc = await transaction.get(productRef);
+    if (!productDoc.exists()) {
+      throw new Error(`Product ${productId} not found`);
+    }
+    const currentStock = Number(productDoc.data().stock) || 0;
+    const updatedStock = currentStock + returnQty;
+    transaction.update(productRef, {
+      stock: updatedStock,
+      updatedAt: serverTimestamp()
+    });
+
+    const movementRef = doc(collection(db, "stock_movements"));
+    transaction.set(movementRef, {
+      productId,
+      type: "STOCK_RELEASE",
+      change: returnQty,
+      previousStock: currentStock,
+      newStock: updatedStock,
+      reason,
+      createdAt: serverTimestamp()
+    });
+
+    return { success: true, previousStock: currentStock, newStock: updatedStock };
+  });
+}
+
 
 // ─── Cloud Function Wrappers (all inventory mutations go through CF) ───
 

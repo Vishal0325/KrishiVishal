@@ -36,7 +36,8 @@ export async function getStatutoryLicenses(filters = {}) {
 export async function createStatutoryLicense(licenseData) {
   try {
     const user = auth.currentUser;
-    const licenseId = licenseData.licenseId || `LIC-${Date.now().toString().slice(-6)}`;
+    // [FIXED] Point #170: Robust unique ID generation for licenses to prevent collisions
+    const licenseId = licenseData.licenseId || `LIC-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
     const docRef = doc(db, COLLECTION_NAME, licenseId);
 
     const payload = {

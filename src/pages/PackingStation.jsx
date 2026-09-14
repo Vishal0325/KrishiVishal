@@ -15,6 +15,9 @@ import { db, functions } from '../firebase/config';
 import { addAuditLog } from '../services/logger';
 import PageHeader from '../components/common/PageHeader';
 import { formatCurrency } from '../utils/formatters';
+import { printShippingLabel, printThermalShippingLabel } from '../utils/PrintService';
+import ScanToDispatchModal from '../components/packing/ScanToDispatchModal';
+import MultiParcelModal from '../components/packing/MultiParcelModal';
 import {
   PackageCheck,
   Search,
@@ -35,7 +38,9 @@ import {
   CheckCircle2,
   ExternalLink,
   Tag,
-  Sparkles
+  Sparkles,
+  Layers,
+  Scan
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -52,6 +57,9 @@ const PackingStation = () => {
   const [packing, setPacking] = useState(false);
   const [shippingLabelData, setShippingLabelData] = useState(null);
   const [isLabelModalOpen, setIsLabelModalOpen] = useState(false);
+  const [isScanToDispatchOpen, setIsScanToDispatchOpen] = useState(false);
+  const [isMultiParcelOpen, setIsMultiParcelOpen] = useState(false);
+  const [multiParcelOrder, setMultiParcelOrder] = useState(null);
 
   // Listen to orders
   useEffect(() => {
@@ -77,17 +85,20 @@ const PackingStation = () => {
     const s = o.status || 'PLACED';
     let matchTab = false;
     if (activeTab === 'READY_FOR_PACKING') {
-      matchTab = ['PLACED', 'PAYMENT_CONFIRMED', 'READY_FOR_PACKING'].includes(s);
+      matchTab = ['PLACED', 'PAYMENT_CONFIRMED', 'READY_FOR_PACKING', 'CONFIRMED'].includes(s);
     } else if (activeTab === 'PACKING') {
       matchTab = s === 'PACKING';
     } else if (activeTab === 'PACKED') {
       matchTab = ['PACKED', 'READY_FOR_PICKUP', 'RIDER_ASSIGNED'].includes(s);
     }
 
-    const matchSearch = !searchTerm ||
-      o.id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      o.userName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      o.userPhone?.includes(searchTerm);
+    const sTerm = (searchTerm || '').trim().toLowerCase();
+    const matchSearch = !sTerm ||
+      String(o.id || '').toLowerCase().includes(sTerm) ||
+      String(o.userName || '').toLowerCase().includes(sTerm) ||
+      String(o.userPhone || '').includes(sTerm) ||
+      String(o.address?.name || '').toLowerCase().includes(sTerm) ||
+      String(o.address?.phone || '').includes(sTerm);
       
     const matchHub = hubFilter === 'All' || o.fulfillmentWarehouseId === hubFilter;
 
@@ -95,20 +106,23 @@ const PackingStation = () => {
   });
 
   // Select order to pack
-  const handleSelectOrder = (order) => {
+  const handleSelectOrder = async (order) => {
+    if (!order) return;
     setSelectedOrder(order);
-    // Initialize checklist
+    
+    // Initialize checklist safely
+    const itemsList = Array.isArray(order.items) ? order.items : [];
     const initialChecklist = {};
-    (order.items || []).forEach((item, idx) => {
+    itemsList.forEach((_, idx) => {
       initialChecklist[idx] = false;
     });
     setCheckedItems(initialChecklist);
 
-    // Query FEFO batch recommendations for each item in the order
+    // FEFO batch recommendations
     const warehouseId = order.fulfillmentWarehouseId || 'WH-PURNEA-01';
-    (order.items || []).forEach(async (it) => {
+    for (const it of itemsList) {
       const skuId = it.productId || it.skuId || it.id;
-      if (!skuId) return;
+      if (!skuId) continue;
       try {
         const invQ = query(
           collection(db, 'warehouse_inventory'),
@@ -121,7 +135,7 @@ const PackingStation = () => {
           docs.sort((a, b) => {
             if (!a.expiryDate) return 1;
             if (!b.expiryDate) return -1;
-            return a.expiryDate.localeCompare(b.expiryDate);
+            return String(a.expiryDate).localeCompare(String(b.expiryDate));
           });
           const bestBatch = docs[0];
           setFefoBatches(prev => ({
@@ -133,17 +147,8 @@ const PackingStation = () => {
           }));
         }
       } catch (e) {
-        console.warn('FEFO lookup error:', e);
+        console.warn('FEFO lookup notice:', e);
       }
-    });
-
-    // If order was in PLACED or READY_FOR_PACKING, transition to PACKING
-    if (['PLACED', 'PAYMENT_CONFIRMED', 'READY_FOR_PACKING'].includes(order.status)) {
-      updateDoc(doc(db, 'orders', order.id), {
-        status: 'PACKING',
-        packingStartedAt: Timestamp.now(),
-        updatedAt: Timestamp.now()
-      }).catch(err => console.warn('Status update notice:', err));
     }
   };
 
@@ -169,36 +174,28 @@ const PackingStation = () => {
 
     setPacking(true);
     try {
-      // 1. Generate Signed QR Token via Cloud Function or local HMAC fallback
+      // 1. Generate Signed QR Token via Cloud Function or local fallback
       let qrPayloadString = '';
       try {
         const generateQR = httpsCallable(functions, 'generateSignedQRPayload');
         const res = await generateQR({ orderId: selectedOrder.id });
         qrPayloadString = res.data?.qrPayload || '';
       } catch (fnErr) {
-        console.warn('Cloud function fallback to direct signed payload:', fnErr);
-        const salt = Math.random().toString(36).substring(2, 15);
-        const timestamp = Date.now();
-        const payloadObj = {
+        console.warn('Server QR token signing fallback:', fnErr);
+        qrPayloadString = JSON.stringify({
           orderId: selectedOrder.id,
           amount: selectedOrder.totalAmount || 0,
           paymentMethod: selectedOrder.paymentMethod || 'COD',
           customerName: selectedOrder.userName || '',
-          customerPhone: selectedOrder.userPhone || '',
-          salt,
-          timestamp,
-          checksum: `KV-${selectedOrder.id.slice(0, 8).toUpperCase()}`
-        };
-        qrPayloadString = JSON.stringify(payloadObj);
-
-        // Update Firestore directly
-        await updateDoc(doc(db, 'orders', selectedOrder.id), {
-          status: 'PACKED',
-          qrPayload: qrPayloadString,
-          packedAt: Timestamp.now(),
-          updatedAt: Timestamp.now()
+          timestamp: Date.now()
         });
       }
+
+      await updateDoc(doc(db, 'orders', selectedOrder.id), {
+        status: 'PACKED',
+        packedAt: Timestamp.now(),
+        updatedAt: Timestamp.now()
+      });
 
       const labelData = {
         orderId: selectedOrder.id,
@@ -210,7 +207,7 @@ const PackingStation = () => {
         totalAmount: selectedOrder.totalAmount || 0,
         items: selectedOrder.items || [],
         qrData: qrPayloadString || selectedOrder.id,
-        hubCode: 'HUB-PURNEA-01'
+        hubCode: selectedOrder.fulfillmentWarehouseId ? (warehouses.find(w => w.id === selectedOrder.fulfillmentWarehouseId)?.code || selectedOrder.fulfillmentWarehouseId) : 'HUB-CENTRAL-01'
       };
 
       setShippingLabelData(labelData);
@@ -232,9 +229,9 @@ const PackingStation = () => {
     }
   };
 
-  // Print Shipping Label
+  // Print Shipping Label (Thermal 4x6)
   const handlePrintLabel = () => {
-    window.print();
+    printThermalShippingLabel(selectedOrder || shippingLabelData);
   };
 
   // Open existing packed order label
@@ -265,55 +262,65 @@ const PackingStation = () => {
 
   return (
     <div className="space-y-6 pb-10 animate-in fade-in duration-300">
-      <div className="print:hidden">
+      <div className="print:hidden flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <PageHeader
           title="Warehouse Packing Station ERP"
-          subtitle="Verify order items, generate signed HMAC QR Codes, and print thermal 4x6 shipping labels."
+          subtitle="Verify order items, generate signed HMAC QR Codes, split multi-parcel heavy bags, and print thermal 4x6 shipping labels."
         />
+
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setIsScanToDispatchOpen(true)}
+            className="px-4 py-2.5 bg-slate-900 hover:bg-black text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md flex items-center space-x-2 transition active:scale-95"
+          >
+            <Scan className="w-4 h-4 text-emerald-400" />
+            <span>Scan-to-Dispatch Console</span>
+          </button>
+        </div>
       </div>
 
-      {/* Packing State Tabs */}
-      <div className="flex bg-gray-100 p-1 rounded-xl w-fit print:hidden">
-        <button
-          onClick={() => { setActiveTab('READY_FOR_PACKING'); setSelectedOrder(null); }}
-          className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-            activeTab === 'READY_FOR_PACKING' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
-          }`}
-        >
-          Ready to Pack ({orders.filter(o => ['PLACED', 'PAYMENT_CONFIRMED', 'READY_FOR_PACKING'].includes(o.status)).length})
-        </button>
-        <button
-          onClick={() => { setActiveTab('PACKING'); setSelectedOrder(null); }}
-          className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-            activeTab === 'PACKING' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
-          }`}
-        >
-          Packing in Progress ({orders.filter(o => o.status === 'PACKING').length})
-        </button>
-        <button
-          onClick={() => { setActiveTab('PACKED'); setSelectedOrder(null); }}
-          className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-            activeTab === 'PACKED' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
-          }`}
-        >
-          Packed & Labeled ({orders.filter(o => ['PACKED', 'READY_FOR_PICKUP', 'RIDER_ASSIGNED'].includes(o.status)).length})
-        </button>
-      </div>
+      {/* Packing State Tabs & Hub Selector */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-gray-100 shadow-sm print:hidden">
+        <div className="flex bg-gray-100 p-1 rounded-xl w-fit">
+          <button
+            onClick={() => { setActiveTab('READY_FOR_PACKING'); setSelectedOrder(null); }}
+            className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
+              activeTab === 'READY_FOR_PACKING' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Ready to Pack ({orders.filter(o => ['PLACED', 'PAYMENT_CONFIRMED', 'READY_FOR_PACKING'].includes(o.status)).length})
+          </button>
+          <button
+            onClick={() => { setActiveTab('PACKING'); setSelectedOrder(null); }}
+            className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
+              activeTab === 'PACKING' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Packing in Progress ({orders.filter(o => o.status === 'PACKING').length})
+          </button>
+          <button
+            onClick={() => { setActiveTab('PACKED'); setSelectedOrder(null); }}
+            className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
+              activeTab === 'PACKED' ? 'bg-[#1b5e20] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Packed & Labeled ({orders.filter(o => ['PACKED', 'READY_FOR_PICKUP', 'RIDER_ASSIGNED'].includes(o.status)).length})
+          </button>
+        </div>
 
-      {/* Hub Filter */}
-      <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm print:hidden flex items-center space-x-3">
-        <label className="text-xs font-black text-gray-500 uppercase">Select Hub:</label>
-        <select
-          value={hubFilter}
-          onChange={(e) => { setHubFilter(e.target.value); setSelectedOrder(null); }}
-          className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs font-bold text-gray-700 outline-none focus:ring-2 focus:ring-primary/20"
-        >
-          <option value="All">All Hubs (Admin View)</option>
-          {warehouses.map(w => (
-            <option key={w.id} value={w.id}>{w.name} ({w.code})</option>
-          ))}
-        </select>
-        <span className="text-[10px] text-gray-400">Only orders assigned to this Hub will be shown below.</span>
+        <div className="flex items-center space-x-2">
+          <label className="text-xs font-black text-gray-500 uppercase">Hub:</label>
+          <select
+            value={hubFilter}
+            onChange={(e) => { setHubFilter(e.target.value); setSelectedOrder(null); }}
+            className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-bold text-gray-700 outline-none focus:ring-2 focus:ring-primary/20"
+          >
+            <option value="All">All Hubs</option>
+            {warehouses.map(w => (
+              <option key={w.id} value={w.id}>{w.name} ({w.code})</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Main Grid: Orders List + Packing Workspace */}
@@ -433,7 +440,19 @@ const PackingStation = () => {
                   </p>
                 </div>
 
-                <div className="text-right">
+                <div className="text-right flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setMultiParcelOrder(selectedOrder);
+                      setIsMultiParcelOpen(true);
+                    }}
+                    className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition"
+                    title="Split into multiple boxes (e.g. 50kg bag + liquid spray)"
+                  >
+                    <Layers size={14} />
+                    <span>{selectedOrder.parcels?.length > 1 ? `${selectedOrder.parcels.length} Parcels` : 'Multi-Parcel Split'}</span>
+                  </button>
+
                   <span className={`inline-block px-3 py-1 rounded-full text-xs font-black uppercase ${
                     selectedOrder.paymentMethod === 'ONLINE' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'
                   }`}>
@@ -507,24 +526,26 @@ const PackingStation = () => {
               </div>
 
               {/* Complete Packing Action Button */}
-              <button
-                onClick={handleCompletePacking}
-                disabled={packing || !allItemsChecked}
-                className={`w-full py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg transition-all flex items-center justify-center gap-2 ${
-                  allItemsChecked
-                    ? 'bg-[#1b5e20] text-white shadow-green-100 hover:bg-[#2e7d32] active:scale-[0.98]'
-                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                }`}
-              >
-                {packing ? (
-                  <Loader2 size={18} className="animate-spin" />
-                ) : (
-                  <QrCode size={18} />
-                )}
-                {allItemsChecked
-                  ? 'Complete Packing & Generate Shipping Label'
-                  : 'Check all items above to complete packing'}
-              </button>
+              <div className="space-y-2">
+                <button
+                  onClick={handleCompletePacking}
+                  disabled={packing || !allItemsChecked}
+                  className={`w-full py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg transition-all flex items-center justify-center gap-2 ${
+                    allItemsChecked
+                      ? 'bg-[#1b5e20] text-white shadow-green-100 hover:bg-[#2e7d32] active:scale-[0.98]'
+                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  {packing ? (
+                    <Loader2 size={18} className="animate-spin" />
+                  ) : (
+                    <QrCode size={18} />
+                  )}
+                  {allItemsChecked
+                    ? 'Complete Packing & Generate 4x6 Thermal Label'
+                    : 'Check all items above to complete packing'}
+                </button>
+              </div>
             </div>
           ) : (
             <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-12 text-center flex flex-col items-center justify-center min-h-[400px]">
@@ -556,7 +577,7 @@ const PackingStation = () => {
                   onClick={handlePrintLabel}
                   className="px-4 py-2 bg-[#1b5e20] text-white text-xs font-black uppercase rounded-xl hover:bg-[#2e7d32] shadow-sm flex items-center gap-1.5"
                 >
-                  <Printer size={14} /> Print
+                  <Printer size={14} /> Print 4×6 Thermal
                 </button>
                 <button
                   onClick={() => setIsLabelModalOpen(false)}
@@ -593,7 +614,7 @@ const PackingStation = () => {
                     alt="Package Secure QR"
                     className="w-36 h-36 object-contain"
                   />
-                  <span className="text-[8px] font-mono text-gray-500 mt-1 tracking-tight">SCAN ON PICKUP & POD</span>
+                  <span className="text-[8px] font-mono text-gray-500 mt-1 tracking-tight">SCAN ON PICKUP &amp; POD</span>
                 </div>
 
                 {/* Payment Badge */}
@@ -632,7 +653,7 @@ const PackingStation = () => {
               <div className="space-y-1">
                 <p className="text-[9px] font-black uppercase tracking-widest text-gray-500">Package Contents:</p>
                 <div className="text-[10px] space-y-0.5">
-                  {shippingLabelData.items.map((item, idx) => (
+                  {(shippingLabelData.items || []).map((item, idx) => (
                     <div key={idx} className="flex justify-between font-bold text-black">
                       <span>• {item.productName || 'Agro Product'}</span>
                       <span>x{item.quantity || 1}</span>
@@ -648,6 +669,31 @@ const PackingStation = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* SCAN-TO-DISPATCH MODAL */}
+      {isScanToDispatchOpen && (
+        <ScanToDispatchModal
+          isOpen={isScanToDispatchOpen}
+          onClose={() => setIsScanToDispatchOpen(false)}
+          onComplete={() => setIsScanToDispatchOpen(false)}
+        />
+      )}
+
+      {/* MULTI-PARCEL SPLIT MODAL */}
+      {isMultiParcelOpen && multiParcelOrder && (
+        <MultiParcelModal
+          isOpen={isMultiParcelOpen}
+          order={multiParcelOrder}
+          onClose={() => {
+            setIsMultiParcelOpen(false);
+            setMultiParcelOrder(null);
+          }}
+          onUpdated={() => {
+            setIsMultiParcelOpen(false);
+            setMultiParcelOrder(null);
+          }}
+        />
       )}
     </div>
   );

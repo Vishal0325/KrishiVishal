@@ -11,10 +11,10 @@ const Banners = () => {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [formData, setFormData] = useState({ title: '', link: '', imageUrl: '', order: 1 });
+  const [formData, setFormData] = useState({ title: '', link: '', imageUrl: '', priority: 1 });
 
   useEffect(() => {
-    const q = query(collection(db, 'banners'), orderBy('order', 'asc'));
+    const q = query(collection(db, 'banners'), orderBy('priority', 'asc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setBanners(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLoading(false);
@@ -51,25 +51,36 @@ const Banners = () => {
     if (!formData.imageUrl) return toast.error('Upload image first');
 
     try {
+      // [FIXED] Point #88: Unified priority/order field naming for cross-platform consistency
       await addDoc(collection(db, 'banners'), {
         title: formData.title,
         imageUrl: formData.imageUrl,
-        linkUrl: formData.link, // Mapped to Android 'linkUrl'
-        priority: Number(formData.order), // Mapped to Android 'priority'
+        linkUrl: formData.link,
+        priority: Number(formData.priority || 1),
         createdAt: Timestamp.now()
       });
       toast.success('Banner added!');
       setIsModalOpen(false);
-      setFormData({ title: '', link: '', imageUrl: '', order: banners.length + 1 });
+      setFormData({ title: '', link: '', imageUrl: '', priority: banners.length + 1 });
     } catch (error) {
       toast.error('Failed to save');
     }
   };
 
-  const deleteBanner = async (id) => {
+  const deleteBanner = async (banner) => {
     if (window.confirm('Remove this banner?')) {
-      await deleteDoc(doc(db, 'banners', id));
-      toast.success('Banner removed');
+      try {
+        // [FIXED] Point #28: Delete banner image from Storage when removing record
+        if (banner.imageUrl) {
+          const { ref, deleteObject } = await import("firebase/storage");
+          const bannerRef = ref(storage, banner.imageUrl);
+          await deleteObject(bannerRef);
+        }
+        await deleteDoc(doc(db, 'banners', banner.id));
+        toast.success('Banner removed');
+      } catch (err) {
+        toast.error('Failed to remove');
+      }
     }
   };
 
@@ -118,7 +129,7 @@ const Banners = () => {
         {banners.map((banner, i) => (
           <div key={banner.id} className="group bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-xl transition-all duration-500 relative">
             <div className="absolute top-4 left-4 bg-white/95 backdrop-blur px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest text-primary shadow-sm z-10">
-              #{banner.order} Priority
+              #{banner.priority || banner.order} Priority
             </div>
             <div className="aspect-[16/7] overflow-hidden bg-gray-50">
               <img src={banner.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt="" />

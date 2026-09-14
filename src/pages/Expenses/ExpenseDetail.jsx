@@ -57,7 +57,7 @@ const ExpenseDetail = () => {
         setExpense({ id: snap.id, ...snap.data() });
       } else {
         toast.error("Expense not found");
-        navigate('/expenses');
+        navigate('/finance-desk?tab=expenses');
       }
       setLoading(false);
     });
@@ -129,7 +129,12 @@ const ExpenseDetail = () => {
         transactionId: paymentForm.reference,
         notes: paymentForm.notes,
         paymentDate: new Date().toISOString()
-      }, user.uid);
+      }, {
+        uid: user?.uid,
+        email: user?.email || '',
+        name: user?.displayName || user?.email?.split('@')[0] || 'Admin',
+        role: role || 'Admin'
+      });
       toast.success("Payment recorded");
       setIsPayModalOpen(false);
       setPaymentForm({ amount: '', method: 'UPI', reference: '', notes: '' });
@@ -152,7 +157,7 @@ const ExpenseDetail = () => {
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
         <div className="flex items-center space-x-4">
           <button
-            onClick={() => navigate('/expenses')}
+            onClick={() => navigate('/finance-desk?tab=expenses')}
             className="p-3 bg-white border border-gray-100 rounded-2xl text-gray-400 hover:text-primary transition-all shadow-sm"
           >
             <ArrowLeft size={24} />

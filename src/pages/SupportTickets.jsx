@@ -7,7 +7,8 @@ import {
   updateDoc,
   Timestamp,
   query,
-  orderBy
+  orderBy,
+  where
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { useAuth } from '../hooks/useAuth';
@@ -112,20 +113,35 @@ const SupportTickets = () => {
     return unsub;
   }, []);
 
-  // Listen to Users (Customers & Staff)
+  // [FIXED] Point #107: Removed full users collection snapshot to prevent PII leak.
+  // We now only fetch staff for assignment and use server-side search for customers.
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'users'), (snap) => {
-      const allUsers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Customers (farmers)
-      const farmers = allUsers.filter(u => !u.isAdmin && !['SuperAdmin', 'OrderManager', 'CatalogManager'].includes(u.role));
-      setCustomers(farmers);
-
-      // Staff/Admins for assignment
-      const staff = allUsers.filter(u => u.isAdmin || ['SuperAdmin', 'OrderManager', 'CatalogManager'].includes(u.role));
-      setStaffList(staff);
+    const q = query(collection(db, 'users'), where('isAdmin', '==', true));
+    const unsub = onSnapshot(q, (snap) => {
+      setStaffList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     return unsub;
   }, []);
+
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
+
+  const handleSearchCustomer = async (val) => {
+    setCustomerSearch(val);
+    if (val.length < 3) return;
+
+    setIsSearchingCustomer(true);
+    try {
+      const { getFunctions, httpsCallable } = await import('firebase/functions');
+      const searchFn = httpsCallable(getFunctions(), 'searchUsers');
+      const res = await searchFn({ query: val, type: 'CUSTOMER' });
+      setCustomers(res.data.users || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSearchingCustomer(false);
+    }
+  };
 
   // Listen to Orders
   useEffect(() => {
@@ -531,25 +547,40 @@ const SupportTickets = () => {
             </div>
 
             <form onSubmit={handleCreateTicket} className="p-6 space-y-4">
-              {/* Customer Selector */}
+              {/* Customer Selector (Search-based) */}
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Customer / Farmer *</label>
-                <select
-                  required
-                  value={selectedCustomerId}
-                  onChange={(e) => {
-                    setSelectedCustomerId(e.target.value);
-                    setLinkedOrderId('');
-                  }}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl font-bold text-xs text-gray-900 outline-none focus:border-[#1b5e20]"
-                >
-                  <option value="">-- Select Registered Customer --</option>
-                  {customers.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.name || 'Anonymous'} ({c.phone}) - {c.district || c.state || 'Bihar'}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <Search size={14} className="absolute left-3.5 top-3.5 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search name (min 3 chars)..."
+                    value={customerSearch}
+                    onChange={(e) => handleSearchCustomer(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-100 rounded-xl font-bold text-xs text-gray-900 outline-none"
+                  />
+                  {isSearchingCustomer && <Loader2 size={14} className="absolute right-3.5 top-3.5 animate-spin text-[#1b5e20]" />}
+                </div>
+
+                {customers.length > 0 && customerSearch.length >= 3 && (
+                  <div className="mt-2 max-h-40 overflow-y-auto border border-gray-100 rounded-xl bg-white shadow-lg">
+                    {customers.map(c => (
+                      <div
+                        key={c.id}
+                        onClick={() => {
+                          setSelectedCustomerId(c.id);
+                          setCustomerSearch(c.name);
+                          setCustomers([]);
+                          setLinkedOrderId('');
+                        }}
+                        className={`p-3 text-xs cursor-pointer hover:bg-emerald-50 border-b border-gray-50 last:border-0 ${selectedCustomerId === c.id ? 'bg-emerald-100' : ''}`}
+                      >
+                        <p className="font-black text-gray-900">{c.name} ({c.phone})</p>
+                        <p className="text-[10px] text-gray-400 uppercase">{c.district || 'Bihar'}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Optional Order Link */}

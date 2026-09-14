@@ -37,33 +37,13 @@ export async function getLeaveRequests(filters = {}) {
 
 export async function applyLeave(leaveData) {
   try {
-    const user = auth.currentUser;
-    const leaveId = `LV-${Date.now().toString().slice(-6)}`;
-    const docRef = doc(db, "leave_requests", leaveId);
+    // [FIXED] Point #153: Moved leave application to Cloud Function for server-side duration calculation
+    const { getFunctions, httpsCallable } = await import("firebase/functions");
+    const functions = getFunctions();
+    const applyLeaveFn = httpsCallable(functions, "applyLeave");
 
-    // Calculate duration in days
-    const start = new Date(leaveData.startDate);
-    const end = new Date(leaveData.endDate || leaveData.startDate);
-    const daysCount = Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1);
-
-    const payload = {
-      ...leaveData,
-      leaveId,
-      daysCount: leaveData.isHalfDay ? 0.5 : daysCount,
-      status: "PENDING", // PENDING, APPROVED, REJECTED, CANCELLED
-      appliedBy: user?.email || "admin",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
-
-    await setDoc(docRef, payload);
-    await addAuditLog("APPLY_LEAVE", "LeaveRequest", leaveId, {
-      employeeName: leaveData.employeeName,
-      leaveType: leaveData.leaveType,
-      daysCount: payload.daysCount
-    });
-
-    return leaveId;
+    const result = await applyLeaveFn(leaveData);
+    return result.data.leaveId;
   } catch (error) {
     console.error("Error applying for leave:", error);
     throw error;
@@ -74,36 +54,56 @@ export async function updateLeaveStatus(leaveId, status, remarks = "") {
   try {
     const user = auth.currentUser;
     const docRef = doc(db, "leave_requests", leaveId);
-    const docSnap = await getDoc(docRef);
-    if (!docSnap.exists()) throw new Error("Leave request not found");
 
-    const leaveData = docSnap.data();
+    // [FIXED] Point #147 & #148: Use transaction for atomic balance update and limit check
+    return await runTransaction(db, async (transaction) => {
+      const docSnap = await transaction.get(docRef);
+      if (!docSnap.exists()) throw new Error("Leave request not found");
 
-    await updateDoc(docRef, {
-      status, // APPROVED, REJECTED
-      adminRemarks: remarks,
-      actionTakenBy: user?.email || "admin",
-      actionTakenAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-
-    // If Approved, deduct from leave balance
-    if (status === "APPROVED" && leaveData.employeeId && leaveData.leaveType !== "LOP") {
-      const balanceRef = doc(db, "leave_balances", leaveData.employeeId);
-      const balanceSnap = await getDoc(balanceRef);
-      if (balanceSnap.exists()) {
-        const balData = balanceSnap.data();
-        const typeKey = leaveData.leaveType.toLowerCase(); // cl, sl, pl
-        const currentUsed = balData[`${typeKey}Used`] || 0;
-        await updateDoc(balanceRef, {
-          [`${typeKey}Used`]: currentUsed + leaveData.daysCount,
-          updatedAt: serverTimestamp(),
-        });
+      const leaveData = docSnap.data();
+      if (leaveData.status !== "PENDING") {
+        throw new Error(`Request is already ${leaveData.status}`);
       }
-    }
 
-    await addAuditLog("UPDATE_LEAVE_STATUS", "LeaveRequest", leaveId, { status, remarks });
-    return true;
+      // If Approved, check and deduct from leave balance
+      if (status === "APPROVED" && leaveData.employeeId && leaveData.leaveType !== "LOP") {
+        const balanceRef = doc(db, "leave_balances", leaveData.employeeId);
+        const balanceSnap = await transaction.get(balanceRef);
+
+        if (balanceSnap.exists()) {
+          const balData = balanceSnap.data();
+          const typeKey = leaveData.leaveType.toLowerCase(); // cl, sl, pl
+          const totalKey = `${typeKey}Total`;
+          const usedKey = `${typeKey}Used`;
+
+          const quota = Number(balData[totalKey]) || 0;
+          const used = Number(balData[usedKey]) || 0;
+          const available = quota - used;
+
+          // Check if employee has sufficient balance
+          if (available < leaveData.daysCount) {
+            throw new Error(`Insufficient ${leaveData.leaveType} balance. Available: ${available}, Requested: ${leaveData.daysCount}`);
+          }
+
+          transaction.update(balanceRef, {
+            [usedKey]: used + leaveData.daysCount,
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          throw new Error("Leave balance record not found for employee");
+        }
+      }
+
+      transaction.update(docRef, {
+        status, // APPROVED, REJECTED
+        adminRemarks: remarks,
+        actionTakenBy: user?.email || "admin",
+        actionTakenAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      return true;
+    });
   } catch (error) {
     console.error("Error updating leave status:", error);
     throw error;
@@ -130,15 +130,19 @@ export async function initializeLeaveBalance(employeeId, employeeName, departmen
     const docSnap = await getDoc(docRef);
 
     if (!docSnap.exists()) {
+      // [FIXED] Point #150: Fetch dynamic statutory leave quotas from global config
+      const configSnap = await getDoc(doc(db, "settings", "config"));
+      const hrConfig = configSnap.exists() ? configSnap.data().hrQuotas || {} : {};
+
       const defaultBalance = {
         employeeId,
         employeeName,
         department,
-        clTotal: 12, // Casual Leave
+        clTotal: Number(hrConfig.clQuota) || 12, // Casual Leave
         clUsed: 0,
-        slTotal: 12, // Sick Leave
+        slTotal: Number(hrConfig.slQuota) || 12, // Sick Leave
         slUsed: 0,
-        plTotal: 15, // Privilege / Earned Leave
+        plTotal: Number(hrConfig.plQuota) || 15, // Privilege / Earned Leave
         plUsed: 0,
         compOffTotal: 0,
         compOffUsed: 0,

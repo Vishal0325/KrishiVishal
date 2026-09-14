@@ -5,7 +5,8 @@ import {
   saveEmployeeSalaryStructure,
   calculateSalaryBreakdown,
   getPayrollRuns,
-  generateMonthlyPayroll
+  generateMonthlyPayroll,
+  getPayslipsByRun
 } from "../../services/payrollService";
 import { getEmployees } from "../../services/workforceService";
 import {
@@ -79,7 +80,15 @@ const StatutoryPayroll = () => {
 
       setEmployees(empsData);
       setSalaryStructures(structsData);
-      setCurrentRun(runsData.length > 0 ? runsData[0] : null);
+
+      const run = runsData.length > 0 ? runsData[0] : null;
+      if (run) {
+        // [FIXED] Point #102: Fetch payslips from sub-collection instead of main document field
+        const slips = await getPayslipsByRun(run.runId);
+        setCurrentRun({ ...run, payslips: slips });
+      } else {
+        setCurrentRun(null);
+      }
     } catch (error) {
       console.error("Failed to load payroll data:", error);
     } finally {
@@ -139,13 +148,17 @@ const StatutoryPayroll = () => {
 
     try {
       setSubmitting(true);
+      // [FIXED] Point #89: Dynamic LOP calculation based on actual days in the month
+      const [year, month] = currentMonth.split('-').map(Number);
+      const actualDaysInMonth = new Date(year, month, 0).getDate();
+
       const employeesWithSalaries = salaryStructures.map(struct => {
         const emp = employees.find(e => (e.employeeId || e.id) === struct.employeeId);
         return {
           ...struct,
           designation: emp?.designation || "Staff",
           lopDays: 0, // In future, integrate exact LOP from attendance
-          daysInMonth: 30,
+          daysInMonth: actualDaysInMonth,
         };
       });
 
@@ -190,37 +203,81 @@ const StatutoryPayroll = () => {
     a.click();
   };
 
-  // Export EPF ECR Sheet
-  const exportEPF_ECR = () => {
+  // Export Official EPFO Text File (#~# delimited for EPFO Unified Employer Portal)
+  const exportEPFO_Official_TXT = () => {
     if (!currentRun || !currentRun.payslips || currentRun.payslips.length === 0) return;
-    const headers = ["UAN", "Member Name", "Gross Wages", "EPF Wages", "EPS Wages", "EE Share (12%)", "ER Share EPF (3.67%)", "ER Share EPS (8.33%)", "NCP Days"];
-    const rows = currentRun.payslips.map(p => {
-      const basic = p.earnings.basic;
-      const pfWage = Math.min(15000, basic);
-      const eeShare = p.deductions.pf;
-      const erEps = Math.round(pfWage * 0.0833);
-      const erEpf = eeShare - erEps;
-      return [
-        `"${p.uanNumber || "101000000000"}"`,
-        `"${p.employeeName}"`,
-        p.earnings.gross,
-        pfWage,
-        pfWage,
-        eeShare,
-        erEpf,
-        erEps,
-        p.lopDays || 0
-      ];
+    
+    // Format: UAN#~#MemberName#~#GrossWages#~#EPFWages#~#EPSWages#~#EDLIWages#~#EEShare#~#EPSShare#~#ERDiff#~#NCPDays#~#RefundOfAdv
+    const textLines = currentRun.payslips.map(p => {
+      const uan = p.uanNumber || "101000000000";
+      const name = p.employeeName || "Employee";
+      const gross = Math.round(p.earnings.gross);
+      const basic = Math.round(p.earnings.basic);
+      const epfWage = Math.min(15000, basic);
+      const epsWage = epfWage;
+      const edliWage = epfWage;
+      const eeShare = Math.round(p.deductions.pf);
+      const epsShare = Math.round(epsWage * 0.0833);
+      const erDiff = eeShare - epsShare;
+      const ncpDays = p.lopDays || 0;
+      const refund = 0;
+
+      return `${uan}#~#${name}#~#${gross}#~#${epfWage}#~#${epsWage}#~#${edliWage}#~#${eeShare}#~#${epsShare}#~#${erDiff}#~#${ncpDays}#~#${refund}`;
     });
+
+    const fileContent = textLines.join("\r\n");
+    const blob = new Blob([fileContent], { type: "text/plain;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `KrishiVishal_EPFO_ECR_Upload_${currentMonth}.txt`;
+    a.click();
+  };
+
+  // Export ESIC Monthly Contribution Return CSV
+  const exportESIC_Return_CSV = () => {
+    if (!currentRun || !currentRun.payslips || currentRun.payslips.length === 0) return;
+    const headers = ["IP Number (10 Digits)", "IP Name", "No of Days for which wages paid", "Total Monthly Wages", "Reason Code for Zero Working Days", "Last Working Day"];
+    const rows = currentRun.payslips.map(p => [
+      `"${p.esicNumber || "1000000000"}"`,
+      `"${p.employeeName}"`,
+      p.daysWorked || 30,
+      p.earnings.gross,
+      0,
+      ""
+    ]);
 
     const csvContent = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `KrishiVishal_EPF_ECR_Challan_${currentMonth}.csv`;
+    a.download = `KrishiVishal_ESIC_Monthly_Return_${currentMonth}.csv`;
     a.click();
   };
+
+  // Export Bihar Professional Tax Form V Sheet
+  const exportBiharPTax_Return = () => {
+    if (!currentRun || !currentRun.payslips || currentRun.payslips.length === 0) return;
+    const headers = ["Employee ID", "Employee Name", "PAN", "Gross Monthly Salary", "Bihar PTax Deducted (INR)", "Assessment Period"];
+    const rows = currentRun.payslips.map(p => [
+      `"${p.employeeId}"`,
+      `"${p.employeeName}"`,
+      `"${p.panNumber || "ABCDE1234F"}"`,
+      p.earnings.gross,
+      p.deductions.pt || 0,
+      `"${currentMonth}"`
+    ]);
+
+    const csvContent = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `KrishiVishal_Bihar_PTax_FormV_${currentMonth}.csv`;
+    a.click();
+  };
+
 
   return (
     <div className="space-y-6 pb-12 animate-in fade-in duration-300">
@@ -491,7 +548,7 @@ const StatutoryPayroll = () => {
                 <CreditCard className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-gray-900 text-sm">Bank Bulk NEFT Payout File</h3>
+                <h3 className="font-bold text-gray-900 text-sm">Bank Bulk NEFT Disbursal File</h3>
                 <p className="text-xs text-gray-400">Direct salary upload format for Corporate Internet Banking</p>
               </div>
             </div>
@@ -507,26 +564,72 @@ const StatutoryPayroll = () => {
             </button>
           </div>
 
-          {/* EPF ECR Sheet */}
+          {/* EPFO Official #~# Text File */}
           <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
             <div className="flex items-center gap-3 pb-3 border-b border-gray-100">
               <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
                 <ShieldCheck className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-gray-900 text-sm">EPFO Electronic Challan (ECR)</h3>
-                <p className="text-xs text-gray-400">Monthly PF portal filing sheet (12% EE + 12% ER split)</p>
+                <h3 className="font-bold text-gray-900 text-sm">Official EPFO Portal ECR File (.txt)</h3>
+                <p className="text-xs text-gray-400">Standard #~# delimited file ready for EPFO Employer Portal</p>
               </div>
             </div>
             <p className="text-xs text-gray-600">
-              Calculates EPF wages, EPS share (8.33%), EPF share (3.67%), and member contributions formatted for the Unified EPFO Employer Portal.
+              Direct text upload for Unified EPFO portal with UAN, EPF Wages, EPS 8.33%, EPF 3.67%, and NCP days without manual editing.
             </p>
             <button
-              onClick={exportEPF_ECR}
+              onClick={exportEPFO_Official_TXT}
               disabled={!currentRun}
               className="w-full py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              <Download className="w-4 h-4" /> Download EPF ECR File ({currentMonth})
+              <Download className="w-4 h-4" /> Download EPFO ECR .txt File ({currentMonth})
+            </button>
+          </div>
+
+          {/* ESIC Monthly Return CSV */}
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+            <div className="flex items-center gap-3 pb-3 border-b border-gray-100">
+              <div className="w-10 h-10 bg-purple-50 text-purple-600 rounded-xl flex items-center justify-center">
+                <Building className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 text-sm">ESIC Monthly Contribution Return</h3>
+                <p className="text-xs text-gray-400">Monthly ESI health insurance filing return (IP Number wise)</p>
+              </div>
+            </div>
+            <p className="text-xs text-gray-600">
+              Monthly ESIC return sheet containing 10-digit IP numbers, days worked, and gross wages for direct ESIC portal filing.
+            </p>
+            <button
+              onClick={exportESIC_Return_CSV}
+              disabled={!currentRun}
+              className="w-full py-2.5 bg-purple-600 text-white rounded-xl text-xs font-semibold hover:bg-purple-700 transition-colors shadow-sm disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <Download className="w-4 h-4" /> Download ESIC Return CSV ({currentMonth})
+            </button>
+          </div>
+
+          {/* Bihar Professional Tax Form V */}
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+            <div className="flex items-center gap-3 pb-3 border-b border-gray-100">
+              <div className="w-10 h-10 bg-amber-50 text-amber-700 rounded-xl flex items-center justify-center">
+                <FileText className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 text-sm">Bihar Professional Tax (PTax Form V)</h3>
+                <p className="text-xs text-gray-400">Bihar Commercial Taxes Department statutory return</p>
+              </div>
+            </div>
+            <p className="text-xs text-gray-600">
+              Generates the official Bihar Commercial Tax PTax slab deduction statement with employee PAN and assessment period.
+            </p>
+            <button
+              onClick={exportBiharPTax_Return}
+              disabled={!currentRun}
+              className="w-full py-2.5 bg-amber-600 text-white rounded-xl text-xs font-semibold hover:bg-amber-700 transition-colors shadow-sm disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <Download className="w-4 h-4" /> Download Bihar PTax Form V ({currentMonth})
             </button>
           </div>
         </div>

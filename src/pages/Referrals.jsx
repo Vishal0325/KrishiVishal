@@ -175,20 +175,23 @@ const Referrals = () => {
       return sum;
     }, 0);
 
-    // Total liability in wallets across all users
-    const totalWalletLiability = Object.values(usersMap).reduce((acc, u) => {
-      return acc + (typeof u.walletBalance === 'number' ? u.walletBalance : 0);
-    }, 0);
-
     return {
       total,
       rewardedCount: rewarded.length,
       signedUpCount: signedUp.length,
       voidedCount: voided.length,
-      totalDisbursed,
-      totalWalletLiability
+      totalDisbursed
     };
-  }, [referrals, usersMap]);
+  }, [referrals]);
+
+  // [FIXED] Point #106: Listen to finance summary for wallet liability instead of scanning all users
+  const [summaryData, setSummaryData] = useState({ totalWalletLiability: 0 });
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'system_summaries', 'finance'), (snap) => {
+      if (snap.exists()) setSummaryData(snap.data());
+    });
+    return unsub;
+  }, []);
 
   // Filtered referrals list
   const filteredReferrals = useMemo(() => {
@@ -447,7 +450,7 @@ const Referrals = () => {
         />
         <MetricCard
           title="Total Wallet Liability"
-          value={formatCurrency(metrics.totalWalletLiability)}
+          value={formatCurrency(summaryData.totalWalletLiability)}
           change={`All Active Customer Wallets`}
           icon={IndianRupee}
           color="purple"
@@ -485,7 +488,7 @@ const Referrals = () => {
             }`}
           >
             <ShieldCheck size={16} />
-            Fraud & Reversals ({fraudFlaggedList.length})
+            Fraud {'&'} Reversals ({fraudFlaggedList.length})
           </button>
 
           <button
@@ -583,7 +586,7 @@ const Referrals = () => {
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="p-4 border-b border-gray-100 flex items-center justify-between">
               <div>
-                <h3 className="font-bold text-gray-900">Reversed & Voided Referrals</h3>
+                <h3 className="font-bold text-gray-900">Reversed {'&'} Voided Referrals</h3>
                 <p className="text-xs text-gray-500">
                   Referrals that were revoked due to order cancellations or suspicious device signatures.
                 </p>
@@ -646,7 +649,7 @@ const Referrals = () => {
             <div>
               <h3 className="font-bold text-gray-900">Referral Wallet Transaction Logs</h3>
               <p className="text-xs text-gray-500">
-                Direct immutable ledger records in <code className="text-gray-700">wallet_transactions</code> credited for signups & deliveries.
+                Direct immutable ledger records in <code className="text-gray-700">wallet_transactions</code> credited for signups {'&'} deliveries.
               </p>
             </div>
             <span className="text-xs text-gray-500 font-medium">
@@ -729,7 +732,7 @@ const Referrals = () => {
             {/* Active Toggle */}
             <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
               <div>
-                <p className="font-bold text-sm text-gray-900">Refer & Earn Program Active</p>
+                <p className="font-bold text-sm text-gray-900">Refer {'&'} Earn Program Active</p>
                 <p className="text-xs text-gray-500">
                   When paused, users cannot enter referral codes during signup.
                 </p>

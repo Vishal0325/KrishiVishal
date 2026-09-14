@@ -84,7 +84,7 @@ const RiderPerformance = () => {
       render: (r) => (
         <div className="flex items-center text-orange-500 space-x-1">
           <Star size={14} fill="currentColor" />
-          <span className="text-sm font-black">{r.ratingsCount > 0 ? (r.ratingsSum / r.ratingsCount).toFixed(1) : "4.5"}</span>
+          <span className="text-sm font-black">{r.ratingsCount > 0 ? (r.ratingsSum / r.ratingsCount).toFixed(1) : "N/A"}</span>
         </div>
       )
     },

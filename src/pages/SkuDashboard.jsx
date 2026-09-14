@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { subscribeToSkus, fetchSkuBatches, getLowStockSkus } from '../services/skuService';
 import { callUpsertSku, callAdjustInventory, callWriteOffStock, callGetInventoryReport } from '../services/inventory';
@@ -31,6 +32,7 @@ import {
 import toast from 'react-hot-toast';
 
 const SkuDashboard = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [skus, setSkus] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -217,7 +219,7 @@ const SkuDashboard = () => {
         <div>
           <h1 className="text-2xl font-black text-gray-900 flex items-center gap-2">
             <Package className="text-emerald-600" size={28} />
-            SKU Master & Inventory
+            SKU Master {'&'} Inventory
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             Central SKU catalog • Standard: CC-III-VVV-GG-SSSUU-BBB
@@ -347,8 +349,17 @@ const SkuDashboard = () => {
             {filteredSkus.length === 0 ? (
               <tr>
                 <td colSpan="9" className="px-4 py-16 text-center text-gray-400 text-sm">
-                  <Package className="mx-auto mb-2 text-gray-300" size={32} />
-                  No SKUs found
+                  <Package className="mx-auto mb-3 text-emerald-500" size={36} />
+                  <p className="font-bold text-gray-800 text-base mb-1">No SKUs in Master Index</p>
+                  <p className="text-xs text-gray-500 max-w-md mx-auto mb-4">
+                    Your active products and inventory are maintained in the central Product Catalog.
+                  </p>
+                  <button
+                    onClick={() => navigate('/products')}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm"
+                  >
+                    Go to Products {'&'} Stock Catalog
+                  </button>
                 </td>
               </tr>
             ) : (

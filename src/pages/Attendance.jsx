@@ -22,9 +22,11 @@ const Attendance = () => {
       );
       const ordersSnap = await getDocs(qOrders);
 
-      // Fetch app config for incentives (optional, but keep for completeness)
-      const configSnap = await getDocs(collection(db, 'app_config'));
-      const incentiveConfig = configSnap.docs.find(d => d.id === 'incentive_slabs')?.data()?.slabs || [];
+      // FIX (DB Alignment #7): Was reading wrong top-level `app_config` collection.
+      // Standardized to `settings/config` which is the canonical SSoT used across all Admin pages.
+      const configSnap = await getDocs(collection(db, 'settings'));
+      const settingsDoc = configSnap.docs.find(d => d.id === 'config');
+      const incentiveConfig = settingsDoc?.data()?.incentiveSlabs || settingsDoc?.data()?.slabs || [];
 
       const attendanceData = riderSnap.docs.map(doc => {
         const rider = doc.data();

@@ -181,10 +181,10 @@ const ProductDetail = () => {
       totalPrice: displayPrice * quantity,
     };
 
-    // IMPLEMENTATION: Save to local storage for Admin-assisted orders or future Web App integration
-    const existingCart = JSON.parse(localStorage.getItem("admin_cart") || "[]");
+    // [FIXED] Point #41: Use sessionStorage to prevent cross-admin cart leaks on shared devices
+    const existingCart = JSON.parse(sessionStorage.getItem("admin_cart") || "[]");
     const newCart = [...existingCart, cartItem];
-    localStorage.setItem("admin_cart", JSON.stringify(newCart));
+    sessionStorage.setItem("admin_cart", JSON.stringify(newCart));
 
     toast.success(`${quantity} ${cartItem.variant} added to local cart!`);
     console.log("Cart Updated:", newCart);

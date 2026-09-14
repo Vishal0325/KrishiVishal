@@ -2,6 +2,8 @@
  * WhatsApp Business Automation Service for KrishiVishal ERP
  * Provides deep-links and API-ready message generators for orders, invoices, and cart recovery.
  */
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../firebase/config";
 
 /**
  * Format phone number to international 91XXXXXXXXXX format
@@ -9,6 +11,11 @@
 export const formatWhatsAppNumber = (phone) => {
   if (!phone) return "";
   let clean = phone.toString().replace(/\D/g, "");
+  
+  if (clean.length === 11 && clean.startsWith("0")) {
+    clean = clean.substring(1);
+  }
+
   if (clean.length === 10) {
     clean = "91" + clean;
   }
@@ -22,14 +29,27 @@ export const openWhatsAppUrl = (phone, text) => {
   const formattedPhone = formatWhatsAppNumber(phone);
   if (!formattedPhone) return false;
   const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`;
-  window.open(url, "_blank");
+  // Fix: Use anchor tag click instead of window.open to bypass popup blockers
+  const link = document.createElement('a');
+  link.href = url;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
   return true;
 };
 
 /**
  * 1. Order Confirmation WhatsApp Message
  */
-export const sendOrderConfirmationWhatsApp = (order) => {
+export const sendOrderConfirmationWhatsApp = async (order) => {
+  // [FIXED] Point #136: Fetch dynamic support phone from config
+  const { doc, getDoc } = await import("firebase/firestore");
+  const { db } = await import("../firebase/config");
+  const configSnap = await getDoc(doc(db, "settings", "config"));
+  const supportPhone = configSnap.exists() ? configSnap.data().supportPhone : "1800-123-4567";
+
   const customerName = order.customerName || order.shippingAddress?.fullName || "किसान भाई";
   const orderId = order.orderNumber || order.id?.substring(0, 8).toUpperCase();
   const totalAmount = order.totalAmount || order.total || 0;
@@ -46,7 +66,7 @@ export const sendOrderConfirmationWhatsApp = (order) => {
     `📦 *सामग्री विवरण:*\n${itemsList}\n\n` +
     `📍 *डिलीवरी पता:* ${order.shippingAddress?.address || order.address || 'पंजीकृत पता'}, ${order.shippingAddress?.pincode || ''}\n\n` +
     `⚡ हमारा वेयरहाउस आपका पार्सल तैयार कर रहा है। डिस्पैच होते ही आपको सूचित किया जाएगा।\n\n` +
-    `📞 किसी भी सहायता के लिए संपर्क करें: 1800-123-4567\n` +
+    `📞 किसी भी सहायता के लिए संपर्क करें: ${supportPhone}\n` +
     `_कृषि विशाल — किसान का सच्चा साथी_`;
 
   return openWhatsAppUrl(order.customerPhone || order.shippingAddress?.phoneNumber || order.phone, message);
@@ -68,9 +88,9 @@ export const sendOutForDeliveryWhatsApp = (order, riderInfo = {}) => {
     `🚴 *डिलीवरी पार्टनर:* ${riderName}\n` +
     `📞 *राइडर संपर्क नंबर:* ${riderPhone}\n` +
     `💰 *भुगतान योग्य राशि:* ₹${order.totalAmount || order.total || 0} (${order.paymentMethod === 'COD' ? 'नकद भुगतान' : 'पहले से भुगतान हो चुका है'})\n\n` +
-    `🔐 *डिलीवरी OTP:* *${otpCode}*\n` +
-    `_(पार्सल प्राप्त करते समय यह OTP डिलीवरी बॉय को बताएँ)_\n\n` +
     `धन्यवाद,\n*कृषि विशाल लॉजिस्टिक्स टीम*`;
+    // [FIXED] Point #130: Removed plain-text OTP from WhatsApp message for enhanced security.
+    // OTP will be delivered via secure Private SMS or Rider App verification.
 
   return openWhatsAppUrl(order.customerPhone || order.shippingAddress?.phoneNumber || order.phone, message);
 };

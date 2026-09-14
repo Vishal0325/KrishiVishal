@@ -34,13 +34,32 @@ export const expenseService = {
 
   // 1. Core Expense CRUD
   async createExpense(expenseData, actorId) {
-    const nextNumber = await this._generateExpenseNumber();
+    // [FIXED] Point #146: Basic schema validation before writing to Firestore
+    if (!expenseData.categoryId || !expenseData.description || !expenseData.subtotalMinor) {
+      throw new Error("Invalid expense data: Missing required fields (category, description, amount).");
+    }
 
     return await runTransaction(db, async (transaction) => {
+      // 1. Get next expense number atomically
+      const counterRef = doc(db, 'counters', 'expenses');
+      const counterSnap = await transaction.get(counterRef);
+      const year = new Date().getFullYear();
+      let nextNumber = 1;
+
+      if (counterSnap.exists()) {
+        const data = counterSnap.data();
+        if (data.year === year) {
+          nextNumber = (data.count || 0) + 1;
+        }
+      }
+
+      transaction.set(counterRef, { year, count: nextNumber }, { merge: true });
+      const expenseNumber = `EXP-${year}-${nextNumber.toString().padStart(5, '0')}`;
+
       const expenseRef = doc(collection(db, this.COLLECTIONS.EXPENSES));
       const data = {
         ...expenseData,
-        expenseNumber: nextNumber,
+        expenseNumber: expenseNumber,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         createdBy: actorId,
@@ -120,13 +139,25 @@ export const expenseService = {
   },
 
   // 3. Payment Workflow
-  async recordPayment(id, paymentData, actorId) {
+  async recordPayment(id, paymentData, actorContext) {
     const expenseRef = doc(db, this.COLLECTIONS.EXPENSES, id);
+    const actorId = typeof actorContext === 'object' ? actorContext.uid : actorContext;
+    const actorEmail = typeof actorContext === 'object' ? actorContext.email : 'unknown';
+    const actorName = typeof actorContext === 'object' ? actorContext.name : 'Admin';
+    const actorRole = typeof actorContext === 'object' ? actorContext.role : 'Admin';
 
     return await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(expenseRef);
       if (!snap.exists()) throw new Error("Expense not found");
       const expense = snap.data();
+
+      // [FIXED] Point #163: Validate expense amount exists and is positive
+      if (!expense.totalAmountMinor || expense.totalAmountMinor <= 0) {
+        throw new Error("Invalid expense total amount: must be greater than 0");
+      }
+      if (!paymentData.amountMinor || paymentData.amountMinor <= 0) {
+        throw new Error("Invalid payment amount: must be greater than 0");
+      }
 
       const newPaidAmount = (expense.paidAmountMinor || 0) + (paymentData.amountMinor || 0);
       if (newPaidAmount > expense.totalAmountMinor) {
@@ -146,7 +177,26 @@ export const expenseService = {
         ...paymentData,
         expenseId: id,
         createdBy: actorId,
+        actorEmail: actorEmail,
+        actorName: actorName,
+        actorRole: actorRole,
         createdAt: serverTimestamp()
+      });
+
+      // [FEATURE: SYNC WITH FINANCE LEDGER]
+      // Any payment made towards an expense must be reflected in the central ledger
+      const ledgerRef = doc(collection(db, 'ledger'));
+      transaction.set(ledgerRef, {
+        account: expense.categoryName || expense.categoryId || 'GENERAL_EXPENSE',
+        type: 'DEBIT',
+        amount: Number(paymentData.amountMinor) / 100, // Assuming amountMinor is in paise/cents
+        description: `Expense Payment: ${expense.expenseNumber || ''} - ${expense.description || ''}`,
+        timestamp: serverTimestamp(),
+        actorId: actorId,
+        actorEmail: actorEmail,
+        actorName: actorName,
+        actorRole: actorRole,
+        referenceId: id // Link to expense
       });
 
       const auditRef = doc(collection(db, this.COLLECTIONS.AUDIT));
@@ -155,6 +205,8 @@ export const expenseService = {
         entityId: id,
         entityType: 'EXPENSE',
         performedBy: actorId,
+        performedByName: actorName,
+        performedByRole: actorRole,
         performedAt: serverTimestamp(),
         metadata: { paymentId: paymentRef.id, amount: paymentData.amountMinor }
       });
@@ -234,22 +286,5 @@ export const expenseService = {
   },
 
   // Private helpers
-  async _generateExpenseNumber() {
-    const year = new Date().getFullYear();
-    const q = query(
-      collection(db, this.COLLECTIONS.EXPENSES),
-      where('createdAt', '>=', Timestamp.fromDate(new Date(year, 0, 1))),
-      orderBy('createdAt', 'desc'),
-      limit(1)
-    );
-    const snap = await getDocs(q);
-    let count = 1;
-    if (!snap.empty) {
-      const lastNum = snap.docs[0].data().expenseNumber;
-      if (lastNum && lastNum.startsWith(`EXP-${year}`)) {
-        count = parseInt(lastNum.split('-')[2]) + 1;
-      }
-    }
-    return `EXP-${year}-${count.toString().padStart(5, '0')}`;
-  }
+  // (Removed _generateExpenseNumber to prevent race conditions. Counter logic moved inside runTransaction)
 };
