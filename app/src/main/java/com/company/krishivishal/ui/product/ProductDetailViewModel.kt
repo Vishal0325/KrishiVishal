@@ -225,7 +225,8 @@ class ProductDetailViewModel @Inject constructor(
                         userId = userId,
                         productId = product.id,
                         variantId = variant?.id,
-                        quantity = quantity
+                        quantity = quantity,
+                        skuCode = variant?.id ?: product.id
                     )
                     cartRepository.addToCart(cartItem).collectLatest { resource ->
                         if (resource is Resource.Success) {
@@ -379,7 +380,8 @@ class ProductDetailViewModel @Inject constructor(
                         id = UUID.randomUUID().toString(),
                         userId = userId,
                         productId = product.id,
-                        quantity = 1
+                        quantity = 1,
+                        skuCode = product.id
                     )
                     cartRepository.addToCart(cartItem).collectLatest { resource ->
                         if (resource is Resource.Success) {

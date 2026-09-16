@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -95,7 +96,7 @@ fun OrderDetailScreen(
                     title = { Text(stringResource(R.string.order_details), fontWeight = FontWeight.Bold) },
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -250,10 +251,10 @@ fun OrderDetailScreen(
                                     Button(
                                         onClick = {
                                             val intentUri = if (order.targetLat != 0.0 && order.targetLng != 0.0) {
-                                                Uri.parse("google.navigation:q=${order.targetLat},${order.targetLng}")
+                                                Uri.parse("google.navigation:q=${order.targetLat},${order.targetLng}&mode=d")
                                             } else {
                                                 val query = if (landmark.isNotBlank()) "${order.address} ($landmark)" else order.address
-                                                Uri.parse("google.navigation:q=${Uri.encode(query)}")
+                                                Uri.parse("google.navigation:q=${Uri.encode(query)}&mode=d")
                                             }
                                             val mapIntent = Intent(Intent.ACTION_VIEW, intentUri).apply {
                                                 setPackage("com.google.android.apps.maps")
@@ -342,8 +343,8 @@ fun OrderDetailScreen(
         ReattemptDialog(
             orderId = order.id,
             onDismiss = { showReattemptDialog = false },
-            onSubmit = { reason, notes, isRTO ->
-                viewModel.reportDeliveryFailure(order.id, reason, notes, isRTO) { success ->
+            onSubmit = { reason, notes, isRTO, photo ->
+                viewModel.reportDeliveryFailure(order.id, reason, notes, isRTO, photo) { success ->
                     showReattemptDialog = false
                     if (success) {
                         onNavigateBack()

@@ -69,6 +69,10 @@ data class Sku(
     @SerializedName("size")
     var size: String = "",
 
+    @ColumnInfo(name = "weightGrams")
+    @SerializedName("weightGrams")
+    var weightGrams: Long? = null,
+
     // Pricing (Cached read-only from Firestore)
     @ColumnInfo(name = "mrp")
     @SerializedName("mrp")

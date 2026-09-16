@@ -22,11 +22,22 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import java.util.Date
+import android.content.Context
+import android.graphics.Bitmap
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import com.company.krishivishaldelivery.utils.PodStorageHelper
+import com.company.krishivishaldelivery.worker.SyncWorker
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class OrderRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val firestore: FirebaseFirestore,
     private val functions: FirebaseFunctions,
     private val deliveryDao: DeliveryDao
@@ -102,23 +113,82 @@ class OrderRepository @Inject constructor(
         val pending = deliveryDao.getPendingSyncOrders()
         pending.forEach { entity ->
             try {
-                if (entity.status != OrderStatus.DELIVERED.name) {
+                if (entity.status == OrderStatus.DELIVERED.name) {
+                    val updates = mutableMapOf<String, Any>(
+                        "status" to OrderStatus.DELIVERED.name,
+                        "deliveredAt" to FieldValue.serverTimestamp()
+                    )
+
+                    // Upload Photo from local storage if available
+                    entity.localPodPhotoPath?.let { path ->
+                        val file = java.io.File(path)
+                        if (file.exists()) {
+                            val storageRef = FirebaseStorage.getInstance().reference.child("orders/${entity.id}/pod_photo.jpg")
+                            storageRef.putFile(Uri.fromFile(file)).await()
+                            val downloadUrl = storageRef.downloadUrl.await().toString()
+                            updates["podPhoto"] = downloadUrl
+                            updates["podPhotoUrl"] = downloadUrl
+                        }
+                    }
+
+                    // Upload Signature from local storage if available
+                    entity.localPodSignaturePath?.let { path ->
+                        val file = java.io.File(path)
+                        if (file.exists()) {
+                            val storageRef = FirebaseStorage.getInstance().reference.child("orders/${entity.id}/signature.png")
+                            storageRef.putFile(Uri.fromFile(file)).await()
+                            val downloadUrl = storageRef.downloadUrl.await().toString()
+                            updates["podSignature"] = downloadUrl
+                            updates["podSignatureUrl"] = downloadUrl
+                        }
+                    }
+
+                    firestore.collection("orders").document(entity.id).update(updates).await()
+
+                    // Cleanup local disk cache and reset Room pending state
+                    PodStorageHelper.deleteFileIfExists(entity.localPodPhotoPath)
+                    PodStorageHelper.deleteFileIfExists(entity.localPodSignaturePath)
+                    deliveryDao.clearPodLocalPaths(entity.id)
+                } else if (entity.status == "RTO_INITIATED" || entity.status == "REATTEMPT_SCHEDULED") {
+                    val updates = mutableMapOf<String, Any>(
+                        "status" to entity.status,
+                        "lastAttemptAt" to FieldValue.serverTimestamp()
+                    )
+                    entity.ndrReason?.let { updates["ndrReason"] = it }
+                    entity.ndrNotes?.let { updates["ndrNotes"] = it }
+
+                    val attemptLog = mapOf(
+                        "riderId" to entity.riderId,
+                        "reason" to (entity.ndrReason ?: ""),
+                        "notes" to (entity.ndrNotes ?: ""),
+                        "status" to entity.status,
+                        "timestamp" to System.currentTimeMillis()
+                    )
+                    updates["attemptHistory"] = FieldValue.arrayUnion(attemptLog)
+
+                    entity.localFailurePhotoPath?.let { path ->
+                        val file = java.io.File(path)
+                        if (file.exists()) {
+                            val storageRef = FirebaseStorage.getInstance().reference.child("rto_proofs/${entity.id}_rto.jpg")
+                            storageRef.putFile(Uri.fromFile(file)).await()
+                            val downloadUrl = storageRef.downloadUrl.await().toString()
+                            updates["rtoPhotoUrl"] = downloadUrl
+                            updates["failurePhotoUrl"] = downloadUrl
+                        }
+                    }
+
+                    firestore.collection("orders").document(entity.id).update(updates).await()
+
+                    PodStorageHelper.deleteFileIfExists(entity.localFailurePhotoPath)
+                    deliveryDao.clearFailureLocalPaths(entity.id)
+                } else {
                     val data = hashMapOf(
                         "orderId" to entity.id,
                         "targetStatus" to entity.status
                     )
                     functions.getHttpsCallable("updateOrderStatus").call(data).await()
+                    deliveryDao.updateSyncStatus(entity.id, false)
                 }
-
-                if (entity.status == OrderStatus.DELIVERED.name) {
-                    entity.localPodPhotoPath?.let { path ->
-                        val storageRef = FirebaseStorage.getInstance().reference.child("pod/${entity.id}_photo.jpg")
-                        storageRef.putFile(Uri.fromFile(java.io.File(path))).await()
-                        val downloadUrl = storageRef.downloadUrl.await().toString()
-                        firestore.collection("orders").document(entity.id).update("podPhotoUrl", downloadUrl).await()
-                    }
-                }
-                deliveryDao.updateSyncStatus(entity.id, false)
             } catch (e: Exception) {
                 Timber.e(e, "syncPendingOrders: failed to sync order ${entity.id}")
             }
@@ -228,12 +298,37 @@ class OrderRepository @Inject constructor(
         ).await()
     }
 
+    suspend fun completeReturnPickupQC(
+        returnId: String,
+        status: String,
+        qcStatus: String,
+        qcNote: String,
+        qcPhotos: List<String> = emptyList()
+    ): Boolean {
+        return try {
+            firestore.collection("returns").document(returnId).update(
+                mapOf(
+                    "status" to status,
+                    "qcStatus" to qcStatus,
+                    "qcNote" to qcNote,
+                    "qcPhotos" to qcPhotos,
+                    "qcCompletedAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     suspend fun reportDeliveryFailure(
         orderId: String,
         riderId: String,
         reason: String,
         notes: String,
-        isRTO: Boolean
+        isRTO: Boolean,
+        photoBitmap: Bitmap? = null
     ): Boolean {
         return try {
             val targetStatus = if (isRTO) "RTO_INITIATED" else "REATTEMPT_SCHEDULED"
@@ -245,19 +340,57 @@ class OrderRepository @Inject constructor(
                 "timestamp" to System.currentTimeMillis()
             )
 
-            // 1. Update Firestore
-            firestore.collection("orders").document(orderId).update(
-                mapOf(
+            // 1. Save failure photo locally if provided
+            val localPhotoPath = photoBitmap?.let {
+                PodStorageHelper.saveFailurePhotoLocally(context, orderId, it)
+            }
+
+            // 2. Save locally in Room database with pending sync flag
+            deliveryDao.markOrderFailedWithEvidence(
+                orderId = orderId,
+                reason = reason,
+                notes = notes,
+                failurePhotoPath = localPhotoPath,
+                status = targetStatus,
+                isPendingSync = true
+            )
+
+            // 3. Try live online update if network is available
+            var isSyncedLive = false
+            try {
+                val updates = mutableMapOf<String, Any>(
                     "status" to targetStatus,
                     "ndrReason" to reason,
                     "ndrNotes" to notes,
                     "lastAttemptAt" to FieldValue.serverTimestamp(),
                     "attemptHistory" to FieldValue.arrayUnion(attemptLog)
                 )
-            ).await()
 
-            // 2. Update local DB
-            deliveryDao.updateOrderStatus(orderId, targetStatus, false)
+                if (localPhotoPath != null) {
+                    val file = java.io.File(localPhotoPath)
+                    if (file.exists()) {
+                        val ref = FirebaseStorage.getInstance().reference.child("rto_proofs/${orderId}_rto.jpg")
+                        ref.putFile(Uri.fromFile(file)).await()
+                        val url = ref.downloadUrl.await().toString()
+                        updates["rtoPhotoUrl"] = url
+                        updates["failurePhotoUrl"] = url
+                    }
+                }
+
+                firestore.collection("orders").document(orderId).update(updates).await()
+
+                // Cleanup local disk cache and reset Room pending state
+                PodStorageHelper.deleteFileIfExists(localPhotoPath)
+                deliveryDao.clearFailureLocalPaths(orderId)
+                isSyncedLive = true
+            } catch (e: Exception) {
+                Timber.w(e, "Live upload for failure proof failed for order $orderId, queued for background sync")
+            }
+
+            // 4. If offline or upload failed, schedule background WorkManager sync
+            if (!isSyncedLive) {
+                scheduleBackgroundSync()
+            }
             true
         } catch (e: Exception) {
             Timber.e(e, "reportDeliveryFailure failed for order $orderId")
@@ -265,38 +398,151 @@ class OrderRepository @Inject constructor(
         }
     }
 
-    suspend fun uploadProofOfDelivery(orderId: String, photoBytes: ByteArray?, signatureBytes: ByteArray?): Boolean {
+    /**
+     * Completes delivery with POD by saving compressed images locally first,
+     * verifying OTP (online or fallback offline), marking status as DELIVERED,
+     * and attempting instant cloud sync or scheduling background WorkManager.
+     */
+    suspend fun completeDeliveryWithPOD(
+        orderId: String,
+        otp: String,
+        photoBitmap: Bitmap?,
+        signatureBitmap: Bitmap?
+    ): Resource<String> {
         return try {
-            val storage = FirebaseStorage.getInstance()
-            val updates = mutableMapOf<String, Any>("updatedAt" to FieldValue.serverTimestamp())
+            val localOrder = deliveryDao.getOrderById(orderId)
+                ?: return Resource.Error("Order not found locally")
 
-            photoBytes?.let {
-                val ref = storage.reference.child("orders/$orderId/pod_photo.jpg")
-                ref.putBytes(it).await()
-                val url = ref.downloadUrl.await().toString()
-                updates["podPhoto"] = url
-                updates["podPhotoUrl"] = url
+            // 1. Verify OTP: try online functions call first, fallback to cached local OTP if offline
+            var isOnlineVerified = false
+            try {
+                val data = hashMapOf("orderId" to orderId, "otp" to otp.trim())
+                functions.getHttpsCallable("verifyDeliveryOTP").call(data).await()
+                isOnlineVerified = true
+            } catch (e: Exception) {
+                Timber.w(e, "Online OTP verification failed, trying local OTP fallback")
+                val cleanOtp = otp.trim()
+                val cachedOtp = localOrder.customerOTP.trim()
+                val isOfflineMatch = cachedOtp.isNotBlank() && (cleanOtp == cachedOtp || (cachedOtp.length >= 4 && cleanOtp.endsWith(cachedOtp.takeLast(4))))
+                
+                if (!isOfflineMatch) {
+                    return Resource.Error("Invalid delivery PIN/OTP. Please check with customer.")
+                }
             }
 
-            signatureBytes?.let {
-                val ref = storage.reference.child("orders/$orderId/signature.png")
-                ref.putBytes(it).await()
-                val url = ref.downloadUrl.await().toString()
-                updates["podSignature"] = url
-                updates["podSignatureUrl"] = url
+            // 2. Compress and save Photo and Signature locally
+            val localPhotoPath = photoBitmap?.let {
+                PodStorageHelper.saveCompressedBitmap(context, it, orderId, "pod_photo")
+            }
+            val localSignaturePath = signatureBitmap?.let {
+                PodStorageHelper.saveCompressedBitmap(context, it, orderId, "pod_signature")
             }
 
-            if (updates.size > 1) {
-                firestore.collection("orders").document(orderId).update(updates).await()
+            // 3. Mark DELIVERED locally in Room with pending sync flag
+            deliveryDao.markOrderDeliveredWithPOD(
+                orderId = orderId,
+                photoPath = localPhotoPath,
+                signaturePath = localSignaturePath,
+                isPendingSync = true
+            )
+
+            // 4. Try instant online sync if online
+            var isSyncedLive = false
+            if (isOnlineVerified) {
+                try {
+                    val updates = mutableMapOf<String, Any>(
+                        "status" to OrderStatus.DELIVERED.name,
+                        "deliveredAt" to FieldValue.serverTimestamp()
+                    )
+                    localPhotoPath?.let { path ->
+                        val file = java.io.File(path)
+                        if (file.exists()) {
+                            val ref = FirebaseStorage.getInstance().reference.child("orders/$orderId/pod_photo.jpg")
+                            ref.putFile(Uri.fromFile(file)).await()
+                            val url = ref.downloadUrl.await().toString()
+                            updates["podPhoto"] = url
+                            updates["podPhotoUrl"] = url
+                        }
+                    }
+                    localSignaturePath?.let { path ->
+                        val file = java.io.File(path)
+                        if (file.exists()) {
+                            val ref = FirebaseStorage.getInstance().reference.child("orders/$orderId/signature.png")
+                            ref.putFile(Uri.fromFile(file)).await()
+                            val url = ref.downloadUrl.await().toString()
+                            updates["podSignature"] = url
+                            updates["podSignatureUrl"] = url
+                        }
+                    }
+                    firestore.collection("orders").document(orderId).update(updates).await()
+
+                    // Cleanup local disk files
+                    PodStorageHelper.deleteFileIfExists(localPhotoPath)
+                    PodStorageHelper.deleteFileIfExists(localSignaturePath)
+                    deliveryDao.clearPodLocalPaths(orderId)
+                    isSyncedLive = true
+                } catch (e: Exception) {
+                    Timber.w(e, "Live cloud upload failed after OTP verification, queued for background sync")
+                }
             }
-            true
+
+            // 5. If not synced live, schedule WorkManager
+            if (!isSyncedLive) {
+                scheduleBackgroundSync()
+                Resource.Success("Delivery marked complete offline. Photos will sync automatically.")
+            } else {
+                Resource.Success("Delivery completed & synced successfully!")
+            }
         } catch (e: Exception) {
-            Timber.e(e, "uploadProofOfDelivery failed for order: $orderId")
-            false
+            Timber.e(e, "completeDeliveryWithPOD unexpected error for order: $orderId")
+            Resource.Error(e.localizedMessage ?: "Failed to complete delivery")
         }
     }
 
-    suspend fun markCashAsDeposited(riderId: String): Boolean {
+    private fun scheduleBackgroundSync() {
+        try {
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+            val syncRequest = OneTimeWorkRequestBuilder<SyncWorker>()
+                .setConstraints(constraints)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "PODSyncWork",
+                ExistingWorkPolicy.REPLACE,
+                syncRequest
+            )
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to schedule PODSyncWork")
+        }
+    }
+
+    fun getCashDepositHistory(riderId: String): Flow<List<com.company.krishivishaldelivery.data.model.CashDepositRecord>> = callbackFlow {
+        val listener = firestore.collection("cash_deposits")
+            .whereEqualTo("riderId", riderId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                val records = snapshot?.documents?.mapNotNull { doc ->
+                    val id = doc.id
+                    val rider = doc.getString("riderId") ?: ""
+                    val amount = doc.getDouble("amount") ?: 0.0
+                    val count = doc.getLong("ordersCount")?.toInt() ?: 0
+                    @Suppress("UNCHECKED_CAST")
+                    val orderIds = doc.get("orderIds") as? List<String> ?: emptyList()
+                    val status = doc.getString("status") ?: "DEPOSITED_AT_WAREHOUSE"
+                    val timestamp = doc.getTimestamp("depositedAt")?.toDate()?.time ?: System.currentTimeMillis()
+                    com.company.krishivishaldelivery.data.model.CashDepositRecord(id, rider, amount, count, orderIds, status, timestamp)
+                }?.sortedByDescending { it.depositedAtMillis } ?: emptyList()
+
+                trySend(records)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    suspend fun markCashAsDeposited(riderId: String): com.company.krishivishaldelivery.data.model.CashDepositRecord? {
         return try {
             deliveryDao.markOrdersAsDeposited(riderId, false)
             val snapshot = firestore.collection("orders")
@@ -315,20 +561,31 @@ class OrderRepository @Inject constructor(
             }
             if (!snapshot.isEmpty) {
                 val depositLogRef = firestore.collection("cash_deposits").document()
+                val recordId = depositLogRef.id
+                val orderIds = snapshot.documents.map { it.id }
+                val now = System.currentTimeMillis()
                 batch.set(depositLogRef, mapOf(
                     "riderId" to riderId,
                     "amount" to totalDeposited,
                     "ordersCount" to snapshot.size(),
-                    "orderIds" to snapshot.documents.map { it.id },
+                    "orderIds" to orderIds,
                     "status" to "DEPOSITED_AT_WAREHOUSE",
                     "depositedAt" to FieldValue.serverTimestamp()
                 ))
                 batch.commit().await()
-            }
-            true
+                com.company.krishivishaldelivery.data.model.CashDepositRecord(
+                    id = recordId,
+                    riderId = riderId,
+                    amount = totalDeposited,
+                    ordersCount = snapshot.size(),
+                    orderIds = orderIds,
+                    status = "DEPOSITED_AT_WAREHOUSE",
+                    depositedAtMillis = now
+                )
+            } else null
         } catch (e: Exception) {
             Timber.e(e, "markCashAsDeposited failed for rider: $riderId")
-            false
+            null
         }
     }
 

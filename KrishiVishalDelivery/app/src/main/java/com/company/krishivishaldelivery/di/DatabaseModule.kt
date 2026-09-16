@@ -22,7 +22,7 @@ object DatabaseModule {
             context,
             DeliveryDatabase::class.java,
             "delivery_database"
-        ).fallbackToDestructiveMigration()
+        ).fallbackToDestructiveMigration(dropAllTables = true)
             .build()
     }
 

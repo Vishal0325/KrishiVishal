@@ -40,6 +40,18 @@ interface DeliveryDao {
     @Query("UPDATE delivery_orders SET status = :status, isPendingSync = :isPendingSync WHERE id = :orderId")
     suspend fun updateOrderStatus(orderId: String, status: String, isPendingSync: Boolean = true)
 
+    @Query("UPDATE delivery_orders SET status = 'DELIVERED', localPodPhotoPath = :photoPath, localPodSignaturePath = :signaturePath, isPendingSync = :isPendingSync WHERE id = :orderId")
+    suspend fun markOrderDeliveredWithPOD(orderId: String, photoPath: String?, signaturePath: String?, isPendingSync: Boolean = true)
+
+    @Query("UPDATE delivery_orders SET localPodPhotoPath = NULL, localPodSignaturePath = NULL, isPendingSync = 0 WHERE id = :orderId")
+    suspend fun clearPodLocalPaths(orderId: String)
+
+    @Query("UPDATE delivery_orders SET status = :status, localFailurePhotoPath = :failurePhotoPath, ndrReason = :reason, ndrNotes = :notes, isPendingSync = :isPendingSync WHERE id = :orderId")
+    suspend fun markOrderFailedWithEvidence(orderId: String, reason: String, notes: String, failurePhotoPath: String?, status: String, isPendingSync: Boolean = true)
+
+    @Query("UPDATE delivery_orders SET localFailurePhotoPath = NULL, isPendingSync = 0 WHERE id = :orderId")
+    suspend fun clearFailureLocalPaths(orderId: String)
+
     @Query("UPDATE delivery_orders SET isCashDeposited = 1, isPendingSync = :isPendingSync WHERE riderId = :riderId AND isCOD = 1 AND status = 'DELIVERED'")
     suspend fun markOrdersAsDeposited(riderId: String, isPendingSync: Boolean = true)
 

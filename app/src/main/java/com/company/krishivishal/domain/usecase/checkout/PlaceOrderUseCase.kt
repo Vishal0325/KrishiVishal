@@ -21,10 +21,19 @@ class PlaceOrderUseCase @Inject constructor(
         address: Address,
         paymentMethod: String = "COD",
         lat: Double = 0.0,
-        lng: Double = 0.0
+        lng: Double = 0.0,
+        deliverySlotId: String? = null
     ): Flow<Resource<CreateOrderResult>> {
-        val landmarkPart = if (address.landmark.isNotBlank()) " (Landmark: ${address.landmark})" else ""
-        val addressString = "${address.fullName}, ${address.houseNo}, ${address.street}, ${address.ward}, ${address.block}, ${address.district}, ${address.state} - ${address.pincode}$landmarkPart"
+        val addressMap = hashMapOf<String, Any?>(
+            "line1" to "${address.houseNo} ${address.street}".trim().ifEmpty { address.ward.ifEmpty { "Main Road" } },
+            "line2" to "${address.ward} ${address.block}".trim(),
+            "city" to address.district.ifEmpty { "Patna" },
+            "state" to address.state.ifEmpty { "Bihar" },
+            "pincode" to address.pincode,
+            "landmark" to address.landmark,
+            "lat" to lat,
+            "lng" to lng
+        )
 
         // FIX (DB Alignment #4): Cloud Function accepts "RAZORPAY_ONLINE" not "ONLINE".
         // Map the local enum string to the server-accepted value before sending.
@@ -34,13 +43,14 @@ class PlaceOrderUseCase @Inject constructor(
         }
         
         return this.orderRepository.createOrderViaFunction(
-            cartItems = cartItems.map { it.cartItem },
-            address = addressString,
+            cartItems = cartItems,
+            address = addressMap,
             paymentMethod = mappedPaymentMethod,
             userName = address.fullName,
             userPhone = address.mobileNumber,
             lat = lat,
-            lng = lng
+            lng = lng,
+            deliverySlotId = deliverySlotId
         )
     }
 }

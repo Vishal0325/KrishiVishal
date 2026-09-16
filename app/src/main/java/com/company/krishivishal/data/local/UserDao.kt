@@ -22,6 +22,9 @@ interface UserDao {
     @Query("DELETE FROM addresses WHERE userId = :userId AND id NOT IN (:activeIds)")
     suspend fun deleteAddressesNotInList(userId: String, activeIds: List<String>)
 
+    @Query("DELETE FROM addresses WHERE userId = :userId")
+    suspend fun deleteAllAddressesByUserId(userId: String)
+
     @Query("DELETE FROM users WHERE id = :userId")
     suspend fun deleteUserById(userId: String)
 

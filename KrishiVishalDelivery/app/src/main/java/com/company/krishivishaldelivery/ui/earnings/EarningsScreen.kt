@@ -24,6 +24,8 @@ import com.company.krishivishal.core.model.OrderStatus
 import com.company.krishivishal.core.util.Resource
 import com.company.krishivishaldelivery.data.model.IncentiveSlab
 import java.util.Calendar
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -314,7 +316,9 @@ fun LiveRiderIncentiveCard(
 fun PayoutLogItem(log: Map<String, Any>) {
     val amount = (log["amount"] as? Number)?.toDouble() ?: 0.0
     val paidAt = log["paidAt"] as? com.google.firebase.Timestamp
-    val dateStr = paidAt?.toDate()?.toLocaleString() ?: "Recent"
+    val dateStr = paidAt?.toDate()?.let { 
+        SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(it) 
+    } ?: "Recent"
 
     Card(
         modifier = Modifier.fillMaxWidth(),

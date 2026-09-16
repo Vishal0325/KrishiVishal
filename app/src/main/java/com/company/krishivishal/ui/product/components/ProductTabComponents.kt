@@ -59,12 +59,6 @@ fun ProductTabsSection(
                 Text(stringResource(R.string.description), modifier = Modifier.padding(12.dp), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
             Tab(selected = selectedTabIndex == 2, onClick = { onTabClick(2) }) {
-                Text(stringResource(R.string.technical_info), modifier = Modifier.padding(12.dp), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            }
-            Tab(selected = selectedTabIndex == 3, onClick = { onTabClick(3) }) {
-                Text("Usage Guide", modifier = Modifier.padding(12.dp), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            }
-            Tab(selected = selectedTabIndex == 4, onClick = { onTabClick(4) }) {
                 Text("Reviews", modifier = Modifier.padding(12.dp), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
         }
@@ -89,15 +83,15 @@ fun ProductTabsSection(
                     }
                 }
                 1 -> {
-                    Text(product.description, fontSize = 14.sp, color = Color.DarkGray, lineHeight = 20.sp, fontFamily = PoppinsFamily)
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        if (product.description.isNotBlank()) {
+                            Text(product.description, fontSize = 14.sp, color = Color.DarkGray, lineHeight = 20.sp, fontFamily = PoppinsFamily)
+                        }
+                        TechnicalInfoTab(product)
+                        UsageGuideTab(product)
+                    }
                 }
                 2 -> {
-                    TechnicalInfoTab(product)
-                }
-                3 -> {
-                    UsageGuideTab(product)
-                }
-                4 -> {
                     ReviewsTab(reviews, isReviewsLoading)
                 }
             }

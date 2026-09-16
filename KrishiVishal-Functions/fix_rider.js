@@ -48,7 +48,7 @@ async function fixRiderAccount() {
         // 2. Update User Document
         await db.collection('users').doc(userUid).update({
             role: 'RIDER',
-            isAdmin: true,
+            isAdmin: false,
             whitelisted: true,
             name: riderName,
             phone: phoneToFix,

@@ -317,7 +317,8 @@ class HomeViewModel @Inject constructor(
                         userId = userId,
                         productId = product.id,
                         variantId = null,
-                        quantity = 1
+                        quantity = 1,
+                        skuCode = product.id
                     )
                     cartRepository.addToCart(cartItem).collectLatest { resource ->
                         handleCartResource(resource, product.name)

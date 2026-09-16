@@ -151,9 +151,29 @@ fun CheckoutScreen(
                             }
                         }
 
+                        if (uiState.isWeightLimitExceeded) {
+                            Surface(
+                                color = Color(0xFFFFEBEE),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "⚠️ Weight limit exceeded (${(uiState.totalWeightGrams / 1000).toInt()} kg / ${(uiState.maxWeightLimitGrams / 1000).toInt()} kg max). Reduce quantities to proceed.",
+                                        color = Color(0xFFD32F2F),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+
                         Button(
                             onClick = { 
-                                if (!isPlacingOrder) {
+                                if (!isPlacingOrder && !uiState.isWeightLimitExceeded) {
                                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                                         scope.launch {
                                             try {
@@ -169,7 +189,7 @@ fun CheckoutScreen(
                                 }
                             },
                             modifier = Modifier.fillMaxWidth().height(52.dp),
-                            enabled = !isPlacingOrder,
+                            enabled = !isPlacingOrder && !uiState.isWeightLimitExceeded,
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
                         ) {
@@ -255,6 +275,37 @@ fun CheckoutScreen(
                         // Price Details Section
                         item {
                             com.company.krishivishal.ui.cart.PriceBreakdownCard(uiState.totals)
+                        }
+
+                        // Delivery Slot Section
+                        item {
+                            SectionHeader("Delivery Slot")
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                border = BorderStroke(1.dp, PrimaryGreen)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Schedule, 
+                                        contentDescription = null, 
+                                        tint = PrimaryGreen, 
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text("Standard Slot (09:00 AM - 01:00 PM)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                        Text("Fastest available doorstep delivery", fontSize = 11.sp, color = Color.Gray)
+                                    }
+                                    Spacer(modifier = Modifier.weight(1f))
+                                    Text("FREE", color = PrimaryGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
                         }
 
                         // Payment Method Section

@@ -61,7 +61,7 @@ data class User(
     @SerializedName("age")
     val age: Int? = null,
 
-    @ColumnInfo(name = "totalLand", defaultValue = "0")
+    @ColumnInfo(name = "totalLand", defaultValue = "0.0")
     @SerializedName("totalLand")
     val totalLand: Double = 0.0,
 
@@ -69,7 +69,7 @@ data class User(
     @SerializedName("landUnit")
     val landUnit: String = "Katha",
 
-    @ColumnInfo(name = "cropAllocations")
+    @ColumnInfo(name = "cropAllocations", defaultValue = "'[]'")
     @SerializedName("cropAllocations")
     val cropAllocations: List<CropAllocation> = emptyList()
 ) : Parcelable

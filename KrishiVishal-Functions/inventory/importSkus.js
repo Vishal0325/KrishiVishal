@@ -339,3 +339,124 @@ exports.getInventoryReport = onCall({ region: 'asia-south1' }, async (request) =
 
     return { total: reports.length, items: reports };
 });
+
+/**
+ * Standardize pack weight/size string into numeric grams.
+ * Examples: "500g" -> 500, "1kg" -> 1000, "1.5 kg" -> 1500, "250ml" -> 250, "1L" -> 1000
+ */
+function parseWeightToGrams(raw) {
+    if (typeof raw === 'number') return raw;
+    if (!raw || typeof raw !== 'string') return 0;
+    const clean = raw.trim().toLowerCase();
+    const match = clean.match(/^([\d.]+)\s*(kg|g|gm|gms|l|ltr|litre|litres|ml)?$/);
+    if (!match) {
+        const num = parseFloat(clean);
+        return isNaN(num) ? 0 : num;
+    }
+    const val = parseFloat(match[1]);
+    const unit = match[2] || 'g';
+    if (unit === 'kg' || unit === 'l' || unit === 'ltr' || unit === 'litre' || unit === 'litres') {
+        return Math.round(val * 1000);
+    }
+    return Math.round(val);
+}
+
+exports.parseWeightToGrams = parseWeightToGrams;
+
+/**
+ * migrateSkuWeights: Idempotent migration converting legacy string weights to numeric weightGrams.
+ * Scans both 'skus' and 'products' collections.
+ */
+exports.migrateSkuWeights = onCall({ region: 'asia-south1' }, async (request) => {
+    if (!(await isAdminRequest({ auth: request.auth }))) {
+        throw new HttpsError('permission-denied', 'Admin access required for SKU weight migration.');
+    }
+
+    try {
+        let totalScanned = 0;
+        let migratedCount = 0;
+        let skippedCount = 0;
+        const errors = [];
+
+        // 1. Migrate SKUs collection
+        const skusSnap = await db.collection("skus").get();
+        totalScanned += skusSnap.size;
+
+        const skuBatch = db.batch();
+        let skuOps = 0;
+
+        for (const doc of skusSnap.docs) {
+            try {
+                const data = doc.data();
+                if (typeof data.weightGrams === 'number' && data.weightGrams > 0) {
+                    skippedCount++;
+                    continue;
+                }
+                const rawWeight = data.weight || data.packSize || data.size || "";
+                const weightGrams = parseWeightToGrams(rawWeight);
+
+                skuBatch.update(doc.ref, {
+                    weightGrams,
+                    weight: weightGrams,
+                    weightMigratedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                migratedCount++;
+                skuOps++;
+            } catch (err) {
+                errors.push({ id: doc.id, collection: "skus", error: err.message });
+            }
+        }
+
+        if (skuOps > 0) {
+            await skuBatch.commit();
+        }
+
+        // 2. Migrate Products collection
+        const productsSnap = await db.collection("products").get();
+        totalScanned += productsSnap.size;
+
+        const productBatch = db.batch();
+        let productOps = 0;
+
+        for (const doc of productsSnap.docs) {
+            try {
+                const data = doc.data();
+                if (typeof data.weightGrams === 'number' && data.weightGrams > 0) {
+                    skippedCount++;
+                    continue;
+                }
+                const rawWeight = data.weight || data.unit || "";
+                const weightGrams = parseWeightToGrams(rawWeight);
+
+                if (weightGrams > 0) {
+                    productBatch.update(doc.ref, {
+                        weightGrams,
+                        weightMigratedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                    migratedCount++;
+                    productOps++;
+                } else {
+                    skippedCount++;
+                }
+            } catch (err) {
+                errors.push({ id: doc.id, collection: "products", error: err.message });
+            }
+        }
+
+        if (productOps > 0) {
+            await productBatch.commit();
+        }
+
+        return {
+            success: true,
+            totalScanned,
+            migratedCount,
+            skippedCount,
+            errors
+        };
+    } catch (error) {
+        console.error("[migrateSkuWeights] Error:", error);
+        throw new HttpsError('internal', error.message);
+    }
+});
+

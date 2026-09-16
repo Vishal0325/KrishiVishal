@@ -72,9 +72,18 @@ class CartRepositoryImpl @Inject constructor(
             entityId = cartItem.id,
             userId = cartItem.userId,
             payload = mapOf(
+                "id" to cartItem.id,
+                "user_id" to cartItem.userId,
+                "userId" to cartItem.userId,
+                "product_id" to cartItem.productId,
                 "productId" to cartItem.productId,
-                "quantity" to cartItem.quantity,
+                "variant_id" to (cartItem.variantId ?: ""),
                 "variantId" to (cartItem.variantId ?: ""),
+                "quantity" to cartItem.quantity,
+                "sku_code" to (cartItem.skuCode ?: ""),
+                "skuCode" to (cartItem.skuCode ?: ""),
+                "is_selected" to cartItem.isSelected,
+                "isSelected" to cartItem.isSelected,
                 "timestamp" to System.currentTimeMillis()
             )
         )

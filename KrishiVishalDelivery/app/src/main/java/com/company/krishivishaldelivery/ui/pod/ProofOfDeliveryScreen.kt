@@ -17,7 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.QrCode
@@ -85,7 +85,7 @@ fun ProofOfDeliveryScreen(
                     title = { Text("Proof of Delivery") },
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     }
                 )
@@ -300,30 +300,28 @@ fun ProofOfDeliveryScreen(
                     }
                     scope.launch {
                         isUploading = true
-                        val photoBytes = capturedPhoto?.let { bitmapToByteArray(it) }
                         val signatureBitmap = if (signatureSize.width > 0 && signatureSize.height > 0) {
                             createSignatureBitmap(signaturePoints, signatureSize.width, signatureSize.height)
                         } else {
                             createSignatureBitmap(signaturePoints, 400, 200)
                         }
-                        val signatureBytes = signatureBitmap?.let { bitmapToByteArray(it) }
                         
-                        // 1. Upload POD
-                        val podSuccess = viewModel.uploadProofOfDelivery(orderId, photoBytes, signatureBytes)
-                        
-                        if (podSuccess) {
-                            // 2. Verify OTP and Mark Delivered
-                            val verifyRes = viewModel.verifyDelivery(orderId, otpValue)
-                            isUploading = false
-                            
-                            if (verifyRes is Resource.Success) {
+                        val deliveryResult = viewModel.completeDeliveryWithPOD(
+                            orderId = orderId,
+                            otp = otpValue,
+                            photoBitmap = capturedPhoto,
+                            signatureBitmap = signatureBitmap
+                        )
+                        isUploading = false
+
+                        when (deliveryResult) {
+                            is Resource.Success -> {
                                 onSuccess()
-                            } else {
-                                snackbarHostState.showSnackbar("OTP Verification Failed: ${verifyRes.message}")
                             }
-                        } else {
-                            isUploading = false
-                            snackbarHostState.showSnackbar("Failed to upload Photo/Signature. Please try again.")
+                            is Resource.Error -> {
+                                snackbarHostState.showSnackbar(deliveryResult.message ?: "Failed to complete delivery")
+                            }
+                            else -> {}
                         }
                     }
                 },

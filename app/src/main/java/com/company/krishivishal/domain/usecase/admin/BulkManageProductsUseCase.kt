@@ -48,7 +48,8 @@ class BulkManageProductsUseCase @Inject constructor(
                     val unit = values.getOrNull(7) ?: ""
                     
                     // Validation: Skip rows with missing critical data or invalid weight
-                    val isWeightValid = weight.isNotBlank() && weight != "0"
+                    val weightGrams = CSVUtil.parseWeightToGrams(weight)
+                    val isWeightValid = weightGrams != null && weightGrams > 0
                     
                     if (name.isNotBlank() && isWeightValid) {
                         val product = Product(
@@ -62,12 +63,13 @@ class BulkManageProductsUseCase @Inject constructor(
                             stockQuantity = values.getOrNull(6)?.toIntOrNull() ?: 0,
                             unit = unit,
                             weight = weight,
+                            weightGrams = weightGrams,
                             description = values.getOrNull(9) ?: ""
                         )
                         products.add(product)
                         count++
                     } else {
-                        Timber.w("CSVImport: Skipping invalid row: name='$name', weight='$weight'")
+                        Timber.w("CSVImport: Skipping invalid row: name='$name', rawWeight='$weight', parsedWeightGrams=$weightGrams")
                     }
                 }
                 line = reader.readLine()

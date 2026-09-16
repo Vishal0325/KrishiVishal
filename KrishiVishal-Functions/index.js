@@ -12,6 +12,7 @@ for (const envVar of REQUIRED_ENV_VARS) {
 }
 
 const orders = require('./orders/orderFlow');
+const deliverySlots = require('./orders/deliverySlots');
 const orderTriggers = require('./orders/orderTriggers');
 const razorpay = require('./finance/razorpay');
 const ledger = require('./finance/ledger');
@@ -28,6 +29,8 @@ const cropAdvisory = require('./messaging/cropAdvisory');
 
 // --- ORDERS ---
 exports.createOrder = orders.createOrder;
+exports.getAvailableSlots = deliverySlots.getAvailableSlots;
+exports.deleteDeliverySlot = deliverySlots.deleteDeliverySlot;
 exports.requestReturn = orders.requestReturn;
 exports.verifyDeliveryOTP = orders.verifyDeliveryOTP;
 exports.cancelOrder = orders.cancelOrder;
@@ -64,6 +67,7 @@ exports.adjustInventory = bulkImport.adjustInventory;
 exports.receiveGrn = bulkImport.receiveGrn;
 exports.writeOffStock = bulkImport.writeOffStock;
 exports.getInventoryReport = bulkImport.getInventoryReport;
+exports.migrateSkuWeights = bulkImport.migrateSkuWeights;
 exports.onProductWrite = recommendations.onProductWrite;
 exports.refreshPopularity = recommendations.refreshPopularity;
 exports.getRecommendations = recommendations.getRecommendations;
@@ -71,9 +75,12 @@ exports.backfillProductMetadata = recommendations.backfillProductMetadata;
 
 // --- MARKETING & REFERRALS ---
 const referrals = require('./marketing/referrals');
+const abandonedCarts = require('./marketing/abandonedCarts');
 exports.generateReferralCode = referrals.generateReferralCode;
 exports.applyReferralCode = referrals.applyReferralCode;
 exports.getOrCreateReferralCode = referrals.getOrCreateReferralCode;
+exports.detectAbandonedCarts = abandonedCarts.detectAbandonedCarts;
+exports.runAbandonedCartScan = abandonedCarts.runAbandonedCartScan;
 
 // --- ADMIN & AI ---
 exports.aiSupervisor = adminTools.aiSupervisor;
@@ -113,6 +120,8 @@ exports.generateEWayBill = onCall({ region: 'asia-south1' }, async (request) => 
 
 // --- MESSAGING & ADVISORY ---
 exports.processOutbox = messaging.processOutbox;
+exports.registerFcmToken = messaging.registerFcmToken;
+exports.deleteFcmToken = messaging.deleteFcmToken;
 exports.sendBroadcastNotification = messaging.sendBroadcastNotification;
 exports.cronCropAdvisory = cropAdvisory.cronCropAdvisory;
 exports.runCropAdvisoryEngine = cropAdvisory.runCropAdvisoryEngine;

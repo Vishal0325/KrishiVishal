@@ -35,12 +35,15 @@ class RiderRepository @Inject constructor(
     suspend fun getIncentiveSlabs(): List<IncentiveSlab> {
         return try {
             val snapshot = firestore.collection("app_config").document("incentive_slabs").get().await()
-            val list = snapshot.get("slabs") as? List<Map<String, Any>>
-            list?.map {
-                IncentiveSlab(
-                    ordersRequired = (it["ordersRequired"] as? Long)?.toInt() ?: 0,
-                    bonusAmount = (it["bonusAmount"] as? Number)?.toDouble() ?: 0.0
-                )
+            val list = snapshot.get("slabs") as? List<*>
+            list?.mapNotNull { item ->
+                val slabMap = item as? Map<*, *>
+                if (slabMap != null) {
+                    IncentiveSlab(
+                        ordersRequired = (slabMap["ordersRequired"] as? Number)?.toInt() ?: 0,
+                        bonusAmount = (slabMap["bonusAmount"] as? Number)?.toDouble() ?: 0.0
+                    )
+                } else null
             } ?: emptyList()
         } catch (e: Exception) {
             emptyList()

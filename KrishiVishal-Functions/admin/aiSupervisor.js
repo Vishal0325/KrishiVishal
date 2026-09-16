@@ -7,6 +7,25 @@ const { isAdminRequest } = require("../core/utils");
 const REGION = 'asia-south1';
 
 /**
+ * ARCHITECTURAL LOGGING DESIGN & CONSOLIDATION DECISION:
+ * 
+ * 1. 'audit_logs' collection:
+ *    - Purpose: Authoritative audit trail for administrative mutations, manual overrides,
+ *      security policy alterations, price/stock adjustments, and financial ledger writes.
+ *    - Schema: { action, entityType, entityId, performedBy, previousState, newState, timestamp, ipAddress }
+ *    - Access: Read-only for Admin / SuperAdmin, strictly written via Server SDK / Cloud Functions.
+ * 
+ * 2. 'ai_activity_logs' collection:
+ *    - Purpose: Specific telemetry for AI Supervisor assistant operations.
+ *    - Captures sanitized prompts (PII redacted), tokens, inferred agent types,
+ *      generated suggestions, and human administrator approval/rejection decisions.
+ *    - Schema: { promptLength, promptSanitized, agentType, requestedByHash, timestamp }
+ * 
+ * Keeping these collections logically separated ensures regulatory compliance and avoids
+ * mixing high-volume AI telemetry with critical financial/security audit records.
+ */
+
+/**
  * AI Supervisor Orchestrator with sanitized logging (M4).
  */
 exports.aiSupervisor = onCall({ region: REGION }, async (request) => {

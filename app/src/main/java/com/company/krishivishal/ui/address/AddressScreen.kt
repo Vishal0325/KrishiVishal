@@ -138,7 +138,10 @@ fun AddressScreen(
         }
 
         if (showAddDialog) {
+            val user by viewModel.currentUser.collectAsState()
             AddAddressDialog(
+                initialName = user?.name ?: "",
+                initialPhone = user?.phone?.replace("+91", "") ?: "",
                 onDismiss = { showAddDialog = false },
                 onSave = { name, mobile, house, street, ward, pin, block, district, state, landmark, isDefault, type ->
                     viewModel.addAddress(name, mobile, house, street, ward, pin, block, district, state, landmark, isDefault, type)
@@ -157,8 +160,9 @@ fun EmptyAddressView() {
     ) {
         Icon(Icons.Default.LocationOff, contentDescription = null, modifier = Modifier.size(80.dp), tint = Color.LightGray)
         Spacer(modifier = Modifier.height(16.dp))
-        Text("No addresses found", fontWeight = FontWeight.Bold, color = Color.Gray)
-        Text("Add your farm or home for delivery", color = Color.Gray, fontSize = 14.sp)
+        Text("Koi saved address nahi mila", fontWeight = FontWeight.Bold, color = Color.Gray, fontSize = 16.sp)
+        Spacer(modifier = Modifier.height(4.dp))
+        Text("Apna farm ya ghar ka pata add karein", color = Color.Gray, fontSize = 14.sp)
     }
 }
 
@@ -185,7 +189,7 @@ fun AddressItem(address: Address, onDelete: () -> Unit) {
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = address.addressType,
+                        text = address.addressType.ifBlank { "Farm" },
                         fontWeight = FontWeight.Bold,
                         color = PrimaryGreen,
                         fontSize = 14.sp
@@ -215,7 +219,7 @@ fun AddressItem(address: Address, onDelete: () -> Unit) {
                 Text(address.mobileNumber, fontSize = 14.sp, color = Color.Gray)
             }
             
-            Divider(modifier = Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
             
             // Build address lines, filtering out empty parts
             val line1Parts = listOfNotNull(
@@ -282,19 +286,24 @@ fun AddressItem(address: Address, onDelete: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddAddressDialog(
+    initialName: String = "",
+    initialPhone: String = "",
     onDismiss: () -> Unit,
     onSave: (String, String, String, String, String, String, String, String, String, String, Boolean, String) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
-    var mobile by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf(initialName) }
+    var mobile by remember { mutableStateOf(initialPhone) }
+    var houseNo by remember { mutableStateOf("") }
     var street by remember { mutableStateOf("") }
     var ward by remember { mutableStateOf("") }
     var pin by remember { mutableStateOf("") }
     var block by remember { mutableStateOf("") }
     var district by remember { mutableStateOf("") }
+    var state by remember { mutableStateOf("Bihar") }
     var landmark by remember { mutableStateOf("") }
-    var isDefault by remember { mutableStateOf(false) }
-    var selectedType by remember { mutableStateOf("Home") }
+    var isDefault by remember { mutableStateOf(true) }
+    var selectedType by remember { mutableStateOf("Farm") }
+    var validationError by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -309,46 +318,150 @@ fun AddAddressDialog(
                     .padding(24.dp)
                     .verticalScroll(rememberScrollState())
             ) {
-                Text("New Shipping Location", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                Text("New Delivery Location", fontWeight = FontWeight.Bold, fontSize = 20.sp)
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    AddressTypeChip("Home", Icons.Default.Home, selectedType == "Home") { selectedType = "Home" }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AddressTypeChip("Farm (खेत)", Icons.Default.Agriculture, selectedType == "Farm") { selectedType = "Farm" }
+                    AddressTypeChip("Home (घर)", Icons.Default.Home, selectedType == "Home") { selectedType = "Home" }
                 }
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Full Name") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+                OutlinedTextField(
+                    value = name, 
+                    onValueChange = { name = it; validationError = null }, 
+                    label = { Text("Full Name *") }, 
+                    modifier = Modifier.fillMaxWidth(), 
+                    shape = RoundedCornerShape(12.dp)
+                )
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(value = mobile, onValueChange = { mobile = it }, label = { Text("Mobile Number") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+                OutlinedTextField(
+                    value = mobile, 
+                    onValueChange = { 
+                        if (it.length <= 10 && it.all { c -> c.isDigit() }) {
+                            mobile = it
+                            validationError = null
+                        }
+                    }, 
+                    label = { Text("Mobile Number (10 digits) *") }, 
+                    modifier = Modifier.fillMaxWidth(), 
+                    shape = RoundedCornerShape(12.dp)
+                )
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(value = street, onValueChange = { street = it }, label = { Text("Street/Area") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+                OutlinedTextField(
+                    value = street, 
+                    onValueChange = { street = it; validationError = null }, 
+                    label = { Text("Village / Street / Area *") }, 
+                    modifier = Modifier.fillMaxWidth(), 
+                    shape = RoundedCornerShape(12.dp)
+                )
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(value = ward, onValueChange = { ward = it }, label = { Text("Ward") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp))
+                    OutlinedTextField(
+                        value = ward, 
+                        onValueChange = { ward = it }, 
+                        label = { Text("Ward / Panchayat") }, 
+                        modifier = Modifier.weight(1f), 
+                        shape = RoundedCornerShape(12.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
-                    OutlinedTextField(value = pin, onValueChange = { pin = it }, label = { Text("Pincode") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp))
+                    OutlinedTextField(
+                        value = pin, 
+                        onValueChange = { 
+                            if (it.length <= 6 && it.all { c -> c.isDigit() }) {
+                                pin = it
+                                validationError = null
+                            }
+                        }, 
+                        label = { Text("Pincode (6 digits) *") }, 
+                        modifier = Modifier.weight(1f), 
+                        shape = RoundedCornerShape(12.dp)
+                    )
                 }
                 
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(value = block, onValueChange = { block = it }, label = { Text("Block") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = block, 
+                        onValueChange = { block = it }, 
+                        label = { Text("Block / Tehsil") }, 
+                        modifier = Modifier.weight(1f), 
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    OutlinedTextField(
+                        value = district, 
+                        onValueChange = { district = it; validationError = null }, 
+                        label = { Text("District *") }, 
+                        modifier = Modifier.weight(1f), 
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(value = district, onValueChange = { district = it }, label = { Text("District") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+                OutlinedTextField(
+                    value = state, 
+                    onValueChange = { state = it }, 
+                    label = { Text("State") }, 
+                    modifier = Modifier.fillMaxWidth(), 
+                    shape = RoundedCornerShape(12.dp)
+                )
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(value = landmark, onValueChange = { landmark = it }, label = { Text("Landmark (Optional)") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+                OutlinedTextField(
+                    value = landmark, 
+                    onValueChange = { landmark = it }, 
+                    label = { Text("Landmark (Optional)") }, 
+                    modifier = Modifier.fillMaxWidth(), 
+                    shape = RoundedCornerShape(12.dp)
+                )
                 
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
                     Checkbox(checked = isDefault, onCheckedChange = { isDefault = it }, colors = CheckboxDefaults.colors(checkedColor = PrimaryGreen))
                     Text("Set as primary address")
                 }
+
+                if (validationError != null) {
+                    Text(
+                        text = validationError ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
                 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(16.dp))
                 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Spacer(modifier = Modifier.width(8.dp))
                     Button(
-                        onClick = { onSave(name, mobile, "", street, ward, pin, block, district, "", landmark, isDefault, selectedType) },
+                        onClick = { 
+                            if (name.isBlank()) {
+                                validationError = "Kripya apna naam enter karein."
+                                return@Button
+                            }
+                            if (mobile.length != 10) {
+                                validationError = "Kripya sahi 10-digit mobile number enter karein."
+                                return@Button
+                            }
+                            if (street.isBlank()) {
+                                validationError = "Kripya gaon / mohalla / street enter karein."
+                                return@Button
+                            }
+                            if (pin.length != 6) {
+                                validationError = "Kripya 6-digit pincode enter karein."
+                                return@Button
+                            }
+                            if (district.isBlank()) {
+                                validationError = "Kripya district (zila) enter karein."
+                                return@Button
+                            }
+                            onSave(name, mobile, houseNo, street, ward, pin, block, district, state.ifBlank { "Bihar" }, landmark, isDefault, selectedType) 
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
                         shape = RoundedCornerShape(12.dp)
                     ) {

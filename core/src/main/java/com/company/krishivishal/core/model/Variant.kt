@@ -112,6 +112,12 @@ data class Variant(
     @set:PropertyName("weight")
     var weight: String = "",
 
+    @ColumnInfo(name = "weightGrams")
+    @SerializedName("weightGrams")
+    @get:PropertyName("weightGrams")
+    @set:PropertyName("weightGrams")
+    var weightGrams: Long? = null,
+
     @ColumnInfo(name = "unit")
     @SerializedName("unit")
     @get:PropertyName("unit")

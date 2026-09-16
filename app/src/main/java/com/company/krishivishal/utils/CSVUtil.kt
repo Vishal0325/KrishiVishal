@@ -59,4 +59,22 @@ object CSVUtil {
             }
         }
     }
+
+    /**
+     * Standardizes weight strings to numeric grams.
+     * Examples: "500g" -> 500, "1kg" -> 1000, "250ml" -> 250, "1L" -> 1000, "1.5 kg" -> 1500
+     */
+    fun parseWeightToGrams(raw: String?): Long? {
+        if (raw.isNullOrBlank()) return null
+        val clean = raw.trim().lowercase()
+        val regex = Regex("""^([\d.]+)\s*(kg|g|gm|gms|l|ltr|litre|litres|ml)?$""")
+        val match = regex.find(clean) ?: return clean.toDoubleOrNull()?.toLong()
+        val value = match.groupValues[1].toDoubleOrNull() ?: return null
+        val unit = match.groupValues.getOrNull(2) ?: "g"
+        val grams = when (unit) {
+            "kg", "l", "ltr", "litre", "litres" -> value * 1000.0
+            else -> value
+        }
+        return kotlin.math.round(grams).toLong()
+    }
 }

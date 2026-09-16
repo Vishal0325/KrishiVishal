@@ -30,7 +30,7 @@ import com.company.krishivishal.core.model.*
         Warehouse::class,
         InventoryMovement::class
     ],
-    version = 51,
+    version = 53,
     exportSchema = false  // [FIXED] Disabled to avoid KSP compilation error with large schema
 )
 @TypeConverters(AppConverters::class)

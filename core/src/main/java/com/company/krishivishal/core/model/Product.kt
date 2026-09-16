@@ -220,6 +220,12 @@ data class Product(
     @set:PropertyName("weight")
     var weight: String = "",
 
+    @ColumnInfo(name = "weightGrams")
+    @SerializedName("weightGrams")
+    @get:PropertyName("weightGrams")
+    @set:PropertyName("weightGrams")
+    var weightGrams: Long? = null,
+
     @ColumnInfo(name = "images")
     @SerializedName("images")
     @get:PropertyName("images")

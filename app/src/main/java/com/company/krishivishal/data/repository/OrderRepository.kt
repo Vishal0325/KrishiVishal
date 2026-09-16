@@ -7,6 +7,7 @@ import com.company.krishivishal.core.model.OrderStatus
 import com.company.krishivishal.core.model.Product
 import com.company.krishivishal.data.mapper.toProduct
 import com.company.krishivishal.core.util.Resource
+import com.company.krishivishal.core.model.displayVariantLabel
 import com.company.krishivishal.utils.networkBoundResource
 import com.company.krishivishal.utils.safeCall
 import com.google.firebase.firestore.FirebaseFirestore
@@ -25,7 +26,7 @@ import timber.log.Timber
 import com.google.firebase.auth.FirebaseAuth
 
 /**
- * Result of a successful order creation.
+ * Result returned upon successful order creation.
  * @param orderId       Our internal Firestore order document ID.
  * @param totalAmount   Final payable amount in INR.
  * @param customerOtp   OTP for delivery verification.
@@ -45,13 +46,14 @@ interface OrderRepository {
     // V4: placeOrder (Direct Write) is deprecated and blocked by security rules.
     // Use createOrderViaFunction instead for secure, server-side validated orders.
     fun createOrderViaFunction(
-        cartItems: List<com.company.krishivishal.core.model.CartItem>,
-        address: String,
+        cartItems: List<com.company.krishivishal.core.model.CartWithProduct>,
+        address: Map<String, Any?>,
         paymentMethod: String,
         userName: String,
         userPhone: String,
         lat: Double = 0.0,
-        lng: Double = 0.0
+        lng: Double = 0.0,
+        deliverySlotId: String? = null
     ): Flow<Resource<CreateOrderResult>>
     fun verifyPayment(
         orderId: String,
@@ -81,7 +83,7 @@ class OrderRepositoryImpl @Inject constructor(
                 .whereEqualTo("userId", userId)
                 .get()
                 .await()
-            snapshot.toObjects(Order::class.java)
+            snapshot.documents.mapNotNull { it.toOrderSafe() }
         },
         saveFetchResult = { orders ->
             orders.forEach { orderDao.insertOrder(it) }
@@ -90,13 +92,14 @@ class OrderRepositoryImpl @Inject constructor(
     )
 
     override fun createOrderViaFunction(
-        cartItems: List<com.company.krishivishal.core.model.CartItem>,
-        address: String,
+        cartItems: List<com.company.krishivishal.core.model.CartWithProduct>,
+        address: Map<String, Any?>,
         paymentMethod: String,
         userName: String,
         userPhone: String,
         lat: Double,
-        lng: Double
+        lng: Double,
+        deliverySlotId: String?
     ): Flow<Resource<CreateOrderResult>> = flow {
         emit(Resource.Loading())
 
@@ -134,12 +137,14 @@ class OrderRepositoryImpl @Inject constructor(
 
         // Step 2: Build the data payload
         val data = hashMapOf(
-            "cartItems" to cartItems.map {
+            "cartItems" to cartItems.map { cwp ->
+                val variantLabel = cwp.displayVariantLabel()
                 hashMapOf(
-                    "productId" to it.productId,
-                    "quantity" to it.quantity,
-                    "variantId" to it.variantId,
-                    "skuCode" to (it.skuCode ?: "")  // FIX: Cloud Function requires skuCode to look up SKU from Firestore
+                    "productId" to cwp.cartItem.productId,
+                    "quantity" to cwp.cartItem.quantity,
+                    "variantId" to (cwp.cartItem.variantId ?: ""),
+                    "variantLabel" to variantLabel,
+                    "skuCode" to (if (!cwp.cartItem.skuCode.isNullOrBlank()) cwp.cartItem.skuCode else cwp.cartItem.productId)
                 )
             },
             "address" to address,
@@ -147,7 +152,8 @@ class OrderRepositoryImpl @Inject constructor(
             "userName" to userName,
             "userPhone" to userPhone,
             "targetLat" to lat,
-            "targetLng" to lng
+            "targetLng" to lng,
+            "deliverySlotId" to (deliverySlotId ?: "")
         )
 
         // Step 3: Call Cloud Function via Firebase SDK (handles auth token automatically)
@@ -244,7 +250,7 @@ class OrderRepositoryImpl @Inject constructor(
             firestore.collection("orders").document(orderId)
                 .get()
                 .await()
-                .toObject(Order::class.java)
+                .toOrderSafe()
         },
         saveFetchResult = { order ->
             order?.let { orderDao.insertOrder(it) }
@@ -299,7 +305,7 @@ class OrderRepositoryImpl @Inject constructor(
                 .get()
                 .await()
             
-            val orders = snapshot.toObjects(Order::class.java)
+            val orders = snapshot.documents.mapNotNull { it.toOrderSafe() }
             val productIds = orders.flatMap { it.items }.map { it.productId }.distinct().take(10)
             
             if (productIds.isEmpty()) {
@@ -319,4 +325,73 @@ class OrderRepositoryImpl @Inject constructor(
             emit(Resource.Error(e.localizedMessage ?: "Error fetching previous purchases"))
         }
     }.flowOn(ioDispatcher)
+}
+
+/**
+ * Safely deserializes Firestore order documents handling both String and Map address types.
+ */
+private fun com.google.firebase.firestore.DocumentSnapshot.toOrderSafe(): Order? {
+    val data = this.data ?: return null
+    return try {
+        val rawAddress = data["address"]
+        val addressStr = when (rawAddress) {
+            is String -> rawAddress
+            is Map<*, *> -> {
+                val line1 = rawAddress["line1"] as? String ?: ""
+                val line2 = rawAddress["line2"] as? String ?: ""
+                val city = rawAddress["city"] as? String ?: ""
+                val state = rawAddress["state"] as? String ?: ""
+                val pincode = rawAddress["pincode"] as? String ?: ""
+                listOf(line1, line2, city, state, pincode).filter { it.isNotBlank() }.joinToString(", ")
+            }
+            else -> ""
+        }
+
+        val itemsRaw = (data["items"] as? List<*>)?.filterIsInstance<Map<String, Any?>>() ?: emptyList()
+        val items = itemsRaw.map { itemMap ->
+            com.company.krishivishal.core.model.OrderItem(
+                productId = itemMap["productId"] as? String ?: "",
+                productName = itemMap["productName"] as? String ?: "",
+                quantity = (itemMap["quantity"] as? Number)?.toInt() ?: 1,
+                price = (itemMap["price"] as? Number)?.toDouble() ?: 0.0,
+                imageUrl = itemMap["imageUrl"] as? String ?: "",
+                variantId = itemMap["variantId"] as? String,
+                variantLabel = itemMap["variantLabel"] as? String,
+                skuCode = itemMap["skuCode"] as? String,
+                hsnCode = itemMap["hsnCode"] as? String ?: "",
+                gstRate = (itemMap["gstRate"] as? Number)?.toDouble() ?: 0.0,
+                gstAmount = (itemMap["gstAmount"] as? Number)?.toDouble() ?: 0.0
+            )
+        }
+
+        Order(
+            id = this.id,
+            userId = data["userId"] as? String ?: "",
+            items = items,
+            totalAmount = (data["totalAmount"] as? Number)?.toDouble() ?: 0.0,
+            paymentMethod = data["paymentMethod"] as? String ?: "COD",
+            paymentStatus = data["paymentStatus"] as? String ?: "PENDING",
+            razorpayPaymentId = data["razorpayPaymentId"] as? String,
+            address = addressStr,
+            landmark = data["landmark"] as? String ?: "",
+            status = data["status"] as? String ?: "PLACED",
+            createdAt = (data["createdAt"] as? com.google.firebase.Timestamp)?.toDate() ?: java.util.Date(),
+            expectedDelivery = (data["expectedDelivery"] as? com.google.firebase.Timestamp)?.toDate() ?: java.util.Date(),
+            riderId = data["riderId"] as? String ?: "",
+            isCOD = data["paymentMethod"] == "COD" || data["isCOD"] == true,
+            codAmount = (data["codAmount"] as? Number)?.toDouble() ?: ((data["totalAmount"] as? Number)?.toDouble() ?: 0.0),
+            targetLat = (data["targetLat"] as? Number)?.toDouble() ?: 0.0,
+            targetLng = (data["targetLng"] as? Number)?.toDouble() ?: 0.0,
+            customerOTP = data["customerOTP"] as? String ?: "",
+            userName = data["userName"] as? String ?: "",
+            userPhone = data["userPhone"] as? String ?: "",
+            totalTax = (data["totalTax"] as? Number)?.toDouble() ?: 0.0,
+            subtotal = (data["subtotal"] as? Number)?.toDouble() ?: 0.0,
+            totalDiscount = (data["totalDiscount"] as? Number)?.toDouble() ?: 0.0,
+            deliveryCharges = (data["deliveryCharges"] as? Number)?.toDouble() ?: ((data["deliveryCharge"] as? Number)?.toDouble() ?: 0.0)
+        )
+    } catch (e: Exception) {
+        Timber.e(e, "Error parsing order document ${this.id}")
+        null
+    }
 }

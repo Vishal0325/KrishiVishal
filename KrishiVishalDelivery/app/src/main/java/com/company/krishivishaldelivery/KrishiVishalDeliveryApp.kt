@@ -43,11 +43,18 @@ class KrishiVishalDeliveryApp : Application(), Configuration.Provider {
             )
         }
 
-        // Install Google Play Services security provider
+        // Install Google Play Services security provider asynchronously to prevent ANR
         try {
-            ProviderInstaller.installIfNeeded(this)
+            ProviderInstaller.installIfNeededAsync(this, object : ProviderInstaller.ProviderInstallListener {
+                override fun onProviderInstalled() {
+                    Timber.d("Google Play Services security provider installed successfully")
+                }
+                override fun onProviderInstallFailed(errorCode: Int, recoveryIntent: android.content.Intent?) {
+                    Timber.e("Google Play Services security provider installation failed. Error code: $errorCode")
+                }
+            })
         } catch (e: Exception) {
-            Timber.e(e, "Google Play Services security provider installation failed")
+            Timber.e(e, "Google Play Services security provider async installation threw exception")
         }
 
         if (BuildConfig.DEBUG) {

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -57,6 +58,10 @@ fun ReturnDetailScreen(
     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isSubmitting by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
+    var isQcPassed by remember { mutableStateOf(true) }
+    var qcNote by remember { mutableStateOf("") }
+    var isPackageIntact by remember { mutableStateOf(true) }
+    var isReasonMatched by remember { mutableStateOf(true) }
 
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
@@ -83,7 +88,7 @@ fun ReturnDetailScreen(
 fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -148,6 +153,56 @@ fontWeight = FontWeight.Bold) },
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(if (capturedBitmap == null) "Take Product Photo" else "Retake Photo")
                                     }
+                                }
+                            }
+                        )
+                    }
+
+                    item {
+                        InfoCard(
+                            title = "QC Inspection Checklist",
+                            icon = Icons.Default.Checklist,
+                            content = {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(
+                                            checked = isPackageIntact,
+                                            onCheckedChange = { isPackageIntact = it }
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Package intact & seal verified", fontSize = 13.sp)
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(
+                                            checked = isReasonMatched,
+                                            onCheckedChange = { isReasonMatched = it }
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Customer reason matches physical state", fontSize = 13.sp)
+                                    }
+                                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                    Text("Overall QC Result:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        RadioButton(
+                                            selected = isQcPassed,
+                                            onClick = { isQcPassed = true }
+                                        )
+                                        Text("Passed (Restockable)", fontSize = 13.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.SemiBold)
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        RadioButton(
+                                            selected = !isQcPassed,
+                                            onClick = { isQcPassed = false }
+                                        )
+                                        Text("Failed (Damaged)", fontSize = 13.sp, color = Color.Red, fontWeight = FontWeight.SemiBold)
+                                    }
+                                    OutlinedTextField(
+                                        value = qcNote,
+                                        onValueChange = { qcNote = it },
+                                        label = { Text("QC Notes / Remarks") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = false,
+                                        maxLines = 3
+                                    )
                                 }
                             }
                         )
@@ -256,23 +311,23 @@ fontWeight = FontWeight.Bold) },
     if (showConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showConfirmDialog = false },
-            title = { Text("Confirm Pickup") },
-            text = { Text("Have you physically collected the item and checked its condition?") },
+            title = { Text("Confirm Pickup & QC") },
+            text = { Text("Confirm pickup and record QC result as ${if (isQcPassed) "PASSED" else "FAILED"}?") },
             confirmButton = {
                 Button(
                     onClick = {
                         showConfirmDialog = false
                         scope.launch {
                             isSubmitting = true
-                            val stream = ByteArrayOutputStream()
-                            capturedBitmap?.compress(Bitmap.CompressFormat.JPEG, 80, stream)
-                            val bytes = stream.toByteArray()
-                            
-                            val success = viewModel.uploadProofOfDelivery("", bytes, null) // Placeholder for orderId logic in returns
+                            val success = viewModel.submitReturnQC(
+                                returnId = returnId,
+                                qcPassed = isQcPassed,
+                                note = qcNote
+                            )
                             if (success) {
                                 onConfirmPickup()
                             } else {
-                                errorText = "Failed to upload. Check internet connection."
+                                errorText = "Failed to update return. Please check internet connection."
                             }
                             isSubmitting = false
                         }

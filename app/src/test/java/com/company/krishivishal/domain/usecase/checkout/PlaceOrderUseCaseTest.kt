@@ -41,8 +41,11 @@ class PlaceOrderUseCaseTest {
 
         verify {
             orderRepository.createOrderViaFunction(
-                cartItems = match { it.size == 1 && it[0].productId == "p1" },
-                address = "John Doe, 123, Street, W1, B1, D1, S1 - 123456",
+                cartItems = match { it.size == 1 && (it[0].cartItem.productId == "p1" || it[0].product?.id == "p1") },
+                address = match {
+                    val map = it as Map<String, Any?>
+                    map["pincode"] == "123456" && map["city"] == "D1"
+                },
                 paymentMethod = "COD",
                 userName = "John Doe",
                 userPhone = "9876543210"
@@ -78,7 +81,10 @@ class PlaceOrderUseCaseTest {
         verify {
             orderRepository.createOrderViaFunction(
                 cartItems = match { it.size == 1 },
-                address = "Ramesh Kumar, 45, Main Road, W2, B2, Patna, Bihar - 800001 (Landmark: Near Mandir)",
+                address = match {
+                    val map = it as Map<String, Any?>
+                    map["pincode"] == "800001" && map["city"] == "Patna" && map["landmark"] == "Near Mandir"
+                },
                 paymentMethod = "RAZORPAY_ONLINE", // Verifies fix #4
                 userName = "Ramesh Kumar",
                 userPhone = "9876543210"

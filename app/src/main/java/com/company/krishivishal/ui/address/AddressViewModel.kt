@@ -27,6 +27,12 @@ class AddressViewModel @Inject constructor(
     private val _addresses = MutableStateFlow<Resource<List<Address>>>(Resource.Loading())
     val addresses: StateFlow<Resource<List<Address>>> = _addresses.asStateFlow()
 
+    val currentUser = authRepository.getCurrentUser().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = null
+    )
+
     private val _uiEvent = MutableSharedFlow<AddressUiEvent>()
     val uiEvent = _uiEvent.asSharedFlow()
 
@@ -36,10 +42,11 @@ class AddressViewModel @Inject constructor(
 
     fun loadAddresses() {
         viewModelScope.launch {
+            _addresses.value = Resource.Loading()
             authRepository.getCurrentUser()
                 .distinctUntilChangedBy { it?.id }
                 .flatMapLatest { user ->
-                    val userId = user?.id
+                    val userId = user?.id ?: com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
                     if (userId.isNullOrEmpty() || userId == Constants.GUEST_USER_ID) {
                         // Guest users can't access Firestore addresses — show empty list
                         flowOf(Resource.Success(emptyList()))
@@ -68,25 +75,26 @@ class AddressViewModel @Inject constructor(
         addressType: String = "Farm"
     ) {
         viewModelScope.launch {
-            val user = authRepository.getCurrentUser().first()
-            if (user == null) {
-                _uiEvent.emit(AddressUiEvent.ShowSnackbar("Error: Session expired. Please restart app."))
+            val user = authRepository.getCurrentUser().firstOrNull()
+            val userId = user?.id ?: com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            if (userId.isNullOrEmpty() || userId == Constants.GUEST_USER_ID) {
+                _uiEvent.emit(AddressUiEvent.ShowSnackbar("Kripya address add karne ke liye pehle login karein."))
                 return@launch
             }
             
             val newAddress = Address(
                 id = UUID.randomUUID().toString(),
-                userId = user.id,
-                fullName = fullName,
-                mobileNumber = mobileNumber,
-                houseNo = houseNo,
-                street = street,
-                ward = ward,
-                pincode = pincode,
-                block = block,
-                district = district,
-                state = state,
-                landmark = landmark,
+                userId = userId,
+                fullName = fullName.trim(),
+                mobileNumber = mobileNumber.trim(),
+                houseNo = houseNo.trim(),
+                street = street.trim(),
+                ward = ward.trim(),
+                pincode = pincode.trim(),
+                block = block.trim(),
+                district = district.trim(),
+                state = state.trim().ifBlank { "Bihar" },
+                landmark = landmark.trim(),
                 isDefault = isDefault,
                 addressType = addressType
             )
@@ -95,7 +103,8 @@ class AddressViewModel @Inject constructor(
                 when (resource) {
                     is Resource.Success -> {
                         _uiEvent.emit(AddressUiEvent.AddressSaved)
-                        _uiEvent.emit(AddressUiEvent.ShowSnackbar("Address saved successfully"))
+                        _uiEvent.emit(AddressUiEvent.ShowSnackbar("Address successfully save ho gaya."))
+                        loadAddresses()
                     }
                     is Resource.Error -> {
                         _uiEvent.emit(AddressUiEvent.ShowSnackbar(resource.message ?: "Failed to save address"))
@@ -111,6 +120,9 @@ class AddressViewModel @Inject constructor(
             addressRepository.deleteAddress(address).collectLatest { resource ->
                 if (resource is Resource.Error) {
                     _uiEvent.emit(AddressUiEvent.ShowSnackbar(resource.message ?: "Failed to delete address"))
+                } else if (resource is Resource.Success) {
+                    _uiEvent.emit(AddressUiEvent.ShowSnackbar("Address remove ho gaya."))
+                    loadAddresses()
                 }
             }
         }

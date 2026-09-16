@@ -27,5 +27,9 @@ data class DeliveryOrderEntity(
     // POD local storage for offline sync
     val localPodPhotoPath: String? = null,
     val localPodSignaturePath: String? = null,
+    // Failure / RTO local storage for offline sync
+    val localFailurePhotoPath: String? = null,
+    val ndrReason: String? = null,
+    val ndrNotes: String? = null,
     val isPendingSync: Boolean = false
 )

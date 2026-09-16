@@ -36,6 +36,7 @@ class HomeViewModelTest {
     private val orderRepository: OrderRepository = mockk(relaxed = true)
     private val productDao: com.company.krishivishal.data.local.ProductDao = mockk(relaxed = true)
     private val userDao: UserDao = mockk(relaxed = true)
+    private val recentSearchDao: com.company.krishivishal.data.local.dao.RecentSearchDao = mockk(relaxed = true)
 
     @Before
     fun setup() {
@@ -58,7 +59,8 @@ class HomeViewModelTest {
             orderRepository = orderRepository,
             analyticsTracker = analyticsTracker,
             productDao = productDao,
-            userDao = userDao
+            userDao = userDao,
+            recentSearchDao = recentSearchDao
         )
     }
 

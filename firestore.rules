@@ -218,6 +218,16 @@ service cloud.firestore {
 
 
     // ============================================================
+    // DELIVERY SLOTS
+    // ============================================================
+
+    match /delivery_slots/{slotId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+
+    // ============================================================
     // ORDERS
     // ============================================================
 
@@ -416,6 +426,11 @@ service cloud.firestore {
         allow read: if isOwner(uId) || isAdmin();
       }
 
+      // FCM Token Registry for multi-device support
+      match /fcm_tokens/{tokenId} {
+        allow read, write: if isOwner(uId) || isAdmin();
+      }
+
       match /{document=**} {
         allow read, write: if false;
       }
@@ -425,6 +440,14 @@ service cloud.firestore {
     // ============================================================
     // RIDERS & WHITELIST
     // ============================================================
+
+    match /whitelisted_riders/{id} {
+      allow read: if isAuthenticated();
+      allow update: if isAuthenticated() && 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'uid', 'riderIdDisplay', 'registeredAt']) &&
+        request.resource.data.uid == request.auth.uid;
+      allow create, delete: if isAdmin();
+    }
 
     match /riders/{riderId} {
       allow read: if isAuthenticated() || isAdmin() || isViewer();
@@ -667,6 +690,14 @@ service cloud.firestore {
       allow create: if isRider() && request.resource.data.riderId == request.auth.uid;
       allow update: if isAdmin();
       allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // ABANDONED CARTS
+    // ============================================================
+    
+    match /abandoned_carts/{id} {
+      allow read, write: if isAdmin();
     }
 
     // ============================================================

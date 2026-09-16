@@ -3,6 +3,7 @@ package com.company.krishivishal.ui.cart
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -160,6 +161,7 @@ fun CartScreen(
                             // Temporarily removing SwipeToDismiss to ensure build success while resolving M3 version differences
                             CartListItem(
                                 item = item,
+                                onClick = { item.product?.id?.let { onNavigateToProduct(it) } },
                                 onIncrease = { viewModel.updateQuantity(item.cartItem, item.cartItem.quantity + 1) },
                                 onDecrease = { viewModel.updateQuantity(item.cartItem, item.cartItem.quantity - 1) },
                                 onRemove = { viewModel.removeFromCart(item.cartItem) },
@@ -247,13 +249,14 @@ fun PriceRow(label: String, value: String, color: Color = Color.Black) {
 @Composable
 fun CartListItem(
     item: CartWithProduct,
+    onClick: () -> Unit,
     onIncrease: () -> Unit,
     onDecrease: () -> Unit,
     onRemove: () -> Unit,
     onSelectionChange: (Boolean) -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (item.cartItem.isSelected) MaterialTheme.colorScheme.surface 

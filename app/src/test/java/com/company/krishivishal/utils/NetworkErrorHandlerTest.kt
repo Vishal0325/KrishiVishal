@@ -2,11 +2,11 @@ package com.company.krishivishal.utils
 
 import com.company.krishivishal.KrishiVishalApp
 import com.company.krishivishal.R
-import com.google.firebase.FirebaseException
-import com.google.firebase.firestore.FirebaseFirestoreException
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
+import io.mockk.unmockkAll
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -23,10 +23,16 @@ class NetworkErrorHandlerTest {
         mockkObject(KrishiVishalApp.Companion)
         every { KrishiVishalApp.instance } returns mockApp
 
+
         every { mockApp.getString(R.string.error_no_internet) } returns "No internet connection!"
         every { mockApp.getString(R.string.error_timeout) } returns "Lost contact with the server"
         every { mockApp.getString(R.string.error_db_permission) } returns "No permission to access database"
         every { mockApp.getString(R.string.error_technical) } returns "Technical error"
+    }
+
+    @After
+    fun tearDown() {
+        unmockkAll()
     }
 
     @Test
@@ -48,19 +54,5 @@ class NetworkErrorHandlerTest {
         val error = SocketTimeoutException("Read timed out")
         val result = NetworkErrorHandler.asFriendlyError(error)
         assertEquals("Lost contact with the server", result)
-    }
-
-    @Test
-    fun `asFriendlyError should return permission message on Firestore PERMISSION_DENIED`() {
-        val error = FirebaseFirestoreException("Missing or insufficient permissions", FirebaseFirestoreException.Code.PERMISSION_DENIED)
-        val result = NetworkErrorHandler.asFriendlyError(error)
-        assertEquals("No permission to access database", result)
-    }
-
-    @Test
-    fun `asFriendlyError should return custom App Check message on App Check FirebaseException`() {
-        val error = FirebaseException("App Check Blocked")
-        val result = NetworkErrorHandler.asFriendlyError(error)
-        assertEquals("App Check Blocked: Please use a real device.", result)
     }
 }

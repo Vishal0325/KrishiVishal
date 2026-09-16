@@ -1,5 +1,6 @@
 package com.company.krishivishaldelivery.ui.dashboard
 
+import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.company.krishivishal.core.model.AppConfig
@@ -18,6 +19,7 @@ import com.company.krishivishaldelivery.data.repository.RiderRepository
 import com.company.krishivishaldelivery.utils.ConnectivityObserver
 import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -77,7 +79,8 @@ class DashboardViewModel @Inject constructor(
                 computeShortestRoute(undelivered, riderLat, riderLng)
             } else null
         } else null
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    }.flowOn(Dispatchers.Default)
+     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val currentTrip: StateFlow<List<Order>?> = optimizedTrip.map { trip ->
         trip?.stops?.map { it.order }
@@ -143,6 +146,9 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
+    private val _cashDepositHistory = MutableStateFlow<Resource<List<com.company.krishivishaldelivery.data.model.CashDepositRecord>>>(Resource.Loading())
+    val cashDepositHistory: StateFlow<Resource<List<com.company.krishivishaldelivery.data.model.CashDepositRecord>>> = _cashDepositHistory.asStateFlow()
+
     private fun loadData() {
         val riderId = currentRiderId
         if (riderId.isNotEmpty()) {
@@ -152,6 +158,7 @@ class DashboardViewModel @Inject constructor(
             loadConfig()
             loadIncentives()
             loadRiderProfile(riderId)
+            loadCashDepositHistory(riderId)
         }
     }
 
@@ -182,18 +189,27 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    fun markCashAsDeposited(onComplete: (Boolean) -> Unit = {}) {
+    private fun loadCashDepositHistory(riderId: String) {
+        viewModelScope.launch {
+            orderRepository.getCashDepositHistory(riderId)
+                .catch { _cashDepositHistory.value = Resource.Error(it.message ?: "Error loading deposit history") }
+                .collectLatest { _cashDepositHistory.value = Resource.Success(it) }
+        }
+    }
+
+    fun markCashAsDeposited(onComplete: (com.company.krishivishaldelivery.data.model.CashDepositRecord?) -> Unit = {}) {
         val riderId = currentRiderId
         if (riderId.isNotEmpty()) {
             viewModelScope.launch {
-                val success = orderRepository.markCashAsDeposited(riderId)
-                if (success) {
+                val record = orderRepository.markCashAsDeposited(riderId)
+                if (record != null) {
                     syncData(riderId)
+                    loadCashDepositHistory(riderId)
                 }
-                onComplete(success)
+                onComplete(record)
             }
         } else {
-            onComplete(false)
+            onComplete(null)
         }
     }
 
@@ -311,6 +327,20 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
+    suspend fun submitReturnQC(
+        returnId: String,
+        qcPassed: Boolean,
+        note: String
+    ): Boolean {
+        val status = "PICKED_UP"
+        val qcStatus = if (qcPassed) "PASSED" else "FAILED"
+        val success = orderRepository.completeReturnPickupQC(returnId, status, qcStatus, note)
+        if (success) {
+            loadReturns(currentRiderId)
+        }
+        return success
+    }
+
     suspend fun verifyDelivery(orderId: String, otp: String): Resource<Unit> {
         val result = orderRepository.verifyOrderDelivery(orderId, otp)
         if (result is Resource.Success) {
@@ -324,12 +354,13 @@ class DashboardViewModel @Inject constructor(
         reason: String,
         notes: String,
         isRTO: Boolean,
+        photoBitmap: Bitmap? = null,
         onComplete: (Boolean) -> Unit = {}
     ) {
         val riderId = currentRiderId
         if (riderId.isNotEmpty()) {
             viewModelScope.launch {
-                val success = orderRepository.reportDeliveryFailure(orderId, riderId, reason, notes, isRTO)
+                val success = orderRepository.reportDeliveryFailure(orderId, riderId, reason, notes, isRTO, photoBitmap)
                 if (success) {
                     loadOrders(riderId)
                 }
@@ -340,8 +371,18 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    suspend fun uploadProofOfDelivery(orderId: String, photo: ByteArray?, signature: ByteArray?) =
-        orderRepository.uploadProofOfDelivery(orderId, photo, signature)
+    suspend fun completeDeliveryWithPOD(
+        orderId: String,
+        otp: String,
+        photoBitmap: Bitmap?,
+        signatureBitmap: Bitmap?
+    ): Resource<String> {
+        val result = orderRepository.completeDeliveryWithPOD(orderId, otp, photoBitmap, signatureBitmap)
+        if (result is Resource.Success) {
+            loadOrders(currentRiderId)
+        }
+        return result
+    }
 }
 
 sealed class LocationAction {

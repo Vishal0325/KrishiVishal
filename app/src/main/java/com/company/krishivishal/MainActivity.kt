@@ -67,8 +67,8 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // [FIXED] Point #164: Move Razorpay preload off-thread to prevent ANR on slow networks
-        lifecycleScope.launch(Dispatchers.Default) {
+        // Razorpay preload requires a thread with a Looper (Main thread)
+        lifecycleScope.launch(Dispatchers.Main.immediate) {
             try {
                 Checkout.preload(applicationContext)
             } catch (e: Exception) {

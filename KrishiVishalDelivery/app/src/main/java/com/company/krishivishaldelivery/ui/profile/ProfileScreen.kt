@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsBike
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -124,14 +125,31 @@ fun ProfileScreen(
             item {
                 ProfileOption(Icons.Default.VerifiedUser, "KYC & Verification Docs", "${rider?.documents?.size ?: 0} Uploaded • Tap to update") { showKycDialog = true }
                 ProfileOption(Icons.Default.AccountBalance, "Bank Details", rider?.bankAccount?.ifBlank { "Add Account" } ?: "Add Account") { showEditDialog = true }
-                ProfileOption(Icons.Default.DirectionsBike, "Vehicle Details", "${rider?.vehicleType ?: "BIKE"}: ${rider?.vehicleNumber?.ifBlank { "Add Number" } ?: "Add Number"}") { showEditDialog = true }
+                ProfileOption(Icons.AutoMirrored.Filled.DirectionsBike, "Vehicle Details", "${rider?.vehicleType ?: "BIKE"}: ${rider?.vehicleNumber?.ifBlank { "Add Number" } ?: "Add Number"}") { showEditDialog = true }
                 ProfileOption(Icons.Default.Settings, "App Settings", "Theme, Notifications") { onSettingsClick() }
                 ProfileOption(Icons.Default.SupportAgent, "Contact Support", "24/7 help available") { onSupportClick() }
                 ProfileOption(Icons.Default.DeleteForever, stringResource(R.string.delete_account_data), "Permanent removal") { showDeleteConfirm = true }
                 
                 Spacer(modifier = Modifier.height(32.dp))
                 Button(
-                    onClick = { auth.signOut(); onLogout() },
+                    onClick = {
+                        val currentUid = auth.currentUser?.uid
+                        if (currentUid != null) {
+                            com.google.firebase.messaging.FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                                if (!token.isNullOrBlank()) {
+                                    val md = java.security.MessageDigest.getInstance("SHA-256")
+                                    val digest = md.digest(token.trim().toByteArray())
+                                    val tokenId = digest.fold("") { str, it -> str + "%02x".format(it) }.take(32)
+                                    com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                                        .collection("users").document(currentUid)
+                                        .collection("fcm_tokens").document(tokenId)
+                                        .delete()
+                                }
+                            }
+                        }
+                        auth.signOut()
+                        onLogout()
+                    },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).height(50.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.1f)),
                     shape = RoundedCornerShape(12.dp),

@@ -22,8 +22,24 @@ class NotificationRepositoryImpl @Inject constructor(
     override suspend fun updateFcmToken(userId: String, token: String): Result<Unit> = withContext(ioDispatcher) {
         try {
             val userRef = firestore.collection("users").document(userId)
-            val data = mapOf("fcmToken" to token)
-            userRef.set(data, SetOptions.merge()).await()
+            // Backward compatibility
+            userRef.set(mapOf("fcmToken" to token), SetOptions.merge()).await()
+
+            // Agent 1 FCM Token Registry subcollection
+            val tokenId = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(token.trim().toByteArray())
+                .joinToString("") { "%02x".format(it) }
+                .take(32)
+
+            val tokenData = mapOf(
+                "token" to token.trim(),
+                "platform" to "ANDROID",
+                "deviceModel" to android.os.Build.MODEL,
+                "appType" to "CUSTOMER",
+                "lastUpdated" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+            )
+            userRef.collection("fcm_tokens").document(tokenId).set(tokenData, SetOptions.merge()).await()
+
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)

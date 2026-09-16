@@ -317,36 +317,6 @@ fun FeatureBox(emoji: String, text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun DeliveryInfoSection(location: String, date: String) {
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.deliver_to), fontSize = 14.sp, fontFamily = PoppinsFamily)
-            Text(location, fontWeight = FontWeight.Bold, fontSize = 14.sp, fontFamily = PoppinsFamily)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = stringResource(R.string.change),
-                color = PrimaryGreen,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.clickable { }
-            )
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.LocalShipping, null, tint = GrayText, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = if (date.isNotBlank()) stringResource(R.string.delivery_by_format, date) else stringResource(R.string.delivery_details_on_call),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
-        HorizontalDivider(modifier = Modifier.padding(top = 16.dp), color = DividerColor)
-    }
-}
-
-@Composable
 fun OverviewRow(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth()) {
         Text(label, modifier = Modifier.weight(0.4f), color = GrayText, fontSize = 13.sp)

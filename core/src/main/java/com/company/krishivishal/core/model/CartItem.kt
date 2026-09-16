@@ -6,6 +6,7 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.google.firebase.firestore.PropertyName
 import com.google.gson.annotations.SerializedName
 import kotlinx.parcelize.Parcelize
 
@@ -18,33 +19,49 @@ data class CartItem(
     @PrimaryKey
     @ColumnInfo(name = "id")
     @SerializedName("id")
-    val id: String = "",
+    @get:PropertyName("id")
+    @set:PropertyName("id")
+    var id: String = "",
 
     @ColumnInfo(name = "userId")
     @SerializedName("user_id")
-    val userId: String = "",
+    @get:PropertyName("user_id")
+    @set:PropertyName("user_id")
+    var userId: String = "",
 
     @ColumnInfo(name = "productId")
     @SerializedName("product_id")
-    val productId: String = "",
+    @get:PropertyName("product_id")
+    @set:PropertyName("product_id")
+    var productId: String = "",
 
     @ColumnInfo(name = "variantId")
     @SerializedName("variant_id")
-    val variantId: String? = null,
+    @get:PropertyName("variant_id")
+    @set:PropertyName("variant_id")
+    var variantId: String? = null,
 
     @ColumnInfo(name = "quantity")
     @SerializedName("quantity")
-    val quantity: Int = 1,
+    @get:PropertyName("quantity")
+    @set:PropertyName("quantity")
+    var quantity: Int = 1,
 
     @ColumnInfo(name = "skuCode")
     @SerializedName("sku_code")
-    val skuCode: String? = null,
+    @get:PropertyName("sku_code")
+    @set:PropertyName("sku_code")
+    var skuCode: String? = null,
 
     @ColumnInfo(name = "isSelected")
     @SerializedName("is_selected")
-    val isSelected: Boolean = true,
+    @get:PropertyName("is_selected")
+    @set:PropertyName("is_selected")
+    var isSelected: Boolean = true,
 
     @ColumnInfo(name = "timestamp")
     @SerializedName("timestamp")
-    val timestamp: Long = System.currentTimeMillis()
+    @get:PropertyName("timestamp")
+    @set:PropertyName("timestamp")
+    var timestamp: Long = System.currentTimeMillis()
 ) : Parcelable

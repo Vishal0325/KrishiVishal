@@ -249,11 +249,14 @@ class CheckoutViewModel @Inject constructor(
                                     }
 
                                     val totals = calculateCartTotalsUseCase(selectedItems, appConfig)
+                                    val weightGrams = calculateTotalWeightGrams(selectedItems)
                                     _uiState.update { 
                                         it.copy(
                                             isCartLoading = false,
                                             checkoutItems = selectedItems,
                                             totals = totals,
+                                            totalWeightGrams = weightGrams,
+                                            isWeightLimitExceeded = weightGrams > it.maxWeightLimitGrams,
                                             error = if (selectedItems.isNotEmpty()) null else it.error
                                         ) 
                                     }
@@ -264,11 +267,14 @@ class CheckoutViewModel @Inject constructor(
                             checkoutSessionRepository.buyNowItem.collectLatest { item ->
                                 val items = if (item != null) listOf(item) else emptyList()
                                 val totals = calculateCartTotalsUseCase(items, appConfig)
+                                val weightGrams = calculateTotalWeightGrams(items)
                                 _uiState.update { 
                                     it.copy(
                                         isCartLoading = false,
                                         checkoutItems = items,
-                                        totals = totals
+                                        totals = totals,
+                                        totalWeightGrams = weightGrams,
+                                        isWeightLimitExceeded = weightGrams > it.maxWeightLimitGrams
                                     ) 
                                 }
                             }
@@ -299,9 +305,12 @@ class CheckoutViewModel @Inject constructor(
             val updatedItems = state.checkoutItems.map { 
                 if (it.cartItem.id == cartItemId) it.copy(cartItem = it.cartItem.copy(quantity = newQty)) else it 
             }
+            val weightGrams = calculateTotalWeightGrams(updatedItems)
             state.copy(
                 checkoutItems = updatedItems,
-                totals = calculateCartTotalsUseCase(updatedItems, appConfig)
+                totals = calculateCartTotalsUseCase(updatedItems, appConfig),
+                totalWeightGrams = weightGrams,
+                isWeightLimitExceeded = weightGrams > state.maxWeightLimitGrams
             )
         }
 
@@ -376,6 +385,11 @@ class CheckoutViewModel @Inject constructor(
         }
         val currentState = _uiState.value
 
+        if (currentState.isWeightLimitExceeded) {
+            _uiState.update { it.copy(error = "Cart weight exceeds maximum allowed capacity (50 kg). Please reduce items.") }
+            return
+        }
+
         val validation = validateCheckoutUseCase(currentState.checkoutItems, currentState.selectedAddress)
         if (validation is CheckoutValidationResult.Invalid) {
             _uiState.update { it.copy(error = validation.message) }
@@ -410,7 +424,8 @@ class CheckoutViewModel @Inject constructor(
                 address = selectedAddress,
                 paymentMethod = currentState.selectedPaymentMethod.name,
                 lat = lat,
-                lng = lng
+                lng = lng,
+                deliverySlotId = currentState.selectedDeliverySlotId
             ).collect { resource ->
                 when (resource) {
                     is Resource.Loading -> { } // Already set above
@@ -541,6 +556,38 @@ class CheckoutViewModel @Inject constructor(
     fun clearError() {
         _uiState.update { it.copy(error = null, isSessionExpired = false) }
     }
+
+    fun selectDeliverySlot(slotId: String?) {
+        _uiState.update { it.copy(selectedDeliverySlotId = slotId) }
+    }
+
+    private fun calculateTotalWeightGrams(items: List<CartWithProduct>): Double {
+        return items.sumOf { item ->
+            val directWeightGrams = item.variant?.weightGrams?.toDouble()
+                ?: item.product?.weightGrams?.toDouble()
+            val finalWeightGrams = if (directWeightGrams != null && directWeightGrams > 0.0) {
+                directWeightGrams
+            } else {
+                val weightStr = item.variant?.weight ?: item.product?.weight ?: ""
+                parseWeightToGrams(weightStr)
+            }
+            val qty = item.cartItem.quantity
+            finalWeightGrams * qty
+        }
+    }
+
+    private fun parseWeightToGrams(raw: String): Double {
+        if (raw.isBlank()) return 0.0
+        val clean = raw.trim().lowercase()
+        val regex = Regex("""^([\d.]+)\s*(kg|g|gm|gms|l|ltr|litre|litres|ml)?$""")
+        val match = regex.find(clean) ?: return clean.toDoubleOrNull() ?: 0.0
+        val value = match.groupValues[1].toDoubleOrNull() ?: 0.0
+        val unit = match.groupValues.getOrNull(2) ?: "g"
+        return when (unit) {
+            "kg", "l", "ltr", "litre", "litres" -> value * 1000.0
+            else -> value
+        }
+    }
 }
 
 data class CheckoutUiState(
@@ -558,5 +605,9 @@ data class CheckoutUiState(
     val error: String? = null,
     val isSessionExpired: Boolean = false,
     val userEmail: String? = null,
-    val userPhone: String? = null
+    val userPhone: String? = null,
+    val totalWeightGrams: Double = 0.0,
+    val maxWeightLimitGrams: Double = 50000.0,
+    val isWeightLimitExceeded: Boolean = false,
+    val selectedDeliverySlotId: String? = null
 )

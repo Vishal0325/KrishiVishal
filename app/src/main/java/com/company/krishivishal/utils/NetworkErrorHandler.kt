@@ -50,6 +50,14 @@ object NetworkErrorHandler {
                 }
             }
 
+            is FirebaseFirestoreException -> {
+                when (throwable.code) {
+                    FirebaseFirestoreException.Code.PERMISSION_DENIED -> context.getString(R.string.error_db_permission)
+                    FirebaseFirestoreException.Code.UNAVAILABLE -> context.getString(R.string.error_db_unavailable)
+                    else -> context.getString(R.string.error_db_generic, throwable.code.toString())
+                }
+            }
+
             is FirebaseException -> {
                 when {
                     throwable.message?.contains("App Check", true) == true -> "App Check Blocked: Please use a real device."
@@ -66,14 +74,6 @@ object NetworkErrorHandler {
             
             is SocketTimeoutException -> 
                 context.getString(R.string.error_timeout)
-            
-            is FirebaseFirestoreException -> {
-                when (throwable.code) {
-                    FirebaseFirestoreException.Code.PERMISSION_DENIED -> context.getString(R.string.error_db_permission)
-                    FirebaseFirestoreException.Code.UNAVAILABLE -> context.getString(R.string.error_db_unavailable)
-                    else -> context.getString(R.string.error_db_generic, throwable.code.toString())
-                }
-            }
 
             is java.util.concurrent.CancellationException ->
                 context.getString(R.string.error_task_cancelled)

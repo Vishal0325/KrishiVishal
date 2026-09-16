@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import android.app.ActivityManager
+import android.util.Log
 import androidx.core.content.getSystemService
 
 @HiltAndroidApp
@@ -41,14 +42,22 @@ class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provide
     lateinit var workerFactory: HiltWorkerFactory
 
     override val workManagerConfiguration: Configuration
-        get() = Configuration.Builder()
-            .setWorkerFactory(workerFactory)
-            .build()
+        get() = if (::workerFactory.isInitialized) {
+            Configuration.Builder()
+                .setWorkerFactory(workerFactory)
+                .build()
+        } else {
+            Configuration.Builder().build()
+        }
 
     companion object {
         private var _instance: KrishiVishalApp? = null
         val instance: KrishiVishalApp
             get() = _instance ?: throw IllegalStateException("App not initialized")
+    }
+
+    init {
+        _instance = this
     }
 
     @Inject
@@ -92,17 +101,17 @@ class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provide
     }
 
     override fun onCreate() {
-        super.onCreate()
-        _instance = this
-
-        // 1. Initialize Firebase (Main Thread Required)
-        // Note: google-services plugin usually handles this via ContentProvider, 
-        // but explicit init ensures it's ready before manual background tasks.
+        // [FIXED] Initialize Firebase BEFORE super.onCreate()
+        // Hilt performs injection in super.onCreate(), and our injected
+        // singletons (AnalyticsTracker, CrashlyticsErrorReporter) depend on Firebase.
         try {
             FirebaseApp.initializeApp(this)
         } catch (e: Exception) {
-            Timber.e(e, "FirebaseApp init failed")
+            Log.e("KrishiVishalApp", "FirebaseApp init failed early", e)
         }
+
+        super.onCreate()
+        _instance = this
 
         // 2. Setup Timber & Crashlytics
         setupTimber()

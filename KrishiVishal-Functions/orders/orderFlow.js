@@ -8,6 +8,7 @@ const {
     completeOrderStock,
     DEFAULT_WAREHOUSE_ID
 } = require("../inventory/inventoryEngine");
+const { validateAndReserveSlot } = require("./deliverySlots");
 const Razorpay = require("razorpay");
 
 const REGION = 'asia-south1';
@@ -52,7 +53,7 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
     const context = { auth: request.auth };
 
     if (!context.auth) throw new HttpsError('unauthenticated', 'Login required.');
-    const { cartItems, address, paymentMethod, userName, userPhone } = data;
+    const { cartItems, address, paymentMethod, userName, userPhone, deliverySlotId } = data;
 
     // H2: Validate cartItems
     if (!Array.isArray(cartItems) || cartItems.length === 0) {
@@ -71,24 +72,31 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
         }
     }
 
-    // H2: Validate address
-    if (!address) {
-        throw new HttpsError('invalid-argument', 'Delivery address is required.');
+    // H2: Validate address — Canonical Structured Object Format
+    if (!address || typeof address !== 'object' || Array.isArray(address)) {
+        throw new HttpsError('invalid-argument', 'Delivery address must be a structured object { line1, pincode, city, state, ... }.');
     }
-    if (typeof address === 'string') {
-        if (address.trim().length < 5 || address.length > 500) {
-            throw new HttpsError('invalid-argument', 'Invalid address string length.');
+    const requiredAddressFields = ['line1', 'city', 'state', 'pincode'];
+    for (const field of requiredAddressFields) {
+        if (!address[field] || typeof address[field] !== 'string' || address[field].trim().length === 0) {
+            throw new HttpsError('invalid-argument', `Missing or invalid address field: ${field}`);
         }
-    } else if (typeof address === 'object') {
-        const requiredAddressFields = ['line1', 'city', 'state'];
-        for (const field of requiredAddressFields) {
-            if (!address[field] || typeof address[field] !== 'string' || address[field].trim().length === 0) {
-                throw new HttpsError('invalid-argument', `Missing or invalid address field: ${field}`);
-            }
-        }
-    } else {
-        throw new HttpsError('invalid-argument', 'Invalid delivery address format.');
     }
+    const cleanPincode = address.pincode.trim();
+    if (!/^\d{6}$/.test(cleanPincode)) {
+        throw new HttpsError('invalid-argument', 'Pincode must be a 6-digit number.');
+    }
+
+    const structuredAddress = {
+        line1: address.line1.trim(),
+        line2: (address.line2 || '').trim(),
+        city: address.city.trim(),
+        state: address.state.trim(),
+        pincode: cleanPincode,
+        landmark: (address.landmark || '').trim(),
+        lat: typeof address.lat === 'number' ? address.lat : null,
+        lng: typeof address.lng === 'number' ? address.lng : null
+    };
 
     // H2: Validate payment method
     const validPaymentMethods = ['COD', 'RAZORPAY_ONLINE', 'WALLET'];
@@ -111,136 +119,249 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
         let orderOtp = "";
 
         await db.runTransaction(async (transaction) => {
-            const items = [];
-            const selfStockItems = [];
-            let hasOnDemandItems = false;
+            // ── PHASE 1: ALL READS FIRST (Strict Firestore Transaction Rule) ──
 
+            // 1. Read settings/config
+            const settingsSnap = await transaction.get(db.collection("settings").doc("config"));
+
+            // 2. Read delivery slot (if provided)
+            let slotDoc = null;
+            let slotRef = null;
+            if (deliverySlotId && typeof deliverySlotId === 'string' && deliverySlotId.trim().length > 0) {
+                slotRef = db.collection("delivery_slots").doc(deliverySlotId.trim());
+                slotDoc = await transaction.get(slotRef);
+            }
+
+            // 3. Read all product and SKU documents for cart items
+            const fetchedProducts = [];
             for (const item of cartItems) {
-                const skuCode = item.skuCode;
-                const productId = item.productId;
-
-                if (!skuCode) {
-                    throw new Error(`SKU Code is required for item: ${item.productName || item.productId}`);
+                const productId = item.productId || item.skuCode || item.id;
+                if (!productId) {
+                    throw new HttpsError('invalid-argument', 'Missing productId for cart item.');
                 }
-
-                const skuRef = db.collection("skus").doc(skuCode);
-                const skuSnap = await transaction.get(skuRef);
-                if (!skuSnap.exists) {
-                    throw new Error(`SKU not found: ${skuCode}`);
-                }
-                const skuData = skuSnap.data();
 
                 const productRef = db.collection("products").doc(productId);
                 const productSnap = await transaction.get(productRef);
                 if (!productSnap.exists) {
                     throw new Error(`Product not found: ${productId}`);
                 }
-                const product = productSnap.data();
 
-                const itemPrice = Number(skuData.pricing?.consumerPrice || product.discountedPrice || 0);
-                const itemMrp = Number(skuData.pricing?.mrp || product.mrp || itemPrice);
+                const skuCode = (item.skuCode && item.skuCode.trim().length > 0) ? item.skuCode : (productSnap.data()?.skuCode || productId);
+                let skuData = null;
+                let skuRef = null;
+                if (skuCode && skuCode !== productId) {
+                    skuRef = db.collection("skus").doc(skuCode);
+                    const skuSnap = await transaction.get(skuRef);
+                    if (skuSnap.exists) {
+                        skuData = skuSnap.data();
+                    }
+                }
+
+                fetchedProducts.push({
+                    item,
+                    productId,
+                    productRef,
+                    product: productSnap.data() || {},
+                    skuCode,
+                    skuRef,
+                    skuData
+                });
+            }
+
+            // ── PHASE 2: IN-MEMORY CALCULATIONS & VALIDATIONS (No Firestore I/O) ──
+
+            // Validate delivery slot
+            let reservedSlot = null;
+            if (slotDoc) {
+                if (!slotDoc.exists) {
+                    throw new Error(`Delivery slot not found: ${deliverySlotId}`);
+                }
+                const sData = slotDoc.data();
+                if (!sData.isActive) {
+                    throw new Error(`Delivery slot ${deliverySlotId} is no longer active.`);
+                }
+                const maxCapacity = Number(sData.maxCapacity) || 0;
+                const currentBookings = Number(sData.currentBookings) || 0;
+                if (currentBookings >= maxCapacity) {
+                    throw new Error(`Delivery slot is fully booked (${currentBookings}/${maxCapacity}). Please select another slot.`);
+                }
+                reservedSlot = {
+                    slotId: deliverySlotId,
+                    date: sData.date,
+                    startTime: sData.startTime,
+                    endTime: sData.endTime,
+                    hubId: sData.hubId
+                };
+            }
+
+            // Process items and stock updates
+            const items = [];
+            const onDemandQueueEntries = [];
+            const stockUpdates = [];
+            let hasOnDemandItems = false;
+
+            for (const fp of fetchedProducts) {
+                const { item, productId, productRef, product, skuCode, skuRef, skuData } = fp;
+
+                const itemPrice = Number(
+                    skuData?.pricing?.consumerPrice ||
+                    (product.discountedPrice > 0 ? product.discountedPrice : (product.price || product.basePrice || 0))
+                );
+                const itemMrp = Number(skuData?.pricing?.mrp || product.mrp || product.price || itemPrice);
                 const fulfillmentType = product.fulfillmentType || 'SELF_STOCK';
 
                 if (fulfillmentType === 'ON_DEMAND') {
                     hasOnDemandItems = true;
                     const queueRef = db.collection("procurement_queue").doc();
-                    transaction.set(queueRef, {
-                        id: queueRef.id,
-                        orderId,
-                        productId: item.productId,
-                        skuCode: skuCode,
-                        productName: product.name,
-                        quantity: item.quantity,
-                        supplierId: product.primarySupplierId || null,
-                        status: 'PROCUREMENT_PENDING',
-                        createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    onDemandQueueEntries.push({
+                        ref: queueRef,
+                        data: {
+                            id: queueRef.id,
+                            orderId,
+                            productId: productId,
+                            skuCode: skuCode,
+                            productName: product.name || 'Unknown Product',
+                            quantity: item.quantity,
+                            supplierId: product.primarySupplierId || null,
+                            status: 'PROCUREMENT_PENDING',
+                            createdAt: admin.firestore.FieldValue.serverTimestamp()
+                        }
                     });
                 } else {
-                    selfStockItems.push({
-                        skuCode,
-                        quantity: item.quantity,
-                        warehouseId: item.warehouseId || DEFAULT_WAREHOUSE_ID
-                    });
+                    if (skuData) {
+                        const avail = skuData.inventory?.availableStock || 0;
+                        if (avail < item.quantity) {
+                            throw new Error(`Insufficient stock for ${skuData.name || skuCode}. Available: ${avail}, Requested: ${item.quantity}`);
+                        }
+                        stockUpdates.push({
+                            type: 'SKU',
+                            ref: skuRef,
+                            quantity: item.quantity
+                        });
+                    } else if (product.stock !== undefined && typeof product.stock === 'number') {
+                        if (product.stock < item.quantity) {
+                            throw new Error(`Insufficient stock for ${product.name || productId}. Available: ${product.stock}, Requested: ${item.quantity}`);
+                        }
+                        stockUpdates.push({
+                            type: 'PRODUCT',
+                            ref: productRef,
+                            quantity: item.quantity
+                        });
+                    }
                 }
 
-                const gstRate = Number(skuData.tax?.gstRate || product.gstRate || 5);
+                const gstRate = Number(skuData?.tax?.gstRate || product.gstRate || 5);
                 const itemTax = (itemPrice * item.quantity * gstRate) / 100;
                 subtotal += itemMrp * item.quantity;
                 totalDiscount += (itemMrp - itemPrice) * item.quantity;
                 totalTax += itemTax;
 
                 items.push({
-                    productId: item.productId,
+                    productId: productId,
                     skuCode: skuCode,
-                    productName: product.name,
+                    productName: product.name || 'Unknown Product',
+                    imageUrl: product.imageUrl || (Array.isArray(product.images) && product.images[0]) || '',
                     quantity: item.quantity,
                     price: itemPrice,
                     mrp: itemMrp,
-                    hsnCode: skuData.tax?.hsnCode || product.hsnCode || "31021010",
+                    variantId: item.variantId || null,
+                    variantLabel: item.variantLabel || null,
+                    hsnCode: skuData?.tax?.hsnCode || product.hsnCode || "31021010",
                     gstRate: gstRate,
                     gstAmount: itemTax,
                     fulfillmentType,
-                    batchAllocations: [] // Will be populated after FEFO reservation
+                    batchAllocations: []
                 });
             }
 
-            // Perform atomic FEFO stock reservation for all self-stock items
-            if (selfStockItems.length > 0) {
-                const reservationResult = await reserveOrderStock(transaction, {
-                    orderId,
-                    items: selfStockItems,
-                    userId: context.auth.uid,
-                    idempotencyKey: `ORDER:${orderId}:RESERVE`
-                });
-
-                // Attach batch allocations to respective items in order snapshot
-                if (reservationResult.allocationsSummary) {
-                    for (const allocSummary of reservationResult.allocationsSummary) {
-                        const targetItem = items.find(i => i.skuCode === allocSummary.skuCode);
-                        if (targetItem) {
-                            targetItem.batchAllocations = allocSummary.allocations || [];
-                        }
-                    }
-                }
-            }
-
-            // FIX (DB Alignment #6): Delivery charge was hardcoded to 50.
-            // Now fetched from settings/config (same doc Admin Panel Settings.jsx writes to).
-            // Supports freeDeliveryAbove threshold configured by Admin.
-            const settingsSnap = await transaction.get(db.collection("settings").doc("config"));
             const settingsData = settingsSnap.exists ? settingsSnap.data() : {};
             const configuredDeliveryCharge = Number(settingsData.deliveryCharge) || 50;
             const freeDeliveryAbove = Number(settingsData.freeDeliveryAbove) || 0;
             const netCartValue = subtotal - totalDiscount;
             const deliveryCharge = (freeDeliveryAbove > 0 && netCartValue >= freeDeliveryAbove) ? 0 : configuredDeliveryCharge;
-
             const totalAmount = netCartValue + totalTax + deliveryCharge;
             const initialStatus = hasOnDemandItems ? "PROCUREMENT_PENDING" : "PLACED";
+
+            const addressString = [
+                structuredAddress.line1,
+                structuredAddress.line2,
+                structuredAddress.city,
+                structuredAddress.state,
+                structuredAddress.pincode
+            ].filter(Boolean).join(", ");
+
+            const otp = crypto.randomInt(1000, 9999).toString();
+
             const order = {
                 id: orderId,
                 userId: context.auth.uid,
                 userName: userName.trim(),
                 userPhone: `+91${cleanPhone}`,
-                address,
+                address: addressString,
+                structuredAddress: structuredAddress,
+                landmark: structuredAddress.landmark || "",
+                customerOTP: otp,
+                deliveryOtp: otp,
                 items,
                 subtotal: netCartValue,
                 totalTax,
                 deliveryCharge,
+                deliveryCharges: deliveryCharge,
                 totalAmount,
                 paymentMethod,
                 paymentStatus: "PENDING",
                 status: initialStatus,
                 hasOnDemandItems,
+                deliverySlotId: deliverySlotId || null,
+                deliverySlot: reservedSlot || null,
+                targetLat: structuredAddress.lat || 0.0,
+                targetLng: structuredAddress.lng || 0.0,
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             };
+
+            // ── PHASE 3: ALL WRITES (Executed at the very end) ──
+
+            // 1. Update delivery slot booking count
+            if (slotRef && slotDoc) {
+                transaction.update(slotRef, {
+                    currentBookings: admin.firestore.FieldValue.increment(1),
+                    lastBookedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+
+            // 2. Decrement inventory stock
+            for (const su of stockUpdates) {
+                if (su.type === 'SKU') {
+                    transaction.update(su.ref, {
+                        "inventory.availableStock": admin.firestore.FieldValue.increment(-su.quantity),
+                        "inventory.committedStock": admin.firestore.FieldValue.increment(su.quantity),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                } else if (su.type === 'PRODUCT') {
+                    transaction.update(su.ref, {
+                        stock: admin.firestore.FieldValue.increment(-su.quantity),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            }
+
+            // 3. Set on-demand queue items
+            for (const od of onDemandQueueEntries) {
+                transaction.set(od.ref, od.data);
+            }
+
+            // 4. Save order document
             transaction.set(db.collection("orders").doc(orderId), order);
-            const otp = crypto.randomInt(100000, 999999).toString();
+
+            // 5. Store OTP in internal subcollection
             transaction.set(db.collection("orders").doc(orderId).collection("internal").doc("otp"), {
                 value: otp,
                 attempts: 0,
                 createdAt: admin.firestore.FieldValue.serverTimestamp()
             });
+
+            // 6. Outbox notification
             addToOutbox(transaction, "ORDER_CREATED", { orderId, userId: context.auth.uid, status: initialStatus });
             orderOtp = otp;
         });
@@ -284,6 +405,7 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
         return {
             orderId,
             totalAmount: finalAmount,
+            customerOTP: orderOtp,
             razorpayOrderId, // null for COD/WALLET, populated for RAZORPAY_ONLINE
         };
     } catch (error) {
@@ -455,8 +577,8 @@ exports.verifyDeliveryOTP = onCall({ region: REGION }, async (request) => {
     if (!orderId || typeof orderId !== 'string') {
         throw new HttpsError('invalid-argument', 'Invalid orderId.');
     }
-    if (!otp || typeof otp !== 'string' || otp.length !== 6 || !/^\d{6}$/.test(otp)) {
-        throw new HttpsError('invalid-argument', 'OTP must be a 6-digit string.');
+    if (!otp || typeof otp !== 'string' || !/^\d{4,6}$/.test(otp)) {
+        throw new HttpsError('invalid-argument', 'OTP must be a 4 to 6-digit numeric string.');
     }
 
     try {

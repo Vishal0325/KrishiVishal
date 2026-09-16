@@ -82,8 +82,23 @@ class AuthRepositoryImpl @Inject constructor(
                 return@AuthStateListener
             }
 
-            // Emit local user data immediately for fast UI
+            // Immediately emit and persist local user record so UI and foreign keys never block
             launch {
+                val cachedUser = userDao.getUserById(firebaseUser.uid).firstOrNull()
+                if (cachedUser != null) {
+                    trySend(cachedUser)
+                } else {
+                    val initialUser = User(
+                        id = firebaseUser.uid,
+                        name = firebaseUser.displayName.orEmpty().ifBlank { "Farmer" },
+                        email = firebaseUser.email,
+                        phone = firebaseUser.phoneNumber
+                    )
+                    userDao.insertUser(initialUser)
+                    trySend(initialUser)
+                }
+
+                // Continuously observe local database for any changes
                 userDao.getUserById(firebaseUser.uid).collect { user ->
                     if (user != null) trySend(user)
                 }
@@ -101,15 +116,22 @@ class AuthRepositoryImpl @Inject constructor(
                     } else {
                         val newUser = User(
                             id = firebaseUser.uid,
-                            name = firebaseUser.displayName ?: "Farmer",
+                            name = firebaseUser.displayName.orEmpty().ifBlank { "Farmer" },
                             email = firebaseUser.email,
                             phone = firebaseUser.phoneNumber
                         )
                         userDao.insertUser(newUser)
                         trySend(newUser)
-                        firestore.collection("users").document(firebaseUser.uid).set(newUser)
+                        val allowedUserMap = hashMapOf<String, Any?>(
+                            "id" to firebaseUser.uid,
+                            "name" to newUser.name,
+                            "email" to firebaseUser.email,
+                            "phone" to firebaseUser.phoneNumber
+                        )
+                        firestore.collection("users").document(firebaseUser.uid).set(allowedUserMap)
                     }
                 } catch (e: Exception) {
+                    Timber.w("Failed to sync user profile from Firestore: ${e.message}")
                     userDao.getUserById(firebaseUser.uid).firstOrNull()?.let { trySend(it) }
                 }
             }
@@ -164,11 +186,30 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     /**
-     * A3: Comprehensive token and session eviction on logout
+     * A3: Comprehensive token and session eviction on logout with FCM token registry cleanup
      */
     override suspend fun logout() {
         withContext(ioDispatcher) {
             try {
+                val currentUid = auth.currentUser?.uid
+                if (currentUid != null) {
+                    try {
+                        val fcmToken = com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()
+                        if (!fcmToken.isNullOrBlank()) {
+                            val md = java.security.MessageDigest.getInstance("SHA-256")
+                            val digest = md.digest(fcmToken.trim().toByteArray())
+                            val tokenId = digest.fold("") { str, it -> str + "%02x".format(it) }.take(32)
+                            firestore.collection("users")
+                                .document(currentUid)
+                                .collection("fcm_tokens")
+                                .document(tokenId)
+                                .delete()
+                                .await()
+                        }
+                    } catch (fcmErr: Exception) {
+                        Timber.w("Failed to delete FCM token on logout: ${fcmErr.message}")
+                    }
+                }
                 auth.signOut()
                 sessionManager.endSession()
                 tokenManager.clearTokens()
@@ -231,11 +272,17 @@ class AuthRepositoryImpl @Inject constructor(
             // New user via social or phone
             user = User(
                 id = firebaseUser.uid,
-                name = firebaseUser.displayName ?: "",
+                name = firebaseUser.displayName ?: "Farmer",
                 email = firebaseUser.email ?: "",
                 phone = firebaseUser.phoneNumber
             )
-            firestore.collection("users").document(user.id).set(user).await()
+            val allowedUserMap = hashMapOf<String, Any?>(
+                "id" to firebaseUser.uid,
+                "name" to user.name,
+                "email" to firebaseUser.email,
+                "phone" to firebaseUser.phoneNumber
+            )
+            firestore.collection("users").document(user.id).set(allowedUserMap).await()
         }
 
         userDao.insertUser(user)
@@ -244,7 +291,21 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override fun updateUser(user: User): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
-        firestore.collection("users").document(user.id).set(user).await()
+        val updateMap = mutableMapOf<String, Any?>()
+        updateMap["name"] = user.name
+        updateMap["email"] = user.email
+        updateMap["phone"] = user.phone
+        updateMap["imageUrl"] = user.imageUrl
+        updateMap["tier"] = user.tier
+        updateMap["location"] = user.location
+        updateMap["interestedCategories"] = user.interestedCategories
+        updateMap["fcmToken"] = user.fcmToken
+        updateMap["age"] = user.age
+        updateMap["totalLand"] = user.totalLand
+        updateMap["landUnit"] = user.landUnit
+        updateMap["cropAllocations"] = user.cropAllocations
+
+        firestore.collection("users").document(user.id).update(updateMap).await()
         userDao.insertUser(user)
     }
 

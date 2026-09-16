@@ -13,12 +13,34 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     @Inject
     lateinit var firestore: FirebaseFirestore
 
+    @Inject
+    lateinit var auth: com.google.firebase.auth.FirebaseAuth
+
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         Log.d("FCM_TOKEN", "Refreshed token: $token")
-        // Ideally, you'd get the current rider ID from DataStore/SharedPreferences
-        // and update the token in Firestore. For now, we log it.
-        // updateTokenInFirestore(riderId, token)
+        val uid = auth.currentUser?.uid
+        if (uid != null) {
+            try {
+                val tokenId = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(token.trim().toByteArray())
+                    .joinToString("") { "%02x".format(it) }
+                    .take(32)
+
+                val tokenData = mapOf(
+                    "token" to token.trim(),
+                    "platform" to "ANDROID",
+                    "deviceModel" to android.os.Build.MODEL,
+                    "appType" to "RIDER",
+                    "lastUpdated" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                )
+                firestore.collection("users").document(uid)
+                    .collection("fcm_tokens").document(tokenId)
+                    .set(tokenData, com.google.firebase.firestore.SetOptions.merge())
+            } catch (e: Exception) {
+                Log.e("FCM_TOKEN", "Failed to register FCM token for rider", e)
+            }
+        }
     }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {

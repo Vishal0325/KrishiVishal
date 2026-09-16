@@ -177,8 +177,19 @@ class AuthViewModel @Inject constructor(
                                     val wDocDeferred = async {
                                         var doc = try { firestore.collection("whitelisted_riders").document(normalizedPhone).get().await() } catch (e: Exception) { null }
                                         if (doc == null || !doc.exists()) {
-                                            if (plainPhone.isNotEmpty()) {
-                                                doc = try { firestore.collection("whitelisted_riders").document(plainPhone).get().await() } catch (e: Exception) { null }
+                                            // Fallback to searching by phone field
+                                            try {
+                                                val query = firestore.collection("whitelisted_riders").whereEqualTo("phone", normalizedPhone).get().await()
+                                                if (!query.isEmpty) {
+                                                    doc = query.documents[0]
+                                                } else if (plainPhone.isNotEmpty()) {
+                                                    val query2 = firestore.collection("whitelisted_riders").whereEqualTo("phone", plainPhone).get().await()
+                                                    if (!query2.isEmpty) {
+                                                        doc = query2.documents[0]
+                                                    }
+                                                }
+                                            } catch (e: Exception) {
+                                                android.util.Log.e(TAG, "Error querying whitelist", e)
                                             }
                                         }
                                         doc
@@ -263,17 +274,15 @@ class AuthViewModel @Inject constructor(
                                 }
                                 batch.set(userRef, userData, SetOptions.merge())
 
-                                // 3. Set whitelisted_riders collection
-                                val whitelistUpdate = mapOf(
-                                    "status" to "REGISTERED",
-                                    "uid" to firebaseUser.uid,
-                                    "riderIdDisplay" to displayId,
-                                    "registeredAt" to FieldValue.serverTimestamp()
-                                )
-                                // Use the exact document ID found in whitelist (can be plain phone or normalized)
-                                val whitelistedIdToUpdate = whitelistedDoc?.id ?: normalizedPhone
-                                if (whitelistedIdToUpdate.isNotEmpty()) {
-                                    val wRef1 = firestore.collection("whitelisted_riders").document(whitelistedIdToUpdate)
+                                // 3. Set whitelisted_riders collection only if they were actually whitelisted
+                                if (whitelistedDoc != null && whitelistedDoc.exists()) {
+                                    val whitelistUpdate = mapOf(
+                                        "status" to "REGISTERED",
+                                        "uid" to firebaseUser.uid,
+                                        "riderIdDisplay" to displayId,
+                                        "registeredAt" to FieldValue.serverTimestamp()
+                                    )
+                                    val wRef1 = firestore.collection("whitelisted_riders").document(whitelistedDoc.id)
                                     batch.set(wRef1, whitelistUpdate, SetOptions.merge())
                                 }
 

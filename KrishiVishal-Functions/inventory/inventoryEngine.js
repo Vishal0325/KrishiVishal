@@ -179,83 +179,105 @@ async function reserveOrderStock(transaction, { orderId, items, userId, idempote
     const allocationsSummary = [];
 
     for (const item of items) {
-        const { skuCode, quantity } = item;
-        const skuRef = db.collection("skus").doc(skuCode);
+        const { skuCode, productId, quantity } = item;
+        const targetSku = skuCode || productId;
+        const skuRef = db.collection("skus").doc(targetSku);
         const skuSnap = await transaction.get(skuRef);
 
-        if (!skuSnap.exists) {
-            throw new Error(`SKU ${skuCode} does not exist in master catalog.`);
-        }
+        if (skuSnap.exists) {
+            const skuData = skuSnap.data();
+            if (skuData.isActive === false) {
+                throw new Error(`SKU ${targetSku} is currently deactivated.`);
+            }
 
-        const skuData = skuSnap.data();
-        if (skuData.isActive === false) {
-            throw new Error(`SKU ${skuCode} is currently deactivated.`);
-        }
+            const currentSkuAvail = skuData.inventory?.availableStock || 0;
+            const currentSkuCommitted = skuData.inventory?.committedStock || 0;
 
-        const currentSkuAvail = skuData.inventory?.availableStock || 0;
-        const currentSkuCommitted = skuData.inventory?.committedStock || 0;
+            if (currentSkuAvail < quantity) {
+                throw new Error(`Insufficient overall available stock for SKU ${targetSku}. Available: ${currentSkuAvail}, Requested: ${quantity}`);
+            }
 
-        if (currentSkuAvail < quantity) {
-            throw new Error(`Insufficient overall available stock for SKU ${skuCode}. Available: ${currentSkuAvail}, Requested: ${quantity}`);
-        }
+            // Allocate across batches via FEFO
+            const batchAllocs = await allocateStockFEFO(transaction, targetSku, quantity, item.warehouseId || DEFAULT_WAREHOUSE_ID);
 
-        // Allocate across batches via FEFO
-        const batchAllocs = await allocateStockFEFO(transaction, skuCode, quantity, item.warehouseId || DEFAULT_WAREHOUSE_ID);
+            for (const alloc of batchAllocs) {
+                const wsSnap = await transaction.get(alloc.wsRef);
+                const wsData = wsSnap.exists ? wsSnap.data() : { availableStock: 0, committedStock: 0 };
 
-        for (const alloc of batchAllocs) {
-            const wsSnap = await transaction.get(alloc.wsRef);
-            const wsData = wsSnap.exists ? wsSnap.data() : { availableStock: 0, committedStock: 0 };
+                const wsAvailBefore = wsData.availableStock || 0;
+                const wsCommittedBefore = wsData.committedStock || 0;
+                const wsAvailAfter = wsAvailBefore - alloc.allocatedQty;
+                const wsCommittedAfter = wsCommittedBefore + alloc.allocatedQty;
 
-            const wsAvailBefore = wsData.availableStock || 0;
-            const wsCommittedBefore = wsData.committedStock || 0;
-            const wsAvailAfter = wsAvailBefore - alloc.allocatedQty;
-            const wsCommittedAfter = wsCommittedBefore + alloc.allocatedQty;
+                transaction.set(alloc.wsRef, {
+                    skuCode: targetSku,
+                    batchId: alloc.batchId,
+                    warehouseId: alloc.warehouseId,
+                    availableStock: wsAvailAfter,
+                    committedStock: wsCommittedAfter,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
 
-            transaction.set(alloc.wsRef, {
-                skuCode,
-                batchId: alloc.batchId,
-                warehouseId: alloc.warehouseId,
-                availableStock: wsAvailAfter,
-                committedStock: wsCommittedAfter,
+                // Ledger record for each batch allocation
+                recordMovement(transaction, {
+                    movementType: "ORDER_RESERVED",
+                    skuCode: targetSku,
+                    batchId: alloc.batchId,
+                    batchNumber: alloc.batchNumber,
+                    warehouseId: alloc.warehouseId,
+                    quantity: alloc.allocatedQty,
+                    availableBefore: wsAvailBefore,
+                    availableAfter: wsAvailAfter,
+                    committedBefore: wsCommittedBefore,
+                    committedAfter: wsCommittedAfter,
+                    referenceId: orderId,
+                    actorId: userId,
+                    actorRole: "CUSTOMER",
+                    reason: `Reserved for customer order #${orderId}`,
+                    idempotencyKey: `${idempotencyKey}:${alloc.batchId}`
+                });
+            }
+
+            // Update SKU aggregate inventory
+            transaction.update(skuRef, {
+                "inventory.availableStock": admin.firestore.FieldValue.increment(-quantity),
+                "inventory.committedStock": admin.firestore.FieldValue.increment(quantity),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
+            });
 
-            // Ledger record for each batch allocation
-            recordMovement(transaction, {
-                movementType: "ORDER_RESERVED",
-                skuCode,
-                batchId: alloc.batchId,
-                batchNumber: alloc.batchNumber,
-                warehouseId: alloc.warehouseId,
-                quantity: alloc.allocatedQty,
-                availableBefore: wsAvailBefore,
-                availableAfter: wsAvailAfter,
-                committedBefore: wsCommittedBefore,
-                committedAfter: wsCommittedAfter,
-                referenceId: orderId,
-                actorId: userId,
-                actorRole: "CUSTOMER",
-                reason: `Reserved for customer order #${orderId}`,
-                idempotencyKey: `${idempotencyKey}:${alloc.batchId}`
+            allocationsSummary.push({
+                skuCode: targetSku,
+                quantity,
+                allocations: batchAllocs.map(b => ({
+                    batchId: b.batchId,
+                    batchNumber: b.batchNumber,
+                    allocatedQty: b.allocatedQty
+                }))
+            });
+        } else {
+            // Fallback for direct products catalog
+            const prodTargetId = productId || targetSku;
+            const productRef = db.collection("products").doc(prodTargetId);
+            const productSnap = await transaction.get(productRef);
+            if (productSnap.exists) {
+                const productData = productSnap.data();
+                if (productData.stock !== undefined && typeof productData.stock === 'number') {
+                    if (productData.stock < quantity) {
+                        throw new Error(`Insufficient stock for ${productData.name || prodTargetId}. Available: ${productData.stock}, Requested: ${quantity}`);
+                    }
+                    transaction.update(productRef, {
+                        stock: admin.firestore.FieldValue.increment(-quantity),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            }
+
+            allocationsSummary.push({
+                skuCode: targetSku,
+                quantity,
+                allocations: []
             });
         }
-
-        // Update SKU aggregate inventory
-        transaction.update(skuRef, {
-            "inventory.availableStock": admin.firestore.FieldValue.increment(-quantity),
-            "inventory.committedStock": admin.firestore.FieldValue.increment(quantity),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-
-        allocationsSummary.push({
-            skuCode,
-            quantity,
-            allocations: batchAllocs.map(b => ({
-                batchId: b.batchId,
-                batchNumber: b.batchNumber,
-                allocatedQty: b.allocatedQty
-            }))
-        });
     }
 
     const result = { success: true, orderId, allocationsSummary };
@@ -271,52 +293,66 @@ async function releaseOrderStock(transaction, { orderId, items, actorId, actorRo
     if (alreadyProcessed) return cachedResult;
 
     for (const item of items) {
-        const { skuCode, batchAllocations, quantity } = item;
-        const skuRef = db.collection("skus").doc(skuCode);
+        const { skuCode, productId, batchAllocations, quantity } = item;
+        const targetSku = skuCode || productId;
+        const skuRef = db.collection("skus").doc(targetSku);
+        const skuSnap = await transaction.get(skuRef);
 
-        if (Array.isArray(batchAllocations) && batchAllocations.length > 0) {
-            for (const alloc of batchAllocations) {
-                const wsRef = getWarehouseStockRef(skuCode, alloc.batchId, alloc.warehouseId || DEFAULT_WAREHOUSE_ID);
-                const wsSnap = await transaction.get(wsRef);
-                const wsData = wsSnap.exists ? wsSnap.data() : { availableStock: 0, committedStock: 0 };
+        if (skuSnap.exists) {
+            if (Array.isArray(batchAllocations) && batchAllocations.length > 0) {
+                for (const alloc of batchAllocations) {
+                    const wsRef = getWarehouseStockRef(targetSku, alloc.batchId, alloc.warehouseId || DEFAULT_WAREHOUSE_ID);
+                    const wsSnap = await transaction.get(wsRef);
+                    const wsData = wsSnap.exists ? wsSnap.data() : { availableStock: 0, committedStock: 0 };
 
-                const wsAvailBefore = wsData.availableStock || 0;
-                const wsCommittedBefore = wsData.committedStock || 0;
-                const wsAvailAfter = wsAvailBefore + alloc.allocatedQty;
-                const wsCommittedAfter = Math.max(0, wsCommittedBefore - alloc.allocatedQty);
+                    const wsAvailBefore = wsData.availableStock || 0;
+                    const wsCommittedBefore = wsData.committedStock || 0;
+                    const wsAvailAfter = wsAvailBefore + alloc.allocatedQty;
+                    const wsCommittedAfter = Math.max(0, wsCommittedBefore - alloc.allocatedQty);
 
-                transaction.set(wsRef, {
-                    availableStock: wsAvailAfter,
-                    committedStock: wsCommittedAfter,
+                    transaction.set(wsRef, {
+                        availableStock: wsAvailAfter,
+                        committedStock: wsCommittedAfter,
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
+
+                    recordMovement(transaction, {
+                        movementType: "ORDER_RELEASED",
+                        skuCode: targetSku,
+                        batchId: alloc.batchId,
+                        batchNumber: alloc.batchNumber,
+                        warehouseId: alloc.warehouseId || DEFAULT_WAREHOUSE_ID,
+                        quantity: alloc.allocatedQty,
+                        availableBefore: wsAvailBefore,
+                        availableAfter: wsAvailAfter,
+                        committedBefore: wsCommittedBefore,
+                        committedAfter: wsCommittedAfter,
+                        referenceId: orderId,
+                        actorId,
+                        actorRole,
+                        reason: reason || `Stock released for cancelled order #${orderId}`,
+                        idempotencyKey: `${idempotencyKey}:${alloc.batchId}`
+                    });
+                }
+            }
+
+            // Update SKU aggregate
+            transaction.update(skuRef, {
+                "inventory.availableStock": admin.firestore.FieldValue.increment(quantity),
+                "inventory.committedStock": admin.firestore.FieldValue.increment(-quantity),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        } else {
+            const prodTargetId = productId || targetSku;
+            const productRef = db.collection("products").doc(prodTargetId);
+            const productSnap = await transaction.get(productRef);
+            if (productSnap.exists) {
+                transaction.update(productRef, {
+                    stock: admin.firestore.FieldValue.increment(quantity),
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-
-                recordMovement(transaction, {
-                    movementType: "ORDER_RELEASED",
-                    skuCode,
-                    batchId: alloc.batchId,
-                    batchNumber: alloc.batchNumber,
-                    warehouseId: alloc.warehouseId || DEFAULT_WAREHOUSE_ID,
-                    quantity: alloc.allocatedQty,
-                    availableBefore: wsAvailBefore,
-                    availableAfter: wsAvailAfter,
-                    committedBefore: wsCommittedBefore,
-                    committedAfter: wsCommittedAfter,
-                    referenceId: orderId,
-                    actorId,
-                    actorRole,
-                    reason: reason || `Stock released for cancelled order #${orderId}`,
-                    idempotencyKey: `${idempotencyKey}:${alloc.batchId}`
                 });
             }
         }
-
-        // Update SKU aggregate
-        transaction.update(skuRef, {
-            "inventory.availableStock": admin.firestore.FieldValue.increment(quantity),
-            "inventory.committedStock": admin.firestore.FieldValue.increment(-quantity),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
     }
 
     const result = { success: true, orderId, released: true };
@@ -332,56 +368,60 @@ async function completeOrderStock(transaction, { orderId, items, actorId, idempo
     if (alreadyProcessed) return cachedResult;
 
     for (const item of items) {
-        const { skuCode, batchAllocations, quantity } = item;
-        const skuRef = db.collection("skus").doc(skuCode);
+        const { skuCode, productId, batchAllocations, quantity } = item;
+        const targetSku = skuCode || productId;
+        const skuRef = db.collection("skus").doc(targetSku);
+        const skuSnap = await transaction.get(skuRef);
 
-        if (Array.isArray(batchAllocations) && batchAllocations.length > 0) {
-            for (const alloc of batchAllocations) {
-                const wsRef = getWarehouseStockRef(skuCode, alloc.batchId, alloc.warehouseId || DEFAULT_WAREHOUSE_ID);
-                const wsSnap = await transaction.get(wsRef);
-                const wsData = wsSnap.exists ? wsSnap.data() : { committedStock: 0, availableStock: 0 };
+        if (skuSnap.exists) {
+            if (Array.isArray(batchAllocations) && batchAllocations.length > 0) {
+                for (const alloc of batchAllocations) {
+                    const wsRef = getWarehouseStockRef(targetSku, alloc.batchId, alloc.warehouseId || DEFAULT_WAREHOUSE_ID);
+                    const wsSnap = await transaction.get(wsRef);
+                    const wsData = wsSnap.exists ? wsSnap.data() : { committedStock: 0, availableStock: 0 };
 
-                const wsCommittedBefore = wsData.committedStock || 0;
-                const wsCommittedAfter = Math.max(0, wsCommittedBefore - alloc.allocatedQty);
+                    const wsCommittedBefore = wsData.committedStock || 0;
+                    const wsCommittedAfter = Math.max(0, wsCommittedBefore - alloc.allocatedQty);
 
-                transaction.set(wsRef, {
-                    committedStock: wsCommittedAfter,
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
+                    transaction.set(wsRef, {
+                        committedStock: wsCommittedAfter,
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
 
-                // Decrement batch stock inside skus/{skuCode}/batches/{batchId}
-                const batchRef = skuRef.collection("batches").doc(alloc.batchId);
-                transaction.update(batchRef, {
-                    stock: admin.firestore.FieldValue.increment(-alloc.allocatedQty),
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                });
+                    // Decrement batch stock inside skus/{skuCode}/batches/{batchId}
+                    const batchRef = skuRef.collection("batches").doc(alloc.batchId);
+                    transaction.update(batchRef, {
+                        stock: admin.firestore.FieldValue.increment(-alloc.allocatedQty),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
 
-                recordMovement(transaction, {
-                    movementType: "ORDER_COMPLETED",
-                    skuCode,
-                    batchId: alloc.batchId,
-                    batchNumber: alloc.batchNumber,
-                    warehouseId: alloc.warehouseId || DEFAULT_WAREHOUSE_ID,
-                    quantity: alloc.allocatedQty,
-                    availableBefore: wsData.availableStock || 0,
-                    availableAfter: wsData.availableStock || 0,
-                    committedBefore: wsCommittedBefore,
-                    committedAfter: wsCommittedAfter,
-                    referenceId: orderId,
-                    actorId,
-                    actorRole: "RIDER",
-                    reason: `Order #${orderId} fulfilled and delivered`,
-                    idempotencyKey: `${idempotencyKey}:${alloc.batchId}`
-                });
+                    recordMovement(transaction, {
+                        movementType: "ORDER_COMPLETED",
+                        skuCode: targetSku,
+                        batchId: alloc.batchId,
+                        batchNumber: alloc.batchNumber,
+                        warehouseId: alloc.warehouseId || DEFAULT_WAREHOUSE_ID,
+                        quantity: alloc.allocatedQty,
+                        availableBefore: wsData.availableStock || 0,
+                        availableAfter: wsData.availableStock || 0,
+                        committedBefore: wsCommittedBefore,
+                        committedAfter: wsCommittedAfter,
+                        referenceId: orderId,
+                        actorId,
+                        actorRole: "RIDER",
+                        reason: `Order #${orderId} fulfilled and delivered`,
+                        idempotencyKey: `${idempotencyKey}:${alloc.batchId}`
+                    });
+                }
             }
-        }
 
-        // Update SKU aggregate
-        transaction.update(skuRef, {
-            "inventory.committedStock": admin.firestore.FieldValue.increment(-quantity),
-            "inventory.totalStock": admin.firestore.FieldValue.increment(-quantity),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
+            // Update SKU aggregate
+            transaction.update(skuRef, {
+                "inventory.committedStock": admin.firestore.FieldValue.increment(-quantity),
+                "inventory.totalStock": admin.firestore.FieldValue.increment(-quantity),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
     }
 
     const result = { success: true, orderId, completed: true };

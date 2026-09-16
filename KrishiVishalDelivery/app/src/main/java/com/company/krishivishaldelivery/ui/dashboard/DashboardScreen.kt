@@ -234,11 +234,11 @@ fun DashboardScreen(
                                             onStatusClick = { viewModel.updateStatus(stop.order.id, it) }, 
                                             onNavigateClick = {
                                                 val navUri = if (stop.order.targetLat != 0.0 && stop.order.targetLng != 0.0)
-                                                    "google.navigation:q=${stop.order.targetLat},${stop.order.targetLng}"
+                                                    "google.navigation:q=${stop.order.targetLat},${stop.order.targetLng}&mode=d"
                                                 else {
                                                     val lm = stop.order.getEffectiveLandmark()
                                                     val query = if (lm.isNotBlank()) "${stop.order.address} ($lm)" else stop.order.address
-                                                    "google.navigation:q=${Uri.encode(query)}"
+                                                    "google.navigation:q=${Uri.encode(query)}&mode=d"
                                                 }
                                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(navUri)).setPackage("com.google.android.apps.maps"))
                                             }, 
@@ -258,11 +258,11 @@ fun DashboardScreen(
                                             onStatusClick = { viewModel.updateStatus(order.id, it) }, 
                                             onNavigateClick = {
                                                 val navUri = if (order.targetLat != 0.0 && order.targetLng != 0.0)
-                                                    "google.navigation:q=${order.targetLat},${order.targetLng}"
+                                                    "google.navigation:q=${order.targetLat},${order.targetLng}&mode=d"
                                                 else {
                                                     val lm = order.getEffectiveLandmark()
                                                     val query = if (lm.isNotBlank()) "${order.address} ($lm)" else order.address
-                                                    "google.navigation:q=${Uri.encode(query)}"
+                                                    "google.navigation:q=${Uri.encode(query)}&mode=d"
                                                 }
                                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(navUri)).setPackage("com.google.android.apps.maps"))
                                             }, 

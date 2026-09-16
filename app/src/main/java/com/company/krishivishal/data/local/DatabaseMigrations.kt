@@ -374,6 +374,18 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * Migration from 51 to 52
+     * Adds 'weightGrams' column to 'products', 'variants', and 'skus' tables for standardized shipping/weight calculation.
+     */
+    val MIGRATION_51_52 = object : Migration(51, 52) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE products ADD COLUMN weightGrams INTEGER")
+            db.execSQL("ALTER TABLE variants ADD COLUMN weightGrams INTEGER")
+            db.execSQL("ALTER TABLE skus ADD COLUMN weightGrams INTEGER")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_33_34,
         MIGRATION_34_35,
@@ -385,7 +397,8 @@ object DatabaseMigrations {
         MIGRATION_43_48,
         MIGRATION_48_49,
         MIGRATION_49_50,
-        MIGRATION_50_51
+        MIGRATION_50_51,
+        MIGRATION_51_52
     )
 }
 
