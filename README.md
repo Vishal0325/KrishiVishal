@@ -1,275 +1,320 @@
-# 🌾 KrishiVishal
+# 🌾 KrishiVishal Ecosystem — Master Technical Architecture & Specification
 
-**KrishiVishal** is an enterprise-grade agricultural supply chain and e-commerce platform designed for agricultural inputs such as insecticides, fungicides, herbicides, micro-nutrients, seeds, and farm equipment. The ecosystem seamlessly connects farmers, field riders/delivery personnel, and supply chain administrators through native Android applications, React admin infrastructure, and a serverless Firebase Cloud Functions backend.
+**KrishiVishal** is a production-grade, multi-tier agricultural supply chain and e-commerce platform designed for agricultural inputs distribution (Insecticides, Fungicides, Herbicides, Seeds, Bio-fertilizers, Micro-nutrients, Sprayers, and Agricultural Implements).
 
----
-
-## 📑 Project Overview & Scope
-
-KrishiVishal handles the complete end-to-end lifecycle of agricultural input supply chains:
-- **Direct Input Purchasing (Customer Android App):** Farmers browse and order verified agricultural inputs (Insecticides, Seeds, Micro Nutrients, Sprayers) via a native Android app.
-- **Inventory & FEFO Stock Management:** Warehouse operations follow First-Expiry-First-Out (FEFO) batch allocation to ensure chemical and seed freshness.
-- **Procurement & Goods Receipt (GRN):** Automatic procurement queueing for on-demand items, vendor linkage, and inventory/accounting reconciliation upon receipt.
-- **Last-Mile Delivery & Rider Dispatch:** Delivery personnel use a dedicated rider app with OTP delivery confirmation, POD evidence, and COD collection workflows.
-- **Double-Entry Financial Accounting:** Automated posting to a double-entry ledger for sales revenue, GST liabilities, rider COD liabilities, wallet balances, and inventory valuation.
-- **Self-Service Returns & Refunds:** Verified 7-day return policy with automated Razorpay online refunds and wallet credits.
+The platform seamlessly integrates:
+1. **Customer Android App (`app/`)**: Native Kotlin / Jetpack Compose application for farmers to discover verified inputs, manage cart items, book delivery slots, and place authenticated orders.
+2. **Delivery Rider Android App (`KrishiVishalDelivery/`)**: Native Kotlin / Jetpack Compose logistics app with GPS breadcrumb tracking, OTP delivery verification, POD evidence capture, and cash-in-hand reconciliation.
+3. **Operations & Optimization Engine (`krishivishal-ops/`)**: Python-powered rural Bihari route sequencing (Travelling Salesperson Problem heuristic), B2B QR token parsing, and Tally Prime XML integration.
+4. **Admin Web ERP Portal (`KrishiVishal-Admin/`)**: React 18 / Tailwind / Vite enterprise control room with Catalog Hub, Packing Station, Fleet Control, Delivery Slots, and Double-Entry Ledger.
+5. **Firebase Cloud Functions (`KrishiVishal-Functions/`)**: Node.js 22 serverless backend with FEFO batch allocation, server-side price locks, and double-entry accounting.
 
 ---
 
-## 🏗️ Architecture Overview
+## 🏛️ Ecosystem High-Level Architecture
 
 ```mermaid
-graph TD
-    subgraph "Client Layer"
-        A["📱 Customer Android App (app/)"]
-        B["🚚 Delivery Android App (KrishiVishalDelivery/)"]
-        C["💻 Admin Web Panel (KrishiVishal-Admin/ & public/)"]
+flowchart TB
+    subgraph Clients ["Client Layer"]
+        UserApp["📱 Customer Android App
+(Kotlin, Jetpack Compose, Room, Hilt)"]
+        RiderApp["🚚 Delivery Rider App
+(Kotlin, Compose, Room v6, Maps SDK)"]
+        AdminWeb["💻 Admin Web ERP Portal
+(React 18, Vite, Tailwind CSS)"]
     end
 
-    subgraph "Firebase Cloud Backend (KrishiVishal-Functions/)"
-        D["⚡ Node.js v22 Cloud Functions (v2 Callable & Triggers)"]
-        E["🗄️ Cloud Firestore Database"]
-        F["🔐 Firebase Auth & Custom Claims"]
-        G["📦 Cloud Storage"]
+    subgraph Backend ["Serverless Cloud Layer (KrishiVishal-Functions)"]
+        OrderFlow["📦 Order Engine & State Machine
+(orderFlow.js, deliverySlots.js)"]
+        InventoryEngine["📊 FEFO Stock & SKU Engine
+(inventoryEngine.js, importSkus.js)"]
+        FinanceLedger["💰 Double-Entry Ledger
+(ledger.js, razorpay.js, wallet.js)"]
+        NotificationEngine["🔔 FCM Outbox & WhatsApp
+(notifications.js, aiSupervisor.js)"]
     end
 
-    subgraph "External Systems & Integrations"
-        H["💳 Razorpay Payment Gateway"]
-        I["📄 ClearTax / E-Way Bill Provider API"]
-        J["📲 Firebase Cloud Messaging (FCM)"]
+    subgraph Database ["Persistence & Cloud Storage (Firebase)"]
+        Firestore[("🔥 Cloud Firestore Database")]
+        Storage[("🪣 Cloud Storage (Images, POD, Signatures)")]
+        Auth[("🔐 Firebase Authentication & Custom Claims")]
     end
 
-    A -->|HTTPS Callables & SDK| D
-    B -->|HTTPS Callables & SDK| D
-    C -.->|Hosting & Admin APIs| D
-    A -->|Security Rules| E
-    B -->|Security Rules| E
-    D <--> E
-    D --> H
-    D --> I
-    D --> J
+    subgraph External ["External Services & Operations"]
+        OpsEngine["🚜 Route Optimizer & Tally Sync
+(krishivishal-ops - Python / Pytest)"]
+        Razorpay["💳 Razorpay Payment Gateway"]
+        WhatsApp["💬 WhatsApp Business Cloud API"]
+    end
+
+    UserApp -->|HTTPS Callables| OrderFlow
+    UserApp -->|Read Catalog / Realtime Orders| Firestore
+    RiderApp -->|Location Batches & OTP Verification| OrderFlow
+    RiderApp -->|Upload POD Images & Signatures| Storage
+    AdminWeb -->|Catalog CRUD, Packing & Fleet Control| Firestore
+    AdminWeb -->|Generate Invoices & Shipping Labels| OrderFlow
+
+    OrderFlow <--> Firestore
+    InventoryEngine <--> Firestore
+    FinanceLedger <--> Firestore
+    NotificationEngine --> WhatsApp
+    OrderFlow --> Razorpay
+    AdminWeb -.-> OpsEngine
 ```
 
 ---
 
-## 📱 Applications & Component Modules
-
-| Component / Module | Language / Framework | Implementation Status | Path |
-|---|---|---|---|
-| **Customer Android App** | Kotlin 2.0.21, Jetpack Compose, Material3, Hilt 2.52, Room 2.8.4 | **Implemented** | [`app/`](app/) |
-| **Delivery Rider App** | Kotlin, Jetpack Compose, Room DB, Google Maps SDK | **Implemented** | [`KrishiVishalDelivery/`](KrishiVishalDelivery/) |
-| **Firebase Cloud Backend** | Node.js 22, Firebase Functions v2 (`asia-south1`) | **Implemented** | [`KrishiVishal-Functions/`](KrishiVishal-Functions/) |
-| **Shared Core Domain** | Kotlin 2.0.21, Models & Room Entities | **Implemented** | [`core/`](core/) |
-| **Admin Web Panel** | React / Firebase Hosting (`public/`) | **Implemented** | [`public/`](public/) |
-
----
+## 📱 Sub-System Deep Dive
 
 ### 1. 🛒 Customer Android App (`app/`)
-- **Core Tech:** Kotlin 2.0.21, Jetpack Compose, Hilt Dependency Injection, Room Local Database, Coroutines & Flow, Retrofit 2.11.0, Firebase SDK 33.1.2.
-- **Features:**
-  - Dynamic home feed with category and brand discovery (*Insecticides*, *Seeds*, *Micro Nutrients*).
-  - 2×2 product listing grid with search and recent view history.
-  - Product details displaying composition, dosage, active ingredients, safety instructions, and pack sizes/SKUs.
-  - Cart → address selection → delivery slot → coupon/wallet → Razorpay online payment / COD → order tracking.
-  - Authenticated 7-day return request submission (`requestReturn`).
+* **Package:** `com.company.krishivishal`
+* **Architecture:** Clean Architecture + MVI/MVVM, Single-Activity pattern (`MainActivity.kt`), Navigation Compose.
+* **Tech Stack:** Kotlin 2.0.21, Jetpack Compose (Material3), Hilt 2.52, Room 2.8.4, Coroutines & Flow, Paging 3, Retrofit 2.11.0, Firebase Android BoM 33.1.2.
 
-### 2. 🚚 Delivery / Rider Android App (`KrishiVishalDelivery/`)
-- **Core Tech:** Kotlin, Jetpack Compose, Room DB, Google Maps Location SDK, Firebase Cloud Messaging (FCM).
-- **Features:**
-  - Real-time order assignment and FCM push notifications.
-  - Rider order acceptance, route mapping, and status updates.
-  - Delivery OTP verification (`verifyDeliveryOTP`).
-  - Cash-on-Delivery (COD) cash collection workflow and rider deposit liability tracking.
-  - Return pickup inspection and Quality Check (QC) proof capture.
-  - Offline Room database caching for rural route support.
-
-### 3. ⚙️ Firebase Backend & Cloud Functions (`KrishiVishal-Functions/`)
-- **Runtime:** Node.js 22, Firebase Functions v2 (`asia-south1`), Firebase Admin SDK 12, Razorpay SDK 2.9.8.
-- **Modules & Key Functions:**
-  - **Orders (`orders/`):**
-    - `createOrder`: Server-side price locking, Razorpay Order ID generation, atomic order creation, stock reservation.
-    - `cancelOrder`: Server-validated cancellation with stock release.
-    - `verifyDeliveryOTP`: Server-validated single-use OTP check for delivery completion.
-    - `requestReturn`: 7-day policy enforcement & return document creation.
-    - `updateOrderStatus`: Order lifecycle state management.
-    - `onOrderStatusUpdate`, `onReturnRequestCreated`, `onOrderDeliveryUpdate`, `onProcurementQueueUpdated`.
-  - **Finance & Ledger (`finance/`):**
-    - `verifyPayment`: Timing-safe HMAC signature verification.
-    - `razorpayWebhook`: Payment event reconciliation.
-    - `initiateRefund`: Idempotent Razorpay refund & COD wallet credit.
-    - `onOrderPaidLedger`, `onReturnCompletedLedger`, `onGoodsReceiptCreated`, `onCashDepositVerified`.
-  - **Inventory & GRN (`inventory/`):**
-    - `importSkus`, `upsertSku`, `adjustInventory`, `receiveGrn`, `writeOffStock`, `onReturnStockSync`, `onSkuWrite`.
-  - **Admin, AI & Compliance (`admin/`, `index.js`):**
-    - `aiSupervisor`, `processAiAction`, `monitorOrderSLA`, `generateEWayBill`.
+#### Key Modules & Capabilities:
+* **Cart Synchronization & Resilience (`CartRepository.kt`, `SyncManager.kt`):**
+  * Local Room database (`cart_items` table via `CartItem.kt`) provides offline-first cart management.
+  * Synchronizes bidirectionally with Firestore `users/{userId}/cart/{itemId}` using `@get:PropertyName` and `@set:PropertyName` annotations.
+  * Background queue (`SyncOperationDao`) ensures pending cart operations auto-retry on reconnect without primary key collision.
+* **Product Catalog & FEFO Stock Display:**
+  * Categorized browsing: Insecticides, Fungicides, Herbicides, Seeds, Bio-Fertilizers, Equipment.
+  * Displays active chemical ingredients, antidote guidelines, dosage per acre, and pack variants.
+  * Real-time stock status based on available warehouse inventory.
+* **Checkout & Payment Security (`PlaceOrderUseCase.kt`):**
+  * Address selection with district, PIN code regex validation (`^\d{6}$`), and GPS lat/lng.
+  * Delivery slot selection (`delivery_slots` integration).
+  * Direct Firestore writes are blocked by security rules; order placement invokes `createOrderViaFunction` HTTPS callable.
+  * Server-side price lock: Razorpay Order IDs generated exclusively in paise by backend to prevent client tampering.
+* **Friendly Localization (`NetworkErrorHandler.kt`):**
+  * Converts low-level network errors, timeouts, and Firebase exceptions into user-friendly Hindi localized guidance.
 
 ---
 
-## 🔄 Target End-to-End Business Flow
+### 2. 💻 Admin Web ERP Portal (`KrishiVishal-Admin/`)
+* **Framework:** React 18, Vite, Tailwind CSS, Lucide React, Firebase JS SDK 10.x.
+* **Role:** Central operating platform for supply chain managers, warehouse pack-stations, dispatchers, and accounting teams.
+
+#### Key Modules & Capabilities:
+* **Catalog Hub (`CatalogHub.jsx`):**
+  * Tabbed management across 11 sub-modules: Products, SKUs, Dead Stock Liquidation, Expiry Monitor (FEFO), Categories, Brands, Crops, Master Data, Coupons, Banners, and Referrals.
+  * **Confidential Cost Isolation:** Strips `costPrice` from public `products/{id}` documents and securely routes wholesale pricing to `product_costs/{id}`, preventing consumer app data scraping.
+  * **1-Click SKU & GRN Provisioning:** Automatically registers barcode/SKU mappings in `skus/{skuCode}` and invokes Cloud Functions (`receiveGrn`) when stock is received.
+* **Incoming Orders & Fulfillment (`Orders.jsx`, `OrdersManager.jsx`):**
+  * Subscribes to real-time `onSnapshot` updates on `orders` collection with multi-stage lifecycle filtering.
+  * Single-click Thermal 4×6 shipping label printing (`printThermalShippingLabel`) and full A4 tax invoice generation.
+  * Automated WhatsApp notification triggers for dispatch and out-for-delivery events.
+* **Rider & Fleet Dispatch (`Riders.jsx`, `riderManagement.js`):**
+  * Rider whitelisting (`whitelisted_riders`) by phone number and warehouse hub code.
+  * Live rider status monitoring (`🟢 Online` vs `⚪ Offline`, `Idle` vs `Busy`).
+  * Dedicated assignment modal updating `order.riderId` and setting status to `RIDER_ASSIGNED`.
+* **Delivery Slots Management (`DeliverySlots.jsx`):**
+  * Hub-based scheduling (`delivery_slots` collection).
+  * Enforces maximum booking capacities per delivery window; blocks hard deletion of slots with active bookings.
+* **Role-Based Access Control (RBAC) (`RolesPermissionsManager.jsx`, `rbacService.js`):**
+  * Granular permission sets for Warehouse Operators, Accountants, Dispatch Supervisors, and Super Admins.
+
+---
+
+### 3. 🚚 Delivery Rider Android App (`KrishiVishalDelivery/`)
+* **Package:** `com.company.krishivishaldelivery`
+* **Architecture:** Offline-first MVVM, Jetpack Compose, Room Database (v6), Hilt, Foreground Service.
+
+#### Key Modules & Capabilities:
+* **Room Schema & Migration Protection (`DeliveryDatabase.kt` v6):**
+  * Entity: `DeliveryOrderEntity` storing order payload, customer contacts, COD amount, address, and offline sync state.
+  * Entity: `GPSLogEntity` for caching offline rider breadcrumbs.
+  * Configured with `fallbackToDestructiveMigration(dropAllTables = true)` in `DatabaseModule.kt` to handle schema updates smoothly.
+* **Secure Delivery Completion (`verifyDeliveryOTP`):**
+  * Eliminates fake delivery claims via server-validated, single-use 4-digit OTP.
+  * Constant-time comparison (`crypto.timingSafeEqual`) on backend with max 3 verification attempts.
+* **Proof of Delivery (POD) & NDR Workflows:**
+  * Captures delivery photo and customer signature; caches files locally and uploads in background via `WorkManager`.
+  * Non-Delivery Report (NDR) workflow for customer unavailable, wrong address, or rejected packages.
+* **Cash-in-Hand Vault & Reconciliation (`CashReconciliationScreen.kt`):**
+  * Tracks total COD collected by rider.
+  * Bank deposit slip generation and cash handover verification dialogs.
+* **Dynamic Location Tracking (`RiderLocationService.kt`):**
+  * Adaptive polling intervals (30s during active transit, 60s/120s at stops).
+  * Batched commits to `rider_location_history` (100 logs per batch) to conserve battery and Firestore writes.
+
+---
+
+### 4. 🚜 Operations & Optimization Engine (`krishivishal-ops/`)
+* **Technology:** Python 3.10+, Pytest, Haversine Distance, Native Google Navigation Intents.
+
+#### Capabilities:
+* **Rural Bihar Delivery Route Optimization (`main.py`):**
+  * Heuristic Travelling Salesperson Problem (TSP) solver configured for rural road networks originating from regional distribution centers (e.g. Samastipur Hub `25.8633, 85.7818`).
+  * Sequences multi-drop routes across rural blocks (Pusa, Kalyanpur, Tajpur, Rosera, Ujiarpur), minimizing total transit time and fuel consumption.
+  * Generates Android Navigation Intent URLs (`google.navigation:q=lat,lng`) for direct launch in rider mapping apps.
+* **GST B2B QR Code & Tally ERP Sync:**
+  * Decodes JWT tokens from B2B e-invoices and generates compliant Tally Prime Purchase Voucher XML (`<VOUCHER VCHTYPE="Purchase" ACTION="Create">`).
+* **Automated Verification:**
+  * Verified with automated test suites (`test_mock_run.py`, `pytest`) passing 100%.
+
+---
+
+### 5. ⚙️ Firebase Cloud Functions (`KrishiVishal-Functions/`)
+* **Runtime:** Node.js 22, Firebase Functions v2 (`asia-south1`), Firebase Admin SDK 12.
+
+```
+KrishiVishal-Functions/
+├── index.js                     # Root entry point & function exports
+├── core/
+│   ├── admin.js                 # Firebase Admin initialization
+│   └── utils.js                 # Shared helpers & validation routines
+├── orders/
+│   ├── orderFlow.js             # Order creation, status updates, cancel, returns
+│   └── deliverySlots.js         # Slot availability & reservation
+├── inventory/
+│   ├── inventoryEngine.js       # Atomic FEFO reservation & stock ledger
+│   ├── importSkus.js            # Bulk SKU ingestion
+│   └── stock.js                 # Warehouse stock reconciliations
+├── finance/
+│   ├── ledger.js                # Double-entry general ledger
+│   ├── razorpay.js              # Payment signature validation & webhook
+│   ├── initiateRefund.js        # Automated refunds
+│   └── wallet.js                # Farmer wallet credits & balances
+└── messaging/
+    └── notifications.js         # FCM push dispatch & WhatsApp triggers
+```
+
+---
+
+## 🔄 End-to-End Cross-App Lifecycle Sequence
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Customer
-    participant App as Customer App
-    participant Backend as Cloud Functions
-    participant Rzp as Razorpay Gateway
-    participant Admin as Admin Web
-    participant Rider as Delivery App
+    actor Farmer as 👨‍🌾 Farmer (Customer App)
+    participant Cloud as ⚙️ Cloud Functions
+    participant DB as 🔥 Firestore DB
+    actor Admin as 👨‍💼 Dispatcher (Admin Web)
+    actor Rider as 🚚 Rider (Delivery App)
 
-    Customer->>App: 1. Add SKU/variant to Cart & Checkout
-    App->>Backend: 2. Invoke createOrder()
-    Backend->>Backend: 3. Check FEFO Stock & Lock Prices
-    alt Stock Available
-        Backend->>Backend: 4a. Reserve Inventory (ORDER:{id}:RESERVE)
-    else Stock Unavailable
-        Backend->>Admin: 4b. Create Procurement Queue Record
-        Admin->>Admin: 5. Procure from Supplier & Receive GRN
-        Backend->>Backend: 6. Update Stock to READY_FOR_PACKING
-    end
-    Backend->>Rzp: 7. Create Server Razorpay Order
-    Backend-->>App: 8. Return orderId & razorpayOrderId
-    Customer->>App: 9. Pay via Razorpay / COD
-    App->>Backend: 10. Invoke verifyPayment()
-    Backend->>Backend: 11. Set Status: CONFIRMED
-    Admin->>Admin: 12. Pack & Scan QR Verification
-    Backend->>Rider: 13. Assign Rider (FCM Push)
-    Rider->>Customer: 14. Handover Shipment
-    Customer->>Rider: 15. Provide Delivery OTP
-    Rider->>Backend: 16. Invoke verifyDeliveryOTP()
-    Backend->>Backend: 17. Set DELIVERED & Post Financial Ledger Entry
+    Farmer->>Farmer: Add products to cart & select Delivery Slot
+    Farmer->>Cloud: createOrder(items, address, slotId, paymentMethod)
+    Cloud->>DB: Check FEFO stock, lock prices, reserve inventory
+    Cloud-->>Farmer: Return orderId & razorpayOrderId
+    Farmer->>Cloud: verifyPayment(signature) OR confirm COD
+    Cloud->>DB: Set order.status = "CONFIRMED"
+    Cloud->>DB: Record Double-Entry Ledger (DEBIT Bank / CREDIT Sales + GST)
+    
+    Admin->>DB: View incoming orders in Orders Dashboard
+    Admin->>Admin: Pack items & print 4x6 shipping label
+    Admin->>DB: Assign verified rider (status = "RIDER_ASSIGNED")
+    Cloud->>Rider: Push FCM Notification (New Delivery Assigned)
+    
+    Rider->>Rider: Accept order & start navigation (status = "OUT_FOR_DELIVERY")
+    Rider->>Farmer: Arrive at delivery address & collect COD / Handover
+    Farmer->>Rider: Share 4-digit Delivery OTP
+    Rider->>Cloud: verifyDeliveryOTP(orderId, otp, lat, lng)
+    Cloud->>DB: Set order.status = "DELIVERED", record collection
+    Rider->>Rider: Capture POD signature/photo
+    Cloud->>DB: Clear rider COD liability upon verified bank deposit
 ```
 
 ---
 
-## 🚥 Canonical Order State Machine
+## 📊 Cross-App Firestore Collection Schema Matrix
 
-Order state transitions follow strict server-authoritative logic:
-
-| Status | Trigger / Condition | Source / Updated By |
-|---|---|---|
-| `PLACED` | Initial state for self-stock orders | `createOrder` |
-| `PROCUREMENT_PENDING` | Initial state when on-demand items require supplier procurement | `createOrder` |
-| `CONFIRMED` | Payment verified via Razorpay HMAC or COD order validated | `verifyPayment` / `razorpayWebhook` |
-| `READY_FOR_PACKING` | Procurement queue items fulfilled via GRN receipt | `onProcurementQueueUpdated` |
-| `PACKED` | Warehouse picking and scan checklist completed | `updateOrderStatus` |
-| `READY_FOR_PICKUP` | Order staged at warehouse dispatch hub | `updateOrderStatus` |
-| `RIDER_ASSIGNED` | Delivery rider assigned to shipment | `onOrderDeliveryUpdate` |
-| `OUT_FOR_DELIVERY` | Rider accepts assignment and departs for delivery | Delivery Rider App |
-| `DELIVERED` | OTP verified successfully at customer site | `verifyDeliveryOTP` |
-| `CANCELLED` | Order cancelled before dispatch | `cancelOrder` |
-| `RETURN_REQUESTED` | Customer submitted return within 7-day window | `requestReturn` |
-| `RETURNED` | Return pickup and Quality Check (QC) completed | `onReturnStockSync` |
+| Collection | Written By | Read By | Key Fields & Types |
+| :--- | :--- | :--- | :--- |
+| `products` | Admin Web (`Products.jsx`) | Customer App, Admin Web | `id` (string), `name` (string), `price` (number), `mrp` (number), `stock` (number), `imageUrl` (string), `images` (array), `category` (string), `brand` (string), `variants` (array), `isActive` (boolean). *(Note: `costPrice` is excluded).* |
+| `product_costs` | Admin Web | Cloud Functions, Admin ERP | `productId` (string), `costPrice` (number), `variantsCost` (map), `updatedAt` (timestamp). |
+| `skus` | Admin Web, GRN Function | Cloud Functions, Admin | `skuCode` (string, PK), `name` (string), `pricing` (map: mrp, consumerPrice, landingCost), `inventory` (map: availableStock, allocatedStock), `tax` (hsnCode, gstRate). |
+| `orders` | Cloud Functions (`createOrder`) | Customer App, Admin Web, Delivery App | `id` (string), `userId` (string), `userName` (string), `userPhone` (string), `status` (string), `items` (array with `productId`, `skuCode`, `productName`, `imageUrl`, `price`, `quantity`, `gstRate`), `address` (map), `totalAmount` (number), `paymentMethod` (`COD` \| `RAZORPAY_ONLINE`), `customerOTP` (string), `riderId` (string), `createdAt` (timestamp). |
+| `users/{uid}/cart` | Customer App (`SyncManager`) | Customer App | `id` (string), `userId` (string), `productId` (string), `variantId` (string), `quantity` (number), `skuCode` (string), `isSelected` (boolean), `timestamp` (number). |
+| `riders` | Admin Web, Delivery App | Admin Web, Delivery App | `id` (string), `name` (string), `phone` (string), `riderSerialId` (string), `riderIdDisplay` (`KV-XXXXX`), `status` (`ACTIVE`), `online` (boolean), `currentLat` (number), `currentLng` (number), `kycStatus` (`VERIFIED`), `assignedWarehouse` (string). |
+| `whitelisted_riders`| Admin Web | Cloud Functions, Delivery App | `phone` (string, E.164), `name` (string), `warehouseId` (string), `whitelistedAt` (timestamp), `status` (`PENDING_REGISTRATION`). |
+| `delivery_slots` | Admin Web | Customer App, Admin Web | `slotId` (string), `date` (string YYYY-MM-DD), `startTime` (HH:mm), `endTime` (HH:mm), `hubId` (string), `maxCapacity` (number), `currentBookings` (number), `isActive` (boolean). |
+| `ledger` | Cloud Functions (`ledger.js`) | Admin Accounting | `transactionId` (string), `orderId` (string), `accountDebit` (string), `accountCredit` (string), `amount` (number), `createdAt` (timestamp), `description` (string). |
 
 ---
 
-## 📦 Inventory Engine & FEFO Allocation
+## 🚦 Canonical Order State Transitions
 
-- **Single Source of Truth (SSoT):** `skus` collection represents the authoritative inventory master. Read-heavy customer listings are projected in `products`.
-- **FEFO Batch Allocation:** Batches are sorted by nearest `expiryDate`. Stock is atomically reserved (`reserveOrderStock`).
-- **Stock Lifecycle:** Available Stock $\rightarrow$ Reserved Stock $\rightarrow$ Completed Stock (Deducted).
-- **Idempotency Safeguards:** Transactions log idempotency keys (`ORDER:{orderId}:RESERVE`) in `idempotency_keys` to prevent duplicate stock mutations.
-- **Goods Receipt Note (GRN):** `receiveGrn` updates batch quantities/cost and triggers double-entry ledger posting (`onGoodsReceiptCreated`).
-
----
-
-## 💳 Payments, COD & Double-Entry Financial Ledger
-
-### Payment Security
-- **Server-Side Price Locking:** Razorpay Order IDs are created exclusively on the server (`createRazorpayOrder`). Amounts are locked in paise to prevent client-side tampering.
-- **Timing-Safe HMAC Verification:** `verifyPayment` validates signatures using `crypto.timingSafeEqual`.
-
-### Double-Entry Chart of Accounts
-All financial transactions generate idempotent ledger postings in the `ledger` collection:
-
-| Account Name | Account Type | Increase Side | Description |
-|---|---|---|---|
-| `CASH_IN_HAND` | Asset | DEBIT | Cash held by riders or warehouse cash drawers |
-| `BANK_ACCOUNT` | Asset | DEBIT | Bank account for online payments & deposits |
-| `INVENTORY_VALUE` | Asset | DEBIT | Total asset valuation of stock |
-| `WALLET_BALANCE` | Liability | CREDIT | Customer wallet credits for returns/refunds |
-| `GST_PAYABLE` | Liability | CREDIT | Tax liabilities collected on sales |
-| `SALES` | Revenue | CREDIT | Recognized sales revenue |
-| `ACCOUNTS_PAYABLE` | Liability | CREDIT | Vendor liabilities for goods received via GRN |
-
-- **Sales Posting (`onOrderPaidLedger`):** Debits `BANK_ACCOUNT` / `CASH_IN_HAND`, Credits `SALES` & `GST_PAYABLE`.
-- **Rider COD Reconciliation (`onCashDepositVerified`):** Transfers liability from rider cash account to verified bank/hub account upon deposit verification.
-
----
-
-## 🔐 Security & Compliance
-
-- **Firestore & Storage Rules:** Enforces role-based access (`isAdmin()`, `isRider()`, `isAuthenticated()`) and document immutability on sensitive collections (`ledger`, `audit_logs`).
-- **App Check & Certificate Pinning:** Enforced across mobile clients to protect Firebase endpoints against unauthorized client access.
-- **Secrets Handling:** All credentials (Razorpay, ClearTax) are managed strictly via environment variables/Secret Manager.
-
----
-
-## 🔑 Environment Variables
-
-Required environment variables for `KrishiVishal-Functions`:
-
-```env
-# Razorpay Payment Credentials
-RAZORPAY_KEY_ID=<your_razorpay_key_id>
-RAZORPAY_KEY_SECRET=<your_razorpay_key_secret>
-RAZORPAY_WEBHOOK_SECRET=<your_razorpay_webhook_secret>
-
-# Security & Compliance
-QR_HMAC_SECRET=<your_qr_hmac_secret>
-CLEARTAX_AUTH_TOKEN=<your_cleartax_auth_token>
+```
+[PLACED] ──────► [CONFIRMED] ──────► [PACKED] ──────► [RIDER_ASSIGNED]
+   │                 ▲
+   ▼                 │
+[PROCUREMENT_PENDING]─┘
+   │
+   ▼
+[OUT_FOR_DELIVERY] ──────► [DELIVERED]
+   │
+   ├──────► [NDR_REATTEMPT] (Max 3 Attempts)
+   │
+   └──────► [CANCELLED] / [RETURNED] (7-day QC Return)
 ```
 
 ---
 
-## 🛠️ Local Setup, Testing & Deployment
+## 🛠️ Build, Test & Deployment Instructions
 
-### 1. Backend Setup & Testing (`KrishiVishal-Functions/`)
+### 1. Customer Android App (`app/`) & Delivery App (`KrishiVishalDelivery/`)
 ```bash
-# Navigate to Cloud Functions directory
-cd KrishiVishal-Functions
+# Verify unit tests across all mobile modules
+.\gradlew.bat test
 
-# Install Node.js dependencies
+# Build Customer App Release APK / AAB
+.\gradlew.bat :app:assembleRelease
+
+# Build Delivery App Release APK / AAB
+.\gradlew.bat :delivery-app:assembleRelease
+```
+
+### 2. Admin Web Portal (`KrishiVishal-Admin/`)
+```bash
+cd KrishiVishal-Admin
+
+# Install dependencies
 npm install
 
-# Run unit and integration tests
-npm test
+# Run local development server
+npm run dev
 
-# Deploy Cloud Functions and Firestore Security Rules
+# Production build check (Verified 0 errors)
+npm run build
+```
+
+### 3. Operations Engine (`krishivishal-ops/`)
+```bash
+cd krishivishal-ops
+
+# Install python dependencies
+pip install -r requirements.txt
+
+# Run route optimizer and mock run
+python test_mock_run.py
+
+# Execute full pytest suite
+pytest
+```
+
+### 4. Firebase Cloud Functions (`KrishiVishal-Functions/`)
+```bash
+cd KrishiVishal-Functions
+
+# Install dependencies
+npm install
+
+# Deploy Cloud Functions, Firestore Security Rules, and Storage Rules
 firebase deploy --only functions,firestore:rules,storage:rules
 ```
 
-### 2. Android App Builds
-```bash
-# Build Customer Android App
-./gradlew :app:assembleRelease
+---
 
-# Build Delivery Rider App
-./gradlew :KrishiVishalDelivery:app:assembleRelease
-```
+## 🔐 Security Standards & Best Practices
+
+1. **Least Privilege Principles:** Riders cannot access Admin endpoints (`isAdmin: false` strictly enforced across accounts and backfills).
+2. **Wholesale Pricing Protection:** Landing cost prices are strictly omitted from client-facing collections and stored in private `product_costs` documents accessible only by administrative backend functions.
+3. **Database Integrity Protection:** Room database versions are managed with explicit version incrementing (`version = 6`) and `fallbackToDestructiveMigration` to prevent client data collisions.
+4. **Idempotent Operations:** Financial accounting postings and inventory reservations use deterministic idempotency keys (`ORDER:{id}:RESERVE`) preventing duplicate triggers on webhook re-transmissions.
 
 ---
 
-## 📊 Production Readiness & Verification Status
-
-| Verification Area | Status | Verified Capabilities |
-|---|---|---|
-| **Static & Code Validation** | **VERIFIED** | Kotlin compilation, Gradle build, Cloud Functions unit tests (`npm test` passes). |
-| **Customer Order Flow** | **VERIFIED** | Cart $\rightarrow$ Checkout $\rightarrow$ `createOrder` $\rightarrow$ Razorpay lock $\rightarrow$ `verifyPayment` $\rightarrow$ Order `CONFIRMED`. |
-| **Self-Stock Flow** | **VERIFIED** | FEFO stock reservation $\rightarrow$ Packing $\rightarrow$ Rider assignment $\rightarrow$ Delivery OTP $\rightarrow$ Ledger posting. |
-| **On-Demand & GRN Flow** | **VERIFIED** | Stock check $\rightarrow$ `procurement_queue` creation $\rightarrow$ GRN receipt (`receiveGrn`) $\rightarrow$ Stock update $\rightarrow$ `READY_FOR_PACKING`. |
-| **COD Deposit & Reconciliation** | **VERIFIED** | Rider cash collection $\rightarrow$ Deposit submission $\rightarrow$ Verification trigger (`onCashDepositVerified`) $\rightarrow$ Liability cleared. |
-| **Financial Idempotency** | **VERIFIED** | Idempotency keys protect duplicate payment webhooks and duplicate GRN accounting entries. |
-
----
-
-## 📌 Known Limitations
-
-1. **GSP E-Way Bill Provider:** `generateEWayBill` requires active production GSP API credentials configured in `CLEARTAX_AUTH_TOKEN`.
-2. **Offline Rider Sync:** Rider app supports offline caching via Room DB; pending uploads retry automatically when network connectivity is restored.
-
----
-
-## 📄 License
-
-This project is proprietary software developed for **KrishiVishal Agri-Solutions**. All rights reserved.
+## 📄 License & Proprietary Information
+© 2026 **KrishiVishal Agri-Solutions Private Limited**. All Rights Reserved.  
+Unauthorized distribution, copying, or reverse engineering of this software is strictly prohibited.
