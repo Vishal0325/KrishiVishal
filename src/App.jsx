@@ -28,6 +28,7 @@ const HRHubPage = React.lazy(() => import("./pages/HRHubPage"));
 const Staff = React.lazy(() => import("./pages/Staff"));
 const AuditLogs = React.lazy(() => import("./pages/AuditLogs"));
 const Settings = React.lazy(() => import("./pages/Settings"));
+const DeliverySlots = React.lazy(() => import("./pages/DeliverySlots"));
 const Notifications = React.lazy(() => import("./pages/Notifications"));
 
 // Deep Details Pages (Direct views)
@@ -161,6 +162,7 @@ function App() {
             <Route path="/staff" element={<RequireRole allowedRoles={["SuperAdmin"]}><Staff /></RequireRole>} />
             <Route path="/audit-logs" element={<RequireRole allowedRoles={["SuperAdmin"]}><AuditLogs /></RequireRole>} />
             <Route path="/settings" element={<RequireRole allowedRoles={["SuperAdmin"]}><Settings /></RequireRole>} />
+            <Route path="/delivery-slots" element={<RequireRole allowedRoles={opsRoles}><DeliverySlots /></RequireRole>} />
             <Route path="/notifications" element={<RequireRole allowedRoles={catalogRoles}><Notifications /></RequireRole>} />
             <Route path="/profile" element={<Profile />} />
 
@@ -282,6 +284,9 @@ function App() {
             <Route path="/hr/licenses" element={<Navigate to="/hr-desk?tab=licenses" replace />} />
             <Route path="/hr/leave-attendance" element={<Navigate to="/hr-desk?tab=attendance" replace />} />
             <Route path="/hr/payroll" element={<Navigate to="/hr-desk?tab=payroll" replace />} />
+            <Route path="/roles" element={<Navigate to="/staff" replace />} />
+            <Route path="/rbac" element={<Navigate to="/staff" replace />} />
+            <Route path="/permissions" element={<Navigate to="/staff" replace />} />
 
             {/* Catch-all */}
             <Route path="*" element={<Navigate to="/" replace />} />

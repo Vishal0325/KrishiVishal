@@ -495,9 +495,11 @@ const PackingStation = () => {
                             {isChecked ? <CheckSquare size={20} /> : <Square size={20} className="text-gray-300" />}
                           </button>
                           <div>
-                            <p className="font-black text-sm text-gray-900">{item.productName || 'Product'}</p>
+                            <p className="font-black text-sm text-gray-900">
+                              {item.productName || 'Product'} {item.variantLabel && <span className="text-[#1b5e20] bg-green-50 px-1.5 py-0.5 rounded text-xs ml-1">({item.variantLabel})</span>}
+                            </p>
                             <p className="text-[11px] text-gray-400">
-                              Qty: <span className="font-bold text-gray-700">{item.quantity || 1} units</span> • Unit Price: {formatCurrency(item.price || 0)}
+                              Size: <span className="font-bold text-gray-700">{item.variantLabel || 'Standard'}</span> • Qty: <span className="font-bold text-gray-700">{item.quantity || 1} units</span>
                             </p>
                             {fefoBatches[item.productId || item.skuId || item.id] ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 mt-1 rounded-md bg-amber-50 text-amber-900 text-[10px] font-bold border border-amber-200">
@@ -655,7 +657,7 @@ const PackingStation = () => {
                 <div className="text-[10px] space-y-0.5">
                   {(shippingLabelData.items || []).map((item, idx) => (
                     <div key={idx} className="flex justify-between font-bold text-black">
-                      <span>• {item.productName || 'Agro Product'}</span>
+                      <span>• {item.productName || 'Agro Product'} {item.variantLabel ? `(${item.variantLabel})` : ''}</span>
                       <span>x{item.quantity || 1}</span>
                     </div>
                   ))}

@@ -299,3 +299,9 @@ export async function exportProductsXlsx(products) {
   createWorksheetFromJson(workbook, data, "Products");
   await downloadWorkbook(workbook, "krishivishal-products-export.xlsx");
 }
+
+export async function callMigrateSkuWeights() {
+  const fn = httpsCallable(functions, "migrateSkuWeights");
+  const result = await fn();
+  return result.data;
+}

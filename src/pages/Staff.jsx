@@ -25,7 +25,9 @@ import DataTable from "../components/common/DataTable";
 import PageHeader from "../components/common/PageHeader";
 import MetricCard from "../components/common/MetricCard";
 import OrgChart from "../components/staff/OrgChart";
+import RolesPermissionsManager from "../components/staff/RolesPermissionsManager";
 import { getAllStaff, createStaffMember, updateStaffDetails } from "../services/staffManagement";
+import { fetchRoleDefinitions } from "../services/rbacService";
 import { 
   HIERARCHY_LEVELS, 
   DEPARTMENTS, 
@@ -51,8 +53,9 @@ const ROLES = [
 
 const Staff = () => {
   const { user: currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState("staff"); // "staff" | "hierarchy" | "escalation"
+  const [activeTab, setActiveTab] = useState("staff"); // "staff" | "roles" | "hierarchy" | "escalation"
   const [staffList, setStaffList] = useState([]);
+  const [availableRoles, setAvailableRoles] = useState(ROLES);
   const [warehouses, setWarehouses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -76,11 +79,27 @@ const Staff = () => {
 
   useEffect(() => {
     fetchStaff();
+    loadRolesList();
     const unsubWh = onSnapshot(collection(db, "warehouses"), (snapshot) => {
       setWarehouses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
     return () => unsubWh();
   }, []);
+
+  const loadRolesList = async () => {
+    try {
+      const defs = await fetchRoleDefinitions();
+      if (defs && defs.length > 0) {
+        setAvailableRoles(defs.map(d => ({
+          id: d.id,
+          label: d.name,
+          desc: d.description || "Configured in RBAC"
+        })));
+      }
+    } catch (err) {
+      console.error("Failed loading roles list", err);
+    }
+  };
 
   const fetchStaff = async () => {
     setLoading(true);
@@ -415,6 +434,18 @@ const Staff = () => {
         </button>
 
         <button
+          onClick={() => setActiveTab("roles")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+            activeTab === "roles"
+              ? "bg-[#0B4D31] text-white shadow-md shadow-[#0B4D31]/20"
+              : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+          }`}
+        >
+          <ShieldCheck size={16} />
+          <span>Roles & Granular Permissions</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab("hierarchy")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
             activeTab === "hierarchy"
@@ -438,6 +469,11 @@ const Staff = () => {
           <span>Escalation Matrix & SLA Governance</span>
         </button>
       </div>
+
+      {/* TAB: Roles & Permissions */}
+      {activeTab === "roles" && (
+        <RolesPermissionsManager staffList={staffList} />
+      )}
 
       {/* TAB 1: Staff Directory */}
       {activeTab === "staff" && (
@@ -704,7 +740,7 @@ const Staff = () => {
                 <div className="space-y-3">
                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Assign System Role</label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-56 overflow-y-auto custom-scrollbar p-1">
-                    {ROLES.map(role => (
+                    {availableRoles.map(role => (
                       <label
                         key={role.id}
                         className={`flex items-start p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${formData.role === role.id ? 'border-primary bg-green-50' : 'border-gray-100 bg-white hover:border-gray-200'}`}

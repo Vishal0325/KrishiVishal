@@ -11,10 +11,12 @@ import {
   Search, 
   RefreshCw,
   ExternalLink,
-  MessageSquare
+  MessageSquare,
+  Zap
 } from "lucide-react";
 import { collection, query, orderBy, limit, onSnapshot, getDocs, doc, updateDoc, Timestamp, startAfter } from "firebase/firestore";
-import { db } from "../firebase/config";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "../firebase/config";
 import { formatCurrency } from "../utils/formatters";
 import { sendAbandonedCartWhatsApp } from "../services/whatsappService";
 import toast from "react-hot-toast";
@@ -27,6 +29,22 @@ export default function AbandonedCarts() {
   const [discountCode, setDiscountCode] = useState("KISAN10");
   const [lastDoc, setLastDoc] = useState(null);
   const [hasMore, setHasMore] = useState(true);
+  const [scanning, setScanning] = useState(false);
+
+  const handleManualScan = async () => {
+    setScanning(true);
+    try {
+      const scanFn = httpsCallable(functions, 'runAbandonedCartScan');
+      const result = await scanFn({});
+      const data = result.data;
+      toast.success(`✅ Scan complete! ${data.newAbandonedCount || 0} new abandoned carts found, ${data.updatedCount || 0} updated.`);
+    } catch (err) {
+      console.error('Manual scan error:', err);
+      toast.error('Scan failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const CARTS_PER_PAGE = 50;
 
@@ -150,17 +168,28 @@ export default function AbandonedCarts() {
           </div>
         </div>
 
-        {/* Global Discount Code Input */}
-        <div className="flex items-center gap-3 bg-white p-2 rounded-2xl border border-gray-200 shadow-sm">
-          <Percent size={18} className="text-emerald-600 ml-2" />
-          <span className="text-xs font-bold text-gray-500">Auto Coupon:</span>
-          <input
-            type="text"
-            value={discountCode}
-            onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
-            className="w-28 px-3 py-1.5 bg-emerald-50 text-emerald-900 font-mono font-black text-xs rounded-xl outline-none uppercase text-center border border-emerald-200"
-            placeholder="COUPON"
-          />
+        {/* Global Discount Code Input + Scan Now */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 bg-white p-2 rounded-2xl border border-gray-200 shadow-sm">
+            <Percent size={18} className="text-emerald-600 ml-2" />
+            <span className="text-xs font-bold text-gray-500">Auto Coupon:</span>
+            <input
+              type="text"
+              value={discountCode}
+              onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
+              className="w-28 px-3 py-1.5 bg-emerald-50 text-emerald-900 font-mono font-black text-xs rounded-xl outline-none uppercase text-center border border-emerald-200"
+              placeholder="COUPON"
+            />
+          </div>
+          <button
+            onClick={handleManualScan}
+            disabled={scanning}
+            className="flex items-center gap-2 px-4 py-3 bg-amber-500 text-white rounded-2xl text-xs font-black uppercase shadow-sm hover:bg-amber-600 active:scale-95 transition-all disabled:opacity-50"
+            title="Scan all user carts now and detect abandoned ones"
+          >
+            {scanning ? <RefreshCw size={16} className="animate-spin" /> : <Zap size={16} />}
+            <span>{scanning ? 'Scanning...' : 'Scan Now'}</span>
+          </button>
         </div>
       </div>
 

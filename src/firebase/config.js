@@ -50,5 +50,5 @@ export const db = initializeFirestore(app, {
 });
 
 export const storage = getStorage(app);
-export const functions = getFunctions(app);
+export const functions = getFunctions(app, 'asia-south1');
 export default app;

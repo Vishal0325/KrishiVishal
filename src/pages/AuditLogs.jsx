@@ -43,6 +43,7 @@ export default function AuditLogs() {
   const [hasMore, setHasMore] = useState(true);
 
   // Filters State
+  const [logSource, setLogSource] = useState("audit_logs"); // "audit_logs" | "ai_activity_logs"
   const [searchTerm, setSearchTerm] = useState("");
   const [actionTypeFilter, setActionTypeFilter] = useState("ALL");
   const [moduleFilter, setModuleFilter] = useState("ALL");
@@ -56,7 +57,7 @@ export default function AuditLogs() {
 
     try {
       let q = query(
-        collection(db, "audit_logs"),
+        collection(db, logSource),
         orderBy("timestamp", "desc"),
         limit(LOGS_PER_PAGE)
       );
@@ -80,8 +81,8 @@ export default function AuditLogs() {
       setLastVisible(snapshot.docs[snapshot.docs.length - 1] || null);
       setHasMore(snapshot.docs.length === LOGS_PER_PAGE);
     } catch (err) {
-      console.warn("Failed to fetch audit logs:", err);
-      toast.error("Could not fetch audit logs: " + err.message);
+      console.warn("Failed to fetch logs:", err);
+      toast.error("Could not fetch logs: " + err.message);
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -90,7 +91,7 @@ export default function AuditLogs() {
 
   useEffect(() => {
     fetchLogs();
-  }, []);
+  }, [logSource]);
 
   // Filter Logic
   const filteredLogs = useMemo(() => {
@@ -282,6 +283,32 @@ export default function AuditLogs() {
         <MetricCard label="Modifications" value={stats.updated} icon={Edit3} color="blue" />
         <MetricCard label="Deletions & Warn" value={stats.deleted} icon={AlertTriangle} color="red" />
         <MetricCard label="Active Admins" value={stats.uniqueAdmins} icon={Shield} color="purple" />
+      </div>
+
+      {/* Log Source Selector Tabs */}
+      <div className="flex gap-2 p-1.5 bg-gray-100 rounded-2xl w-fit">
+        <button
+          onClick={() => { setLogSource("audit_logs"); setLastVisible(null); }}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-black text-xs tracking-wider uppercase transition-all ${
+            logSource === "audit_logs"
+              ? "bg-white text-[#0B4D31] shadow-sm"
+              : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          <Shield size={14} className={logSource === "audit_logs" ? "text-[#0B4D31]" : ""} />
+          System Audit Trail (audit_logs)
+        </button>
+        <button
+          onClick={() => { setLogSource("ai_activity_logs"); setLastVisible(null); }}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-black text-xs tracking-wider uppercase transition-all ${
+            logSource === "ai_activity_logs"
+              ? "bg-white text-[#0B4D31] shadow-sm"
+              : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          <Activity size={14} className={logSource === "ai_activity_logs" ? "text-[#0B4D31]" : ""} />
+          AI Supervisor Logs (ai_activity_logs)
+        </button>
       </div>
 
       {/* Filters Bar */}

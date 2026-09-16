@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { subscribeToSkus, fetchSkuBatches, getLowStockSkus } from '../services/skuService';
-import { callUpsertSku, callAdjustInventory, callWriteOffStock, callGetInventoryReport } from '../services/inventory';
+import { callUpsertSku, callAdjustInventory, callWriteOffStock, callGetInventoryReport, callMigrateSkuWeights } from '../services/inventory';
 import { validateSku, VALID_CATEGORIES, VALID_UNITS, generateSkuCode } from '../utils/skuGenerator';
 import { formatCurrency } from '../utils/formatters';
 import DataTable from '../components/common/DataTable';
@@ -57,6 +57,24 @@ const SkuDashboard = () => {
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [adjustForm, setAdjustForm] = useState({ skuCode: '', adjustment: '', reason: '' });
   const [adjustLoading, setAdjustLoading] = useState(false);
+  const [migratingWeights, setMigratingWeights] = useState(false);
+
+  const handleMigrateWeights = async () => {
+    if (!window.confirm("Run SKU weight migration to standardize all legacy weights into numeric weightGrams? This operation is idempotent.")) return;
+    setMigratingWeights(true);
+    try {
+      const res = await callMigrateSkuWeights();
+      toast.success(
+        `Weight Migration Complete!\nScanned: ${res.totalScanned}, Migrated: ${res.migratedCount}, Skipped: ${res.skippedCount}`,
+        { duration: 6000 }
+      );
+    } catch (err) {
+      console.error("Migration failed:", err);
+      toast.error("Migration failed: " + err.message);
+    } finally {
+      setMigratingWeights(false);
+    }
+  };
 
   useEffect(() => {
     const unsub = subscribeToSkus((data) => {
@@ -226,6 +244,15 @@ const SkuDashboard = () => {
           </p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={handleMigrateWeights}
+            disabled={migratingWeights}
+            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors cursor-pointer"
+            title="Standardize legacy product and SKU weights to numeric weightGrams"
+          >
+            <RefreshCw size={14} className={migratingWeights ? "animate-spin" : ""} />
+            <span>{migratingWeights ? "Migrating..." : "Migrate Weights"}</span>
+          </button>
           <button
             onClick={() => {
               setAdjustForm({ skuCode: '', adjustment: '', reason: '' });

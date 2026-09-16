@@ -394,7 +394,11 @@ export const printShippingLabel = async (order) => {
 export const printInvoice = (order) => {
   const itemsHtml = order?.items?.map(item => `
     <tr>
-      <td style="padding: 10px; border-bottom: 1px solid #eee;">${sanitize(item?.productName || '')}</td>
+      <td style="padding: 10px; border-bottom: 1px solid #eee;">
+        ${sanitize(item?.productName || '')}
+      </td>
+      <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">${sanitize(item?.variantLabel || '-')}</td>
+      <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">${sanitize(item?.hsnCode || 'N/A')}</td>
       <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">${item?.quantity || 1}</td>
       <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(item?.price || 0)}</td>
       <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency((item?.price || 0) * (item?.quantity || 1))}</td>
@@ -449,7 +453,9 @@ export const printInvoice = (order) => {
         <table>
           <thead>
             <tr>
-              <th>Item Description</th>
+              <th style="width: 35%;">Item Description</th>
+              <th style="text-align: center;">Size/Variant</th>
+              <th style="text-align: center;">HSN Code</th>
               <th style="text-align: center;">Qty</th>
               <th style="text-align: right;">Price</th>
               <th style="text-align: right;">Total</th>
