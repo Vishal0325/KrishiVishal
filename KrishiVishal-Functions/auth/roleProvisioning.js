@@ -53,7 +53,21 @@ exports.claimRiderRole = onCall({ region: REGION }, async (request) => {
         throw new HttpsError('permission-denied', 'Phone number is not whitelisted.');
     }
 
+    // Check if user is marked deactivated in users/{uid}
+    const userSnap = await db.collection("users").doc(context.auth.uid).get();
+    if (userSnap.exists && userSnap.data()?.deactivated === true) {
+        throw new HttpsError('permission-denied', 'User account is deactivated.');
+    }
+
     const wData = wDoc.data() || {};
+    const wStatus = (wData.status || '').toUpperCase().trim();
+    // Deny-list guard: reject ONLY 'DEACTIVATED' and 'BLOCKED'.
+    // All other statuses ('PENDING_REGISTRATION', 'REGISTERED', 'APPROVED', 'ACTIVE', or empty) are allowed.
+    const DENIED_WHITELIST_STATUSES = ['DEACTIVATED', 'BLOCKED'];
+    if (DENIED_WHITELIST_STATUSES.includes(wStatus)) {
+        throw new HttpsError('permission-denied', `Rider account is ${wStatus.toLowerCase()}.`);
+    }
+
     const whitelistRole = (wData.role || 'rider').toLowerCase().trim();
     let roleToAssign = 'Rider';
     if (whitelistRole === 'service_man' || whitelistRole === 'serviceman') {
@@ -120,7 +134,7 @@ exports.setUserRole = onCall({ region: REGION }, async (request) => {
     }
 
     const token = context.auth.token || {};
-    const isSuperAdmin = token.role === 'SuperAdmin' || token.admin === true || token.isAdmin === true;
+    const isSuperAdmin = token.role === 'SuperAdmin';
     if (!isSuperAdmin) {
         throw new HttpsError('permission-denied', 'SuperAdmin privileges required to assign user roles.');
     }
@@ -150,4 +164,105 @@ exports.setUserRole = onCall({ region: REGION }, async (request) => {
     }, { merge: true });
 
     return { success: true, targetUid, role };
+});
+
+/**
+ * deactivateUser:
+ * SuperAdmin-only offboarding callable.
+ * Resets user's custom claim role to 'Customer' and calls auth.revokeRefreshTokens(targetUid).
+ * Updates users/{targetUid} and deactivates any riders/{targetUid} doc.
+ */
+exports.deactivateUser = onCall({ region: REGION }, async (request) => {
+    const context = { auth: request.auth };
+    if (!context.auth) {
+        throw new HttpsError('unauthenticated', 'User must be authenticated.');
+    }
+
+    const token = context.auth.token || {};
+    if (token.role !== 'SuperAdmin') {
+        throw new HttpsError('permission-denied', 'SuperAdmin privileges required to deactivate users.');
+    }
+
+    const targetUid = request.data?.uid || request.data?.targetUid;
+    if (!targetUid || typeof targetUid !== 'string' || targetUid.trim().length === 0) {
+        throw new HttpsError('invalid-argument', 'targetUid or uid is required.');
+    }
+
+    // Prevent SuperAdmin from deactivating self
+    if (context.auth.uid === targetUid) {
+        throw new HttpsError('invalid-argument', 'SuperAdmin cannot deactivate self.');
+    }
+
+    const userRecord = await auth.getUser(targetUid);
+    const existingClaims = userRecord.customClaims || {};
+
+    // Prevent deactivating the last SuperAdmin
+    if (existingClaims.role === 'SuperAdmin') {
+        const superAdminsSnap = await db.collection("users").where("role", "==", "SuperAdmin").get();
+        if (superAdminsSnap.size <= 1) {
+            throw new HttpsError('failed-precondition', 'Cannot deactivate the last SuperAdmin.');
+        }
+    }
+
+    // 1. Reset role to 'Customer' in custom claims, clear admin flags
+    const updatedClaims = {
+        ...existingClaims,
+        role: 'Customer',
+        admin: false,
+        isAdmin: false
+    };
+    await auth.setCustomUserClaims(targetUid, updatedClaims);
+
+    // 2. Revoke refresh tokens to force re-authentication / claim invalidation
+    await auth.revokeRefreshTokens(targetUid);
+
+    // 3. Update Firestore users doc
+    await db.collection("users").doc(targetUid).set({
+        role: 'Customer',
+        deactivated: true,
+        deactivatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    // 4. If rider document exists, mark inactive
+    const riderRef = db.collection("riders").doc(targetUid);
+    const riderDoc = await riderRef.get();
+    if (riderDoc.exists) {
+        await riderRef.set({
+            status: 'INACTIVE',
+            online: false,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    }
+
+    // 5. Update matching whitelisted_riders entry to DEACTIVATED
+    const wUidQuery = await db.collection("whitelisted_riders").where("uid", "==", targetUid).get();
+    for (const doc of wUidQuery.docs) {
+        await doc.ref.set({
+            status: 'DEACTIVATED',
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    }
+    const phone = userRecord.phoneNumber;
+    if (phone) {
+        const plainPhone = phone.replace("+91", "").trim();
+        const p1 = db.collection("whitelisted_riders").doc(phone);
+        const p1Doc = await p1.get();
+        if (p1Doc.exists) {
+            await p1.set({ status: 'DEACTIVATED', updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        }
+        if (plainPhone) {
+            const p2 = db.collection("whitelisted_riders").doc(plainPhone);
+            const p2Doc = await p2.get();
+            if (p2Doc.exists) {
+                await p2.set({ status: 'DEACTIVATED', updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+            }
+        }
+    }
+
+    return {
+        success: true,
+        uid: targetUid,
+        role: 'Customer'
+    };
 });

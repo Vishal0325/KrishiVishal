@@ -42,6 +42,9 @@ sealed class Screen(val route: String) {
     object Address : Screen("address")
     object Support : Screen("support")
     object Settings : Screen("settings")
+    object Info : Screen("info/{type}") {
+        fun createRoute(type: String) = "info/$type"
+    }
     object GlobalSearch : Screen("search")
     object Notifications : Screen("notifications")
     object Referral : Screen("referral")

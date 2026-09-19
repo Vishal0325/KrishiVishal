@@ -41,6 +41,7 @@ exports.onOrderStatusUpdate = orderTriggers.onOrderStatusUpdate;
 exports.onReturnRequestCreated = orderTriggers.onReturnRequestCreated;
 exports.onOrderDeliveryUpdate = orderTriggers.onOrderDeliveryUpdate;
 exports.onProcurementQueueUpdated = orderTriggers.onProcurementQueueUpdated;
+exports.onOrderRiderAssigned = orderTriggers.onOrderRiderAssigned;
 
 // --- FINANCE & PAYMENTS ---
 exports.verifyPayment = razorpay.verifyPayment;
@@ -144,4 +145,5 @@ exports.rechargePartnerWallet = serviceMarketplace.rechargePartnerWallet;
 const roleProvisioning = require('./auth/roleProvisioning');
 exports.claimRiderRole = roleProvisioning.claimRiderRole;
 exports.setUserRole = roleProvisioning.setUserRole;
+exports.deactivateUser = roleProvisioning.deactivateUser;
 

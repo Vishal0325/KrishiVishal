@@ -253,7 +253,11 @@ service cloud.firestore {
         (
           isRider() &&
           resource.data.riderId == request.auth.uid &&
+          resource.data.status in ['ASSIGNED', 'RIDER_ASSIGNED', 'RIDER_ACCEPTED', 'PICKED_UP', 'PICKING_UP', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'] &&
           request.resource.data.status != "DELIVERED" &&
+          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['status']) ||
+            request.resource.data.status in ['RIDER_ACCEPTED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
+          ) &&
             request.resource.data
               .diff(resource.data)
               .affectedKeys()
@@ -275,15 +279,14 @@ service cloud.firestore {
                 'ndrReason',
                 'ndrNotes',
                 'lastAttemptAt',
-                'attemptHistory',
-                'isCashDeposited',
-                'cashDepositedAt'
+                'attemptHistory'
               ])
         ) ||
         (
           // Blocker 7: allow rider to self-assign unassigned orders
           isRider() &&
           resource.data.riderId == "" &&
+          resource.data.status in ['READY_FOR_PICKUP', 'PACKED'] &&
           (request.resource.data.status in ["ASSIGNED", "RIDER_ASSIGNED"]) &&
           request.resource.data.riderId == request.auth.uid &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'riderId', 'updatedAt'])
@@ -458,8 +461,15 @@ service cloud.firestore {
       // Rider self-updates restricted to non-sensitive profile fields
       allow update: if isAdmin() || (
         isRider() && isOwner(riderId) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['kycStatus']) ||
+          request.resource.data.kycStatus == 'PENDING_VERIFICATION'
+        ) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'name', 'phone', 'address', 'vehicleDetails', 'isAvailable', 'currentLocation', 'location', 'fcmToken', 'updatedAt'
+          'name', 'phone', 'address', 'vehicleDetails', 'isAvailable', 'currentLocation', 'location', 'fcmToken', 'updatedAt',
+          'currentLat', 'currentLng', 'lastLocationUpdate',
+          'online', 'shiftStartTime', 'shiftEndTime',
+          'bankAccount', 'bankName', 'ifscCode', 'vehicleNumber', 'vehicleType',
+          'documents', 'kycStatus', 'lastKycSubmissionAt'
         ])
       );
       allow delete: if isAdmin();

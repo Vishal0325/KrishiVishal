@@ -327,3 +327,69 @@ exports.onProcurementQueueUpdated = onDocumentUpdated({ document: "procurement_q
     }
     return null;
 });
+
+function normalizeToE164(raw) {
+    if (!raw) return null;
+    const str = String(raw).trim();
+    const digits = str.replace(/\D/g, '');
+    if (digits.length === 10) {
+        return `+91${digits}`;
+    }
+    if (digits.length === 12 && digits.startsWith('91')) {
+        return `+${digits}`;
+    }
+    return str.startsWith('+') ? str : `+${digits}`;
+}
+
+/**
+ * onOrderRiderAssigned:
+ * Triggered when an order's riderId is set or changed.
+ * Copies riderName and riderPhone from riders/{riderId} into orders/{orderId}.
+ */
+exports.onOrderRiderAssigned = onDocumentUpdated({ document: "orders/{orderId}", region: REGION }, async (event) => {
+    const change = event.data;
+    if (!change) return null;
+    const newData = change.after.data();
+    const oldData = change.before.data();
+    if (!newData) return null;
+
+    const newRiderId = newData.riderId;
+    const oldRiderId = oldData ? oldData.riderId : null;
+
+    if (newRiderId && newRiderId !== oldRiderId) {
+        if (!newData.riderName || !newData.riderPhone) {
+            try {
+                const riderDoc = await db.collection("riders").doc(newRiderId).get();
+                let name = null;
+                let phone = null;
+                if (riderDoc.exists) {
+                    const rData = riderDoc.data() || {};
+                    name = rData.name || null;
+                    phone = rData.phone || null;
+                }
+                if (!phone) {
+                    const wSnap = await db.collection("whitelisted_riders").where("uid", "==", newRiderId).limit(1).get();
+                    if (!wSnap.empty) {
+                        const wData = wSnap.docs[0].data() || {};
+                        name = name || wData.name || null;
+                        const rawPhone = wData.phone || wSnap.docs[0].id;
+                        phone = normalizeToE164(rawPhone);
+                    }
+                } else {
+                    phone = normalizeToE164(phone);
+                }
+                if (name || phone) {
+                    const updates = {};
+                    if (name) updates.riderName = name;
+                    if (phone) updates.riderPhone = phone;
+                    updates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+                    await change.after.ref.update(updates);
+                    console.log(`[onOrderRiderAssigned] Attached rider info to order ${event.params.orderId}: ${name} (${phone})`);
+                }
+            } catch (err) {
+                console.error(`[onOrderRiderAssigned] Failed to attach rider info for order ${event.params.orderId}:`, err);
+            }
+        }
+    }
+    return null;
+});

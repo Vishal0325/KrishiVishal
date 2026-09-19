@@ -552,7 +552,10 @@ fun MainScreen(
             }
 
             composable(Screen.Settings.route) {
-                SettingsScreen(onBack = { navController.popBackStack() })
+                SettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onNavigateToInfo = { type -> navController.navigate(Screen.Info.createRoute(type)) }
+                )
             }
 
             composable(Screen.GlobalSearch.route) {
@@ -657,7 +660,37 @@ fun MainScreen(
                 )
             }
 
+            composable(
+                route = Screen.Info.route,
+                arguments = listOf(navArgument("type") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val type = backStackEntry.arguments?.getString("type") ?: ""
+                val title = when (type) {
+                    "about" -> "About Us"
+                    "contact" -> "Contact Us"
+                    "terms" -> "Terms & Conditions"
+                    "privacy" -> "Privacy Policy"
+                    "refund" -> "Refund & Return Policy"
+                    "shipping" -> "Shipping Policy"
+                    else -> "Information"
+                }
+                
+                val content = when (type) {
+                    "about" -> "Sawan Krishi Kendara is your trusted partner for all agricultural needs. We provide high-quality seeds, fertilizers, pesticides, farm machinery, and expert agricultural services directly to farmers to help you achieve the best harvest."
+                    "contact" -> "Company: Sawan Krishi Kendara\nEmail: vishalestore03@gmail.com\nPhone: +917763044160\n\nAddress:\nPIN Code: 848117\nVillage: Rahthuli\nPost: Shripur Gahar\nShivaji Nagar, Samastipur (Bihar)"
+                    "terms" -> "Welcome to Sawan Krishi Kendara.\n\n1. Acceptance of Terms: By accessing and using our application, you accept and agree to be bound by the terms and provision of this agreement.\n2. Products and Services: All products and services are subject to availability. We reserve the right to modify or discontinue any product or service without notice.\n3. User Account: You are responsible for maintaining the confidentiality of your account and password."
+                    "privacy" -> "Privacy Policy\n\nYour privacy is important to us. Sawan Krishi Kendara respects your privacy regarding any information we may collect from you across our application.\n\nWe only ask for personal information when we truly need it to provide a service to you. We collect it by fair and lawful means, with your knowledge and consent.\n\nWe don't share any personally identifying information publicly or with third-parties, except when required to by law."
+                    "refund" -> "Refund, Return & Cancellation Policy\n\n- Returns: You can initiate a return within 7 days of delivery if the product is defective or not as described.\n- Cancellation: Orders can be cancelled before they are shipped.\n- Refunds: Once your return is received and inspected, or cancellation is approved, your refund will be processed.\n- Processing Time: Refunds will be credited back to your original payment method or wallet within 1 to 3 working days."
+                    "shipping" -> "Shipping & Delivery Policy\n\n- Processing: Orders are typically processed within 24 hours.\n- Delivery Time: Our standard delivery time is 1 to 2 working days depending on your location in Samastipur and surrounding areas.\n- Service Activation: For booked services (like equipment repair), our servicemen will typically reach your location within the scheduled time slot."
+                    else -> ""
+                }
 
+                com.company.krishivishal.ui.info.InfoScreen(
+                    title = title,
+                    content = content,
+                    onBack = { navController.popBackStack() }
+                )
+            }
 
         }
     }

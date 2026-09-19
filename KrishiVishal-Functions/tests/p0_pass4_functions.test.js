@@ -22,7 +22,7 @@ const assert = require('assert');
 const { getSecretVal } = require('../core/secrets');
 const { acceptBooking, rejectBooking, verifyStartOtp, verifyEndOtp } = require('../src/services/serviceMarketplace');
 const { updateOrderStatus, verifyScannedQR, generateSignedQRPayload } = require('../orders/orderFlow');
-const { claimRiderRole, setUserRole } = require('../auth/roleProvisioning');
+const { claimRiderRole, setUserRole, deactivateUser } = require('../auth/roleProvisioning');
 const { db, admin, auth } = require('../core/admin');
 
 console.log("=== RUNNING P0 PASS 4 FUNCTION-LEVEL TESTS ===\n");
@@ -501,11 +501,20 @@ async function runTests() {
     auth.setCustomUserClaims = async (uid, claims) => {
         userClaimsStore[uid] = claims;
     };
+    let revokedTokens = [];
+    const originalAuthRevoke = auth.revokeRefreshTokens;
+    auth.revokeRefreshTokens = async (uid) => {
+        revokedTokens.push(uid);
+    };
 
     let whitelistStore = {
         '+919876543210': { phone: '+919876543210', name: 'Rider Ramesh', role: 'rider', status: 'PENDING' },
         '9876543211': { phone: '+919876543211', name: 'Rider Suresh', role: 'rider', status: 'PENDING' },
-        '+919876543212': { phone: '+919876543212', name: 'Partner Mohan', role: 'service_man', status: 'PENDING' }
+        '+919876543212': { phone: '+919876543212', name: 'Partner Mohan', role: 'service_man', status: 'PENDING' },
+        '+919876543213': { phone: '+919876543213', name: 'Admin Created Rider', role: 'rider', status: 'PENDING_REGISTRATION' },
+        '+919876543214': { phone: '+919876543214', name: 'Existing Registered Rider', role: 'rider', status: 'REGISTERED' },
+        '+919876543215': { phone: '+919876543215', name: 'Deactivated Rider', role: 'rider', status: 'DEACTIVATED' },
+        '+919876543216': { phone: '+919876543216', name: 'Blocked Rider', role: 'rider', status: 'BLOCKED' }
     };
     let ridersStore = {};
     let usersStore = {};
@@ -522,28 +531,30 @@ async function runTests() {
                         whitelistStore[id] = { ...(whitelistStore[id] || {}), ...data };
                     }
                 }),
-                where: (field, op, val) => ({
-                    limit: () => ({
-                        get: async () => {
-                            const foundKey = Object.keys(whitelistStore).find(k => whitelistStore[k][field] === val);
-                            if (foundKey) {
-                                return {
-                                    empty: false,
-                                    docs: [{
-                                        id: foundKey,
-                                        data: () => whitelistStore[foundKey],
-                                        ref: {
-                                            set: async (data, opts) => {
-                                                whitelistStore[foundKey] = { ...(whitelistStore[foundKey] || {}), ...data };
-                                            }
-                                        }
-                                    }]
-                                };
-                            }
-                            return { empty: true, docs: [] };
-                        }
-                    })
-                })
+                where: (field, op, val) => {
+                    const execute = () => {
+                        const matchingKeys = Object.keys(whitelistStore).filter(k => whitelistStore[k][field] === val);
+                        return {
+                            empty: matchingKeys.length === 0,
+                            size: matchingKeys.length,
+                            docs: matchingKeys.map(k => ({
+                                id: k,
+                                data: () => whitelistStore[k],
+                                ref: {
+                                    set: async (data, opts) => {
+                                        whitelistStore[k] = { ...(whitelistStore[k] || {}), ...data };
+                                    }
+                                }
+                            }))
+                        };
+                    };
+                    return {
+                        get: async () => execute(),
+                        limit: () => ({
+                            get: async () => execute()
+                        })
+                    };
+                }
             };
         }
         if (collName === 'riders') {
@@ -569,6 +580,19 @@ async function runTests() {
                         exists: Boolean(usersStore[id]),
                         data: () => usersStore[id] || {}
                     })
+                }),
+                where: (field, op, val) => ({
+                    get: async () => {
+                        const matchingKeys = Object.keys(usersStore).filter(k => usersStore[k][field] === val);
+                        return {
+                            empty: matchingKeys.length === 0,
+                            size: matchingKeys.length,
+                            docs: matchingKeys.map(k => ({
+                                id: k,
+                                data: () => usersStore[k]
+                            }))
+                        };
+                    }
                 })
             };
         }
@@ -674,6 +698,60 @@ async function runTests() {
         fail("5.7 claimRiderRole service_man", e);
     }
 
+    // Test 5.8: First claim on an admin-created entry ('PENDING_REGISTRATION') -> succeeds
+    try {
+        const res = await claimRiderRole.run({
+            auth: { uid: 'user_admin_created', token: { phone_number: '+919876543213', firebase: { sign_in_provider: 'phone' } } }
+        });
+        assert.strictEqual(res.role, 'Rider');
+        assert.strictEqual(res.status, 'REGISTERED');
+        assert.strictEqual(whitelistStore['+919876543213'].status, 'REGISTERED');
+        assert.strictEqual(whitelistStore['+919876543213'].uid, 'user_admin_created');
+        pass("5.8 claimRiderRole first claim on admin-created entry ('PENDING_REGISTRATION') succeeds");
+    } catch (e) {
+        fail("5.8 claimRiderRole admin-created", e);
+    }
+
+    // Test 5.9: Re-claim on an already 'REGISTERED' entry -> succeeds
+    try {
+        const res = await claimRiderRole.run({
+            auth: { uid: 'user_existing_reg', token: { phone_number: '+919876543214', firebase: { sign_in_provider: 'phone' } } }
+        });
+        assert.strictEqual(res.role, 'Rider');
+        assert.strictEqual(res.status, 'REGISTERED');
+        pass("5.9 claimRiderRole re-claim on already 'REGISTERED' entry succeeds");
+    } catch (e) {
+        fail("5.9 claimRiderRole re-claim REGISTERED", e);
+    }
+
+    // Test 5.10: Claim on a 'DEACTIVATED' entry -> rejected (permission-denied)
+    try {
+        await claimRiderRole.run({
+            auth: { uid: 'user_deactivated', token: { phone_number: '+919876543215', firebase: { sign_in_provider: 'phone' } } }
+        });
+        fail("5.10 claimRiderRole DEACTIVATED", new Error("Allowed DEACTIVATED whitelist entry!"));
+    } catch (e) {
+        if (e.code === 'permission-denied' && e.message.includes('deactivated')) {
+            pass("5.10 claimRiderRole correctly rejected 'DEACTIVATED' whitelist status");
+        } else {
+            fail("5.10 claimRiderRole DEACTIVATED", e);
+        }
+    }
+
+    // Test 5.11: Claim on a 'BLOCKED' entry -> rejected (permission-denied)
+    try {
+        await claimRiderRole.run({
+            auth: { uid: 'user_blocked', token: { phone_number: '+919876543216', firebase: { sign_in_provider: 'phone' } } }
+        });
+        fail("5.11 claimRiderRole BLOCKED", new Error("Allowed BLOCKED whitelist entry!"));
+    } catch (e) {
+        if (e.code === 'permission-denied' && e.message.includes('blocked')) {
+            pass("5.11 claimRiderRole correctly rejected 'BLOCKED' whitelist status");
+        } else {
+            fail("5.11 claimRiderRole BLOCKED", e);
+        }
+    }
+
     // ── 6. setUserRole Admin Role Provisioning Tests (Pass 5 Item 1) ──
     console.log("\n--- 6. setUserRole Admin Role Provisioning Guards ---");
 
@@ -735,8 +813,103 @@ async function runTests() {
         fail("6.4 SuperAdmin setUserRole", e);
     }
 
+    // Test 6.5: deactivateUser guest -> denied
+    try {
+        await deactivateUser.run({ data: { uid: 'u1' }, auth: null });
+        fail("6.5 deactivateUser guest", new Error("Allowed guest!"));
+    } catch (e) {
+        if (e.code === 'unauthenticated') {
+            pass("6.5 deactivateUser correctly denied unauthenticated caller");
+        } else {
+            fail("6.5 deactivateUser guest", e);
+        }
+    }
+
+    // Test 6.6: deactivateUser non-SuperAdmin -> denied
+    try {
+        await deactivateUser.run({
+            data: { uid: 'u1' },
+            auth: { uid: 'admin_normal', token: { role: 'ADMIN', admin: true } }
+        });
+        fail("6.6 deactivateUser non-SuperAdmin", new Error("Allowed non-SuperAdmin!"));
+    } catch (e) {
+        if (e.code === 'permission-denied') {
+            pass("6.6 deactivateUser correctly denied non-SuperAdmin user");
+        } else {
+            fail("6.6 deactivateUser non-SuperAdmin", e);
+        }
+    }
+
+    // Test 6.7: SuperAdmin -> succeeds, resets role to Customer, revokes tokens, updates users doc
+    try {
+        userClaimsStore['offboard_uid'] = { role: 'Rider', someOtherClaim: 'ok' };
+        ridersStore['offboard_uid'] = { status: 'ACTIVE', online: true };
+        const dRes = await deactivateUser.run({
+            data: { uid: 'offboard_uid' },
+            auth: { uid: 'superadmin_1', token: { role: 'SuperAdmin' } }
+        });
+        assert.strictEqual(dRes.success, true);
+        assert.strictEqual(dRes.role, 'Customer');
+        assert.strictEqual(userClaimsStore['offboard_uid'].role, 'Customer');
+        assert.strictEqual(userClaimsStore['offboard_uid'].admin, false);
+        assert.strictEqual(usersStore['offboard_uid'].role, 'Customer');
+        assert.strictEqual(usersStore['offboard_uid'].deactivated, true);
+        assert.strictEqual(ridersStore['offboard_uid'].status, 'INACTIVE');
+        assert.strictEqual(revokedTokens.includes('offboard_uid'), true);
+        pass("6.7 SuperAdmin CAN deactivateUser: resets role to Customer, calls revokeRefreshTokens, deactivates rider doc");
+    } catch (e) {
+        fail("6.7 SuperAdmin deactivateUser", e);
+    }
+
+    // Test 6.8: SuperAdmin CANNOT deactivate self
+    try {
+        await deactivateUser.run({
+            data: { uid: 'superadmin_1' },
+            auth: { uid: 'superadmin_1', token: { role: 'SuperAdmin' } }
+        });
+        fail("6.8 deactivateUser self", new Error("Allowed self-deactivation!"));
+    } catch (e) {
+        if (e.code === 'invalid-argument') {
+            pass("6.8 SuperAdmin CANNOT deactivate self");
+        } else {
+            fail("6.8 deactivateUser self", e);
+        }
+    }
+
+    // Test 6.9: SuperAdmin CANNOT deactivate the last SuperAdmin
+    try {
+        userClaimsStore['only_super_admin'] = { role: 'SuperAdmin' };
+        usersStore['only_super_admin'] = { role: 'SuperAdmin' };
+        await deactivateUser.run({
+            data: { uid: 'only_super_admin' },
+            auth: { uid: 'superadmin_other', token: { role: 'SuperAdmin' } }
+        });
+        fail("6.9 deactivateUser last superadmin", new Error("Allowed deactivating last SuperAdmin!"));
+    } catch (e) {
+        if (e.code === 'failed-precondition') {
+            pass("6.9 SuperAdmin CANNOT deactivate the last remaining SuperAdmin");
+        } else {
+            fail("6.9 deactivateUser last superadmin", e);
+        }
+    }
+
+    // Test 6.10: Deactivated rider re-login CANNOT re-claim the role
+    try {
+        await claimRiderRole.run({
+            auth: { uid: 'offboard_uid', token: { phone_number: '+919876543210', firebase: { sign_in_provider: 'phone' } } }
+        });
+        fail("6.10 claimRiderRole deactivated rider", new Error("Allowed deactivated rider to re-claim role!"));
+    } catch (e) {
+        if (e.code === 'permission-denied') {
+            pass("6.10 Deactivated rider re-login CANNOT re-claim the role (rejected)");
+        } else {
+            fail("6.10 claimRiderRole deactivated rider", e);
+        }
+    }
+
     // ── 7. verifyScannedQR HMAC Verification Tests ──
     console.log("\n--- 7. verifyScannedQR HMAC Signature Verification Guards ---");
+    process.env.QR_HMAC_SECRET = 'unit_test_qr_hmac_secret_32_bytes_ok!';
 
     const mockOrderStore = {
         'order_qr_1': {
@@ -848,6 +1021,7 @@ async function runTests() {
     // Cleanup mocks
     auth.getUser = originalAuthGetUser;
     auth.setCustomUserClaims = originalAuthSetClaims;
+    auth.revokeRefreshTokens = originalAuthRevoke;
     db.collection = originalCollection;
 
     console.log(`\n==========================================`);

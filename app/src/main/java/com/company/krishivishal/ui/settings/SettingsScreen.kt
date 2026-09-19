@@ -28,6 +28,7 @@ import com.company.krishivishal.utils.LocaleManager
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onNavigateToInfo: (String) -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -137,9 +138,62 @@ fun SettingsScreen(
             }
             
             item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                SettingsHeader("Legal & Policies")
+            }
+            item {
+                SettingsClickItem(
+                    icon = Icons.Default.Info,
+                    title = "About Us",
+                    value = "",
+                    onClick = { onNavigateToInfo("about") }
+                )
+            }
+            item {
+                SettingsClickItem(
+                    icon = Icons.Default.ContactSupport,
+                    title = "Contact Us",
+                    value = "",
+                    onClick = { onNavigateToInfo("contact") }
+                )
+            }
+            item {
+                SettingsClickItem(
+                    icon = Icons.Default.Description,
+                    title = "Terms & Conditions",
+                    value = "",
+                    onClick = { onNavigateToInfo("terms") }
+                )
+            }
+            item {
+                SettingsClickItem(
+                    icon = Icons.Default.Policy,
+                    title = "Privacy Policy",
+                    value = "",
+                    onClick = { onNavigateToInfo("privacy") }
+                )
+            }
+            item {
+                SettingsClickItem(
+                    icon = Icons.Default.CurrencyExchange,
+                    title = "Refund & Return Policy",
+                    value = "",
+                    onClick = { onNavigateToInfo("refund") }
+                )
+            }
+            item {
+                SettingsClickItem(
+                    icon = Icons.Default.LocalShipping,
+                    title = "Shipping Policy",
+                    value = "",
+                    onClick = { onNavigateToInfo("shipping") }
+                )
+            }
+            
+            item {
                 Spacer(modifier = Modifier.height(48.dp))
                 Text(
-                    "© 2026 Krishi Vishal Pvt. Ltd.",
+                    "© 2026 Sawan Krishi Kendara",
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     color = Color.Gray,

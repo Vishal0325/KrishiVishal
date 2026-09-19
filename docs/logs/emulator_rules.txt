@@ -1,0 +1,73 @@
+[36m[1mi  emulators:[22m[39m Starting emulators: firestore
+[36m[1mi  firestore:[22m[39m Firestore Emulator logging to [1mfirestore-debug.log[22m
+[32m[1m+  firestore:[22m[39m Firestore Emulator was started in standard edition.
+[32m[1m+  firestore:[22m[39m Firestore Emulator UI websocket is running on 9150.
+[36m[1mi [22m[39m Running script: [1mnode tests/emulator_rules.test.js[22m
+=== RUNNING FIRESTORE EMULATOR RULES VERIFICATION SUITE ===
+
+PASS: 1.1 Customer CANNOT create orders directly
+PASS: 1.2 Customer CANNOT create returns directly
+PASS: 1.3 Customer CANNOT create service_bookings directly
+PASS: 1.4 Customer CANNOT write ledger directly
+PASS: 1.5 Customer CANNOT write skus directly
+PASS: 1.6 Customer CANNOT write warehouse_stock directly
+PASS: 1.7 Customer CANNOT write wallet_transactions directly
+PASS: 2.1 Customer CANNOT change own role in users/{uid}
+PASS: 2.2 Customer CANNOT change own walletBalance in users/{uid}
+PASS: 3.1 Customer CANNOT read or update another user's order
+PASS: 4.1 Rider CAN self-assign unassigned order
+PASS: 4.2 Rider CANNOT modify order price or userId during self-assign
+PASS: 5.1 Rider CAN create own cash deposit
+PASS: 5.2 Rider CANNOT update own cash deposit to VERIFIED
+PASS: 6.1 Admin CAN create and update orders
+PASS: 7.1 Unauthenticated CANNOT read whitelisted_riders
+PASS: 7.2 User CANNOT self-create a riders doc
+PASS: 7.3 Rider CANNOT directly set order status to DELIVERED in Firestore
+PASS: 7.4 Customer CANNOT read PENDING_ASSIGNMENT service_bookings
+PASS: 8.1 Customer CANNOT change referralCode or rewardPoints on users/{uid}
+PASS: 8.2.a Rider CANNOT write kycStatus 'VERIFIED' alone on riders/{riderId}
+PASS: 8.2.b Rider CANNOT write rating alone on riders/{riderId}
+PASS: 8.2.c Rider CANNOT write role alone on riders/{riderId}
+PASS: 8.2.d Anonymous user CANNOT read whitelisted_riders
+PASS: 8.3 Non-owner non-admin CANNOT read riders/{riderId}
+PASS: 8.4 Customer and Anonymous CANNOT read skus/{skuId}/batches
+PASS: 8.5 Serviceman CAN read PENDING_ASSIGNMENT service_bookings
+PASS: 9.1 Rider with matching phone CAN get own whitelisted_riders doc (E.164)
+PASS: 9.2 Rider with matching phone CAN get own whitelisted_riders doc (10-digit ID)
+PASS: 9.3 Rider CANNOT get another rider's whitelisted_riders doc
+PASS: 9.4 Rider CANNOT list whitelisted_riders collection
+PASS: 9.5 User CANNOT set isAdmin, admin, referredBy, hasCompletedFirstOrder on users/{uid} during CREATE
+PASS: 9.6 User CANNOT update isAdmin, admin, referredBy, hasCompletedFirstOrder on users/{uid}
+
+--- 10. Pass 5: Rules Hardening & Status Alignment ---
+PASS: 10.1 Rider/Customer CANNOT update whitelisted_riders (Admin-only)
+PASS: 10.2 Admin CAN update whitelisted_riders
+PASS: 10.3 Assigned rider CAN update riderLocation on own assigned order
+PASS: 10.4 Assigned rider CANNOT update totalAmount or protected fields
+PASS: 10.5 Unassigned rider CANNOT update riderLocation on another order
+PASS: 10.6 Rider can self-assign unassigned order with status: 'ASSIGNED'
+PASS: 10.7 Rider can self-assign unassigned order with status: 'RIDER_ASSIGNED'
+PASS: 10.8 Rider CANNOT self-assign with status: 'DELIVERED'
+PASS: 10.9 Rider CANNOT take PLACED order
+PASS: 10.10 Rider CANNOT take CANCELLED order
+PASS: 10.11 Rider CANNOT take DELIVERED order
+PASS: 10.12 Rider CAN take READY_FOR_PICKUP order
+PASS: 10.13 Rider CAN write own location and status fields on riders/{id}
+PASS: 10.14 Rider CANNOT write another rider's riders/{id} document
+PASS: 10.15 Rider CANNOT write unauthorized fields on riders/{id}
+PASS: 10.16 Rider CAN update kycStatus to PENDING_VERIFICATION on riders/{id}
+PASS: 10.17 Rider CANNOT write isCashDeposited on orders/{id}
+PASS: 10.18 Rider CANNOT write cashDepositedAt on orders/{id}
+PASS: 10.19 Rider CAN write allowed status transitions on orders/{id}
+PASS: 10.20 Rider CANNOT write DELIVERED, CONFIRMED, or CANCELLED status directly on orders/{id}
+
+==========================================
+EMULATOR RULES SUITE: 53 PASSED, 0 FAILED
+==========================================
+
+[32m[1m+ [22m[39m Script exited successfully (code 0)
+[36m[1mi  emulators:[22m[39m Shutting down emulators.
+[36m[1mi  firestore:[22m[39m Stopping Firestore Emulator
+[33m[1m! [22m[39m Firestore Emulator has exited upon receiving signal: SIGINT
+[36m[1mi  hub:[22m[39m Stopping emulator hub
+[36m[1mi  logging:[22m[39m Stopping Logging Emulator

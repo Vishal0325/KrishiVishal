@@ -247,8 +247,41 @@ class OrderRepository @Inject constructor(
         }
     }
 
+    data class OrderLocationThrottleState(
+        val timestampMs: Long,
+        val lat: Double,
+        val lng: Double
+    )
+
+    private val orderLocationThrottleMap = java.util.concurrent.ConcurrentHashMap<String, OrderLocationThrottleState>()
+
+    fun shouldThrottleLocationUpdate(orderId: String, lat: Double, lng: Double, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val lastState = orderLocationThrottleMap[orderId] ?: return false
+        val elapsed = nowMs - lastState.timestampMs
+        if (elapsed >= 30000L) return false
+
+        val dist = calculateDistanceMeters(lastState.lat, lastState.lng, lat, lng)
+        return dist < 30.0 && elapsed < 15000L
+    }
+
+    fun recordLocationUpdate(orderId: String, lat: Double, lng: Double, timestampMs: Long = System.currentTimeMillis()) {
+        orderLocationThrottleMap[orderId] = OrderLocationThrottleState(timestampMs, lat, lng)
+    }
+
+    fun getThrottleState(orderId: String): OrderLocationThrottleState? = orderLocationThrottleMap[orderId]
+
+    fun clearThrottleStateForTest() {
+        orderLocationThrottleMap.clear()
+    }
+
     suspend fun updateOrderLocation(orderId: String, lat: Double, lng: Double) {
         if (orderId.isBlank()) return
+        val now = System.currentTimeMillis()
+
+        if (shouldThrottleLocationUpdate(orderId, lat, lng, now)) {
+            return // Throttled for this specific order
+        }
+
         try {
             firestore.collection("orders").document(orderId).update(
                 mapOf(
@@ -256,8 +289,22 @@ class OrderRepository @Inject constructor(
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
+            recordLocationUpdate(orderId, lat, lng, now)
         } catch (e: Exception) {
             Timber.w(e, "updateOrderLocation failed for order $orderId")
+        }
+    }
+
+    companion object {
+        fun calculateDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+            val r = 6371000.0 // Earth radius in meters
+            val dLat = Math.toRadians(lat2 - lat1)
+            val dLon = Math.toRadians(lon2 - lon1)
+            val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                    Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                    Math.sin(dLon / 2) * Math.sin(dLon / 2)
+            val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+            return r * c
         }
     }
 
@@ -582,26 +629,23 @@ class OrderRepository @Inject constructor(
                 .get().await()
 
             var totalDeposited = 0.0
-            val batch = firestore.batch()
             snapshot.documents.forEach { doc ->
                 val amt = doc.getDouble("codAmount") ?: 0.0
                 totalDeposited += amt
-                batch.update(doc.reference, "isCashDeposited", true, "cashDepositedAt", FieldValue.serverTimestamp())
             }
             if (!snapshot.isEmpty) {
                 val depositLogRef = firestore.collection("cash_deposits").document()
                 val recordId = depositLogRef.id
                 val orderIds = snapshot.documents.map { it.id }
                 val now = System.currentTimeMillis()
-                batch.set(depositLogRef, mapOf(
+                depositLogRef.set(mapOf(
                     "riderId" to riderId,
                     "amount" to totalDeposited,
                     "ordersCount" to snapshot.size(),
                     "orderIds" to orderIds,
                     "status" to "DEPOSITED_AT_WAREHOUSE",
                     "depositedAt" to FieldValue.serverTimestamp()
-                ))
-                batch.commit().await()
+                )).await()
                 com.company.krishivishaldelivery.data.model.CashDepositRecord(
                     id = recordId,
                     riderId = riderId,

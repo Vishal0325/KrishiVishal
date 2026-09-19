@@ -248,13 +248,14 @@ fun OrderInfoCard(
                         Text("Expected by ${sdf.format(it)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                     } ?: Text("Updating location...", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                 }
-                val context = androidx.compose.ui.platform.LocalContext.current
-                val phoneToCall = riderPhone ?: "18001234567"
-                IconButton(onClick = { 
-                    val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$phoneToCall"))
-                    context.startActivity(intent)
-                }) {
-                    Icon(Icons.Default.Call, contentDescription = "Call Rider or Support", tint = PrimaryGreen)
+                if (!riderPhone.isNullOrBlank()) {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    IconButton(onClick = { 
+                        val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$riderPhone"))
+                        context.startActivity(intent)
+                    }) {
+                        Icon(Icons.Default.Call, contentDescription = "Call Rider", tint = PrimaryGreen)
+                    }
                 }
             }
         }

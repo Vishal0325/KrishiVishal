@@ -151,7 +151,7 @@ async function runEmulatorRulesTests() {
             await context.firestore().collection('orders').doc('ord_unassigned').set({
                 userId: 'bob',
                 riderId: '',
-                status: 'PLACED',
+                status: 'PACKED',
                 totalAmount: 1000
             });
         });
@@ -168,7 +168,7 @@ async function runEmulatorRulesTests() {
             await context.firestore().collection('orders').doc('ord_unassigned_2').set({
                 userId: 'bob',
                 riderId: '',
-                status: 'PLACED',
+                status: 'PACKED',
                 totalAmount: 1000
             });
         });
@@ -212,12 +212,16 @@ async function runEmulatorRulesTests() {
             status: 'PACKED',
             totalAmount: 500
         }));
+        await assertSucceeds(adminCtx.firestore().collection('orders').doc('ord_admin').update({
+            status: 'CONFIRMED'
+        }));
     });
 
     // 7. Advanced Security Restrictions
-    await testRule("7.1 Unauthenticated user CANNOT read whitelisted_riders", async (env) => {
+    await testRule("7.1 Unauthenticated CANNOT read whitelisted_riders", async (env) => {
         const unauth = env.unauthenticatedContext();
         await assertFails(unauth.firestore().collection('whitelisted_riders').doc('9999999999').get());
+        await assertFails(unauth.firestore().collection('whitelisted_riders').get());
     });
 
     await testRule("7.2 User CANNOT self-create a riders doc", async (env) => {
@@ -274,7 +278,37 @@ async function runEmulatorRulesTests() {
         }));
     });
 
-    await testRule("8.2 Anonymous user CANNOT read whitelisted_riders", async (env) => {
+    // 8.2 Separate assertions: kycStatus:'VERIFIED', rating, role (each written ALONE, each denied)
+    await testRule("8.2.a Rider CANNOT write kycStatus 'VERIFIED' alone on riders/{riderId}", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            await context.firestore().collection('riders').doc('rider_kyc_test').set({
+                name: 'Test Rider',
+                phone: '+919876543210',
+                status: 'ACTIVE',
+                kycStatus: 'PENDING_VERIFICATION'
+            });
+        });
+        const riderCtx = env.authenticatedContext('rider_kyc_test', { role: 'Rider' });
+        await assertFails(riderCtx.firestore().collection('riders').doc('rider_kyc_test').update({
+            kycStatus: 'VERIFIED'
+        }));
+    });
+
+    await testRule("8.2.b Rider CANNOT write rating alone on riders/{riderId}", async (env) => {
+        const riderCtx = env.authenticatedContext('rider_kyc_test', { role: 'Rider' });
+        await assertFails(riderCtx.firestore().collection('riders').doc('rider_kyc_test').update({
+            rating: 5
+        }));
+    });
+
+    await testRule("8.2.c Rider CANNOT write role alone on riders/{riderId}", async (env) => {
+        const riderCtx = env.authenticatedContext('rider_kyc_test', { role: 'Rider' });
+        await assertFails(riderCtx.firestore().collection('riders').doc('rider_kyc_test').update({
+            role: 'SuperAdmin'
+        }));
+    });
+
+    await testRule("8.2.d Anonymous user CANNOT read whitelisted_riders", async (env) => {
         const anon = env.authenticatedContext('anon_user', {
             firebase: { sign_in_provider: 'anonymous' }
         });
@@ -288,18 +322,32 @@ async function runEmulatorRulesTests() {
                 phone: '1234567890'
             });
         });
+        // 1. Normal customer denied
         const stranger = env.authenticatedContext('stranger', { role: 'Customer' });
         await assertFails(stranger.firestore().collection('riders').doc('rider_secret').get());
+
+        // 2. Anonymous auth context denied
+        const anon = env.authenticatedContext('anon_stranger', {
+            firebase: { sign_in_provider: 'anonymous' }
+        });
+        await assertFails(anon.firestore().collection('riders').doc('rider_secret').get());
     });
 
-    await testRule("8.4 Customer CANNOT read skus/{skuId}/batches", async (env) => {
+    await testRule("8.4 Customer and Anonymous CANNOT read skus/{skuId}/batches", async (env) => {
         await env.withSecurityRulesDisabled(async (context) => {
             await context.firestore().collection('skus').doc('sku_1').collection('batches').doc('b_1').set({
                 costPrice: 50
             });
         });
+        // 1. Normal customer denied
         const alice = env.authenticatedContext('alice', { role: 'Customer' });
         await assertFails(alice.firestore().collection('skus').doc('sku_1').collection('batches').doc('b_1').get());
+
+        // 2. Anonymous auth context denied
+        const anon = env.authenticatedContext('anon_customer', {
+            firebase: { sign_in_provider: 'anonymous' }
+        });
+        await assertFails(anon.firestore().collection('skus').doc('sku_1').collection('batches').doc('b_1').get());
     });
 
     await testRule("8.5 Serviceman CAN read PENDING_ASSIGNMENT service_bookings", async (env) => {
@@ -522,6 +570,194 @@ async function runEmulatorRulesTests() {
         await assertFails(riderCtx.firestore().collection('orders').doc('ord_unassigned_3').update({
             status: 'DELIVERED',
             riderId: 'rider_suresh'
+        }));
+    });
+
+    // 10.9: Rider CANNOT take PLACED order
+    await testRule("10.9 Rider CANNOT take PLACED order", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            await context.firestore().collection('orders').doc('ord_unassigned_placed').set({
+                userId: 'farmer_alice',
+                riderId: '',
+                status: 'PLACED',
+                totalAmount: 1200
+            });
+        });
+        const riderCtx = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+        await assertFails(riderCtx.firestore().collection('orders').doc('ord_unassigned_placed').update({
+            status: 'ASSIGNED',
+            riderId: 'rider_suresh'
+        }));
+    });
+
+    // 10.10: Rider CANNOT take CANCELLED order
+    await testRule("10.10 Rider CANNOT take CANCELLED order", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            await context.firestore().collection('orders').doc('ord_unassigned_cancelled').set({
+                userId: 'farmer_alice',
+                riderId: '',
+                status: 'CANCELLED',
+                totalAmount: 1200
+            });
+        });
+        const riderCtx = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+        await assertFails(riderCtx.firestore().collection('orders').doc('ord_unassigned_cancelled').update({
+            status: 'ASSIGNED',
+            riderId: 'rider_suresh'
+        }));
+    });
+
+    // 10.11: Rider CANNOT take DELIVERED order
+    await testRule("10.11 Rider CANNOT take DELIVERED order", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            await context.firestore().collection('orders').doc('ord_unassigned_delivered').set({
+                userId: 'farmer_alice',
+                riderId: '',
+                status: 'DELIVERED',
+                totalAmount: 1200
+            });
+        });
+        const riderCtx = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+        await assertFails(riderCtx.firestore().collection('orders').doc('ord_unassigned_delivered').update({
+            status: 'ASSIGNED',
+            riderId: 'rider_suresh'
+        }));
+    });
+
+    // 10.12: Rider CAN take READY_FOR_PICKUP order
+    await testRule("10.12 Rider CAN take READY_FOR_PICKUP order", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            await context.firestore().collection('orders').doc('ord_unassigned_pickup').set({
+                userId: 'farmer_alice',
+                riderId: '',
+                status: 'READY_FOR_PICKUP',
+                totalAmount: 1200
+            });
+        });
+        const riderCtx = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+        await assertSucceeds(riderCtx.firestore().collection('orders').doc('ord_unassigned_pickup').update({
+            status: 'ASSIGNED',
+            riderId: 'rider_suresh'
+        }));
+    });
+
+    // 10.13: Rider CAN write own location and status fields on riders/{id}
+    await testRule("10.13 Rider CAN write own location and status fields on riders/{id}", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            await context.firestore().collection('riders').doc('rider_suresh').set({
+                name: 'Rider Suresh',
+                phone: '+919876543210',
+                status: 'ACTIVE'
+            });
+        });
+        const riderCtx = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+        await assertSucceeds(riderCtx.firestore().collection('riders').doc('rider_suresh').update({
+            currentLat: 25.7711,
+            currentLng: 87.4753,
+            lastLocationUpdate: 1726750000000,
+            online: true,
+            shiftStartTime: 1726750000000
+        }));
+    });
+
+    // 10.14: Rider CANNOT write another rider's location fields
+    await testRule("10.14 Rider CANNOT write another rider's riders/{id} document", async (env) => {
+        const otherRider = env.authenticatedContext('rider_other', { role: 'Rider' });
+        await assertFails(otherRider.firestore().collection('riders').doc('rider_suresh').update({
+            currentLat: 25.7711,
+            currentLng: 87.4753
+        }));
+    });
+
+    // 10.15: Rider CANNOT write unapproved sensitive fields on riders/{id} (e.g. role, rating)
+    await testRule("10.15 Rider CANNOT write unauthorized fields on riders/{id}", async (env) => {
+        const riderCtx = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+        await assertFails(riderCtx.firestore().collection('riders').doc('rider_suresh').update({
+            role: 'SuperAdmin'
+        }));
+    });
+
+    // 10.16: Rider CAN update kycStatus to PENDING_VERIFICATION on riders/{id}
+    await testRule("10.16 Rider CAN update kycStatus to PENDING_VERIFICATION on riders/{id}", async (env) => {
+        const riderCtx = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+        await assertSucceeds(riderCtx.firestore().collection('riders').doc('rider_suresh').update({
+            kycStatus: 'PENDING_VERIFICATION',
+            lastKycSubmissionAt: Date.now()
+        }));
+    });
+
+    // 10.17: Rider CANNOT write isCashDeposited on orders/{id}
+    await testRule("10.17 Rider CANNOT write isCashDeposited on orders/{id}", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            await context.firestore().collection('orders').doc('ord_rider_cash_test').set({
+                userId: 'farmer_alice',
+                riderId: 'rider_suresh',
+                status: 'OUT_FOR_DELIVERY',
+                totalAmount: 1000,
+                isCashDeposited: false
+            });
+        });
+        const riderCtx = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+        await assertFails(riderCtx.firestore().collection('orders').doc('ord_rider_cash_test').update({
+            isCashDeposited: true
+        }));
+    });
+
+    // 10.18: Rider CANNOT write cashDepositedAt on orders/{id}
+    await testRule("10.18 Rider CANNOT write cashDepositedAt on orders/{id}", async (env) => {
+        const riderCtx = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+        await assertFails(riderCtx.firestore().collection('orders').doc('ord_rider_cash_test').update({
+            cashDepositedAt: '2026-09-19T20:00:00Z'
+        }));
+    });
+
+    // 10.19: Rider CAN write status 'RIDER_ACCEPTED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED' on orders/{id}
+    await testRule("10.19 Rider CAN write allowed status transitions on orders/{id}", async (env) => {
+        const riderCtx = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+
+        // Step A: Update to RIDER_ACCEPTED from ASSIGNED
+        await env.withSecurityRulesDisabled(async (context) => {
+            await context.firestore().collection('orders').doc('ord_rider_status_flow').set({
+                userId: 'farmer_alice',
+                riderId: 'rider_suresh',
+                status: 'ASSIGNED',
+                totalAmount: 1000
+            });
+        });
+        await assertSucceeds(riderCtx.firestore().collection('orders').doc('ord_rider_status_flow').update({
+            status: 'RIDER_ACCEPTED'
+        }));
+
+        // Step B: Update to OUT_FOR_DELIVERY from RIDER_ACCEPTED
+        await assertSucceeds(riderCtx.firestore().collection('orders').doc('ord_rider_status_flow').update({
+            status: 'OUT_FOR_DELIVERY'
+        }));
+
+        // Step C: Update to DELIVERY_FAILED from OUT_FOR_DELIVERY
+        await assertSucceeds(riderCtx.firestore().collection('orders').doc('ord_rider_status_flow').update({
+            status: 'DELIVERY_FAILED'
+        }));
+    });
+
+    // 10.20: Rider CANNOT write status 'DELIVERED', 'CONFIRMED', or 'CANCELLED' directly on orders/{id}
+    await testRule("10.20 Rider CANNOT write DELIVERED, CONFIRMED, or CANCELLED status directly on orders/{id}", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            await context.firestore().collection('orders').doc('ord_rider_status_forbidden').set({
+                userId: 'farmer_alice',
+                riderId: 'rider_suresh',
+                status: 'OUT_FOR_DELIVERY',
+                totalAmount: 1000
+            });
+        });
+        const riderCtx = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+        await assertFails(riderCtx.firestore().collection('orders').doc('ord_rider_status_forbidden').update({
+            status: 'DELIVERED'
+        }));
+        await assertFails(riderCtx.firestore().collection('orders').doc('ord_rider_status_forbidden').update({
+            status: 'CONFIRMED'
+        }));
+        await assertFails(riderCtx.firestore().collection('orders').doc('ord_rider_status_forbidden').update({
+            status: 'CANCELLED'
         }));
     });
 

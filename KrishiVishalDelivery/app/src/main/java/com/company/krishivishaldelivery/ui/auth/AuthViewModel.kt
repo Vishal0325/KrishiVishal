@@ -253,9 +253,15 @@ class AuthViewModel @Inject constructor(
 
                                 // Server-authoritative role claim provisioning via Cloud Function
                                 try {
-                                    functions.getHttpsCallable("claimRiderRole").call().await()
-                                    firebaseUser.getIdToken(true).await()
-                                    android.util.Log.i(TAG, "Server claimRiderRole succeeded and token refreshed: $displayId")
+                                    val tokenResult = firebaseUser.getIdToken(false).await()
+                                    val existingRole = tokenResult.claims["role"] as? String
+                                    if (existingRole.isNullOrEmpty()) {
+                                        functions.getHttpsCallable("claimRiderRole").call().await()
+                                        firebaseUser.getIdToken(true).await()
+                                        android.util.Log.i(TAG, "Server claimRiderRole succeeded and token refreshed: $displayId")
+                                    } else {
+                                        android.util.Log.i(TAG, "Token already has role claim: $existingRole")
+                                    }
                                 } catch (e: Exception) {
                                     android.util.Log.w(TAG, "claimRiderRole warning: ${e.message}")
                                 }

@@ -1,0 +1,172 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.10.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon JVM discovery is an incubating feature.
+Daemon will be stopped at the end of the build 
+> Task :core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :core:preBuild UP-TO-DATE
+> Task :core:preDebugBuild UP-TO-DATE
+> Task :core:generateDebugBuildConfig UP-TO-DATE
+> Task :core:generateDebugResValues UP-TO-DATE
+> Task :core:generateDebugResources UP-TO-DATE
+> Task :core:packageDebugResources UP-TO-DATE
+> Task :core:parseDebugLocalResources UP-TO-DATE
+> Task :core:generateDebugRFile UP-TO-DATE
+> Task :core:kspDebugKotlin UP-TO-DATE
+> Task :core:compileDebugKotlin UP-TO-DATE
+> Task :core:javaPreCompileDebug UP-TO-DATE
+> Task :core:compileDebugJavaWithJavac UP-TO-DATE
+> Task :core:bundleLibRuntimeToJarDebug UP-TO-DATE
+> Task :core:processDebugJavaRes UP-TO-DATE
+> Task :delivery-app:preBuild UP-TO-DATE
+> Task :delivery-app:preDebugBuild UP-TO-DATE
+> Task :core:bundleLibCompileToJarDebug UP-TO-DATE
+> Task :delivery-app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :delivery-app:generateDebugBuildConfig UP-TO-DATE
+> Task :core:compileDebugLibraryResources UP-TO-DATE
+> Task :core:writeDebugAarMetadata UP-TO-DATE
+> Task :delivery-app:checkDebugAarMetadata UP-TO-DATE
+> Task :delivery-app:generateDebugResValues UP-TO-DATE
+> Task :delivery-app:injectCrashlyticsMappingFileIdDebug UP-TO-DATE
+> Task :delivery-app:processDebugGoogleServices UP-TO-DATE
+> Task :delivery-app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :delivery-app:generateDebugResources UP-TO-DATE
+> Task :delivery-app:mergeDebugResources UP-TO-DATE
+> Task :delivery-app:packageDebugResources UP-TO-DATE
+> Task :delivery-app:parseDebugLocalResources UP-TO-DATE
+> Task :delivery-app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :core:extractDeepLinksDebug UP-TO-DATE
+> Task :core:processDebugManifest UP-TO-DATE
+> Task :delivery-app:extractDeepLinksDebug UP-TO-DATE
+> Task :delivery-app:processDebugMainManifest UP-TO-DATE
+> Task :delivery-app:processDebugManifest UP-TO-DATE
+> Task :delivery-app:processDebugManifestForPackage UP-TO-DATE
+> Task :delivery-app:processDebugResources UP-TO-DATE
+> Task :delivery-app:kspDebugKotlin UP-TO-DATE
+> Task :delivery-app:compileDebugKotlin UP-TO-DATE
+> Task :delivery-app:javaPreCompileDebug UP-TO-DATE
+> Task :delivery-app:compileDebugJavaWithJavac UP-TO-DATE
+> Task :delivery-app:hiltAggregateDepsDebug UP-TO-DATE
+> Task :delivery-app:hiltJavaCompileDebug UP-TO-DATE
+> Task :delivery-app:preDebugUnitTestBuild UP-TO-DATE
+> Task :delivery-app:processDebugJavaRes UP-TO-DATE
+> Task :delivery-app:bundleDebugClassesToCompileJar UP-TO-DATE
+> Task :delivery-app:transformDebugClassesWithAsm
+> Task :delivery-app:javaPreCompileDebugUnitTest UP-TO-DATE
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:generateDebugBuildConfig UP-TO-DATE
+> Task :app:generateSafeArgsDebug UP-TO-DATE
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:injectCrashlyticsMappingFileIdDebug UP-TO-DATE
+> Task :app:processDebugGoogleServices UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :delivery-app:bundleDebugClassesToRuntimeJar
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+> Task :app:kspDebugKotlin UP-TO-DATE
+> Task :app:compileDebugKotlin FROM-CACHE
+> Task :app:javaPreCompileDebug UP-TO-DATE
+> Task :app:compileDebugJavaWithJavac UP-TO-DATE
+> Task :app:hiltAggregateDepsDebug UP-TO-DATE
+> Task :app:hiltJavaCompileDebug UP-TO-DATE
+> Task :delivery-app:kspDebugUnitTestKotlin
+> Task :app:transformDebugClassesWithAsm UP-TO-DATE
+> Task :app:bundleDebugClassesToRuntimeJar UP-TO-DATE
+> Task :app:preDebugUnitTestBuild UP-TO-DATE
+> Task :app:processDebugJavaRes UP-TO-DATE
+> Task :app:bundleDebugClassesToCompileJar UP-TO-DATE
+> Task :app:kspDebugUnitTestKotlin UP-TO-DATE
+> Task :app:compileDebugUnitTestKotlin UP-TO-DATE
+> Task :app:javaPreCompileDebugUnitTest UP-TO-DATE
+> Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :app:hiltAggregateDepsDebugUnitTest UP-TO-DATE
+> Task :app:hiltJavaCompileDebugUnitTest NO-SOURCE
+> Task :app:processDebugUnitTestJavaRes UP-TO-DATE
+> Task :app:transformDebugUnitTestClassesWithAsm UP-TO-DATE
+> Task :app:testDebugUnitTest UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:mergeDebugShaders UP-TO-DATE
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :core:mergeDebugShaders UP-TO-DATE
+> Task :core:compileDebugShaders NO-SOURCE
+> Task :core:generateDebugAssets UP-TO-DATE
+> Task :core:packageDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets UP-TO-DATE
+> Task :app:compressDebugAssets UP-TO-DATE
+> Task :app:desugarDebugFileDependencies UP-TO-DATE
+> Task :app:dexBuilderDebug UP-TO-DATE
+> Task :app:mergeDebugGlobalSynthetics UP-TO-DATE
+> Task :app:mergeDebugJavaResource UP-TO-DATE
+> Task :app:checkDebugDuplicateClasses UP-TO-DATE
+> Task :app:mergeExtDexDebug UP-TO-DATE
+> Task :app:mergeLibDexDebug UP-TO-DATE
+> Task :app:mergeProjectDexDebug UP-TO-DATE
+> Task :app:mergeDebugJniLibFolders UP-TO-DATE
+> Task :core:mergeDebugJniLibFolders UP-TO-DATE
+> Task :core:mergeDebugNativeLibs NO-SOURCE
+> Task :core:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :app:mergeDebugNativeLibs UP-TO-DATE
+> Task :app:stripDebugDebugSymbols UP-TO-DATE
+> Task :app:validateSigningDebug UP-TO-DATE
+> Task :app:writeDebugAppMetadata UP-TO-DATE
+> Task :app:writeDebugSigningConfigVersions UP-TO-DATE
+> Task :app:packageDebug UP-TO-DATE
+> Task :app:createDebugApkListingFileRedirect UP-TO-DATE
+> Task :app:assembleDebug UP-TO-DATE
+> Task :core:stripDebugDebugSymbols NO-SOURCE
+> Task :core:copyDebugJniLibsProjectAndLocalJars UP-TO-DATE
+> Task :core:extractDebugAnnotations UP-TO-DATE
+> Task :core:extractDeepLinksForAarDebug UP-TO-DATE
+> Task :core:mergeDebugGeneratedProguardFiles UP-TO-DATE
+> Task :core:mergeDebugConsumerProguardFiles UP-TO-DATE
+> Task :core:prepareDebugArtProfile UP-TO-DATE
+> Task :core:prepareLintJarForPublish UP-TO-DATE
+> Task :core:mergeDebugJavaResource UP-TO-DATE
+> Task :core:syncDebugLibJars UP-TO-DATE
+> Task :core:bundleDebugAar UP-TO-DATE
+> Task :core:assembleDebug UP-TO-DATE
+> Task :delivery-app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :delivery-app:mergeDebugShaders UP-TO-DATE
+> Task :delivery-app:compileDebugShaders NO-SOURCE
+> Task :delivery-app:generateDebugAssets UP-TO-DATE
+> Task :delivery-app:mergeDebugAssets UP-TO-DATE
+> Task :delivery-app:compressDebugAssets UP-TO-DATE
+> Task :delivery-app:desugarDebugFileDependencies UP-TO-DATE
+> Task :delivery-app:compileDebugUnitTestKotlin
+> Task :delivery-app:dexBuilderDebug
+> Task :delivery-app:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :delivery-app:hiltAggregateDepsDebugUnitTest UP-TO-DATE
+> Task :delivery-app:hiltJavaCompileDebugUnitTest NO-SOURCE
+> Task :delivery-app:processDebugUnitTestJavaRes
+> Task :delivery-app:mergeDebugGlobalSynthetics UP-TO-DATE
+> Task :delivery-app:checkDebugDuplicateClasses UP-TO-DATE
+> Task :delivery-app:transformDebugUnitTestClassesWithAsm
+> Task :delivery-app:mergeExtDexDebug UP-TO-DATE
+> Task :delivery-app:testDebugUnitTest
+> Task :core:bundleLibRuntimeToDirDebug UP-TO-DATE
+> Task :delivery-app:mergeLibDexDebug UP-TO-DATE
+> Task :delivery-app:mergeDebugJniLibFolders UP-TO-DATE
+> Task :delivery-app:mergeDebugNativeLibs UP-TO-DATE
+> Task :delivery-app:stripDebugDebugSymbols UP-TO-DATE
+> Task :delivery-app:validateSigningDebug UP-TO-DATE
+> Task :delivery-app:writeDebugAppMetadata UP-TO-DATE
+> Task :delivery-app:writeDebugSigningConfigVersions UP-TO-DATE
+> Task :delivery-app:mergeProjectDexDebug
+> Task :delivery-app:mergeDebugJavaResource
+> Task :delivery-app:packageDebug
+> Task :delivery-app:createDebugApkListingFileRedirect UP-TO-DATE
+> Task :delivery-app:assembleDebug
+w: Detected multiple Kotlin daemon sessions at 
+
+BUILD SUCCESSFUL in 1m 4s
+137 actionable tasks: 11 executed, 1 from cache, 125 up-to-date

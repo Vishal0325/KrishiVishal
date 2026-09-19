@@ -817,13 +817,10 @@ exports.generateSignedQRPayload = onCall({ region: REGION, secrets: [qrHmacSecre
     if (!orderSnap.exists) throw new HttpsError('not-found', 'Order not found.');
 
     const orderData = orderSnap.data();
-    const hmacSecret = getSecretVal(qrHmacSecret, 'QR_HMAC_SECRET');
-    if (!hmacSecret) {
-        if (process.env.NODE_ENV === 'production' || process.env.FUNCTIONS_EMULATOR !== 'true') {
-            console.warn("QR_HMAC_SECRET is not set in environment. Falling back to local default for sandbox testing.");
-        }
+    const secretToUse = getSecretVal(qrHmacSecret, 'QR_HMAC_SECRET');
+    if (!secretToUse) {
+        throw new HttpsError('failed-precondition', 'QR HMAC security key is not configured.');
     }
-    const secretToUse = hmacSecret || 'KV_MASTER_QR_SECRET_PURNEA_2026';
 
     const salt = crypto.randomBytes(8).toString('hex');
     const timestamp = Date.now();
@@ -888,7 +885,10 @@ exports.verifyScannedQR = onCall({ region: REGION, secrets: [qrHmacSecret] }, as
         throw new HttpsError('invalid-argument', 'Incomplete QR data.');
     }
 
-    const hmacSecret = getSecretVal(qrHmacSecret, 'QR_HMAC_SECRET') || 'KV_MASTER_QR_SECRET_PURNEA_2026';
+    const hmacSecret = getSecretVal(qrHmacSecret, 'QR_HMAC_SECRET');
+    if (!hmacSecret) {
+        throw new HttpsError('failed-precondition', 'QR HMAC security key is not configured.');
+    }
     const rawPayload = `${orderId}|${amount || 0}|${salt}|${timestamp}`;
     const computedHash = crypto.createHmac('sha256', hmacSecret).update(rawPayload).digest('hex');
 

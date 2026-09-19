@@ -294,6 +294,76 @@ exports.onGoodsReceiptCreated = onDocumentCreated({ document: "goods_receipts/{g
 });
 
 /**
+ * Validates order list against cash deposit metadata.
+ * Requires:
+ * 1. orderIds must be non-empty array
+ * 2. Every order must exist in Firestore
+ * 3. Every order riderId must match deposit.riderId
+ * 4. Every order must have COD paymentMethod/paymentMode
+ * 5. Every order must have status == 'DELIVERED'
+ * 6. Every order must have !isCashDeposited
+ * 7. Sum of order.totalAmount must equal deposit.amount
+ */
+function validateCashDepositOrders(depositData, orderDocs) {
+    const riderId = depositData.riderId;
+    const depositAmount = Number(depositData.amount || 0);
+    const orderIds = Array.isArray(depositData.orderIds) ? depositData.orderIds : [];
+
+    if (orderIds.length === 0) {
+        return { isValid: false, reason: "No orderIds specified in cash deposit" };
+    }
+
+    if (orderDocs.length !== orderIds.length) {
+        return { isValid: false, reason: `Mismatch in retrieved order count: expected ${orderIds.length}, found ${orderDocs.length}` };
+    }
+
+    let sumTotals = 0;
+
+    for (const doc of orderDocs) {
+        if (!doc.exists) {
+            return { isValid: false, reason: `Order ${doc.id} does not exist` };
+        }
+        const ord = (typeof doc.data === 'function') ? doc.data() : (doc.data || {});
+        
+        // 1. Same rider check
+        if (ord.riderId !== riderId) {
+            return { isValid: false, reason: `Order ${doc.id} rider '${ord.riderId}' does not match deposit rider '${riderId}'` };
+        }
+
+        // 2. COD payment check
+        const payMode = (ord.paymentMode || ord.paymentMethod || (ord.payment && ord.payment.method) || '').toUpperCase().trim();
+        if (payMode !== 'COD') {
+            return { isValid: false, reason: `Order ${doc.id} payment method '${payMode}' is not COD` };
+        }
+
+        // 3. DELIVERED status check
+        if (ord.status !== 'DELIVERED') {
+            return { isValid: false, reason: `Order ${doc.id} status '${ord.status}' is not DELIVERED` };
+        }
+
+        // 4. Not already deposited
+        if (ord.isCashDeposited === true) {
+            return { isValid: false, reason: `Order ${doc.id} cash has already been deposited` };
+        }
+
+        const ordAmount = Number(ord.totalAmount || 0);
+        sumTotals += ordAmount;
+    }
+
+    // 5. Sum of totals equals deposit amount
+    if (Math.abs(sumTotals - depositAmount) > 0.01) {
+        return {
+            isValid: false,
+            reason: `Order totals sum (₹${sumTotals.toFixed(2)}) does not match deposit amount (₹${depositAmount.toFixed(2)})`
+        };
+    }
+
+    return { isValid: true, sumTotals };
+}
+
+exports.validateCashDepositOrders = validateCashDepositOrders;
+
+/**
  * Triggered when a rider cash deposit is created or updated to VERIFIED.
  */
 exports.onCashDepositVerified = onDocumentWritten({ document: "cash_deposits/{depositId}", region: REGION }, async (event) => {
@@ -306,7 +376,7 @@ exports.onCashDepositVerified = onDocumentWritten({ document: "cash_deposits/{de
     if (newData.status !== 'VERIFIED') return null;
     if (oldData && oldData.status === 'VERIFIED') return null;
 
-    const amount = newData.amount || 0;
+    const amount = Number(newData.amount || 0);
     if (amount <= 0) return null;
 
     try {
@@ -321,6 +391,27 @@ exports.onCashDepositVerified = onDocumentWritten({ document: "cash_deposits/{de
             if (!existingEntries.empty) {
                 console.log(`Ledger entry already exists for Deposit: ${depositId}. Skipping.`);
                 return;
+            }
+
+            // Validate every orderId in the deposit
+            const orderIds = Array.isArray(newData.orderIds) ? newData.orderIds : [];
+            const orderDocs = [];
+            for (const ordId of orderIds) {
+                const ordRef = db.collection("orders").doc(ordId);
+                const snap = await transaction.get(ordRef);
+                orderDocs.push(snap);
+            }
+
+            const validation = validateCashDepositOrders(newData, orderDocs);
+            if (!validation.isValid) {
+                console.error(`REJECTED Cash Deposit #${depositId} validation failed: ${validation.reason}`);
+                transaction.update(change.after.ref, {
+                    status: 'DISCREPANCY_FLAGGED',
+                    discrepancyReason: validation.reason,
+                    flaggedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    ledgerPosted: false
+                });
+                return; // Do NOT post ledger entries, do NOT mark orders as deposited
             }
 
             // Transfer from Rider's Cash In Hand liability to Business Bank Account
@@ -347,6 +438,17 @@ exports.onCashDepositVerified = onDocumentWritten({ document: "cash_deposits/{de
                 ledgerPosted: true,
                 ledgerPostedAt: admin.firestore.FieldValue.serverTimestamp()
             });
+
+            // Update orders to isCashDeposited: true and cashDepositedAt server-side
+            for (const ordId of orderIds) {
+                const ordRef = db.collection("orders").doc(ordId);
+                transaction.update(ordRef, {
+                    isCashDeposited: true,
+                    cashDepositedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    cashDepositId: depositId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
         });
         console.log(`Ledger entries posted for Cash Deposit: ${depositId}`);
     } catch (error) {

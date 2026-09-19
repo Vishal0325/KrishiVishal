@@ -25,7 +25,7 @@ try {
 }
 
 const email = process.argv[2];
-const role = process.argv[3] || 'SuperAdmin';
+const role = process.argv[3] || 'ADMIN';
 if (!email) {
   console.log('Usage: node setAdminClaim.js <email> [role]');
   process.exit(1);
@@ -42,7 +42,7 @@ async function setAdminClaim(userEmail, targetRole) {
     const updatedClaims = {
       ...existingClaims,
       admin: true,
-      role: targetRole || 'SuperAdmin'
+      role: targetRole || 'ADMIN'
     };
 
     await authInstance.setCustomUserClaims(user.uid, updatedClaims);
