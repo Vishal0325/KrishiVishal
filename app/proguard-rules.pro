@@ -8,6 +8,7 @@
 
 # App Specific - Keep Models
 -keep class com.company.krishivishal.core.model.** { *; }
+-keep class com.company.krishivishal.model.** { *; }
 
 # Hilt
 -keep class dagger.hilt.internal.GeneratedComponentManager { *; }

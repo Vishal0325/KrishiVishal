@@ -13,6 +13,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -775,6 +776,201 @@ fun FarmSetupBanner(
                             color = PrimaryGreen
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeServiceItem(
+    service: AgriService,
+    onClick: () -> Unit,
+    onBookNow: () -> Unit,
+    onShare: () -> Unit
+) {
+    val rateLabel = when (service.rateType) {
+        "PER_ACRE" -> "/ एकड़"
+        "PER_BIGHA" -> "/ बीघा"
+        "PER_KATHA" -> "/ कट्ठा"
+        "PER_DAY" -> "/ दिन"
+        "PER_WEEK" -> "/ हफ्ता"
+        "PER_MONTH" -> "/ महीना"
+        "PER_SEASON" -> "/ सीजन"
+        "PER_HOUR" -> "/ घंटा"
+        "PER_WORKER" -> "/ मजदूर"
+        "CUSTOM" -> service.customRateUnit?.let { " / $it" } ?: ""
+        "FIXED" -> " (फिक्स)"
+        else -> ""
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
+            ) {
+                if (service.imageUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = service.imageUrl,
+                        contentDescription = service.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFFE8F5E9)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🌾", fontSize = 36.sp)
+                    }
+                }
+
+                // Material / Labour Badge
+                val badgeText = if (service.includesMaterial) "Material Included" else "Labour Only"
+                val badgeBg = if (service.includesMaterial) Color(0xFF2E7D32) else Color(0xFFE65100)
+                Surface(
+                    color = badgeBg,
+                    shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
+                    modifier = Modifier.align(Alignment.TopStart)
+                ) {
+                    Text(
+                        text = badgeText,
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+
+                // Share Button Top Right
+                IconButton(
+                    onClick = onShare,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .size(30.dp)
+                        .background(Color.White.copy(alpha = 0.85f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = "Share",
+                        tint = Color.DarkGray,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                // Variants Badge if any
+                if (service.hasVariants && service.variants.isNotEmpty()) {
+                    Surface(
+                        color = Color(0xFF673AB7).copy(alpha = 0.9f),
+                        shape = RoundedCornerShape(topStart = 6.dp),
+                        modifier = Modifier.align(Alignment.BottomEnd)
+                    ) {
+                        Text(
+                            text = "${service.variants.size} Packages",
+                            color = Color.White,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            Column(modifier = Modifier.padding(10.dp)) {
+                Text(
+                    text = service.name,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                // Rating
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    Surface(
+                        color = Color(0xFF4CAF50),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("${service.rating}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                            Text("★", color = Color.White, fontSize = 9.sp, modifier = Modifier.padding(start = 2.dp))
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Verified Service",
+                        fontSize = 10.sp,
+                        color = Color.Gray
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Price display
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    Text(
+                        text = "₹${service.baseRate.toInt()}",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = PrimaryGreen
+                    )
+                    Text(
+                        text = rateLabel,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 2.dp, bottom = 1.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Book Now Button
+                Button(
+                    onClick = onBookNow,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(34.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = PrimaryGreen
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "अभी बुक करें",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
                 }
             }
         }

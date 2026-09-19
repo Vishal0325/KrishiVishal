@@ -107,6 +107,7 @@ object PrintHelper {
                     ${if (!item.variantLabel.isNullOrBlank()) "<br/><small style='color: #666;'>Variant: ${item.variantLabel}</small>" else ""}
                 </td>
                 <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: center;">${item.hsnCode.ifBlank { "N/A" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: center;">${item.gstRate}%</td>
                 <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: center;">${item.quantity}</td>
                 <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">₹${String.format(Locale.US, "%.2f", item.price)}</td>
                 <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">₹${String.format(Locale.US, "%.2f", item.price * item.quantity)}</td>
@@ -166,6 +167,7 @@ object PrintHelper {
                     <tr>
                         <th style="width: 40%;">Item Description</th>
                         <th style="text-align: center;">HSN</th>
+                        <th style="text-align: center;">GST %</th>
                         <th style="text-align: center;">Qty</th>
                         <th style="text-align: right;">Unit Price</th>
                         <th style="text-align: right;">Total</th>
@@ -187,28 +189,6 @@ object PrintHelper {
                     <span>-₹${String.format(Locale.US, "%.2f", order.totalDiscount)}</span>
                 </div>
                 """.trimIndent() else ""}
-                <div class="total-row">
-                    <span>Taxable Value:</span>
-                    <span>₹${String.format(Locale.US, "%.2f", order.taxableTotal)}</span>
-                </div>
-                ${if (cgst > 0) """
-                <div class="total-row" style="color: #666; font-size: 12px;">
-                    <span>CGST (Bihar):</span>
-                    <span>₹${String.format(Locale.US, "%.2f", cgst)}</span>
-                </div>
-                """.trimIndent() else ""}
-                ${if (sgst > 0) """
-                <div class="total-row" style="color: #666; font-size: 12px;">
-                    <span>SGST (Bihar):</span>
-                    <span>₹${String.format(Locale.US, "%.2f", sgst)}</span>
-                </div>
-                """.trimIndent() else ""}
-                
-                <div class="total-row" style="font-weight: bold; margin-top: 5px;">
-                    <span>Total Tax:</span>
-                    <span>+₹${String.format(Locale.US, "%.2f", totalTax)}</span>
-                </div>
-
                 <div class="total-row">
                     <span>Delivery Charges:</span>
                     <span>${if (order.deliveryCharges > 0) "₹" + String.format(Locale.US, "%.2f", order.deliveryCharges) else "FREE"}</span>

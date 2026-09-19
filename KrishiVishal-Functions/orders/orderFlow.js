@@ -10,6 +10,7 @@ const {
 } = require("../inventory/inventoryEngine");
 const { validateAndReserveSlot } = require("./deliverySlots");
 const Razorpay = require("razorpay");
+const { razorpayKeySecret, qrHmacSecret, razorpayKeyId, getSecretVal } = require("../core/secrets");
 
 const REGION = 'asia-south1';
 
@@ -20,8 +21,8 @@ const REGION = 'asia-south1';
  * match the locked Razorpay Order.
  */
 async function createRazorpayOrder(orderId, totalAmountINR) {
-    const keyId = process.env.RAZORPAY_KEY_ID;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const keyId = getSecretVal(razorpayKeyId, 'RAZORPAY_KEY_ID');
+    const keySecret = getSecretVal(razorpayKeySecret, 'RAZORPAY_KEY_SECRET');
 
     if (!keyId || !keySecret) {
         throw new Error('Razorpay credentials not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET env vars.');
@@ -48,7 +49,7 @@ async function createRazorpayOrder(orderId, totalAmountINR) {
 /**
  * createOrder: Full logic with FEFO inventory reservation, input validation, and transactional safety.
  */
-exports.createOrder = onCall({ region: REGION }, async (request) => {
+exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, async (request) => {
     const data = request.data || {};
     const context = { auth: request.auth };
 
@@ -115,7 +116,7 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
 
     try {
         const orderId = db.collection("orders").doc().id;
-        let subtotal = 0, totalDiscount = 0, totalTax = 0;
+        let subtotal = 0, totalDiscount = 0, totalTax = 0, totalExtraTax = 0;
         let orderOtp = "";
 
         await db.runTransaction(async (transaction) => {
@@ -250,11 +251,26 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
                     }
                 }
 
-                const gstRate = Number(skuData?.tax?.gstRate || product.gstRate || 5);
-                const itemTax = (itemPrice * item.quantity * gstRate) / 100;
+                const gstRate = Number(skuData?.tax?.gstRate || product.gstRate || 0);
+                const isTaxInclusive = product.isTaxInclusive !== false; // defaults to true
+                
+                const itemTotal = itemPrice * item.quantity;
+                let itemTax = 0;
+                let extraTax = 0;
+                
+                if (isTaxInclusive) {
+                    const taxable = itemTotal / (1 + (gstRate / 100));
+                    itemTax = itemTotal - taxable;
+                } else {
+                    itemTax = (itemTotal * gstRate) / 100;
+                    extraTax = itemTax;
+                }
+                
                 subtotal += itemMrp * item.quantity;
                 totalDiscount += (itemMrp - itemPrice) * item.quantity;
                 totalTax += itemTax;
+                totalExtraTax += extraTax;
+
 
                 items.push({
                     productId: productId,
@@ -279,7 +295,7 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
             const freeDeliveryAbove = Number(settingsData.freeDeliveryAbove) || 0;
             const netCartValue = subtotal - totalDiscount;
             const deliveryCharge = (freeDeliveryAbove > 0 && netCartValue >= freeDeliveryAbove) ? 0 : configuredDeliveryCharge;
-            const totalAmount = netCartValue + totalTax + deliveryCharge;
+            const totalAmount = netCartValue + totalExtraTax + deliveryCharge;
             const initialStatus = hasOnDemandItems ? "PROCUREMENT_PENDING" : "PLACED";
 
             const addressString = [
@@ -373,7 +389,7 @@ exports.createOrder = onCall({ region: REGION }, async (request) => {
         const cfgFreeAbove = Number(stData.freeDeliveryAbove) || 0;
         const netCart = subtotal - totalDiscount;
         const finalDelivery = (cfgFreeAbove > 0 && netCart >= cfgFreeAbove) ? 0 : cfgDelivery;
-        const finalAmount = netCart + totalTax + finalDelivery;
+        const finalAmount = netCart + totalExtraTax + finalDelivery;
 
         // ── Razorpay Order Creation (ONLINE payments only) ──────────────────
         // For RAZORPAY_ONLINE, we create a server-side Razorpay Order to lock
@@ -696,10 +712,11 @@ const ALLOWED_TRANSITIONS = {
     PROCUREMENT_PENDING: ['READY_FOR_PACKING', 'CANCELLED'],
     READY_FOR_PACKING: ['PACKING', 'CANCELLED'],
     PACKING: ['PACKED', 'READY_FOR_PACKING', 'CANCELLED'],
-    PACKED: ['READY_FOR_PICKUP', 'RIDER_ASSIGNED', 'CANCELLED'],
-    READY_FOR_PICKUP: ['RIDER_ASSIGNED', 'RIDER_ACCEPTED', 'CANCELLED'],
-    RIDER_ASSIGNED: ['RIDER_ACCEPTED', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY', 'CANCELLED'],
-    RIDER_ACCEPTED: ['OUT_FOR_DELIVERY', 'RIDER_ASSIGNED', 'CANCELLED'],
+    PACKED: ['READY_FOR_PICKUP', 'RIDER_ASSIGNED', 'ASSIGNED', 'CANCELLED'],
+    READY_FOR_PICKUP: ['RIDER_ASSIGNED', 'ASSIGNED', 'RIDER_ACCEPTED', 'PICKED_UP', 'CANCELLED'],
+    RIDER_ASSIGNED: ['RIDER_ACCEPTED', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY', 'PICKED_UP', 'CANCELLED'],
+    ASSIGNED: ['RIDER_ACCEPTED', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY', 'PICKED_UP', 'CANCELLED'],
+    RIDER_ACCEPTED: ['OUT_FOR_DELIVERY', 'PICKED_UP', 'RIDER_ASSIGNED', 'ASSIGNED', 'CANCELLED'],
     OUT_FOR_DELIVERY: ['DELIVERED', 'DELIVERY_FAILED', 'CANCELLED'],
     DELIVERED: ['RETURN_REQUESTED'],
     CANCELLED: []
@@ -736,10 +753,32 @@ exports.updateOrderStatus = onCall({ region: REGION }, async (request) => {
     }
 
     const currentStatus = orderData.status || 'PLACED';
-    const allowed = ALLOWED_TRANSITIONS[currentStatus] || [];
 
-    if (!allowed.includes(targetStatus) && !isAdmin) {
-        throw new HttpsError('invalid-argument', `Cannot transition from ${currentStatus} to ${targetStatus}.`);
+    if (isAdmin) {
+        const allowed = ALLOWED_TRANSITIONS[currentStatus] || [];
+        if (!allowed.includes(targetStatus)) {
+            throw new HttpsError('invalid-argument', `Cannot transition from ${currentStatus} to ${targetStatus}.`);
+        }
+    } else if (isAssignedRider) {
+        if (targetStatus === 'DELIVERED') {
+            throw new HttpsError('permission-denied', 'DELIVERED status can only be set via verifyDeliveryOTP with customer OTP.');
+        }
+        const riderAllowed = {
+            READY_FOR_PICKUP: ['RIDER_ACCEPTED', 'ASSIGNED', 'RIDER_ASSIGNED'],
+            RIDER_ASSIGNED: ['RIDER_ACCEPTED', 'OUT_FOR_DELIVERY', 'PICKED_UP'],
+            ASSIGNED: ['RIDER_ACCEPTED', 'OUT_FOR_DELIVERY', 'PICKED_UP'],
+            RIDER_ACCEPTED: ['OUT_FOR_DELIVERY', 'PICKED_UP'],
+            OUT_FOR_DELIVERY: ['DELIVERY_FAILED']
+        };
+        const validForRider = riderAllowed[currentStatus] || [];
+        if (!validForRider.includes(targetStatus)) {
+            throw new HttpsError('permission-denied', `Riders cannot transition order from ${currentStatus} to ${targetStatus}.`);
+        }
+    } else if (isOwner) {
+        const customerAllowed = ['PLACED', 'PAYMENT_CONFIRMED'];
+        if (targetStatus !== 'CANCELLED' || !customerAllowed.includes(currentStatus)) {
+            throw new HttpsError('permission-denied', 'Customers can only cancel orders in PLACED or PAYMENT_CONFIRMED status.');
+        }
     }
 
     const updatePayload = {
@@ -764,18 +803,21 @@ exports.updateOrderStatus = onCall({ region: REGION }, async (request) => {
 /**
  * generateSignedQRPayload: Generates opaque HMAC-signed QR token for package handover
  */
-exports.generateSignedQRPayload = onCall({ region: REGION }, async (request) => {
+exports.generateSignedQRPayload = onCall({ region: REGION, secrets: [qrHmacSecret] }, async (request) => {
     const data = request.data || {};
     const context = { auth: request.auth };
 
     if (!context.auth) throw new HttpsError('unauthenticated', 'Login required.');
+    if (!(await isAdminRequest(context))) {
+        throw new HttpsError('permission-denied', 'Admin or Warehouse Manager authorization required.');
+    }
     const { orderId } = data;
 
     const orderSnap = await db.collection("orders").doc(orderId).get();
     if (!orderSnap.exists) throw new HttpsError('not-found', 'Order not found.');
 
     const orderData = orderSnap.data();
-    const hmacSecret = process.env.QR_HMAC_SECRET;
+    const hmacSecret = getSecretVal(qrHmacSecret, 'QR_HMAC_SECRET');
     if (!hmacSecret) {
         if (process.env.NODE_ENV === 'production' || process.env.FUNCTIONS_EMULATOR !== 'true') {
             console.warn("QR_HMAC_SECRET is not set in environment. Falling back to local default for sandbox testing.");
@@ -814,5 +856,65 @@ exports.generateSignedQRPayload = onCall({ region: REGION }, async (request) => 
     });
 
     return { success: true, qrPayload: JSON.stringify(qrPayload) };
+});
+
+/**
+ * verifyScannedQR: Validates HMAC-signed QR token for package pickup / handover
+ */
+exports.verifyScannedQR = onCall({ region: REGION, secrets: [qrHmacSecret] }, async (request) => {
+    const data = request.data || {};
+    const context = { auth: request.auth };
+
+    if (!context.auth) throw new HttpsError('unauthenticated', 'Login required.');
+
+    const role = (context.auth.token?.role || '').toLowerCase();
+    const isPrivileged = ['rider', 'serviceman', 'admin', 'superadmin', 'warehouse_manager'].includes(role) || (await isAdminRequest(context));
+    if (!isPrivileged) {
+        throw new HttpsError('permission-denied', 'Only authorized personnel can verify QR codes.');
+    }
+
+    const { qrPayload } = data;
+    if (!qrPayload) throw new HttpsError('invalid-argument', 'Missing qrPayload.');
+
+    let parsed;
+    try {
+        parsed = typeof qrPayload === 'string' ? JSON.parse(qrPayload) : qrPayload;
+    } catch (e) {
+        throw new HttpsError('invalid-argument', 'Invalid QR JSON payload.');
+    }
+
+    const { orderId, amount, salt, timestamp, checksum } = parsed;
+    if (!orderId || !salt || !timestamp || !checksum) {
+        throw new HttpsError('invalid-argument', 'Incomplete QR data.');
+    }
+
+    const hmacSecret = getSecretVal(qrHmacSecret, 'QR_HMAC_SECRET') || 'KV_MASTER_QR_SECRET_PURNEA_2026';
+    const rawPayload = `${orderId}|${amount || 0}|${salt}|${timestamp}`;
+    const computedHash = crypto.createHmac('sha256', hmacSecret).update(rawPayload).digest('hex');
+
+    if (computedHash.slice(0, 16) !== checksum) {
+        throw new HttpsError('permission-denied', 'QR verification failed: Tampered or invalid QR code signature.');
+    }
+
+    const secSnap = await db.collection("orders").doc(orderId).collection("internal").doc("qrSecurity").get();
+    if (secSnap.exists) {
+        const secData = secSnap.data();
+        if (secData.token !== computedHash) {
+            throw new HttpsError('permission-denied', 'QR security mismatch in internal record.');
+        }
+    }
+
+    const orderSnap = await db.collection("orders").doc(orderId).get();
+    if (!orderSnap.exists) throw new HttpsError('not-found', 'Order not found.');
+
+    const orderData = orderSnap.data();
+    return {
+        success: true,
+        orderId,
+        status: orderData.status,
+        totalAmount: orderData.totalAmount,
+        paymentMethod: orderData.paymentMethod,
+        order: orderData
+    };
 });
 

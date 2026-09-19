@@ -2,7 +2,7 @@
   "name": "krishivishal-functions",
   "scripts": {
     "lint": "eslint .",
-    "test": "node tests/sku_inventory.test.js && node tests/idempotency.test.js && node tests/ledger.test.js && node tests/security_remediation.test.js && node tests/v4_audit_verification.js && node tests/crop_advisory.test.js && node tests/round2_features.test.js",
+    "test": "node tests/sku_inventory.test.js && node tests/idempotency.test.js && node tests/ledger.test.js && node tests/security_remediation.test.js && node tests/v4_audit_verification.js && node tests/crop_advisory.test.js && node tests/round2_features.test.js && node tests/p0_security_rules.test.js && node tests/p0_pass4_functions.test.js",
     "serve": "firebase emulators:start --only functions",
     "shell": "firebase functions:shell",
     "start": "firebase emulators:start",
@@ -20,6 +20,7 @@
     "razorpay": "^2.9.8"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "firebase-functions-test": "3.5.0"
   },
   "private": true

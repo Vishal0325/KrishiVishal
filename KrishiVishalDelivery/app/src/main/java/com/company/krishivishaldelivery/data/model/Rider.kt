@@ -29,5 +29,11 @@ data class Rider(
     val documents: Map<String, String> = emptyMap(), // "dl", "aadhaar", "rc", "pan" -> imageUrl
     val drivingLicenseNumber: String = "",
     val aadhaarNumber: String = "",
-    val panNumber: String = ""
+    val panNumber: String = "",
+    val roles: List<String> = listOf("DELIVERY"),
+    val serviceSkills: List<String> = emptyList(),
+    val serviceEquipment: List<String> = emptyList(),
+    val role: String = "rider",
+    val partnerRole: String = "rider"
 )
+

@@ -36,6 +36,7 @@ exports.verifyDeliveryOTP = orders.verifyDeliveryOTP;
 exports.cancelOrder = orders.cancelOrder;
 exports.updateOrderStatus = orders.updateOrderStatus;
 exports.generateSignedQRPayload = orders.generateSignedQRPayload;
+exports.verifyScannedQR = orders.verifyScannedQR;
 exports.onOrderStatusUpdate = orderTriggers.onOrderStatusUpdate;
 exports.onReturnRequestCreated = orderTriggers.onReturnRequestCreated;
 exports.onOrderDeliveryUpdate = orderTriggers.onOrderDeliveryUpdate;
@@ -91,8 +92,9 @@ exports.monitorOrderSLA = sla.monitorOrderSLA;
 const { getGSPProvider } = require('./src/providers/GSPFactory');
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { isAdminRequest } = require("./core/utils");
+const { cleartaxAuthToken } = require("./core/secrets");
 
-exports.generateEWayBill = onCall({ region: 'asia-south1' }, async (request) => {
+exports.generateEWayBill = onCall({ region: 'asia-south1', secrets: [cleartaxAuthToken] }, async (request) => {
     if (!(await isAdminRequest({ auth: request.auth }))) {
         throw new HttpsError('permission-denied', 'Admin only.');
     }
@@ -125,4 +127,21 @@ exports.deleteFcmToken = messaging.deleteFcmToken;
 exports.sendBroadcastNotification = messaging.sendBroadcastNotification;
 exports.cronCropAdvisory = cropAdvisory.cronCropAdvisory;
 exports.runCropAdvisoryEngine = cropAdvisory.runCropAdvisoryEngine;
+
+// --- SERVICE MARKETPLACE ---
+const serviceMarketplace = require('./src/services/serviceMarketplace');
+exports.createServiceBooking = serviceMarketplace.createServiceBooking;
+exports.matchPartner = serviceMarketplace.matchPartner;
+exports.acceptBooking = serviceMarketplace.acceptBooking;
+exports.onBookingCompleted = serviceMarketplace.onBookingCompleted;
+exports.verifyStartOtp = serviceMarketplace.verifyStartOtp;
+exports.verifyEndOtp = serviceMarketplace.verifyEndOtp;
+exports.rejectBooking = serviceMarketplace.rejectBooking;
+exports.expandRadiusOnTimeout = serviceMarketplace.expandRadiusOnTimeout;
+exports.rechargePartnerWallet = serviceMarketplace.rechargePartnerWallet;
+
+// --- ROLE PROVISIONING ---
+const roleProvisioning = require('./auth/roleProvisioning');
+exports.claimRiderRole = roleProvisioning.claimRiderRole;
+exports.setUserRole = roleProvisioning.setUserRole;
 

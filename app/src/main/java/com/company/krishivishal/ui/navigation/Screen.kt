@@ -4,6 +4,7 @@ sealed class Screen(val route: String) {
     // Bottom Nav
     object Home : Screen("home")
     object Crops : Screen("crops")
+    object Services : Screen("services")
     object Orders : Screen("orders")
     object Profile : Screen("profile")
     
@@ -51,4 +52,10 @@ sealed class Screen(val route: String) {
     object MyReturns : Screen("my_returns")
     object Wallet : Screen("wallet")
     object FarmProfile : Screen("farm_profile")
+    object ServiceBooking : Screen("service_booking/{serviceId}") {
+        fun createRoute(serviceId: String) = "service_booking/$serviceId"
+    }
+    object BookingTracking : Screen("booking_tracking/{bookingId}") {
+        fun createRoute(bookingId: String) = "booking_tracking/$bookingId"
+    }
 }

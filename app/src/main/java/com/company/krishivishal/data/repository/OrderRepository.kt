@@ -139,8 +139,12 @@ class OrderRepositoryImpl @Inject constructor(
         val data = hashMapOf(
             "cartItems" to cartItems.map { cwp ->
                 val variantLabel = cwp.displayVariantLabel()
+                val imgUrl = cwp.product?.imageUrl?.ifEmpty { cwp.product?.images?.firstOrNull() ?: "" } ?: ""
                 hashMapOf(
                     "productId" to cwp.cartItem.productId,
+                    "productName" to (cwp.product?.name ?: ""),
+                    "price" to (cwp.product?.price ?: 0.0),
+                    "imageUrl" to imgUrl,
                     "quantity" to cwp.cartItem.quantity,
                     "variantId" to (cwp.cartItem.variantId ?: ""),
                     "variantLabel" to variantLabel,
@@ -349,12 +353,20 @@ private fun com.google.firebase.firestore.DocumentSnapshot.toOrderSafe(): Order?
 
         val itemsRaw = (data["items"] as? List<*>)?.filterIsInstance<Map<String, Any?>>() ?: emptyList()
         val items = itemsRaw.map { itemMap ->
+            val rawImg = (itemMap["imageUrl"] ?: itemMap["image"] ?: itemMap["productImage"] ?: itemMap["thumb"] ?: "").toString().trim()
+            val imagesList = (itemMap["images"] as? List<*>)?.mapNotNull { it?.toString() }
+                ?: (itemMap["imageUrls"] as? List<*>)?.mapNotNull { it?.toString() }
+                ?: (itemMap["gallery"] as? List<*>)?.mapNotNull { it?.toString() }
+                ?: emptyList()
+            val firstListImg = imagesList.firstOrNull { it.isNotBlank() && it != "null" } ?: ""
+            val finalImgUrl = if (rawImg.isNotBlank() && rawImg != "null") rawImg else firstListImg
+
             com.company.krishivishal.core.model.OrderItem(
                 productId = itemMap["productId"] as? String ?: "",
                 productName = itemMap["productName"] as? String ?: "",
                 quantity = (itemMap["quantity"] as? Number)?.toInt() ?: 1,
                 price = (itemMap["price"] as? Number)?.toDouble() ?: 0.0,
-                imageUrl = itemMap["imageUrl"] as? String ?: "",
+                imageUrl = finalImgUrl,
                 variantId = itemMap["variantId"] as? String,
                 variantLabel = itemMap["variantLabel"] as? String,
                 skuCode = itemMap["skuCode"] as? String,

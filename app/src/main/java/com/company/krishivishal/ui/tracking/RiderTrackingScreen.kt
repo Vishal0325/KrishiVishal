@@ -147,18 +147,20 @@ fun RiderTrackingScreen(
                             }
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Rider: Suresh Kumar", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                                Text("On the way - Arriving in 12 mins", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                                val riderDisplayName = trackingState.riderName ?: "Assigned Rider"
+                                Text("Rider: $riderDisplayName", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Text("On the way - Live tracking active", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                             }
                             val context = androidx.compose.ui.platform.LocalContext.current
+                            val phoneToCall = trackingState.riderPhone ?: "18001234567"
                             IconButton(
                                 onClick = { 
-                                    val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:9876543210"))
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$phoneToCall"))
                                     context.startActivity(intent)
                                 },
                                 colors = IconButtonDefaults.iconButtonColors(containerColor = PrimaryGreen.copy(alpha = 0.1f))
                             ) {
-                                Icon(Icons.Default.Call, contentDescription = "Call Rider", tint = PrimaryGreen)
+                                Icon(Icons.Default.Call, contentDescription = "Call Rider or Support", tint = PrimaryGreen)
                             }
                         }
                     }

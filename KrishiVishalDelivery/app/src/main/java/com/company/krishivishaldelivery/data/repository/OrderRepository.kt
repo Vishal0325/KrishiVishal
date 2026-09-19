@@ -218,6 +218,21 @@ class OrderRepository @Inject constructor(
     }
 
     suspend fun fetchOrderForPreview(scannedRawText: String): Order? {
+        val trimmed = scannedRawText.trim()
+        if (trimmed.startsWith("{") && trimmed.endsWith("}") && trimmed.contains("checksum")) {
+            try {
+                val callResult = functions.getHttpsCallable("verifyScannedQR").call(mapOf("qrPayload" to trimmed)).await()
+                val data = callResult.data as? Map<String, Any>
+                val verifiedOrderId = data?.get("orderId") as? String
+                if (!verifiedOrderId.isNullOrBlank()) {
+                    val doc = firestore.collection("orders").document(verifiedOrderId).get().await()
+                    if (doc.exists()) return doc.toObject(Order::class.java)
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "verifyScannedQR failed or offline, falling back to local/direct lookup")
+            }
+        }
+
         val cleanId = extractOrderIdFromScan(scannedRawText)
         val doc = firestore.collection("orders").document(cleanId).get().await()
         if (doc.exists()) {
@@ -229,6 +244,20 @@ class OrderRepository @Inject constructor(
             snap.documents.firstOrNull()?.toObject(Order::class.java)
         } catch (e: Exception) {
             null
+        }
+    }
+
+    suspend fun updateOrderLocation(orderId: String, lat: Double, lng: Double) {
+        if (orderId.isBlank()) return
+        try {
+            firestore.collection("orders").document(orderId).update(
+                mapOf(
+                    "riderLocation" to GeoPoint(lat, lng),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+        } catch (e: Exception) {
+            Timber.w(e, "updateOrderLocation failed for order $orderId")
         }
     }
 

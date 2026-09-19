@@ -46,26 +46,25 @@ async function checkFeatureFlag(flagName) {
 async function isAdminRequest(obj) {
     // Support both v1 (context) and v2 (request/obj) patterns
     const auth = obj.auth || obj;
-    if (!auth || !auth.uid) return false;
+    if (!auth || !auth.uid || !auth.token) return false;
 
-    // 1. Check Custom Claims (High Performance)
-    if (auth.token && (auth.token.admin === true || auth.token.isAdmin === true ||
-        ["ADMIN", "SuperAdmin", "CatalogManager", "OrderManager"].includes(auth.token.role))) {
-        return true;
-    }
-
-    // 2. Fallback to DB check (Security)
-    const userDoc = await db.collection("users").doc(auth.uid).get();
-    const d = userDoc.data() || {};
-    return d.isAdmin === true || ["ADMIN", "SuperAdmin"].includes(d.role);
+    // Strict Custom Claims check (Server-Authoritative - No DB fallback)
+    return auth.token.admin === true ||
+           auth.token.isAdmin === true ||
+           ["ADMIN", "SuperAdmin", "CatalogManager", "OrderManager"].includes(auth.token.role);
 }
 
 function addToOutbox(transaction, type, payload) {
     const outboxRef = db.collection("outbox").doc();
-    transaction.set(outboxRef, {
+    const docData = {
         type, payload, status: "PENDING", retryCount: 0,
         createdAt: require("firebase-admin").firestore.FieldValue.serverTimestamp(),
-    });
+    };
+    if (transaction && typeof transaction.set === 'function') {
+        transaction.set(outboxRef, docData);
+    } else {
+        return outboxRef.set(docData).catch(err => console.error("Error writing outbox:", err));
+    }
 }
 
 module.exports = { CircuitBreaker, checkFeatureFlag, isAdminRequest, addToOutbox };

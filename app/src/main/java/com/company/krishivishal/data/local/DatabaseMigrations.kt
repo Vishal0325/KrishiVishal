@@ -386,6 +386,18 @@ object DatabaseMigrations {
         }
     }
 
+    val MIGRATION_52_54 = object : Migration(52, 54) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE products ADD COLUMN formulationType TEXT NOT NULL DEFAULT ''")
+        }
+    }
+
+    val MIGRATION_53_54 = object : Migration(53, 54) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE products ADD COLUMN formulationType TEXT NOT NULL DEFAULT ''")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_33_34,
         MIGRATION_34_35,
@@ -398,7 +410,9 @@ object DatabaseMigrations {
         MIGRATION_48_49,
         MIGRATION_49_50,
         MIGRATION_50_51,
-        MIGRATION_51_52
+        MIGRATION_51_52,
+        MIGRATION_52_54,
+        MIGRATION_53_54
     )
 }
 

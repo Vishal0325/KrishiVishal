@@ -45,6 +45,21 @@ function requireRider(obj) {
 }
 
 /**
+ * Checks if the user is a Serviceman, Partner, or Admin.
+ */
+function requireServicemanOrPartner(obj) {
+    const uid = requireAuth(obj);
+    const token = (obj.auth && obj.auth.token) ? obj.auth.token : {};
+    const role = token.role || "";
+    const isAdmin = token.admin === true || token.isAdmin === true || ["ADMIN", "SuperAdmin"].includes(role);
+    const isPartner = ["Serviceman", "Partner", "Rider"].includes(role);
+    if (!isAdmin && !isPartner) {
+        throw new HttpsError('permission-denied', 'Only authorized serviceman or partner can perform this operation.');
+    }
+    return uid;
+}
+
+/**
  * Verifies that the authenticated user owns the order OR is a management user.
  */
 function requireOrderOwner(order, obj) {
@@ -123,6 +138,7 @@ module.exports = {
     requireAdmin,
     requireSuperAdmin,
     requireRider,
+    requireServicemanOrPartner,
     requireOrderOwner,
     requireAssignedRider,
     validateOrderTransition,

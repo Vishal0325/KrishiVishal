@@ -16,4 +16,10 @@ abstract class RepositoryModule {
     abstract fun bindConfigRepository(
         configRepositoryImpl: ConfigRepositoryImpl
     ): ConfigRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindServiceBookingRepository(
+        serviceBookingRepositoryImpl: ServiceBookingRepositoryImpl
+    ): ServiceBookingRepository
 }

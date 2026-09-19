@@ -93,6 +93,8 @@ fun OrderTrackingScreen(
                         modifier = Modifier.align(Alignment.BottomCenter),
                         status = uiState.status,
                         estimatedTime = uiState.estimatedDeliveryTime?.toDate(),
+                        riderName = uiState.riderName,
+                        riderPhone = uiState.riderPhone,
                         mapsHealthy = mapsResilienceManager.isMapsHealthy()
                     )
                 }
@@ -124,7 +126,7 @@ fun MapTrackingView(uiState: com.company.krishivishal.model.OrderTrackingState) 
         if (uiState.status == "OUT_FOR_DELIVERY" && uiState.riderLocation != null) {
             Marker(
                 state = MarkerState(position = riderPos),
-                title = "Your Rider",
+                title = uiState.riderName ?: "Your Rider",
                 icon = com.google.android.gms.maps.model.BitmapDescriptorFactory.defaultMarker(com.google.android.gms.maps.model.BitmapDescriptorFactory.HUE_GREEN)
             )
         }
@@ -195,7 +197,14 @@ fun OrderTimelineView(currentStatus: String, history: List<com.company.krishivis
 }
 
 @Composable
-fun OrderInfoCard(modifier: Modifier, status: String, estimatedTime: Date?, mapsHealthy: Boolean = true) {
+fun OrderInfoCard(
+    modifier: Modifier,
+    status: String,
+    estimatedTime: Date?,
+    riderName: String? = null,
+    riderPhone: String? = null,
+    mapsHealthy: Boolean = true
+) {
     Card(
         modifier = modifier.fillMaxWidth().padding(16.dp),
         shape = RoundedCornerShape(16.dp),
@@ -232,18 +241,20 @@ fun OrderInfoCard(modifier: Modifier, status: String, estimatedTime: Date?, maps
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(status.replace("_", " "), fontWeight = FontWeight.ExtraBold, fontSize = 17.sp, color = MaterialTheme.colorScheme.onSurface)
+                    val displayHeading = if (!riderName.isNullOrBlank()) "Rider: $riderName" else status.replace("_", " ")
+                    Text(displayHeading, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp, color = MaterialTheme.colorScheme.onSurface)
                     estimatedTime?.let {
                         val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
                         Text("Expected by ${sdf.format(it)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                     } ?: Text("Updating location...", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                 }
                 val context = androidx.compose.ui.platform.LocalContext.current
+                val phoneToCall = riderPhone ?: "18001234567"
                 IconButton(onClick = { 
-                    val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:9876543210"))
+                    val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$phoneToCall"))
                     context.startActivity(intent)
                 }) {
-                    Icon(Icons.Default.Call, null, tint = PrimaryGreen)
+                    Icon(Icons.Default.Call, contentDescription = "Call Rider or Support", tint = PrimaryGreen)
                 }
             }
         }

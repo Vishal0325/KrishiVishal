@@ -15,8 +15,18 @@ class PreferencesManager @Inject constructor(context: Context) {
     private val _themeFlow = MutableStateFlow(prefs.getString("theme", "SYSTEM") ?: "SYSTEM")
     val themeFlow: StateFlow<String> = _themeFlow.asStateFlow()
 
+    private val _partnerRoleFlow = MutableStateFlow(prefs.getString("partner_role", "rider") ?: "rider")
+    val partnerRoleFlow: StateFlow<String> = _partnerRoleFlow.asStateFlow()
+
     fun setTheme(theme: String) {
         prefs.edit().putString("theme", theme).apply()
         _themeFlow.value = theme
     }
+
+    fun setPartnerRole(role: String) {
+        val normalized = role.lowercase().trim()
+        prefs.edit().putString("partner_role", normalized).apply()
+        _partnerRoleFlow.value = normalized
+    }
 }
+

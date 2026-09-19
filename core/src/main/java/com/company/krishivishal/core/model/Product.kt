@@ -311,6 +311,12 @@ data class Product(
     @set:PropertyName("technicalNameNormalized")
     var technicalNameNormalized: String = "",
 
+    @ColumnInfo(name = "formulationType")
+    @SerializedName("formulationType")
+    @get:PropertyName("formulationType")
+    @set:PropertyName("formulationType")
+    var formulationType: String = "",
+
     @ColumnInfo(name = "priceBand")
     @SerializedName("priceBand")
     @get:PropertyName("priceBand")

@@ -1,5 +1,6 @@
 package com.company.krishivishal.ui.main
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -184,8 +185,9 @@ fun MainScreen(
         when (currentRoute) {
             Screen.Home.route -> 0
             Screen.Crops.route -> 1
-            Screen.Orders.route -> 2
-            Screen.Profile.route -> 3
+            Screen.Services.route -> 2
+            Screen.Orders.route -> 3
+            Screen.Profile.route -> 4
             else -> -1 // For sub-screens, don't highlight any bottom tab or keep previous
         }
     }
@@ -205,6 +207,7 @@ fun MainScreen(
             val showBottomNav = currentRoute in listOf(
                 Screen.Home.route,
                 Screen.Crops.route,
+                Screen.Services.route,
                 Screen.Orders.route,
                 Screen.Profile.route
             )
@@ -216,8 +219,9 @@ fun MainScreen(
                         val route = when(index) {
                             0 -> Screen.Home.route
                             1 -> Screen.Crops.route
-                            2 -> Screen.Orders.route
-                            3 -> Screen.Profile.route
+                            2 -> Screen.Services.route
+                            3 -> Screen.Orders.route
+                            4 -> Screen.Profile.route
                             else -> Screen.Home.route
                         }
                         navController.navigate(route) {
@@ -235,6 +239,7 @@ fun MainScreen(
             val showFAB = currentRoute in listOf(
                 Screen.Home.route,
                 Screen.Crops.route,
+                Screen.Services.route,
                 Screen.Orders.route,
                 Screen.Profile.route
             )
@@ -279,7 +284,9 @@ fun MainScreen(
                     onViewAllBrands = { navController.navigate(Screen.BrandList.route) },
                     onViewAllProducts = { navController.navigate(Screen.AllProducts.route) },
                     onSearchClick = { navController.navigate(Screen.GlobalSearch.route) },
-                    onFarmProfileClick = { navController.navigate(Screen.FarmProfile.route) }
+                    onFarmProfileClick = { navController.navigate(Screen.FarmProfile.route) },
+                    onServiceClick = { serviceId -> navController.navigate(Screen.ServiceBooking.createRoute(serviceId)) },
+                    onViewAllServices = { navController.navigate(Screen.Services.route) }
                 )
             }
 
@@ -287,6 +294,41 @@ fun MainScreen(
                 CropScreen(
                     onBack = { navController.popBackStack() },
                     onCropClick = { crop -> navController.navigate(Screen.CropDetail.createRoute(crop.id, crop.name)) }
+                )
+            }
+
+            composable(Screen.Services.route) {
+                com.company.krishivishal.ui.services.ServiceListScreen(
+                    onServiceClick = { serviceId ->
+                        navController.navigate(Screen.ServiceBooking.createRoute(serviceId))
+                    }
+                )
+            }
+
+            composable(
+                route = Screen.ServiceBooking.route,
+                arguments = listOf(navArgument("serviceId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val serviceId = backStackEntry.arguments?.getString("serviceId") ?: ""
+                com.company.krishivishal.ui.services.ServiceBookingScreen(
+                    serviceId = serviceId,
+                    onBack = { navController.popBackStack() },
+                    onBookingSuccess = { bookingId ->
+                        navController.navigate(Screen.BookingTracking.createRoute(bookingId)) {
+                            popUpTo(Screen.Services.route)
+                        }
+                    }
+                )
+            }
+
+            composable(
+                route = Screen.BookingTracking.route,
+                arguments = listOf(navArgument("bookingId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val bookingId = backStackEntry.arguments?.getString("bookingId") ?: ""
+                com.company.krishivishal.ui.services.BookingTrackingScreen(
+                    bookingId = bookingId,
+                    onBack = { navController.navigate(Screen.Home.route) { popUpTo(0) } }
                 )
             }
 

@@ -211,6 +211,12 @@ data class Product(
     @set:PropertyName("unit")
     var unit: String = "",
 
+    @ColumnInfo(name = "formulationType")
+    @SerializedName("formulationType")
+    @get:PropertyName("formulationType")
+    @set:PropertyName("formulationType")
+    var formulationType: String = "",
+
     @ColumnInfo(name = "weight")
     @SerializedName("weight")
     @get:PropertyName("weight")

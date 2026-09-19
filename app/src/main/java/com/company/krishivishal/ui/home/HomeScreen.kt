@@ -68,10 +68,14 @@ fun HomeScreen(
     onViewAllProducts: () -> Unit = {},
     onSearchClick: () -> Unit = {},
     onFarmProfileClick: () -> Unit = {},
-    viewModel: HomeViewModel = hiltViewModel()
+    onServiceClick: (String) -> Unit = {},
+    onViewAllServices: () -> Unit = {},
+    viewModel: HomeViewModel = hiltViewModel(),
+    serviceViewModel: com.company.krishivishal.ui.services.ServiceViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val pagedProducts = viewModel.pagedProducts.collectAsLazyPagingItems()
+    val services by serviceViewModel.services.collectAsState()
     
     // Move notification logic to top level for stability
     val notificationViewModel: NotificationViewModel = hiltViewModel()
@@ -311,6 +315,31 @@ fun HomeScreen(
                             ) {
                                 items(uiState.brands, key = { it.id.ifEmpty { "brand_${it.name}" } }) { brand ->
                                     BrandItem(brand = brand, onClick = { onBrandClick(brand.name) })
+                                }
+                            }
+                        }
+                    }
+
+                    // Agri Services Marketplace Section on Home
+                    if (services.isNotEmpty()) {
+                        item {
+                            SectionHeader(title = "कृषि सेवाएं (Agri Services)", onViewAll = onViewAllServices)
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(services, key = { it.id }) { service ->
+                                    Box(modifier = Modifier.width(165.dp)) {
+                                        HomeServiceItem(
+                                            service = service,
+                                            onClick = { onServiceClick(service.id) },
+                                            onBookNow = { onServiceClick(service.id) },
+                                            onShare = {
+                                                val text = "🌾 *${service.name}*\n${service.description}\n💰 मूल्य: ₹${service.baseRate.toInt()}\nKrishiVishal App पर अभी बुक करें!"
+                                                ShareUtils.shareText(context, text)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }

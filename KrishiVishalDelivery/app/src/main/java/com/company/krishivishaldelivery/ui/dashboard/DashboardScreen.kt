@@ -51,10 +51,14 @@ fun DashboardScreen(
     onReturnClick: (String) -> Unit,
     onScanClick: () -> Unit,
     onReconciliationClick: () -> Unit = {},
+    onServiceJobClick: (String, String) -> Unit,
+    onWalletClick: () -> Unit = {},
+    onSkillsClick: () -> Unit = {},
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val ordersResource by viewModel.orders.collectAsState()
     val returnsResource by viewModel.returns.collectAsState()
+    val activeServiceBooking by viewModel.activeServiceBooking.collectAsState()
     val optimizedTrip by viewModel.optimizedTrip.collectAsState()
     val isConnected by viewModel.isConnected.collectAsState()
     val pendingSyncCount by viewModel.pendingSyncCount.collectAsState()
@@ -63,11 +67,32 @@ fun DashboardScreen(
     val codCashInHand by viewModel.codCashInHand.collectAsState()
     val isCodVaultLimitExceeded by viewModel.isCodVaultLimitExceeded.collectAsState()
     
+    val partnerRole by viewModel.partnerRole.collectAsState()
+    val partnerWallet by viewModel.partnerWallet.collectAsState()
+    val riderProfileResource by viewModel.riderProfile.collectAsState()
+    val rider = (riderProfileResource as? Resource.Success)?.data
+
+    val isServiceMan = partnerRole == "service_man"
+    val isBoth = partnerRole == "both"
+
+    val tabs = remember(partnerRole) {
+        when {
+            isServiceMan -> listOf("Services")
+            isBoth -> listOf("Deliveries", "Returns", "Services")
+            else -> listOf("Deliveries", "Returns")
+        }
+    }
+
     val context = LocalContext.current
     var isOnline by remember { mutableStateOf(false) }
     var showSOSDialog by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Deliveries", "Returns")
+
+    LaunchedEffect(tabs) {
+        if (selectedTab >= tabs.size) {
+            selectedTab = 0
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -83,7 +108,16 @@ fun DashboardScreen(
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("Assigned Orders", fontWeight = FontWeight.Bold) },
+                    title = {
+                        Text(
+                            when {
+                                isServiceMan -> "Service Partner Dashboard"
+                                isBoth -> "Partner & Delivery Dashboard"
+                                else -> "Assigned Orders"
+                            },
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
                     actions = {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 8.dp)) {
                             Text(if (isOnline) "Online" else "Offline", color = Color.White, fontSize = 14.sp)
@@ -112,17 +146,19 @@ fun DashboardScreen(
                     )
                 )
                 
-                TabRow(
-                    selectedTabIndex = selectedTab, 
-                    containerColor = MaterialTheme.colorScheme.primary, 
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ) {
-                    tabs.forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            text = { Text(title, fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal) }
-                        )
+                if (tabs.size > 1) {
+                    TabRow(
+                        selectedTabIndex = selectedTab, 
+                        containerColor = MaterialTheme.colorScheme.primary, 
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ) {
+                        tabs.forEachIndexed { index, title ->
+                            Tab(
+                                selected = selectedTab == index,
+                                onClick = { selectedTab = index },
+                                text = { Text(title, fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal) }
+                            )
+                        }
                     }
                 }
                 
@@ -145,24 +181,46 @@ fun DashboardScreen(
                 ) {
                     Text("SOS", fontWeight = FontWeight.Bold)
                 }
-                Spacer(modifier = Modifier.height(16.dp))
-                FloatingActionButton(
-                    onClick = onScanClick,
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.height(64.dp).widthIn(min = 160.dp)
-                ) {
-                    Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.QrCodeScanner, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Scan to Pick", fontWeight = FontWeight.Bold)
+                val showScanFab = !isServiceMan && (selectedTab == 0 || (isBoth && selectedTab != 2))
+                if (showScanFab) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    FloatingActionButton(
+                        onClick = onScanClick,
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.height(64.dp).widthIn(min = 160.dp)
+                    ) {
+                        Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.QrCodeScanner, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Scan to Pick", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
         }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background)) {
-            if (selectedTab == 0) {
+            val currentTabTitle = tabs.getOrNull(selectedTab) ?: "Deliveries"
+
+            if (isServiceMan || (isBoth && currentTabTitle == "Services")) {
+                // Dedicated Service Partner View
+                ServicePartnerDashboardContent(
+                    activeBooking = activeServiceBooking,
+                    wallet = partnerWallet,
+                    skills = rider?.serviceSkills ?: emptyList(),
+                    equipment = rider?.serviceEquipment ?: emptyList(),
+                    kycStatus = rider?.kycStatus ?: "NOT_SUBMITTED",
+                    onServiceJobClick = onServiceJobClick,
+                    onWalletClick = onWalletClick,
+                    onSkillsClick = onSkillsClick,
+                    onSyncCloud = {
+                        com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid?.let {
+                            viewModel.syncData(it)
+                        }
+                    }
+                )
+            } else if (currentTabTitle == "Deliveries") {
                 // Deliveries Tab
                 when (val res = ordersResource) {
                     is Resource.Loading<*> -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.primary)
@@ -171,6 +229,44 @@ fun DashboardScreen(
                         val trip = optimizedTrip
                         
                         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            // 0. Active Service Booking Card (Only shown if partner has delivery + service role)
+                            if (isBoth && activeServiceBooking != null) {
+                                item {
+                                    Card(
+                                        onClick = { onServiceJobClick(activeServiceBooking!!.id, activeServiceBooking!!.status) },
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+                                        elevation = CardDefaults.cardElevation(4.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Text(
+                                                    "Active Job: ${activeServiceBooking!!.serviceName}",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 16.sp,
+                                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                                )
+                                                Text(
+                                                    "Status: ${activeBookingStatusText(activeServiceBooking!!.status)}",
+                                                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f),
+                                                    fontSize = 14.sp
+                                                )
+                                            }
+                                            Icon(
+                                                Icons.Default.ArrowForward,
+                                                contentDescription = "Execute",
+                                                tint = MaterialTheme.colorScheme.onTertiaryContainer
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
                             // 1. Cash Limit Security (COD Vault Limit) Banner
                             if (isCodVaultLimitExceeded || codCashInHand >= 10000.0) {
                                 item {
@@ -186,6 +282,7 @@ fun DashboardScreen(
                             item {
                                 IncentiveProgressCard(incentiveProgress)
                             }
+
                             
                             item {
                                 OutlinedButton(
@@ -707,3 +804,272 @@ private fun triggerSOSWithLocation(
             onLocation(0.0, 0.0)
         }
 }
+
+private fun activeBookingStatusText(status: String): String {
+    return when (status) {
+        "ASSIGNED" -> "कार्य सौंपा गया (Assigned)"
+        "ON_THE_WAY" -> "रास्ते में हैं (On the way)"
+        "REACHED_FARM" -> "खेत पर पहुंचे (Reached Farm)"
+        "IN_PROGRESS" -> "स्प्रे / कार्य जारी (In Progress)"
+        "COMPLETED" -> "कार्य पूरा हुआ (Completed)"
+        else -> status
+    }
+}
+
+@Composable
+fun ServicePartnerDashboardContent(
+    activeBooking: com.company.krishivishaldelivery.data.model.ServiceBooking?,
+    wallet: com.company.krishivishaldelivery.data.model.PartnerWallet?,
+    skills: List<String>,
+    equipment: List<String>,
+    kycStatus: String,
+    onServiceJobClick: (String, String) -> Unit,
+    onWalletClick: () -> Unit,
+    onSkillsClick: () -> Unit,
+    onSyncCloud: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 1. Active Service Job Card
+        item {
+            if (activeBooking != null) {
+                Card(
+                    onClick = { onServiceJobClick(activeBooking.id, activeBooking.status) },
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                    elevation = CardDefaults.cardElevation(4.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.primary,
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    "ACTIVE SERVICE TASK",
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                            Text(
+                                activeBookingStatusText(activeBooking.status),
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            activeBooking.serviceName,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 18.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        if ((activeBooking.farmArea ?: 0.0) > 0.0) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Farm Area: ${activeBooking.farmArea} ${activeBooking.areaUnit}", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = { onServiceJobClick(activeBooking.id, activeBooking.status) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Start / Continue Service Job", fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            } else {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.Agriculture,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "No Active Service Bookings",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "You are currently marked Online. When a nearby farmer books Drone Spraying, Soil Testing or Farm Advisory, the job alert will appear on your screen.",
+                            fontSize = 12.sp,
+                            color = Color.Gray,
+                            lineHeight = 18.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+
+        // 2. Partner Wallet Quick Card
+        item {
+            Card(
+                onClick = onWalletClick,
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(2.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Partner Wallet", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text("Commission Balance: ₹${wallet?.balance ?: 0.0}", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Icon(Icons.Default.ChevronRight, contentDescription = "Open Wallet", tint = Color.Gray)
+                }
+            }
+        }
+
+        // 3. My Skills & Equipment Card
+        item {
+            Card(
+                onClick = onSkillsClick,
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(2.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Build, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text("Registered Skills & Tools", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text("${skills.size} skills configured", fontSize = 12.sp, color = Color.Gray)
+                            }
+                        }
+                        Icon(Icons.Default.ChevronRight, contentDescription = "Edit Skills", tint = Color.Gray)
+                    }
+                    if (skills.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            skills.take(3).forEach { skill ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                                ) {
+                                    Text(
+                                        skill,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. KYC Status Card
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (kycStatus == "VERIFIED") Color(0xFFE8F5E9) else Color(0xFFFFF3E0)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp).fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        if (kycStatus == "VERIFIED") Icons.Default.Verified else Icons.Default.Info,
+                        contentDescription = null,
+                        tint = if (kycStatus == "VERIFIED") Color(0xFF2E7D32) else Color(0xFFE65100),
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            if (kycStatus == "VERIFIED") "KYC Verified Partner" else "KYC Document Status: $kycStatus",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = if (kycStatus == "VERIFIED") Color(0xFF2E7D32) else Color(0xFFE65100)
+                        )
+                        Text(
+                            if (kycStatus == "VERIFIED") "Eligible for high-value spraying and equipment jobs" else "Upload DL & Aadhaar in profile for instant job matching",
+                            fontSize = 11.sp,
+                            color = Color.DarkGray
+                        )
+                    }
+                }
+            }
+        }
+
+        // 5. Cloud Sync Button
+        item {
+            OutlinedButton(
+                onClick = onSyncCloud,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color.LightGray)
+            ) {
+                Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Sync Cloud Data", color = Color.Gray, fontSize = 12.sp)
+            }
+        }
+    }
+}
+

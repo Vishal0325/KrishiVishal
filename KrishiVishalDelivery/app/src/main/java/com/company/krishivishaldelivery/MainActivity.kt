@@ -43,6 +43,19 @@ class MainActivity : ComponentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Wake up screen & show over lockscreen for Incoming Job Alerts
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
+
         setContent {
             val themePref by preferencesManager.themeFlow.collectAsState()
             val darkTheme = when (themePref) {
@@ -115,13 +128,14 @@ class MainActivity : ComponentActivity() {
                 val startDestination = if (FirebaseAuth.getInstance().currentUser != null) "dashboard" else "login"
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentDestination = navBackStackEntry?.destination
-                val showBottomBar = currentDestination?.route in listOf("dashboard", "earnings", "profile")
+                val partnerRole by dashboardViewModel.partnerRole.collectAsState()
+                val showBottomBar = currentDestination?.route in listOf("dashboard", "earnings", "profile", "partner_wallet")
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
                         if (showBottomBar) {
-                            BottomNavigationBar(navController, currentDestination)
+                            BottomNavigationBar(navController, currentDestination, partnerRole)
                         }
                     }
                 ) { innerPadding ->
@@ -140,14 +154,23 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun BottomNavigationBar(
         navController: androidx.navigation.NavHostController,
-        currentDestination: androidx.navigation.NavDestination?
+        currentDestination: androidx.navigation.NavDestination?,
+        partnerRole: String
     ) {
         NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-            val items = listOf(
-                BottomNavItem("dashboard", "Home", Icons.Default.Home),
-                BottomNavItem("earnings", "Earnings", Icons.Default.Payments),
-                BottomNavItem("profile", "Profile", Icons.Default.Person)
-            )
+            val items = if (partnerRole == "service_man") {
+                listOf(
+                    BottomNavItem("dashboard", "Home", Icons.Default.Home),
+                    BottomNavItem("partner_wallet", "Wallet", Icons.Default.AccountBalanceWallet),
+                    BottomNavItem("profile", "Profile", Icons.Default.Person)
+                )
+            } else {
+                listOf(
+                    BottomNavItem("dashboard", "Home", Icons.Default.Home),
+                    BottomNavItem("earnings", "Earnings", Icons.Default.Payments),
+                    BottomNavItem("profile", "Profile", Icons.Default.Person)
+                )
+            }
             items.forEach { item ->
                 NavigationBarItem(
                     icon = { Icon(item.icon, contentDescription = item.label) },

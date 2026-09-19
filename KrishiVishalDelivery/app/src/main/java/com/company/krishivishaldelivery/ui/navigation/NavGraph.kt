@@ -2,7 +2,12 @@ package com.company.krishivishaldelivery.ui.navigation
 
 import android.widget.Toast
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
+
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -56,6 +61,15 @@ fun AppNavGraph(
                 },
                 onReconciliationClick = {
                     navController.navigate("reconciliation")
+                },
+                onServiceJobClick = { bookingId, status ->
+                    navController.navigate("partner_job_execution/$bookingId/$status")
+                },
+                onWalletClick = {
+                    navController.navigate("partner_wallet")
+                },
+                onSkillsClick = {
+                    navController.navigate("partner_skills")
                 }
             )
         }
@@ -96,6 +110,12 @@ fun AppNavGraph(
                 },
                 onSupportClick = {
                     navController.navigate("support")
+                },
+                onPartnerWalletClick = {
+                    navController.navigate("partner_wallet")
+                },
+                onPartnerSkillsClick = {
+                    navController.navigate("partner_skills")
                 }
             )
         }
@@ -158,5 +178,99 @@ fun AppNavGraph(
                 viewModel = viewModel
             )
         }
+
+        // Partner Job Screens
+        composable(
+            route = "partner_job_alert/{serviceName}?location={location}&area={area}&earnings={earnings}",
+            arguments = listOf(
+                navArgument("serviceName") { type = NavType.StringType },
+                navArgument("location") { type = NavType.StringType; nullable = true; defaultValue = "Farm Plot" },
+                navArgument("area") { type = NavType.StringType; nullable = true; defaultValue = "Unknown Area" },
+                navArgument("earnings") { type = NavType.StringType; nullable = true; defaultValue = "0.0" }
+            ),
+            deepLinks = listOf(androidx.navigation.navDeepLink { uriPattern = "krishivishal://job_alert/{serviceName}?location={location}&area={area}&earnings={earnings}" })
+        ) { backStackEntry ->
+            val serviceName = backStackEntry.arguments?.getString("serviceName") ?: "Service"
+            val location = backStackEntry.arguments?.getString("location") ?: "Farm Plot"
+            val area = backStackEntry.arguments?.getString("area") ?: "Unknown Area"
+            val earnings = backStackEntry.arguments?.getString("earnings")?.toDoubleOrNull() ?: 0.0
+            
+            com.company.krishivishaldelivery.ui.partner.IncomingJobAlertScreen(
+                serviceName = serviceName,
+                farmLocationText = location,
+                farmArea = area,
+                estimatedEarnings = earnings,
+                onAccept = {
+                    navController.navigate("partner_job_execution/ON_THE_WAY") {
+                        popUpTo("dashboard")
+                    }
+                },
+                onDecline = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = "partner_job_execution/{bookingId}/{jobStatus}",
+            arguments = listOf(
+                navArgument("bookingId") { type = NavType.StringType },
+                navArgument("jobStatus") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val bookingId = backStackEntry.arguments?.getString("bookingId") ?: ""
+            val jobStatus = backStackEntry.arguments?.getString("jobStatus") ?: "ON_THE_WAY"
+            com.company.krishivishaldelivery.ui.partner.JobExecutionScreen(
+                bookingId = bookingId,
+                jobStatus = jobStatus,
+                viewModel = dashboardViewModel,
+                onNavigateHome = {
+                    navController.navigate("dashboard") {
+                        popUpTo("dashboard") { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        composable("partner_wallet") {
+            val walletState by dashboardViewModel.partnerWallet.collectAsState()
+            val transactionsState by dashboardViewModel.walletTransactions.collectAsState()
+            val scope = rememberCoroutineScope()
+
+            com.company.krishivishaldelivery.ui.partner.PartnerWalletScreen(
+                wallet = walletState,
+                transactions = transactionsState,
+                onRecharge = { amount ->
+                    scope.launch {
+                        dashboardViewModel.rechargePartnerWallet(amount)
+                    }
+                },
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable("partner_skills") {
+            val scope = rememberCoroutineScope()
+            val riderProfileRes by dashboardViewModel.riderProfile.collectAsState()
+            val currentSkills = (riderProfileRes as? com.company.krishivishal.core.util.Resource.Success)?.data?.serviceSkills ?: emptyList()
+            val currentEquipment = (riderProfileRes as? com.company.krishivishal.core.util.Resource.Success)?.data?.serviceEquipment ?: emptyList()
+
+            com.company.krishivishaldelivery.ui.partner.PartnerSkillsScreen(
+                currentSkills = currentSkills,
+                currentEquipment = currentEquipment,
+                onSaveSkills = { skills, equipment ->
+                    scope.launch {
+                        val success = dashboardViewModel.updatePartnerSkills(skills, equipment)
+                        if (success) {
+                            Toast.makeText(context, "Skills updated successfully!", Toast.LENGTH_SHORT).show()
+                            navController.popBackStack()
+                        } else {
+                            Toast.makeText(context, "Failed to update skills. Please try again.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+
     }
 }

@@ -30,7 +30,12 @@ class RiderLocationService : Service() {
     lateinit var riderRepository: RiderRepository
 
     @Inject
+    lateinit var orderRepository: com.company.krishivishaldelivery.data.repository.OrderRepository
+
+    @Inject
     lateinit var auth: FirebaseAuth
+
+    private var currentOrderId: String? = null
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -61,6 +66,7 @@ class RiderLocationService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val orderStatus = intent?.getStringExtra("ORDER_STATUS") ?: "IDLE"
+        currentOrderId = intent?.getStringExtra("ORDER_ID")
         when (intent?.action) {
             ACTION_START, ACTION_IN_TRANSIT, ACTION_AT_DELIVERY -> startForegroundService(orderStatus)
             ACTION_STOP -> stopSelf()
@@ -124,6 +130,11 @@ class RiderLocationService : Service() {
         val riderId = auth.currentUser?.uid ?: return
         serviceScope.launch {
             riderRepository.updateRiderLocation(riderId, location.latitude, location.longitude)
+            currentOrderId?.let { orderId ->
+                if (orderId.isNotBlank()) {
+                    orderRepository.updateOrderLocation(orderId, location.latitude, location.longitude)
+                }
+            }
         }
     }
 

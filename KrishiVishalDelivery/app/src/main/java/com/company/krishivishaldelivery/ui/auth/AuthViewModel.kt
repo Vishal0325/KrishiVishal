@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import com.company.krishivishaldelivery.data.local.PreferencesManager
 import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -28,7 +29,9 @@ import javax.inject.Inject
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val auth: FirebaseAuth,
-    private val firestore: FirebaseFirestore
+    private val firestore: FirebaseFirestore,
+    private val preferencesManager: PreferencesManager,
+    private val functions: com.google.firebase.functions.FirebaseFunctions
 ) : ViewModel() {
 
     companion object {
@@ -240,55 +243,37 @@ class AuthViewModel @Inject constructor(
                                     ?: firebaseUser.displayName
                                     ?: "Delivery Rider"
 
-                                // D5: Atomic Batch Write for all collections
-                                val batch = firestore.batch()
+                                val assignedRole = whitelistedDoc?.getString("role")
+                                    ?: riderDoc?.getString("partnerRole")
+                                    ?: riderDoc?.getString("role")
+                                    ?: userDoc?.getString("partnerRole")
+                                    ?: "rider"
 
-                                // 1. Set riders collection
-                                val riderRef = firestore.collection("riders").document(firebaseUser.uid)
-                                val riderData = mapOf(
-                                    "id" to firebaseUser.uid,
-                                    "phone" to normalizedPhone,
-                                    "name" to riderName,
-                                    "role" to "Rider",
-                                    "riderSerialId" to serialId,
-                                    "riderIdDisplay" to displayId,
-                                    "status" to "ACTIVE",
-                                    "online" to true,
-                                    "updatedAt" to FieldValue.serverTimestamp()
-                                )
-                                batch.set(riderRef, riderData, SetOptions.merge())
+                                preferencesManager.setPartnerRole(assignedRole)
 
-                                // 2. Set users collection
+                                // Server-authoritative role claim provisioning via Cloud Function
+                                try {
+                                    functions.getHttpsCallable("claimRiderRole").call().await()
+                                    firebaseUser.getIdToken(true).await()
+                                    android.util.Log.i(TAG, "Server claimRiderRole succeeded and token refreshed: $displayId")
+                                } catch (e: Exception) {
+                                    android.util.Log.w(TAG, "claimRiderRole warning: ${e.message}")
+                                }
+
+                                // Update users collection without protected fields (no 'role', no 'whitelisted_riders' write)
                                 val userRef = firestore.collection("users").document(firebaseUser.uid)
                                 val userData = mutableMapOf<String, Any>(
                                     "id" to firebaseUser.uid,
                                     "phone" to normalizedPhone,
                                     "name" to riderName,
+                                    "partnerRole" to assignedRole,
                                     "riderSerialId" to serialId,
                                     "riderIdDisplay" to displayId,
                                     "updatedAt" to FieldValue.serverTimestamp()
                                 )
-                                // Do not update role if user already exists to avoid Permission Denied
-                                if (userDoc == null || !userDoc.exists()) {
-                                    userData["role"] = "Rider"
-                                }
-                                batch.set(userRef, userData, SetOptions.merge())
+                                userRef.set(userData, SetOptions.merge()).await()
 
-                                // 3. Set whitelisted_riders collection only if they were actually whitelisted
-                                if (whitelistedDoc != null && whitelistedDoc.exists()) {
-                                    val whitelistUpdate = mapOf(
-                                        "status" to "REGISTERED",
-                                        "uid" to firebaseUser.uid,
-                                        "riderIdDisplay" to displayId,
-                                        "registeredAt" to FieldValue.serverTimestamp()
-                                    )
-                                    val wRef1 = firestore.collection("whitelisted_riders").document(whitelistedDoc.id)
-                                    batch.set(wRef1, whitelistUpdate, SetOptions.merge())
-                                }
-
-                                batch.commit().await()
-
-                                android.util.Log.i(TAG, "Rider login authorized and committed atomically: $displayId")
+                                android.util.Log.i(TAG, "Rider login authorized and committed: $displayId")
                                 _isLoading.value = false
                                 _uiEvent.emit(AuthUiEvent.LoginSuccess)
                             } catch (e: Exception) {

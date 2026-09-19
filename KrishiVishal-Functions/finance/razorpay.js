@@ -2,6 +2,7 @@ const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https")
 const crypto = require("crypto");
 const { db, admin } = require("../core/admin");
 const Razorpay = require("razorpay");
+const { razorpayKeySecret, razorpayWebhookSecret, razorpayKeyId, getSecretVal } = require("../core/secrets");
 
 const REGION = 'asia-south1';
 
@@ -9,7 +10,7 @@ const REGION = 'asia-south1';
  * Hardened verifyPayment: Focuses on verification and status update.
  * Accounting is handled by the downstream onOrderPaidLedger trigger.
  */
-exports.verifyPayment = onCall({ region: REGION }, async (request) => {
+exports.verifyPayment = onCall({ region: REGION, secrets: [razorpayKeySecret] }, async (request) => {
     const data = request.data || {};
     const context = { auth: request.auth };
 
@@ -21,8 +22,8 @@ exports.verifyPayment = onCall({ region: REGION }, async (request) => {
         throw new HttpsError('invalid-argument', 'Missing mandatory payment details.');
     }
 
-    const keyId = process.env.RAZORPAY_KEY_ID;
-    const secret = process.env.RAZORPAY_KEY_SECRET;
+    const keyId = getSecretVal(razorpayKeyId, 'RAZORPAY_KEY_ID');
+    const secret = getSecretVal(razorpayKeySecret, 'RAZORPAY_KEY_SECRET');
     if (!keyId || !secret) throw new HttpsError('internal', 'Razorpay credentials not configured.');
 
     const rzp = new Razorpay({ key_id: keyId, key_secret: secret });
@@ -104,8 +105,8 @@ exports.verifyPayment = onCall({ region: REGION }, async (request) => {
 /**
  * Hardened Razorpay Webhook with Idempotency and Integrity checks.
  */
-exports.razorpayWebhook = onRequest({ region: REGION }, async (req, res) => {
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+exports.razorpayWebhook = onRequest({ region: REGION, secrets: [razorpayWebhookSecret] }, async (req, res) => {
+    const secret = getSecretVal(razorpayWebhookSecret, 'RAZORPAY_WEBHOOK_SECRET');
     if (!secret) return res.status(500).json({ error: 'Config missing.' });
 
     const signature = req.headers["x-razorpay-signature"];

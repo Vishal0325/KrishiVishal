@@ -37,6 +37,8 @@ fun ProfileScreen(
     onLogout: () -> Unit,
     onSettingsClick: () -> Unit,
     onSupportClick: () -> Unit = {},
+    onPartnerWalletClick: () -> Unit = {},
+    onPartnerSkillsClick: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val auth = FirebaseAuth.getInstance()
@@ -123,12 +125,27 @@ fun ProfileScreen(
             }
 
             item {
+                val currentRole = when {
+                    rider?.partnerRole?.isNotBlank() == true -> rider.partnerRole.lowercase().trim()
+                    rider?.role?.isNotBlank() == true -> rider.role.lowercase().trim()
+                    else -> "rider"
+                }
+                val isServiceMan = currentRole == "service_man"
+                val isBoth = currentRole == "both"
+
+                if (isServiceMan || isBoth) {
+                    ProfileOption(Icons.Default.AccountBalanceWallet, "Partner Commission Wallet", "View balance & recharge") { onPartnerWalletClick() }
+                    ProfileOption(Icons.Default.Agriculture, "My Skills & Equipment", "${rider?.serviceSkills?.size ?: 0} skills selected • Tap to update") { onPartnerSkillsClick() }
+                }
                 ProfileOption(Icons.Default.VerifiedUser, "KYC & Verification Docs", "${rider?.documents?.size ?: 0} Uploaded • Tap to update") { showKycDialog = true }
                 ProfileOption(Icons.Default.AccountBalance, "Bank Details", rider?.bankAccount?.ifBlank { "Add Account" } ?: "Add Account") { showEditDialog = true }
-                ProfileOption(Icons.AutoMirrored.Filled.DirectionsBike, "Vehicle Details", "${rider?.vehicleType ?: "BIKE"}: ${rider?.vehicleNumber?.ifBlank { "Add Number" } ?: "Add Number"}") { showEditDialog = true }
+                if (!isServiceMan) {
+                    ProfileOption(Icons.AutoMirrored.Filled.DirectionsBike, "Vehicle Details", "${rider?.vehicleType ?: "BIKE"}: ${rider?.vehicleNumber?.ifBlank { "Add Number" } ?: "Add Number"}") { showEditDialog = true }
+                }
                 ProfileOption(Icons.Default.Settings, "App Settings", "Theme, Notifications") { onSettingsClick() }
                 ProfileOption(Icons.Default.SupportAgent, "Contact Support", "24/7 help available") { onSupportClick() }
                 ProfileOption(Icons.Default.DeleteForever, stringResource(R.string.delete_account_data), "Permanent removal") { showDeleteConfirm = true }
+
                 
                 Spacer(modifier = Modifier.height(32.dp))
                 Button(

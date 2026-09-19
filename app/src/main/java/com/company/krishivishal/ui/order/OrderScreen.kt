@@ -1,49 +1,62 @@
 package com.company.krishivishal.ui.order
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.ShoppingBag
-import androidx.compose.material.icons.filled.Print
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
-import androidx.compose.ui.res.stringResource
 import com.company.krishivishal.R
+import com.company.krishivishal.core.model.AppConfig
 import com.company.krishivishal.core.model.Order
+import com.company.krishivishal.core.model.OrderItem
 import com.company.krishivishal.core.model.OrderStatus
-import com.company.krishivishal.ui.theme.PrimaryGreen
 import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.ui.components.EmptyState
+import com.company.krishivishal.ui.theme.PrimaryGreen
+import com.company.krishivishal.utils.PrintHelper
 import java.text.SimpleDateFormat
-import java.util.Locale
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.ui.semantics.Role
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.ui.semantics.semantics
+import java.util.*
+
+enum class OrderFilterTab(val label: String) {
+    ALL("All"),
+    ACTIVE("Active"),
+    DELIVERED("Delivered"),
+    CANCELLED("Cancelled/Returned")
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,6 +72,8 @@ fun OrderScreen(
     var selectedOrderId by remember { mutableStateOf<String?>(null) }
     var orderToCancel by remember { mutableStateOf<Order?>(null) }
     var orderToReturn by remember { mutableStateOf<Order?>(null) }
+    var itemToReview by remember { mutableStateOf<Pair<Order, OrderItem>?>(null) }
+    var selectedTab by remember { mutableStateOf(OrderFilterTab.ALL) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -77,11 +92,47 @@ fun OrderScreen(
         }
     }
 
+    val filteredOrders = remember(uiState.orders, selectedTab) {
+        when (selectedTab) {
+            OrderFilterTab.ALL -> uiState.orders
+            OrderFilterTab.ACTIVE -> uiState.orders.filter {
+                it.orderStatus in listOf(
+                    OrderStatus.PLACED,
+                    OrderStatus.CONFIRMED,
+                    OrderStatus.PROCUREMENT_PENDING,
+                    OrderStatus.ASSIGNED,
+                    OrderStatus.PICKED_UP,
+                    OrderStatus.SHIPPED,
+                    OrderStatus.OUT_FOR_DELIVERY
+                )
+            }
+            OrderFilterTab.DELIVERED -> uiState.orders.filter { it.orderStatus == OrderStatus.DELIVERED }
+            OrderFilterTab.CANCELLED -> uiState.orders.filter {
+                it.orderStatus in listOf(OrderStatus.CANCELLED, OrderStatus.RETURNED)
+            }
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(if (selectedOrderId == null) "My Orders" else "Order Details", fontWeight = FontWeight.Bold) },
+                title = {
+                    Column {
+                        Text(
+                            text = if (selectedOrderId == null) "My Orders" else "Order Details",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
+                        if (uiState.orders.isNotEmpty()) {
+                            Text(
+                                text = "${uiState.orders.size} Total Orders",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = {
                         if (selectedOrderId != null) selectedOrderId = null
@@ -94,44 +145,92 @@ fun OrderScreen(
             )
         }
     ) { padding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(MaterialTheme.colorScheme.background)
+                .background(Color(0xFFF5F5F5))
         ) {
-            if (uiState.isLoading && uiState.orders.isEmpty()) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = PrimaryGreen)
-            } else if (uiState.error != null && uiState.orders.isEmpty()) {
-                Text(text = "Error: ${uiState.error}", modifier = Modifier.align(Alignment.Center), color = Color.Red)
-            } else if (uiState.orders.isEmpty()) {
-                EmptyState(
-                    icon = Icons.Default.ShoppingBag,
-                    title = "No orders placed yet",
-                    description = "Looks like you haven't ordered anything. Start exploring our fresh products!",
-                    actionText = "Start Shopping",
-                    onActionClick = onBack
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+            // Status Filter Tabs
+            if (uiState.orders.isNotEmpty()) {
+                ScrollableTabRow(
+                    selectedTabIndex = selectedTab.ordinal,
+                    edgePadding = 16.dp,
+                    containerColor = Color.White,
+                    contentColor = PrimaryGreen,
+                    divider = { HorizontalDivider(thickness = 0.5.dp, color = Color(0xFFE0E0E0)) }
                 ) {
-                    items(uiState.orders, key = { it.id }) { order ->
-                        OrderItemCard(
-                            order = order,
-                            isExpanded = selectedOrderId == order.id,
-                            appConfig = appConfig,
-                            viewModel = viewModel,
-                            onExpandClick = {
-                                selectedOrderId = if (selectedOrderId == order.id) null else order.id
-                            },
-                            onCancelClick = { orderToCancel = it },
-                            onReturnClick = { orderToReturn = it },
-                            onTrackClick = { onTrackClick(order.id) },
-                            onViewBillClick = { onViewBillClick(order) }
+                    OrderFilterTab.values().forEach { tab ->
+                        val count = remember(uiState.orders, tab) {
+                            when (tab) {
+                                OrderFilterTab.ALL -> uiState.orders.size
+                                OrderFilterTab.ACTIVE -> uiState.orders.count {
+                                    it.orderStatus in listOf(
+                                        OrderStatus.PLACED, OrderStatus.CONFIRMED,
+                                        OrderStatus.PROCUREMENT_PENDING, OrderStatus.ASSIGNED,
+                                        OrderStatus.PICKED_UP, OrderStatus.SHIPPED, OrderStatus.OUT_FOR_DELIVERY
+                                    )
+                                }
+                                OrderFilterTab.DELIVERED -> uiState.orders.count { it.orderStatus == OrderStatus.DELIVERED }
+                                OrderFilterTab.CANCELLED -> uiState.orders.count {
+                                    it.orderStatus in listOf(OrderStatus.CANCELLED, OrderStatus.RETURNED)
+                                }
+                            }
+                        }
+                        Tab(
+                            selected = selectedTab == tab,
+                            onClick = { selectedTab = tab },
+                            text = {
+                                Text(
+                                    text = "${tab.label} ($count)",
+                                    fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 13.sp
+                                )
+                            }
                         )
+                    }
+                }
+            }
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (uiState.isLoading && uiState.orders.isEmpty()) {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = PrimaryGreen)
+                } else if (uiState.error != null && uiState.orders.isEmpty()) {
+                    Text(
+                        text = "Error: ${uiState.error}",
+                        modifier = Modifier.align(Alignment.Center),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                } else if (filteredOrders.isEmpty()) {
+                    EmptyState(
+                        icon = Icons.Default.ShoppingBag,
+                        title = if (uiState.orders.isEmpty()) "No orders placed yet" else "No orders in this filter",
+                        description = if (uiState.orders.isEmpty()) "Start exploring our fresh agricultural products!" else "Try selecting another tab.",
+                        actionText = "Start Shopping",
+                        onActionClick = onBack
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        items(filteredOrders, key = { it.id }) { order ->
+                            ReferenceOrderItemCard(
+                                order = order,
+                                isExpanded = selectedOrderId == order.id,
+                                appConfig = appConfig,
+                                viewModel = viewModel,
+                                onExpandClick = {
+                                    selectedOrderId = if (selectedOrderId == order.id) null else order.id
+                                },
+                                onCancelClick = { orderToCancel = it },
+                                onReturnClick = { orderToReturn = it },
+                                onTrackClick = { onTrackClick(order.id) },
+                                onViewBillClick = { onViewBillClick(order) },
+                                onWriteReviewClick = { item -> itemToReview = Pair(order, item) }
+                            )
+                        }
                     }
                 }
             }
@@ -162,197 +261,405 @@ fun OrderScreen(
                 )
             }
         }
+
+        if (itemToReview != null) {
+            val (order, item) = itemToReview!!
+            val context = LocalContext.current
+            WriteReviewDialog(
+                productName = item.productName,
+                onDismiss = { itemToReview = null },
+                onSubmit = { rating, reviewText ->
+                    Toast.makeText(context, "Thank you for reviewing ${item.productName}!", Toast.LENGTH_SHORT).show()
+                    itemToReview = null
+                }
+            )
+        }
     }
 }
 
+/**
+ * Order Card redesigned to match the Reference Image provided by the user.
+ * - Light green banner top header (#DCEDC8 / #C5E1A5) with Order ID & Total
+ * - Individual product items with square image, title, seller, quantity unit, and status pill badge
+ * - Rating stars & "Write a Review" footer bar under each item
+ * - Expandable section for delivery OTP, timeline, address, & invoice/actions
+ */
 @Composable
-fun OrderItemCard(
-    order: Order, 
-    isExpanded: Boolean, 
-    appConfig: com.company.krishivishal.core.model.AppConfig,
+fun ReferenceOrderItemCard(
+    order: Order,
+    isExpanded: Boolean,
+    appConfig: AppConfig,
     viewModel: OrderViewModel,
-    onExpandClick: () -> Unit, 
+    onExpandClick: () -> Unit,
     onCancelClick: (Order) -> Unit,
     onReturnClick: (Order) -> Unit,
     onTrackClick: () -> Unit,
-    onViewBillClick: () -> Unit
+    onViewBillClick: () -> Unit,
+    onWriteReviewClick: (OrderItem) -> Unit
 ) {
-    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()) }
+    val context = LocalContext.current
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onExpandClick() },
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, Color(0xFFE0E0E0))
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column {
+            // 1. Reference Image Top Header Banner (Pistachio Light Green)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFDCEDC8))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Text(
-                        text = "Order #${order.id.takeLast(8).uppercase()}",
+                        text = "#${order.id.takeLast(8).uppercase()}",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
+                        fontSize = 15.sp,
+                        color = Color.Black
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Copy Order ID",
+                        modifier = Modifier
+                            .size(14.dp)
+                            .clickable {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Order ID", order.id))
+                                Toast.makeText(context, "Order ID copied to clipboard", Toast.LENGTH_SHORT).show()
+                            },
+                        tint = Color(0xFF558B2F)
+                    )
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Total ",
+                        fontSize = 14.sp,
+                        color = Color.Black
                     )
                     Text(
-                        text = dateFormat.format(order.createdAt),
-                        fontSize = 12.sp,
-                        color = Color.Gray
+                        text = "₹${order.totalAmount.toInt()}.00",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = Color(0xFF2E7D32)
                     )
                 }
-                StatusBadge(status = order.orderStatus)
             }
-            
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
-            
-            // Items Preview
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(50.dp)) {
-                    AsyncImage(
-                        model = order.items.firstOrNull()?.imageUrl,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Fit
-                    )
+
+            // 2. Product Items List matching Reference Layout
+            order.items.forEachIndexed { index, item ->
+                if (index > 0) {
+                    HorizontalDivider(thickness = 0.5.dp, color = Color(0xFFE0E0E0))
                 }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    val firstItem = order.items.firstOrNull()
-                    val itemName = firstItem?.productName ?: "Multiple Items"
-                    val variantLabel = firstItem?.variantLabel
-                    
-                    // Group name and variant for accessibility
-                    Column(modifier = Modifier.semantics(mergeDescendants = true) {}) {
-                        Text(
-                            text = itemName,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 14.sp,
-                            maxLines = 1
-                        )
-                        if (!variantLabel.isNullOrBlank() && order.items.size == 1) {
+
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        // Product Image Container
+                        Box(
+                            modifier = Modifier
+                                .size(82.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White)
+                                .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(10.dp))
+                                .padding(4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (item.imageUrl.isNotBlank()) {
+                                AsyncImage(
+                                    model = item.imageUrl,
+                                    contentDescription = item.productName,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit
+                                )
+                            } else {
+                                Surface(
+                                    color = PrimaryGreen.copy(alpha = 0.08f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.ShoppingBag,
+                                            contentDescription = item.productName,
+                                            tint = PrimaryGreen,
+                                            modifier = Modifier.size(36.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(14.dp))
+
+                        // Product Details Column
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = variantLabel,
-                                fontSize = 11.sp,
-                                color = Color.Gray
+                                text = item.productName,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = Color.Black,
+                                maxLines = 2,
+                                lineHeight = 18.sp
                             )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "KrishiVishal",
+                                fontSize = 13.sp,
+                                color = Color(0xFF888888)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            
+                            val variantText = item.variantLabel?.ifBlank { "unit" } ?: "unit"
+                            val unitRate = if (item.price > 0.0) item.price.toInt() else (order.totalAmount / (order.items.sumOf { it.quantity }.coerceAtLeast(1))).toInt()
+                            val itemTotal = if (item.price > 0.0) (item.price * item.quantity).toInt() else order.totalAmount.toInt()
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${item.quantity} x $variantText",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = Color.Black
+                                )
+                                Surface(
+                                    color = Color(0xFFE8F5E9),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        text = "Rate: ₹$unitRate",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = Color(0xFF2E7D32),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Shipping fee: Free",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF757575)
+                                )
+                                Text(
+                                    text = "Item Total: ₹$itemTotal",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = Color.Black
+                                )
+                            }
+
+                            // Status Pill Badge aligned to bottom-right of item details
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp),
+                                contentAlignment = Alignment.CenterEnd
+                            ) {
+                                ReferenceStatusBadge(status = order.orderStatus)
+                            }
                         }
                     }
-                    
-                    Text(
-                        text = if (order.items.size > 1) "and ${order.items.size - 1} other items" else "Qty: ${firstItem?.quantity ?: 0}",
-                        fontSize = 12.sp,
-                        color = Color.Gray
-                    )
+
+                    // Review & Rating Bar (as shown in reference image)
+                    HorizontalDivider(thickness = 0.5.dp, color = Color(0xFFEEEEEE))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 5 Rating Stars
+                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            repeat(5) {
+                                Icon(
+                                    imageVector = Icons.Outlined.StarOutline,
+                                    contentDescription = "Star Rating",
+                                    tint = Color(0xFFCCCCCC),
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .clickable { onWriteReviewClick(item) }
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Write a Review",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.Black,
+                            modifier = Modifier.clickable { onWriteReviewClick(item) }
+                        )
+                    }
                 }
+            }
+
+            // Expand/Collapse Details Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFAFAFA))
+                    .clickable { onExpandClick() }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = "₹${order.totalAmount.toInt()}",
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 16.sp,
-                    color = PrimaryGreen
+                    text = if (isExpanded) "Hide Order Details" else "View Full Order Details & Invoice",
+                    fontSize = 12.sp,
+                    color = PrimaryGreen,
+                    fontWeight = FontWeight.Bold
+                )
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = PrimaryGreen,
+                    modifier = Modifier.size(20.dp)
                 )
             }
 
-            AnimatedVisibility(visible = isExpanded) {
-                Column {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
-                    
-                    // NEW: Delivery Verification Section
+            // 3. Expandable Section for OTP, Timeline, Address & Actions
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    HorizontalDivider(thickness = 0.5.dp, color = Color(0xFFE0E0E0))
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Delivery Verification Code Card
                     if (order.status != "DELIVERED" && order.status != "CANCELLED") {
                         Card(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF9C4)), // Light Yellow
-                            border = BorderStroke(1.dp, Color(0xFFFBC02D))
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
+                            border = BorderStroke(1.dp, Color(0xFFFFB300)),
+                            shape = RoundedCornerShape(10.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(16.dp),
+                                modifier = Modifier.padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFFF57F17), modifier = Modifier.size(24.dp))
-                                Spacer(modifier = Modifier.width(16.dp))
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFFFF8F00).copy(alpha = 0.15f),
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.Lock,
+                                            contentDescription = null,
+                                            tint = Color(0xFFE65100),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
                                 Column {
-                                    Text("Delivery Verification Code", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFFF57F17))
+                                    Text(
+                                        "Delivery Verification OTP",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        color = Color(0xFFE65100)
+                                    )
                                     Text(
                                         text = order.customerOTP.ifEmpty { "----" },
                                         fontWeight = FontWeight.Black,
-                                        fontSize = 24.sp,
+                                        fontSize = 22.sp,
                                         letterSpacing = 4.sp,
                                         color = Color.Black
                                     )
-                                    Text("Share this OTP only with the delivery rider.", fontSize = 10.sp, color = Color.DarkGray)
+                                    Text(
+                                        "Share this code with the delivery partner upon arrival",
+                                        fontSize = 10.sp,
+                                        color = Color.DarkGray
+                                    )
                                 }
                             }
                         }
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
+                        Spacer(modifier = Modifier.height(12.dp))
                     }
 
-                    // Full Items List
-                    Text(text = "Items Ordered", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    order.items.forEach { item ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
-                                Text(item.productName, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                val label = item.variantLabel
-                                if (!label.isNullOrBlank()) {
-                                    Text(label, fontSize = 11.sp, color = Color.Gray)
-                                }
-                            }
-                            Text("x${item.quantity}", fontSize = 13.sp, color = Color.DarkGray)
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Text("₹${(item.price * item.quantity).toInt()}", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
-                    Text(text = "Order Tracking", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(16.dp))
+                    // Order Progress Timeline
+                    Text(text = "Order Progress", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Spacer(modifier = Modifier.height(10.dp))
                     OrderTimeline(currentStatus = order.orderStatus)
-                    
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
-                    Text(text = "Delivery Address", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(text = order.address, fontSize = 12.sp, color = Color.DarkGray, lineHeight = 18.sp)
 
-                    // View Bill Button
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(thickness = 0.5.dp, color = Color(0xFFE0E0E0))
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Delivery Address
+                    Row(verticalAlignment = Alignment.Top) {
+                        Icon(
+                            Icons.Default.LocationOn,
+                            contentDescription = null,
+                            tint = PrimaryGreen,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(text = "Delivery Address", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(text = order.address, fontSize = 12.sp, color = Color.DarkGray, lineHeight = 18.sp)
+                        }
+                    }
+
+                    // Action Buttons Row
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = onViewBillClick,
                             modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(R.string.view_print_invoice), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(stringResource(R.string.view_print_invoice), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
 
-                        val context = androidx.compose.ui.platform.LocalContext.current
                         Button(
-                            onClick = { com.company.krishivishal.utils.PrintHelper.printOrderInvoice(context, order, appConfig) },
+                            onClick = { PrintHelper.printOrderInvoice(context, order, appConfig) },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(R.string.download_invoice), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(stringResource(R.string.download_invoice), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
                     // Track Button
-                    if (order.orderStatus == OrderStatus.OUT_FOR_DELIVERY || order.orderStatus == OrderStatus.SHIPPED) {
-                        Spacer(modifier = Modifier.height(16.dp))
+                    if (order.orderStatus in listOf(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.SHIPPED, OrderStatus.PICKED_UP)) {
+                        Spacer(modifier = Modifier.height(10.dp))
                         Button(
                             onClick = onTrackClick,
                             modifier = Modifier.fillMaxWidth(),
@@ -368,7 +675,7 @@ fun OrderItemCard(
                     // Cancel Order Button
                     val canCancel = order.orderStatus in listOf(OrderStatus.PLACED, OrderStatus.CONFIRMED)
                     if (canCancel) {
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         OutlinedButton(
                             onClick = { onCancelClick(order) },
                             modifier = Modifier.fillMaxWidth(),
@@ -376,64 +683,139 @@ fun OrderItemCard(
                             border = BorderStroke(1.dp, Color.Red),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Cancel Order", fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Cancel Order", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
 
-                    // Return System Section
+                    // Return Items Section
                     if (order.orderStatus == OrderStatus.DELIVERED) {
                         val returnState by viewModel.uiState.collectAsState()
-                        val context = androidx.compose.ui.platform.LocalContext.current
 
                         LaunchedEffect(returnState.returnRequestResource) {
                             if (returnState.returnRequestResource is Resource.Success) {
-                                android.widget.Toast.makeText(context, "Return request submitted successfully!", android.widget.Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "Return request submitted successfully!", Toast.LENGTH_LONG).show()
                                 viewModel.clearReturnState()
                                 viewModel.loadOrders()
                             } else if (returnState.returnRequestResource is Resource.Error) {
-                                android.widget.Toast.makeText(context, "Error: ${returnState.returnRequestResource?.message}", android.widget.Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "Error: ${returnState.returnRequestResource?.message}", Toast.LENGTH_LONG).show()
                                 viewModel.clearReturnState()
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         OutlinedButton(
-                            onClick = { 
-                                onReturnClick(order) 
-                            },
+                            onClick = { onReturnClick(order) },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(48.dp),
+                                .height(44.dp),
                             enabled = returnState.returnRequestResource !is Resource.Loading,
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = PrimaryGreen),
-                            border = BorderStroke(1.5.dp, PrimaryGreen),
+                            border = BorderStroke(1.2.dp, PrimaryGreen),
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             if (returnState.returnRequestResource is Resource.Loading) {
                                 CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = PrimaryGreen)
                             } else {
-                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Return Items", fontWeight = FontWeight.ExtraBold)
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Return Items", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
                         }
                     }
                 }
             }
-            
-            if (!isExpanded) {
-                Text(
-                    text = "View Details",
-                    fontSize = 12.sp,
-                    color = PrimaryGreen,
-                    modifier = Modifier.align(Alignment.End).padding(top = 8.dp),
-                    fontWeight = FontWeight.Bold
-                )
-            }
         }
     }
+}
+
+/**
+ * Status Badge matching the Reference Image:
+ * Pill shape, light green background, light green border, dark green text.
+ */
+@Composable
+fun ReferenceStatusBadge(status: OrderStatus) {
+    val (bgColor, borderColor, textColor) = when (status) {
+        OrderStatus.DELIVERED -> Triple(Color(0xFFE8F5E9), Color(0xFFA5D6A7), Color(0xFF388E3C))
+        OrderStatus.CANCELLED -> Triple(Color(0xFFFFEBEE), Color(0xFFEF9A9A), Color(0xFFD32F2F))
+        OrderStatus.OUT_FOR_DELIVERY -> Triple(Color(0xFFF3E5F5), Color(0xFFCE93D8), Color(0xFF7B1FA2))
+        else -> Triple(Color(0xFFE3F2FD), Color(0xFF90CAF9), Color(0xFF1976D2))
+    }
+
+    Surface(
+        color = bgColor,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Text(
+            text = status.displayName,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            color = textColor
+        )
+    }
+}
+
+@Composable
+fun WriteReviewDialog(
+    productName: String,
+    onDismiss: () -> Unit,
+    onSubmit: (Int, String) -> Unit
+) {
+    var rating by remember { mutableStateOf(5) }
+    var reviewText by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Write a Review", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(text = productName, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("Tap stars to rate:", fontSize = 12.sp, color = Color.Gray)
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    repeat(5) { index ->
+                        val starNumber = index + 1
+                        Icon(
+                            imageVector = if (starNumber <= rating) Icons.Outlined.Star else Icons.Outlined.StarOutline,
+                            contentDescription = "Star $starNumber",
+                            tint = if (starNumber <= rating) Color(0xFFFFB300) else Color(0xFFCCCCCC),
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clickable { rating = starNumber }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                OutlinedTextField(
+                    value = reviewText,
+                    onValueChange = { reviewText = it },
+                    placeholder = { Text("Share details of your experience with this product...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSubmit(rating, reviewText) },
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
+            ) {
+                Text("Submit Review")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable
@@ -449,8 +831,8 @@ fun ReturnRequestDialog(
         title = { Text("Request Return", fontWeight = FontWeight.Bold) },
         text = {
             Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
-                Text("Why are you returning this?", fontSize = 14.sp, color = Color.Gray)
-                Spacer(modifier = Modifier.height(12.dp))
+                Text("Why are you returning this?", fontSize = 13.sp, color = Color.Gray)
+                Spacer(modifier = Modifier.height(10.dp))
                 reasons.forEach { reason ->
                     Row(
                         modifier = Modifier
@@ -460,14 +842,14 @@ fun ReturnRequestDialog(
                                 onClick = { selectedReason = reason },
                                 role = Role.RadioButton
                             )
-                            .padding(vertical = 8.dp),
+                            .padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
                             selected = (selectedReason == reason),
                             onClick = null
                         )
-                        Text(text = reason, modifier = Modifier.padding(start = 12.dp))
+                        Text(text = reason, modifier = Modifier.padding(start = 10.dp), fontSize = 13.sp)
                     }
                 }
             }
@@ -510,20 +892,19 @@ fun OrderCancellationDialog(
         title = { Text("Cancel Order", fontWeight = FontWeight.Bold) },
         text = {
             Column(modifier = Modifier.selectableGroup()) {
-                Text("Please select a reason for cancellation:", fontSize = 14.sp)
-                Spacer(modifier = Modifier.height(12.dp))
-                
+                Text("Please select a reason for cancellation:", fontSize = 13.sp)
+                Spacer(modifier = Modifier.height(10.dp))
+
                 reasons.forEach { reason ->
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
+                            .height(44.dp)
                             .selectable(
                                 selected = (reason == selectedReason),
                                 onClick = { selectedReason = reason },
                                 role = Role.RadioButton
-                            )
-                            .padding(horizontal = 0.dp),
+                            ),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
@@ -533,11 +914,12 @@ fun OrderCancellationDialog(
                         Text(
                             text = reason,
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(start = 12.dp)
+                            modifier = Modifier.padding(start = 10.dp),
+                            fontSize = 13.sp
                         )
                     }
                 }
-                
+
                 if (selectedReason == "Other") {
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
@@ -552,7 +934,7 @@ fun OrderCancellationDialog(
         },
         confirmButton = {
             Button(
-                onClick = { 
+                onClick = {
                     val finalReason = if (selectedReason == "Other") otherReason else selectedReason
                     if (selectedReason == "Other" && otherReason.isBlank()) {
                         // No-op
@@ -576,33 +958,17 @@ fun OrderCancellationDialog(
 
 val OrderStatus.color: Color
     get() = when (this) {
-        OrderStatus.PLACED -> Color(0xFF2196F3)
-        OrderStatus.CONFIRMED -> Color(0xFF4CAF50)
-        OrderStatus.ASSIGNED -> Color(0xFF4CAF50)
-        OrderStatus.PROCUREMENT_PENDING -> Color(0xFFFF9800)
-        OrderStatus.PICKED_UP -> Color(0xFFFF9800)
-        OrderStatus.SHIPPED -> Color(0xFFFF9800)
-        OrderStatus.OUT_FOR_DELIVERY -> Color(0xFF9C27B0)
+        OrderStatus.PLACED -> Color(0xFF1E88E5)
+        OrderStatus.CONFIRMED -> Color(0xFF43A047)
+        OrderStatus.ASSIGNED -> Color(0xFF43A047)
+        OrderStatus.PROCUREMENT_PENDING -> Color(0xFFFB8C00)
+        OrderStatus.PICKED_UP -> Color(0xFFFB8C00)
+        OrderStatus.SHIPPED -> Color(0xFFFB8C00)
+        OrderStatus.OUT_FOR_DELIVERY -> Color(0xFF8E24AA)
         OrderStatus.DELIVERED -> PrimaryGreen
-        OrderStatus.CANCELLED -> Color.Red
-        OrderStatus.RETURNED -> Color.Gray
+        OrderStatus.CANCELLED -> Color(0xFFE53935)
+        OrderStatus.RETURNED -> Color(0xFF757575)
     }
-
-@Composable
-fun StatusBadge(status: OrderStatus) {
-    Surface(
-        color = status.color.copy(alpha = 0.1f),
-        shape = RoundedCornerShape(6.dp)
-    ) {
-        Text(
-            text = status.displayName,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = status.color
-        )
-    }
-}
 
 @Composable
 fun OrderTimeline(currentStatus: OrderStatus) {
@@ -610,10 +976,10 @@ fun OrderTimeline(currentStatus: OrderStatus) {
         Pair(OrderStatus.PLACED, "Order has been placed"),
         Pair(OrderStatus.CONFIRMED, "Items are being packed"),
         Pair(OrderStatus.SHIPPED, "Order is on the way"),
-        Pair(OrderStatus.OUT_FOR_DELIVERY, "Order is out for delivery"),
-        Pair(OrderStatus.DELIVERED, "Order has been delivered")
+        Pair(OrderStatus.OUT_FOR_DELIVERY, "Out for delivery"),
+        Pair(OrderStatus.DELIVERED, "Delivered successfully")
     )
-    
+
     val currentIndex = when (currentStatus) {
         OrderStatus.PLACED -> 0
         OrderStatus.CONFIRMED -> 1
@@ -625,12 +991,16 @@ fun OrderTimeline(currentStatus: OrderStatus) {
     }
 
     if (currentStatus == OrderStatus.CANCELLED) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier.size(12.dp).background(Color.Red, CircleShape)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text("Order Cancelled", color = Color.Red, fontWeight = FontWeight.Bold)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFFFFEBEE), RoundedCornerShape(8.dp))
+                .padding(10.dp)
+        ) {
+            Icon(Icons.Default.Cancel, contentDescription = null, tint = Color.Red, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Order Cancelled", color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
         return
     }
@@ -665,9 +1035,9 @@ fun TimelineItem(
         ) {
             Box(
                 modifier = Modifier
-                    .size(16.dp)
+                    .size(18.dp)
                     .background(
-                        color = if (isCompleted) PrimaryGreen else MaterialTheme.colorScheme.outline,
+                        color = if (isCompleted) PrimaryGreen else MaterialTheme.colorScheme.outlineVariant,
                         shape = CircleShape
                     ),
                 contentAlignment = Alignment.Center
@@ -676,7 +1046,7 @@ fun TimelineItem(
                     Icon(
                         Icons.Default.Check,
                         contentDescription = null,
-                        modifier = Modifier.size(10.dp),
+                        modifier = Modifier.size(11.dp),
                         tint = Color.White
                     )
                 }
@@ -685,13 +1055,13 @@ fun TimelineItem(
                 Box(
                     modifier = Modifier
                         .width(2.dp)
-                        .height(30.dp)
-                        .background(if (isCompleted && !isActive) PrimaryGreen else MaterialTheme.colorScheme.outline)
+                        .height(28.dp)
+                        .background(if (isCompleted && !isActive) PrimaryGreen else MaterialTheme.colorScheme.outlineVariant)
                 )
             }
         }
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.padding(bottom = if (isLast) 0.dp else 16.dp)) {
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.padding(bottom = if (isLast) 0.dp else 12.dp)) {
             Text(
                 text = title,
                 fontWeight = if (isCompleted) FontWeight.Bold else FontWeight.Normal,

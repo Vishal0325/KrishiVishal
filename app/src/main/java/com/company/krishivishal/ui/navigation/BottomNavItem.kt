@@ -9,6 +9,8 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.ShoppingBag
 import androidx.compose.material.icons.outlined.Spa
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.outlined.Build
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
@@ -37,12 +39,20 @@ sealed class BottomNavItem(
         index = 1
     )
 
+    object Services : BottomNavItem(
+        route = "services",
+        title = "Services",
+        icon = Icons.Outlined.Build,
+        selectedIcon = Icons.Filled.Build,
+        index = 2
+    )
+
     object Orders : BottomNavItem(
         route = "orders",
         title = "Orders",
         icon = Icons.Outlined.ShoppingBag,
         selectedIcon = Icons.Filled.ShoppingBag,
-        index = 2
+        index = 3
     )
 
     object Profile : BottomNavItem(
@@ -50,11 +60,11 @@ sealed class BottomNavItem(
         title = "Profile",
         icon = Icons.Outlined.Person,
         selectedIcon = Icons.Filled.Person,
-        index = 3
+        index = 4
     )
 
     companion object {
-        val items by lazy { listOf(Home, Crop, Orders, Profile) }
+        val items by lazy { listOf(Home, Crop, Services, Orders, Profile) }
         
         fun fromIndex(index: Int): BottomNavItem {
             return items.find { it.index == index } ?: Home

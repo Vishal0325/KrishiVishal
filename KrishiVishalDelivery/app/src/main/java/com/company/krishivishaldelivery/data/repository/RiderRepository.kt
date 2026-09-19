@@ -134,4 +134,21 @@ class RiderRepository @Inject constructor(
             }
         awaitClose { listener.remove() }
     }
+
+    suspend fun updatePartnerSkills(riderId: String, skills: List<String>, equipment: List<String>): Boolean {
+        return try {
+            firestore.collection("users").document(riderId).update(
+                mapOf(
+                    "serviceSkills" to skills,
+                    "serviceEquipment" to equipment,
+                    "updatedAt" to System.currentTimeMillis()
+                )
+            ).await()
+            true
+        } catch (e: Exception) {
+            Timber.e(e, "updatePartnerSkills failed for riderId: $riderId")
+            false
+        }
+    }
 }
+

@@ -16,7 +16,7 @@ const { db, admin } = require("../core/admin");
 const { isAdminRequest } = require("../core/utils");
 
 const REGION = 'asia-south1';
-const ABANDONED_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
+const ABANDONED_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Core detection logic - shared between scheduled and manual trigger
@@ -33,74 +33,76 @@ async function runDetection() {
     let skippedConverted = 0;
 
     for (const userDoc of usersSnap.docs) {
-        const userId = userDoc.id;
-        const userData = userDoc.data();
+        try {
+            const userId = userDoc.id;
+            const userData = userDoc.data();
 
-        // Skip admin/rider/seller users - only check customers
-        const role = (userData.role || 'CUSTOMER').toUpperCase();
-        if (['ADMIN', 'RIDER', 'SELLER', 'SUPERADMIN'].includes(role)) continue;
+            // Skip rider/seller users - but allow ADMIN for testing
+            const role = (userData.role || 'CUSTOMER').toUpperCase();
+            if (['RIDER', 'SELLER'].includes(role)) continue;
 
-        // Read user's cart subcollection
-        const cartSnap = await db.collection("users").doc(userId).collection("cart").get();
-        if (cartSnap.empty) continue;
+            // Read user's cart subcollection
+            const cartSnap = await db.collection("users").doc(userId).collection("cart").get();
+            if (cartSnap.empty) continue;
 
-        // Check if any cart item is older than threshold
-        const cartItems = cartSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        
-        // Find the oldest item timestamp in the cart
-        const oldestTimestamp = Math.min(
-            ...cartItems.map(item => {
-                if (item.timestamp) return Number(item.timestamp);
-                if (item.createdAt && item.createdAt.toDate) return item.createdAt.toDate().getTime();
-                return now; // If no timestamp, treat as fresh
-            })
-        );
+            // Check if any cart item is older than threshold
+            const cartItems = cartSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            
+            // Find the NEWEST item timestamp in the cart
+            const newestTimestamp = Math.max(
+                ...cartItems.map(item => {
+                    if (item.timestamp) return Number(item.timestamp);
+                    if (item.createdAt && item.createdAt.toDate) return item.createdAt.toDate().getTime();
+                    return now; // If no timestamp, treat as fresh
+                })
+            );
 
-        // Skip if cart is still fresh (< 30 min old)
-        if (oldestTimestamp > thresholdTime) continue;
+            // Skip if the newest item in cart is still fresh (< 5 min old)
+            if (newestTimestamp > thresholdTime) continue;
 
-        // Check if user has placed an order after the cart was created (means they converted)
-        const recentOrderSnap = await db.collection("orders")
-            .where("userId", "==", userId)
-            .orderBy("createdAt", "desc")
-            .limit(1)
-            .get();
+            // Check if user has placed an order after the latest cart item was added
+            const recentOrderSnap = await db.collection("orders")
+                .where("userId", "==", userId)
+                .orderBy("createdAt", "desc")
+                .limit(1)
+                .get();
 
-        if (!recentOrderSnap.empty) {
-            const lastOrder = recentOrderSnap.docs[0].data();
-            const lastOrderTime = lastOrder.createdAt?.toDate?.()?.getTime() || 0;
-            if (lastOrderTime > oldestTimestamp) {
-                skippedConverted++;
+            if (!recentOrderSnap.empty) {
+                const lastOrder = recentOrderSnap.docs[0].data();
+                const lastOrderTime = lastOrder.createdAt?.toDate?.()?.getTime() || 0;
+                // If they placed an order AFTER adding the latest item, they converted.
+                if (lastOrderTime > newestTimestamp) {
+                    skippedConverted++;
+                    continue;
+                }
+            }
+
+            // Check if we already have an active abandoned_cart entry for this user
+            const existingSnap = await db.collection("abandoned_carts")
+                .where("userId", "==", userId)
+                .get();
+                
+            const activeCarts = existingSnap.docs.filter(d => d.data().status !== "RECOVERED");
+
+            if (activeCarts.length > 0) {
+                // Update existing entry with latest cart data
+                const existingDoc = activeCarts[0];
+                await existingDoc.ref.update({
+                    items: cartItems.map(item => ({
+                        productId: item.productId || item.product_id || '',
+                        name: item.productName || item.name || 'Product',
+                        quantity: item.quantity || 1,
+                        variantId: item.variantId || item.variant_id || null,
+                        price: item.price || 0
+                    })),
+                    cartValue: cartItems.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity || 1)), 0),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    itemCount: cartItems.length
+                });
+                updatedCount++;
+                processedCount++;
                 continue;
             }
-        }
-
-        // Check if we already have an active abandoned_cart entry for this user
-        const existingSnap = await db.collection("abandoned_carts")
-            .where("userId", "==", userId)
-            .where("status", "!=", "RECOVERED")
-            .limit(1)
-            .get();
-
-        if (!existingSnap.empty) {
-            // Update existing entry with latest cart data
-            const existingDoc = existingSnap.docs[0];
-            await existingDoc.ref.update({
-                items: cartItems.map(item => ({
-                    productId: item.productId || item.product_id || '',
-                    name: item.productName || item.name || 'Product',
-                    quantity: item.quantity || 1,
-                    variantId: item.variantId || item.variant_id || null,
-                    price: item.price || 0
-                })),
-                cartValue: cartItems.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity || 1)), 0),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                itemCount: cartItems.length
-            });
-            updatedCount++;
-            processedCount++;
-            continue;
-        }
 
         // Enrich cart items with product names & prices from products collection
         const enrichedItems = [];
@@ -181,6 +183,10 @@ async function runDetection() {
 
         newAbandonedCount++;
         processedCount++;
+        
+        } catch (err) {
+            console.error(`[AbandonedCarts] Error processing user ${userDoc.id}:`, err);
+        }
     }
 
     const summary = {

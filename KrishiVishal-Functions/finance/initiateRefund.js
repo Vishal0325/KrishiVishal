@@ -2,28 +2,28 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db, admin } = require("../core/admin");
 const { isAdminRequest } = require("../core/utils");
 const Razorpay = require("razorpay");
+const { razorpayKeySecret, razorpayKeyId, getSecretVal } = require("../core/secrets");
 
 const REGION = 'asia-south1';
 
 /**
- * initiateRefund — Admin-callable Cloud Function
+ * Initiate Refund Function (Admin-Only Callable)
  *
- * Called by Admin Panel (Returns.jsx) when admin clicks "Initiate Refund"
- * on an approved return request.
+ * Atomically handles customer return refunds through two channels:
+ *  A. Store Credit (Wallet Credit) - for COD or store preference
+ *  B. Razorpay Refund API         - for online prepaid orders
  *
- * Flow:
- *  1. Validate inputs + admin auth
- *  2. Read return and order documents
- *  3. Route to correct refund method:
- *     - RAZORPAY_ONLINE  -> Razorpay Refund API
- *     - COD / WALLET     -> Wallet Credit (store credit)
+ * Security:
+ *  1. Admin role authorization check via isAdminRequest
+ *  2. Idempotency guard: prevents double refund processing for the same return
+ *  3. Validates return doc status (must be QC_APPROVED or APPROVED)
  *  4. Atomically update return doc with refund status + create audit log
  *
  * @param {string} data.returnId          - Firestore doc ID in 'returns' collection
  * @param {number} data.refundAmount      - Amount to refund in INR (e.g. 250.00)
  * @param {string} [data.refundDestination] - 'WALLET' (default for COD) or 'GATEWAY' (Razorpay)
  */
-exports.initiateRefund = onCall({ region: REGION }, async (request) => {
+exports.initiateRefund = onCall({ region: REGION, secrets: [razorpayKeySecret] }, async (request) => {
     const data = request.data || {};
     const context = { auth: request.auth };
 
@@ -191,8 +191,8 @@ exports.initiateRefund = onCall({ region: REGION }, async (request) => {
 // Private Helper: Razorpay Refund API
 // ─────────────────────────────────────────────────────────────────────────────
 async function _processRazorpayRefund(razorpayPaymentId, amount, returnId) {
-    const keyId = process.env.RAZORPAY_KEY_ID;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const keyId = getSecretVal(razorpayKeyId, 'RAZORPAY_KEY_ID');
+    const keySecret = getSecretVal(razorpayKeySecret, 'RAZORPAY_KEY_SECRET');
 
     if (!keyId || !keySecret) {
         throw new Error('Razorpay credentials not configured in environment variables.');

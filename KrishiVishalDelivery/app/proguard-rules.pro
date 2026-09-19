@@ -9,6 +9,7 @@
 # App Specific - Keep Models (Important for Firebase/Room)
 -keep class com.company.krishivishal.core.model.** { *; }
 -keep class com.company.krishivishaldelivery.data.model.** { *; }
+-keep class com.company.krishivishaldelivery.data.local.** { *; }
 
 # Hilt
 -keep class dagger.hilt.internal.GeneratedComponentManager { *; }

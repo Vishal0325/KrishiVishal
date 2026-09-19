@@ -412,6 +412,12 @@ const RECOMMENDATION_CACHE_TTL_HOURS = 24;
 
 exports.getRecommendations = onCall({ region: REGION }, async (request) => {
     const data = request.data || {};
+    const context = { auth: request.auth };
+
+    if (!context.auth) {
+        throw new HttpsError('unauthenticated', 'Authentication required.');
+    }
+
     const { productId } = data;
 
     // M1: Input validation

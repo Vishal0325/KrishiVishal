@@ -11,6 +11,10 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isNotAnonymous() {
+      return isAuthenticated() && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
     function isAdmin() {
       return isAuthenticated() && (
         request.auth.token.admin == true ||
@@ -91,8 +95,7 @@ service cloud.firestore {
       allow write: if false;
 
       match /batches/{batchId} {
-        allow read: if isAuthenticated();
-        allow write: if false;
+        allow read, write: if isAdmin();
       }
     }
 
@@ -243,16 +246,14 @@ service cloud.firestore {
           resource.data.riderId == request.auth.uid
         );
 
-      allow create: if isAdmin() ||
-        (
-          isAuthenticated() &&
-          request.resource.data.userId == request.auth.uid
-        );
+      // ALL client order creation MUST go through createOrder Cloud Function. Direct client writes blocked.
+      allow create: if isAdmin();
 
       allow update: if isAdmin() ||
         (
           isRider() &&
           resource.data.riderId == request.auth.uid &&
+          request.resource.data.status != "DELIVERED" &&
             request.resource.data
               .diff(resource.data)
               .affectedKeys()
@@ -260,6 +261,7 @@ service cloud.firestore {
                 'status',
                 'deliveryStatus',
                 'deliveryLocation',
+                'riderLocation',
                 'deliveryProof',
                 'deliveryProofUrl',
                 'podPhoto',
@@ -282,7 +284,7 @@ service cloud.firestore {
           // Blocker 7: allow rider to self-assign unassigned orders
           isRider() &&
           resource.data.riderId == "" &&
-          request.resource.data.status == "ASSIGNED" &&
+          (request.resource.data.status in ["ASSIGNED", "RIDER_ASSIGNED"]) &&
           request.resource.data.riderId == request.auth.uid &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'riderId', 'updatedAt'])
         );
@@ -329,14 +331,7 @@ service cloud.firestore {
           resource.data.riderId == request.auth.uid
         );
 
-      allow create: if isAuthenticated() &&
-        request.resource.data.userId == request.auth.uid &&
-        request.resource.data.status == "REQUESTED" &&
-        !("refundAmount" in request.resource.data) &&
-        !("refundId" in request.resource.data) &&
-        !("approvedBy" in request.resource.data) &&
-        !("qcStatus" in request.resource.data) &&
-        !("refundStatus" in request.resource.data);
+      allow create: if false; // All return requests go through requestReturn Cloud Function
 
       allow update: if isAdmin() ||
         (
@@ -371,6 +366,7 @@ service cloud.firestore {
       allow create: if isOwner(uId) &&
         !request.resource.data.keys().hasAny([
           'isAdmin',
+          'admin',
           'walletBalance',
           'rewardPoints',
           'referralCode',
@@ -392,6 +388,7 @@ service cloud.firestore {
             .hasAny([
               'role',
               'isAdmin',
+              'admin',
               'walletBalance',
               'rewardPoints',
               'referredBy',
@@ -442,17 +439,29 @@ service cloud.firestore {
     // ============================================================
 
     match /whitelisted_riders/{id} {
-      allow read: if isAuthenticated();
-      allow update: if isAuthenticated() && 
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'uid', 'riderIdDisplay', 'registeredAt']) &&
-        request.resource.data.uid == request.auth.uid;
-      allow create, delete: if isAdmin();
+      allow get: if isAdmin() || (
+        isAuthenticated() && (
+          request.auth.token.phone_number == id ||
+          request.auth.token.phone_number == ('+91' + id) ||
+          (resource.data.phone != null && resource.data.phone == request.auth.token.phone_number) ||
+          (resource.data.phone != null && ('+91' + resource.data.phone) == request.auth.token.phone_number)
+        )
+      );
+      allow list: if isAdmin();
+      allow update, create, delete: if isAdmin();
     }
 
     match /riders/{riderId} {
-      allow read: if isAuthenticated() || isAdmin() || isViewer();
-      // Only Admin or the Rider themselves can manage the profile
-      allow create, update: if isAdmin() || isOwner(riderId);
+      allow read: if isAdmin() || isViewer() || isOwner(riderId);
+      // Self-creation blocked: Only Admin can onboard/create rider profiles
+      allow create: if isAdmin();
+      // Rider self-updates restricted to non-sensitive profile fields
+      allow update: if isAdmin() || (
+        isRider() && isOwner(riderId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'phone', 'address', 'vehicleDetails', 'isAvailable', 'currentLocation', 'location', 'fcmToken', 'updatedAt'
+        ])
+      );
       allow delete: if isAdmin();
     }
 
@@ -655,22 +664,6 @@ service cloud.firestore {
     // INTERNAL INFRASTRUCTURE
     // ============================================================
 
-    match /whitelisted_riders/{phone} {
-      // Any authenticated user (rider during login) may read to check whitelist status
-      allow read: if isAuthenticated();
-      // Only admin can create or delete whitelist entries
-      allow create, delete: if isAdmin();
-      // H6: Admin can update any field; authenticated rider can only self-update registration fields for their own UID
-      allow update: if isAdmin() ||
-        (
-          isAuthenticated() &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'uid', 'riderIdDisplay', 'registeredAt'
-          ]) &&
-          (request.resource.data.uid == request.auth.uid || request.resource.data.uid == resource.data.uid)
-        );
-    }
-
     match /notification_logs/{id} {
       allow read: if isAdmin();
       allow write: if false;
@@ -699,6 +692,46 @@ service cloud.firestore {
     match /abandoned_carts/{id} {
       allow read, write: if isAdmin();
     }
+
+    // ============================================================
+    // SERVICE MARKETPLACE
+    // ============================================================
+
+    match /service_bookings/{bookingId} {
+      // Farmer, Assigned Partner, Admin, or verified partner/serviceman viewing PENDING_ASSIGNMENT can read
+      allow read: if isAuthenticated() && (
+                    request.auth.uid == resource.data.farmerId
+                    || request.auth.uid == resource.data.assignedPartnerId
+                    || (resource.data.status == "PENDING_ASSIGNMENT" && request.auth.token.role in ['Serviceman', 'Partner', 'ADMIN'])
+                    || isAdmin()
+                  );
+      // All service booking creations MUST go through createServiceBooking Cloud Function. Client direct write blocked.
+      allow create: if false;
+      // Client direct update & delete blocked — ALL state mutations MUST go through Cloud Functions
+      allow update, delete: if false;
+    }
+
+    match /partner_wallets/{partnerId} {
+      // Partner can read their own wallet, admin can read all
+      allow read: if isAuthenticated() && (request.auth.uid == partnerId || isAdmin());
+      // Direct client updates blocked — ONLY Cloud Functions can modify balance
+      allow write: if false;
+    }
+
+    match /partner_wallet_transactions/{txnId} {
+      // Partner can read their transaction history
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.partnerId || isAdmin());
+      // Direct client creation blocked — ONLY Cloud Functions can record transactions
+      allow write: if false;
+    }
+
+    match /services/{serviceId} {
+      // Public read for service catalog (Sprayman, Soil Testing, Drone Spray)
+      allow read: if true;
+      // Only Admin can add or update service definitions
+      allow write: if isAdmin();
+    }
+
 
     // ============================================================
     // DEFAULT DENY

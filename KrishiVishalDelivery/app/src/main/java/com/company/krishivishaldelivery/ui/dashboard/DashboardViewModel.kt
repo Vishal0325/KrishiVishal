@@ -13,6 +13,8 @@ import com.company.krishivishaldelivery.data.model.IncentiveSlab
 import com.company.krishivishaldelivery.data.model.OptimizedStop
 import com.company.krishivishaldelivery.data.model.OptimizedTrip
 import com.company.krishivishaldelivery.data.model.Rider
+import com.company.krishivishaldelivery.data.model.ServiceBooking
+import com.company.krishivishaldelivery.data.repository.ServiceBookingRepository
 import com.company.krishivishaldelivery.data.repository.ConfigRepository
 import com.company.krishivishaldelivery.data.repository.OrderRepository
 import com.company.krishivishaldelivery.data.repository.RiderRepository
@@ -31,6 +33,7 @@ class DashboardViewModel @Inject constructor(
     private val orderRepository: OrderRepository,
     private val riderRepository: RiderRepository,
     private val configRepository: ConfigRepository,
+    private val serviceBookingRepository: ServiceBookingRepository,
     connectivityObserver: ConnectivityObserver
 ) : ViewModel() {
 
@@ -50,13 +53,39 @@ class DashboardViewModel @Inject constructor(
     private val _riderProfile = MutableStateFlow<Resource<Rider?>>(Resource.Loading())
     val riderProfile: StateFlow<Resource<Rider?>> = _riderProfile.asStateFlow()
 
+    val partnerRole: StateFlow<String> = _riderProfile.map { res ->
+        if (res is Resource.Success && res.data != null) {
+            val r = res.data
+            when {
+                r?.partnerRole?.isNotBlank() == true -> r.partnerRole.lowercase().trim()
+                r?.role?.isNotBlank() == true -> r.role.lowercase().trim()
+                else -> "rider"
+            }
+        } else "rider"
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "rider")
+
+
     private val _incentiveSlabs = MutableStateFlow<List<IncentiveSlab>>(emptyList())
+
 
     val isConnected = connectivityObserver.isConnected.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
     val pendingSyncCount: StateFlow<Int> = orderRepository.getPendingSyncCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    val activeServiceBooking: StateFlow<ServiceBooking?> = serviceBookingRepository
+        .getActiveBooking(auth.currentUser?.uid ?: "")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val partnerWallet: StateFlow<com.company.krishivishaldelivery.data.model.PartnerWallet?> = serviceBookingRepository
+        .getPartnerWallet(auth.currentUser?.uid ?: "")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val walletTransactions: StateFlow<List<com.company.krishivishaldelivery.data.model.PartnerWalletTransaction>> = serviceBookingRepository
+        .getWalletTransactions(auth.currentUser?.uid ?: "")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val isSyncing = MutableStateFlow(false)
+
 
     // COD Vault Limit State
     val codCashInHand: StateFlow<Double> = orders.map { res ->
@@ -383,7 +412,44 @@ class DashboardViewModel @Inject constructor(
         }
         return result
     }
+
+    suspend fun acceptServiceBooking(bookingId: String): Boolean {
+        return serviceBookingRepository.acceptBooking(bookingId)
+    }
+
+    suspend fun verifyStartOtp(bookingId: String, otp: String): Boolean {
+        return serviceBookingRepository.verifyStartOtp(bookingId, otp)
+    }
+
+    suspend fun completeServiceBooking(bookingId: String, actualArea: Double, otp: String): Boolean {
+        val areaUpdated = serviceBookingRepository.updateActualArea(bookingId, actualArea)
+        if (areaUpdated) {
+            return serviceBookingRepository.verifyEndOtp(bookingId, otp)
+        }
+        return false
+    }
+
+    suspend fun rejectServiceBooking(bookingId: String, reason: String? = null): Boolean {
+        return serviceBookingRepository.rejectBooking(bookingId, reason)
+    }
+
+    suspend fun rechargePartnerWallet(amount: Double): Boolean {
+        val partnerId = currentRiderId
+        if (partnerId.isNotBlank()) {
+            return serviceBookingRepository.rechargeWallet(partnerId, amount)
+        }
+        return false
+    }
+
+    suspend fun updatePartnerSkills(skills: List<String>, equipment: List<String>): Boolean {
+        val partnerId = currentRiderId
+        if (partnerId.isNotBlank()) {
+            return serviceBookingRepository.updatePartnerSkills(partnerId, skills, equipment)
+        }
+        return false
+    }
 }
+
 
 sealed class LocationAction {
     data class Start(val orderId: String) : LocationAction()

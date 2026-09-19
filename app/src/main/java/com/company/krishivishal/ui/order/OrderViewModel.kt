@@ -14,6 +14,8 @@ import com.company.krishivishal.analytics.AnalyticsTracker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import timber.log.Timber
 import javax.inject.Inject
 
 @HiltViewModel
@@ -63,6 +65,8 @@ class OrderViewModel @Inject constructor(
         }
     }
 
+
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun loadOrders(status: OrderStatus? = null) {
         viewModelScope.launch {
@@ -72,14 +76,65 @@ class OrderViewModel @Inject constructor(
             }.collectLatest { resource ->
                 when (resource) {
                     is Resource.Loading -> _uiState.update { it.copy(isLoading = true) }
-                    is Resource.Success -> _uiState.update { 
-                        it.copy(isLoading = false, orders = resource.data ?: emptyList(), error = null) 
+                    is Resource.Success -> {
+                        val rawOrders = resource.data ?: emptyList()
+                        _uiState.update { 
+                            it.copy(isLoading = false, orders = rawOrders, error = null) 
+                        }
+                        // Enrich orders with original product images if any imageUrl is blank
+                        enrichOrdersWithProductImages(rawOrders)
                     }
                     is Resource.Error -> _uiState.update { 
                         it.copy(isLoading = false, error = resource.message) 
                     }
                     else -> {}
                 }
+            }
+        }
+    }
+
+    private fun enrichOrdersWithProductImages(orders: List<Order>) {
+        if (orders.isEmpty()) return
+        val missingProductIds = orders.flatMap { it.items }
+            .filter { it.imageUrl.isBlank() && it.productId.isNotBlank() }
+            .map { it.productId }
+            .toSet()
+
+        if (missingProductIds.isEmpty()) return
+
+        viewModelScope.launch {
+            val productImageMap = mutableMapOf<String, String>()
+            for (productId in missingProductIds) {
+                try {
+                    val doc = firestore.collection("products").document(productId).get().await()
+                    if (doc.exists()) {
+                        val data = doc.data ?: emptyMap()
+                        val url = (data["imageUrl"] ?: data["image"] ?: data["thumb"] ?: "").toString().trim()
+                        val imagesList = (data["images"] as? List<*>)?.mapNotNull { it?.toString() }
+                            ?: (data["imageUrls"] as? List<*>)?.mapNotNull { it?.toString() }
+                            ?: emptyList()
+                        val finalUrl = if (url.isNotBlank() && url != "null") url else (imagesList.firstOrNull { it.isNotBlank() && it != "null" } ?: "")
+                        if (finalUrl.isNotBlank()) {
+                            productImageMap[productId] = finalUrl
+                        }
+                    }
+                } catch (e: Exception) {
+                    Timber.w(e, "Failed to fetch original product image for $productId")
+                }
+            }
+
+            if (productImageMap.isNotEmpty()) {
+                val updatedOrders = _uiState.value.orders.map { order ->
+                    val updatedItems = order.items.map { item ->
+                        if (item.imageUrl.isBlank() && productImageMap.containsKey(item.productId)) {
+                            item.copy(imageUrl = productImageMap[item.productId]!!)
+                        } else {
+                            item
+                        }
+                    }
+                    order.copy(items = updatedItems)
+                }
+                _uiState.update { it.copy(orders = updatedOrders) }
             }
         }
     }

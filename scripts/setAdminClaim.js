@@ -25,19 +25,27 @@ try {
 }
 
 const email = process.argv[2];
+const role = process.argv[3] || 'SuperAdmin';
 if (!email) {
-  console.log('Usage: node setAdminClaim.js <email>');
+  console.log('Usage: node setAdminClaim.js <email> [role]');
   process.exit(1);
 }
 
-async function setAdminClaim(userEmail) {
+async function setAdminClaim(userEmail, targetRole) {
   try {
     // 2. Find user
     const user = await authInstance.getUserByEmail(userEmail);
     console.log(`🔍 Found user: ${user.email} (UID: ${user.uid})`);
 
-    // 3. Set claim
-    await authInstance.setCustomUserClaims(user.uid, { admin: true });
+    // 3. Merge with existing claims
+    const existingClaims = user.customClaims || {};
+    const updatedClaims = {
+      ...existingClaims,
+      admin: true,
+      role: targetRole || 'SuperAdmin'
+    };
+
+    await authInstance.setCustomUserClaims(user.uid, updatedClaims);
 
     console.log('✅ SUCCESS: Admin custom claim set successfully.');
 
@@ -58,4 +66,4 @@ async function setAdminClaim(userEmail) {
   }
 }
 
-setAdminClaim(email);
+setAdminClaim(email, role);

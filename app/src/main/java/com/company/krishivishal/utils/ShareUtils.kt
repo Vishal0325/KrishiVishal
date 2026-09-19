@@ -73,4 +73,28 @@ object ShareUtils {
 
         context.startActivity(Intent.createChooser(intent, "Share Krishi Vishal via"))
     }
+
+    fun shareText(context: Context, text: String, subject: String = "Krishi Vishal Service") {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, subject)
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        context.startActivity(Intent.createChooser(intent, "Share via"))
+    }
+
+    fun shareService(context: Context, serviceName: String, serviceDesc: String, baseRate: Double) {
+        val shareMessage = """
+            🌾 *Krishi Vishal - Krishi Services* 🌾
+            
+            *Service:* $serviceName
+            *Description:* $serviceDesc
+            *Starting Rate:* ₹${baseRate.toInt()}
+            
+            Book verified agricultural services directly from Krishi Vishal App!
+            🔗 https://play.google.com/store/apps/details?id=${context.packageName}
+        """.trimIndent()
+
+        shareText(context, shareMessage, "Check out service: $serviceName")
+    }
 }

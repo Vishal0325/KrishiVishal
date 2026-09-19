@@ -56,6 +56,7 @@ private fun Product.parseLogistics(data: Map<String, Any>) {
     deliveryDate = (data["deliveryDate"] ?: "").toString()
     weight = (data["weight"] ?: data["size"] ?: data["packSize"] ?: data["pack_size"] ?: data["pack_weight"] ?: data["net_quantity"] ?: data["quantity"] ?: "").toString().removeSuffix(".0")
     unit = (data["unit"] ?: "").toString()
+    formulationType = (data["formulationType"] ?: data["formulation_type"] ?: data["formulation"] ?: "").toString()
     mfgDate = data["mfgDate"] as? Timestamp
     expiryDate = data["expiryDate"] as? Timestamp
     stockQuantity = (data["stockQuantity"] ?: data["stockCount"] ?: data["stock"] ?: 10).toString().toIntOrNull() ?: 10

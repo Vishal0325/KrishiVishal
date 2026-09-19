@@ -8,6 +8,8 @@ data class OrderTrackingState(
     val statusHistory: List<StatusStep> = emptyList(),
     val riderLocation: GeoPoint? = null,
     val estimatedDeliveryTime: Timestamp? = null,
+    val riderName: String? = null,
+    val riderPhone: String? = null,
     val isLoading: Boolean = true,
     val error: String? = null
 )

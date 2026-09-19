@@ -61,15 +61,39 @@ fun ProductInfoSection(product: Product, variant: Variant?) {
             color = GrayText,
             fontFamily = PoppinsFamily
         )
-        Text(
-            text = product.composition,
-            fontSize = 12.sp,
-            color = GrayText,
-            fontFamily = PoppinsFamily,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 4.dp)
-        )
+        if (product.composition.isNotBlank() || (product.formulationType.isNotBlank() && product.formulationType != "None")) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 4.dp)
+            ) {
+                if (product.composition.isNotBlank()) {
+                    Text(
+                        text = product.composition,
+                        fontSize = 12.sp,
+                        color = GrayText,
+                        fontFamily = PoppinsFamily,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                }
+                if (product.formulationType.isNotBlank() && product.formulationType != "None") {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = product.formulationType,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+        }
 
         // Rating
         if (product.reviewsCount > 0) {

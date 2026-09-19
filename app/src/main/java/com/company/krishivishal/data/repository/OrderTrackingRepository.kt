@@ -38,6 +38,8 @@ class OrderTrackingRepositoryImpl @Inject constructor(
                         statusHistory = statusHistory,
                         riderLocation = snapshot.getGeoPoint("riderLocation"),
                         estimatedDeliveryTime = snapshot.getTimestamp("estimatedDeliveryTime"),
+                        riderName = snapshot.getString("riderName") ?: snapshot.getString("assignedRiderName"),
+                        riderPhone = snapshot.getString("riderPhone") ?: snapshot.getString("assignedRiderPhone"),
                         isLoading = false
                     ))
                 }

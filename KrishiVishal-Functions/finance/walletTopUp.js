@@ -2,6 +2,7 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db, admin } = require("../core/admin");
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
+const { razorpayKeySecret, razorpayKeyId, getSecretVal } = require("../core/secrets");
 
 const REGION = 'asia-south1';
 
@@ -10,7 +11,7 @@ const REGION = 'asia-south1';
 //   Step 1: Customer requests a top-up. We create a Razorpay Order
 //   and return the orderId to the app so the SDK can open the payment sheet.
 // ─────────────────────────────────────────────────────────────────────────────
-exports.createWalletTopUpOrder = onCall({ region: REGION }, async (request) => {
+exports.createWalletTopUpOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, async (request) => {
     const data = request.data || {};
     const context = { auth: request.auth };
 
@@ -21,8 +22,8 @@ exports.createWalletTopUpOrder = onCall({ region: REGION }, async (request) => {
         throw new HttpsError('invalid-argument', 'Amount must be between ₹10 and ₹1,00,000.');
     }
 
-    const keyId = process.env.RAZORPAY_KEY_ID;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const keyId = getSecretVal(razorpayKeyId, 'RAZORPAY_KEY_ID');
+    const keySecret = getSecretVal(razorpayKeySecret, 'RAZORPAY_KEY_SECRET');
     if (!keyId || !keySecret) throw new HttpsError('internal', 'Payment gateway not configured.');
 
     const rzp = new Razorpay({ key_id: keyId, key_secret: keySecret });
@@ -65,7 +66,7 @@ exports.createWalletTopUpOrder = onCall({ region: REGION }, async (request) => {
 // verifyWalletTopUp
 //   Step 2: After Razorpay payment, verify signature + atomically credit wallet.
 // ─────────────────────────────────────────────────────────────────────────────
-exports.verifyWalletTopUp = onCall({ region: REGION }, async (request) => {
+exports.verifyWalletTopUp = onCall({ region: REGION, secrets: [razorpayKeySecret] }, async (request) => {
     const data = request.data || {};
     const context = { auth: request.auth };
 
@@ -77,7 +78,7 @@ exports.verifyWalletTopUp = onCall({ region: REGION }, async (request) => {
         throw new HttpsError('invalid-argument', 'Missing payment verification details.');
     }
 
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const keySecret = getSecretVal(razorpayKeySecret, 'RAZORPAY_KEY_SECRET');
     if (!keySecret) throw new HttpsError('internal', 'Payment gateway not configured.');
 
     // 1. Verify HMAC Signature
