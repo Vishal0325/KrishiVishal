@@ -115,6 +115,7 @@ fun MaintenanceScreen() {
 fun MainScreen(
     initialProductId: String? = null,
     initialOrderId: String? = null,
+    deepLinkTrigger: Int = 0,
     viewModel: MainViewModel = hiltViewModel(),
     supportViewModel: SupportViewModel = hiltViewModel()
 ) {
@@ -194,18 +195,24 @@ fun MainScreen(
     }
 
     var consumedDeepLink by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(initialProductId) {
-        if (initialProductId != null && initialProductId != consumedDeepLink) {
+    var consumedDeepLinkTrigger by remember { mutableStateOf(0) }
+    LaunchedEffect(initialProductId, currentUser, deepLinkTrigger) {
+        val isLoggedIn = currentUser != null && currentUser?.isAnonymous == false
+        if (initialProductId != null && isLoggedIn && (initialProductId != consumedDeepLink || deepLinkTrigger != consumedDeepLinkTrigger)) {
             navController.navigate(Screen.ProductDetail.createRoute(initialProductId))
             consumedDeepLink = initialProductId
+            consumedDeepLinkTrigger = deepLinkTrigger
         }
     }
 
     var consumedOrderLink by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(initialOrderId) {
-        if (initialOrderId != null && initialOrderId != consumedOrderLink) {
+    var consumedOrderTrigger by remember { mutableStateOf(0) }
+    LaunchedEffect(initialOrderId, currentUser, deepLinkTrigger) {
+        val isLoggedIn = currentUser != null && currentUser?.isAnonymous == false
+        if (initialOrderId != null && isLoggedIn && (initialOrderId != consumedOrderLink || deepLinkTrigger != consumedOrderTrigger)) {
             navController.navigate(Screen.Tracking.createRoute(initialOrderId))
             consumedOrderLink = initialOrderId
+            consumedOrderTrigger = deepLinkTrigger
         }
     }
     

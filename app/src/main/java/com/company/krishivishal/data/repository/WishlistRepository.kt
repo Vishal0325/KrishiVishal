@@ -50,6 +50,7 @@ class WishlistRepositoryImpl @Inject constructor(
                 .get()
                 .await()
                 .toObjects(WishlistItem::class.java)
+                .map { it.copy(userId = userId) }
         },
         saveFetchResult = { items ->
             if (items.isNotEmpty()) {

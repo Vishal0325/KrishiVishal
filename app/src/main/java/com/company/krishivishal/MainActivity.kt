@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
 
     private var deepLinkProductId by mutableStateOf<String?>(null)
     private var deepLinkOrderId by mutableStateOf<String?>(null)
+    private var deepLinkTrigger by mutableStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -137,7 +138,8 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                         Box(modifier = Modifier.fillMaxSize()) {
                             AppNavigation(
                                 deepLinkProductId = deepLinkProductId,
-                                deepLinkOrderId = deepLinkOrderId
+                                deepLinkOrderId = deepLinkOrderId,
+                                deepLinkTrigger = deepLinkTrigger
                             )
                             
                             if (showUpdateDialog) {
@@ -232,6 +234,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                 }
             }
         }
+        deepLinkTrigger++
     }
 
     override fun onPaymentSuccess(razorpayPaymentId: String?, data: PaymentData?) {

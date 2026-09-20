@@ -9,7 +9,8 @@ import com.company.krishivishal.ui.main.MainScreen
 @Composable
 fun AppNavigation(
     deepLinkProductId: String? = null,
-    deepLinkOrderId: String? = null
+    deepLinkOrderId: String? = null,
+    deepLinkTrigger: Int = 0
 ) {
     val navController = rememberNavController()
   
@@ -17,7 +18,8 @@ fun AppNavigation(
         composable("main") {
             MainScreen(
                 initialProductId = deepLinkProductId,
-                initialOrderId = deepLinkOrderId
+                initialOrderId = deepLinkOrderId,
+                deepLinkTrigger = deepLinkTrigger
             )
         }
     }
