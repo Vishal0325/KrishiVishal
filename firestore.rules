@@ -1,433 +1,765 @@
-/**
- * KRISHIVISHAL - ENTERPRISE FIRESTORE SECURITY RULES v4.0
- * Hardened for Pvt. Ltd. Multi-Hub Logistics, 200+ Riders, 1000+ Staff, and Zero-Tampering Compliance.
- */
-
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // ========== HELPER FUNCTIONS ==========
-    
+
+    // ============================================================
+    // HELPERS
+    // ============================================================
+
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    function hasUserDoc() {
-      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    function isNotAnonymous() {
+      return isAuthenticated() && request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
 
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-    }
-
-    function getUserRole() {
-      return request.auth.token.role != null ? request.auth.token.role :
-        (hasUserDoc() && 'role' in getUserData() ? getUserData().role : 'Viewer');
-    }
-
-    function getUserWarehouseId() {
-      return request.auth.token.warehouseId != null ? request.auth.token.warehouseId :
-        (hasUserDoc() && 'warehouseId' in getUserData() ? getUserData().warehouseId : null);
-    }
-    
     function isAdmin() {
-      // SECURITY: Role-based authorization is authoritative.
       return isAuthenticated() && (
-        request.auth.token.role in ['SuperAdmin', 'HubManager', 'WarehouseManager', 'OrderManager', 'CatalogManager', 'RiderManager', 'HRAdmin', 'FinanceAdmin', 'Operations', 'Admin', 'Staff'] ||
-        (hasUserDoc() && getUserData().role in ['SuperAdmin', 'HubManager', 'WarehouseManager', 'OrderManager', 'CatalogManager', 'RiderManager', 'HRAdmin', 'FinanceAdmin', 'Operations', 'Admin', 'Staff'])
-      );
-    }
-
-    function isSystemActive() {
-      return !hasUserDoc() || !('isActive' in getUserData()) || getUserData().isActive != false;
-    }
-
-    function hasRole(role) {
-      return isAuthenticated() && (
-        request.auth.token.role == role ||
-        (hasUserDoc() && getUserData().role == role)
+        request.auth.token.admin == true ||
+        request.auth.token.isAdmin == true ||
+        request.auth.token.role in ["ADMIN", "SuperAdmin", "CatalogManager", "OrderManager"]
       );
     }
 
     function isSuperAdmin() {
-      return isAdmin() && (
-        request.auth.token.role == "SuperAdmin" ||
-        (hasUserDoc() && getUserData().role == "SuperAdmin")
-      );
+      return isAuthenticated() && request.auth.token.role == "SuperAdmin";
     }
 
-    function isHRAdmin() {
-      return isSuperAdmin() || hasRole("HRAdmin") || (hasUserDoc() && getUserData().role == "HRAdmin");
+    function canViewFinance() {
+      return isSuperAdmin();
     }
 
-    function isFinanceAdmin() {
-      return isSuperAdmin() || hasRole("FinanceAdmin") || (hasUserDoc() && getUserData().role == "FinanceAdmin");
+    function isViewer() {
+      return isAuthenticated() && request.auth.token.role == "Viewer";
     }
 
-    function isHubAuthorized(whId) {
-      return isSuperAdmin() || 
-        getUserWarehouseId() == null || 
-        getUserWarehouseId() == '' || 
-        getUserWarehouseId() == whId;
-    }
-    
     function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+      return isAuthenticated() &&
+        request.auth.uid == userId;
     }
-    
-    // ========== PUBLIC / CATALOG COLLECTIONS ==========
+
+    function isRider() {
+      return isAuthenticated() && request.auth.token.role == "Rider";
+    }
+
+
+
+    // ============================================================
+    // PRODUCTS
+    // Public Read / Admin Write (Metadata only)
+    // ============================================================
 
     match /products/{id} {
       allow read: if true;
-      allow create, delete: if isAdmin() && isSystemActive();
-      allow update: if isAdmin() && isSystemActive() &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'salesCount', 'salesCount90d', 'viewCount', 'searchCount',
-          'recommendationCache', 'technicalNameNormalized'
-        ]);
+      // Price and Stock are derived from SKUs via Cloud Functions
+      allow update: if isAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['price', 'stockQuantity']);
+      allow create: if isAdmin();
+      allow delete: if isSuperAdmin();
+
+      match /variants/{variantId} {
+        allow read: if true;
+        allow write: if false; // Derived from SKUs
+      }
+
+      match /reviews/{reviewId} {
+        allow read: if true;
+
+        allow create: if isAuthenticated() &&
+          request.resource.data.userId == request.auth.uid;
+
+        allow update: if isAdmin() ||
+          (
+            isAuthenticated() &&
+            resource.data.userId == request.auth.uid &&
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['userId'])
+          );
+
+        allow delete: if isAdmin() ||
+          (
+            isAuthenticated() &&
+            resource.data.userId == request.auth.uid
+          );
+      }
     }
-    
+
+
+    // ============================================================
+    // SKUS & MASTER DATA (ERP SSoT)
+    // ============================================================
+
+    match /skus/{skuId} {
+      allow read: if isAuthenticated();
+      // Only Cloud Functions / Admin SDK can mutate SKU identity, price, and inventory
+      allow write: if false;
+
+      match /batches/{batchId} {
+        allow read, write: if isAdmin();
+      }
+    }
+
+    match /master_data/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+
+    // ============================================================
+    // PUBLIC CATALOG
+    // ============================================================
+
     match /categories/{id} {
       allow read: if true;
-      allow write: if isAdmin() && isSystemActive();
+      allow write: if isAdmin();
     }
-    
+
     match /brands/{id} {
       allow read: if true;
-      allow write: if isAdmin() && isSystemActive();
+      allow write: if isAdmin();
     }
-    
+
     match /crops/{id} {
       allow read: if true;
-      allow write: if isAdmin() && isSystemActive();
+      allow write: if isAdmin();
     }
 
     match /banners/{id} {
       allow read: if true;
-      allow write: if isAdmin() && isSystemActive();
+      allow write: if isAdmin();
     }
 
-    match /coupons/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() && isSystemActive();
-    }
 
-    // ========== MULTI-WAREHOUSE & SUPPLY CHAIN COLLECTIONS ==========
+    // ============================================================
+    // FINANCIAL / INTERNAL DATA
+    // ============================================================
 
-    match /warehouses/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (isAdmin() && isHubAuthorized(id));
-    }
-    
-    match /warehouse_inventory/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (isAdmin() && isHubAuthorized(resource.data.warehouseId));
-    }
-    
-    match /inventory_movements/{id} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAdmin() && isSystemActive();
-      allow delete: if isSuperAdmin();
-    }
-    
-    match /stock_transfers/{id} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAdmin() && isSystemActive();
-      allow delete: if isSuperAdmin();
-    }
-
-    match /goods_receipts/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() && isSystemActive();
-    }
-
-    match /purchase_orders/{id} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAdmin() && isSystemActive();
-      allow delete: if isSuperAdmin();
-    }
-
-    match /procurement_queue/{id} {
-      allow read, write: if isAdmin() && isSystemActive();
-    }
-
-    match /warehouse_serviceability/{id} {
-      allow read: if true;
-      allow write: if isAdmin() && isSystemActive();
-    }
-
-    match /skus/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() && isSystemActive();
-
-      match /batches/{batchId} {
-        allow read: if isAuthenticated();
-        allow write: if isAdmin() && isSystemActive();
-      }
-    }
-
-    match /warehouse_stock/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() && isSystemActive();
-    }
-
-    // ========== SYSTEM CONFIG & SECURITY AUDIT ==========
-
-    match /settings/{id} {
-      allow read: if isAdmin();
-      allow write: if isSuperAdmin() && isSystemActive();
-      match /{subDoc=**} {
-        allow read: if isAdmin();
-        allow write: if isSuperAdmin() && isSystemActive();
-      }
-    }
-
-    // FIX (DB Alignment #9): system_settings (delivery_rules, etc.) was uncovered — adding explicit rule
-    match /system_settings/{id} {
-      allow read: if isAdmin();
-      allow write: if isSuperAdmin() && isSystemActive();
-      match /{subDoc=**} {
-        allow read: if isAdmin();
-        allow write: if isSuperAdmin() && isSystemActive();
-      }
-    }
-
-    match /riders/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() && isSystemActive();
-    }
-
-    match /audit_logs/{id} {
-      allow read: if isAdmin();
-      allow write: if (isAdmin() && isSystemActive()) || request.auth.uid == 'system';
-    }
-
-    match /auditLogs/{id} {
-      allow read: if isAdmin();
-      allow write: if (isAdmin() && isSystemActive()) || request.auth.uid == 'system';
-    }
-
-    // SOS Alerts
-    match /sos_alerts/{id} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
-      allow create: if isAuthenticated() && request.resource.data.riderId == request.auth.uid;
-      allow update, delete: if isAdmin() && isSystemActive();
-    }
-    
-    // ========== ORDERS & DISPATCH ==========
-    
-    match /orders/{orderId} {
-      allow read: if isOwner(resource.data.userId) || isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if (isAdmin() && isSystemActive()) ||
-        // Customer non-financial update
-        (isOwner(resource.data.userId) &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'totalAmount', 'subtotal', 'discountAmount', 'deliveryCharge', 'taxAmount',
-            'paymentDetails', 'paymentStatus', 'status', 'items', 'fulfillmentWarehouseId',
-            'returnPending', 'returnId', 'refundStatus', 'refundAmount'
-          ])) ||
-        // Rider live tracking coordinates
-        (isAuthenticated() && resource.data.riderId == request.auth.uid &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'deliveryNotes', 'proofOfDeliveryUrl', 'riderLastLocation', 'updatedAt'
-          ]));
-      allow delete: if isSuperAdmin() && isSystemActive();
-      
-      match /auditLog/{logId} {
-        allow read: if isOwner(resource.data.userId) || isAdmin();
-        allow create: if isAdmin();
-      }
-    }
-    
-    match /returns/{returnId} {
-      allow read: if isOwner(resource.data.userId) || isAdmin();
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isAdmin() && isSystemActive();
-    }
-    
-    // ========== USERS & IMMUTABLE WALLET ==========
-    
-    match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow create: if isAuthenticated() &&
-        isOwner(userId) &&
-        !request.resource.data.diff({}).affectedKeys().hasAny([
-          'isAdmin', 'admin', 'adminRoles', 'role', 'isSuperAdmin', 'isActive',
-          'walletBalance', 'walletCredits', 'loyaltyPoints'
-        ]);
-      allow update: if (isOwner(userId) &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'isAdmin', 'admin', 'adminRoles', 'role', 'isSuperAdmin', 'isActive',
-          'walletBalance', 'walletCredits', 'loyaltyPoints', 'referralCode',
-          'totalSpent', 'orderCount', 'fraudFlags', 'kycVerified'
-        ]))
-        || (isAdmin() && isSystemActive());
-      allow delete: if isSuperAdmin() && isSystemActive();
-
-      match /wishlist/{wishId} {
-        allow read, write: if isOwner(userId) || isAdmin();
-      }
-
-      match /wallet_history/{historyId} {
-        allow read: if isOwner(userId) || isAdmin();
-        allow write: if false; // Server Cloud Functions only
-      }
-    }
-
-    match /wallet_transactions/{id} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow write: if false;
-    }
-
-    match /referrals/{id} {
-      allow read: if isAdmin() || (isAuthenticated() && (resource.data.referrerUid == request.auth.uid || resource.data.refereeUid == request.auth.uid));
-      allow write: if false;
-    }
-
-    match /notifications/{id} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow write: if isAdmin() || request.auth.uid == 'system';
-    }
-
-    // Customer Care, Support & Complaints
-    match /support_tickets/{id} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if (isAdmin() && isSystemActive()) ||
-        (isAuthenticated() && resource.data.userId == request.auth.uid &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'assignedTo', 'priority', 'internalNotes']));
-      allow delete: if isAdmin() && isSystemActive();
-    }
-
-    match /complaints/{id} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isAdmin() && isSystemActive();
-    }
-
-    match /customer_feedback/{id} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isAdmin() && isSystemActive();
-    }
-
-    // ========== 3-WAY COD CASH RECONCILIATION ==========
-    
-    match /cod_reconciliations/{id} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
-      allow create, update: if isAdmin() && isSystemActive();
-      allow delete: if isSuperAdmin();
-    }
-
-    match /cash_handovers/{id} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
-      // Riders cannot self-approve; only Hub Cashier or Finance Admin can confirm
-      allow create, update: if isAdmin() && isSystemActive();
-      allow delete: if isSuperAdmin();
-    }
-
-    match /bank_deposits/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && (isFinanceAdmin() || isSuperAdmin()) && isSystemActive();
-    }
-
-    // Payouts & General Ledger
-    match /payout_logs/{id} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
-      allow write: if isAdmin() && isFinanceAdmin() && isSystemActive();
+    match /product_costs/{id} {
+      allow read, write: if canViewFinance();
     }
 
     match /ledger/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && isFinanceAdmin() && isSystemActive();
+      allow read: if canViewFinance();
+      allow write: if false;
     }
 
-    // Expenses & Vendors
+    match /finance/{document=**} {
+      allow read: if canViewFinance();
+      allow write: if false;
+    }
+
+    match /accounts/{accountId} {
+      allow read: if canViewFinance();
+      allow write: if false;
+    }
+
     match /expenses/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && isSystemActive();
-    }
-
-    match /expense_categories/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && (isFinanceAdmin() || isSuperAdmin()) && isSystemActive();
-    }
-
-    match /expense_vendors/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && (isFinanceAdmin() || isSuperAdmin()) && isSystemActive();
-    }
-
-    match /suppliers/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() && isSystemActive();
-    }
-
-    match /supplier_ledger/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && isFinanceAdmin() && isSystemActive();
-    }
-    
-    // ========== 1000+ HR & STATUTORY PAYROLL ==========
-    
-    match /employees/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && isSystemActive();
-    }
-    
-    match /rider_hr_profiles/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && isSystemActive();
-    }
-    
-    match /workforce_documents/{id} {
-      allow read: if isAdmin();
-      allow create, update: if isAdmin() && isSystemActive();
-      allow delete: if isAdmin() && isHRAdmin() && isSystemActive();
-    }
-    
-    match /employee_attendance/{id} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.employeeId == request.auth.uid);
-      allow create, update: if isAdmin() && isSystemActive();
+      allow read: if canViewFinance();
+      allow create: if canViewFinance() &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.keys().hasAll(['amount', 'category', 'description', 'date']) &&
+        request.resource.data.amount > 0 &&
+        request.resource.data.amount <= 10000000;
+      allow update: if canViewFinance() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['expenseNumber', 'createdBy']);
       allow delete: if isSuperAdmin();
     }
 
-    match /monthly_payroll_runs/{id} {
+    match /sales_stats/{statId} {
       allow read: if isAdmin();
-      allow write: if isAdmin() && (isHRAdmin() || isFinanceAdmin() || isSuperAdmin()) && isSystemActive();
+      allow write: if false;
     }
 
-    match /employee_salary_structures/{id} {
+
+    // ============================================================
+    // AI SUPERVISOR
+    // ============================================================
+
+    match /ai_activity_logs/{id} {
       allow read: if isAdmin();
-      allow write: if isAdmin() && (isHRAdmin() || isFinanceAdmin() || isSuperAdmin()) && isSystemActive();
+      allow write: if false;
     }
 
-    match /statutory_licenses/{id} {
+    match /ai_action_requests/{id} {
       allow read: if isAdmin();
-      allow write: if isAdmin() && isSystemActive();
+
+      allow update: if isAdmin() &&
+        request.resource.data
+          .diff(resource.data)
+          .affectedKeys()
+          .hasOnly(['status']);
+
+      allow create, delete: if false;
     }
 
-    match /contracts/{id} {
+
+    // ============================================================
+    // OPERATIONS ESCALATIONS (SLA monitor)
+    // ============================================================
+
+    match /escalations/{id} {
       allow read: if isAdmin();
-      allow write: if isAdmin() && isHRAdmin() && isSystemActive();
+
+      allow update: if isAdmin() &&
+        request.resource.data
+          .diff(resource.data)
+          .affectedKeys()
+          .hasOnly(['status']);
+
+      allow create, delete: if false;
     }
 
-    // Corporate Governance & Loans
-    match /corporate_capital/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && isFinanceAdmin() && isSystemActive();
-    }
-    match /corporate_loans/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && isFinanceAdmin() && isSystemActive();
+
+    // ============================================================
+    // ADMIN SYSTEM NOTIFICATIONS
+    // ============================================================
+
+    match /notifications/{id} {
+      allow read, update: if isAdmin();
+      allow create: if isAdmin();
+      allow delete: if isSuperAdmin();
     }
 
-    // ========== DEFAULT DENY ==========
+
+    // ============================================================
+    // BROADCAST NOTIFICATIONS
+    // ============================================================
+
+    match /broadcast_notifications/{id} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+
+    // ============================================================
+    // DELIVERY SLOTS
+    // ============================================================
+
+    match /delivery_slots/{slotId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+
+    // ============================================================
+    // ORDERS
+    // ============================================================
+
+    match /orders/{orderId} {
+
+      allow read: if isAdmin() ||
+        (
+          isAuthenticated() &&
+          resource.data.userId == request.auth.uid
+        ) ||
+        (
+          isRider() &&
+          resource.data.riderId == request.auth.uid
+        );
+
+      // ALL client order creation MUST go through createOrder Cloud Function. Direct client writes blocked.
+      allow create: if isAdmin();
+
+      allow update: if isAdmin() ||
+        (
+          isRider() &&
+          resource.data.riderId == request.auth.uid &&
+          resource.data.status in ['ASSIGNED', 'RIDER_ASSIGNED', 'RIDER_ACCEPTED', 'PICKED_UP', 'PICKING_UP', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'] &&
+          request.resource.data.status != "DELIVERED" &&
+          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['status']) ||
+            request.resource.data.status in ['RIDER_ACCEPTED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
+          ) &&
+            request.resource.data
+              .diff(resource.data)
+              .affectedKeys()
+              .hasOnly([
+                'status',
+                'deliveryStatus',
+                'deliveryLocation',
+                'riderLocation',
+                'deliveryProof',
+                'deliveryProofUrl',
+                'podPhoto',
+                'podPhotoUrl',
+                'podSignature',
+                'podSignatureUrl',
+                'riderNote',
+                'updatedAt',
+                'syncId',
+                'rejectionHistory',
+                'ndrReason',
+                'ndrNotes',
+                'lastAttemptAt',
+                'attemptHistory'
+              ])
+        ) ||
+        (
+          // Blocker 7: allow rider to self-assign unassigned orders
+          isRider() &&
+          resource.data.riderId == "" &&
+          resource.data.status in ['READY_FOR_PICKUP', 'PACKED'] &&
+          (request.resource.data.status in ["ASSIGNED", "RIDER_ASSIGNED"]) &&
+          request.resource.data.riderId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'riderId', 'updatedAt'])
+        );
+
+      allow delete: if isSuperAdmin();
+
+      match /tracking/{trackingId} {
+        allow read: if isAdmin() ||
+          (
+            isAuthenticated() &&
+            get(/databases/$(database)/documents/orders/$(orderId))
+              .data.userId == request.auth.uid
+          ) ||
+          (
+            isRider() &&
+            get(/databases/$(database)/documents/orders/$(orderId))
+              .data.riderId == request.auth.uid
+          );
+
+        allow write: if false;
+      }
+
+      // Task 2.1: Secure internal subcollection for OTP and other server-side secrets
+      // Only Admin (Cloud Functions / Admin SDK) can read/write delivery OTP secrets
+      match /internal/{document=**} {
+        allow read, write: if isAdmin();
+      }
+    }
+
+
+    // ============================================================
+    // RETURNS
+    // ============================================================
+
+    match /returns/{returnId} {
+
+      allow read: if isAdmin() ||
+        (
+          isAuthenticated() &&
+          resource.data.userId == request.auth.uid
+        ) ||
+        (
+          isRider() &&
+          resource.data.riderId == request.auth.uid
+        );
+
+      allow create: if false; // All return requests go through requestReturn Cloud Function
+
+      allow update: if isAdmin() ||
+        (
+          isRider() &&
+          resource.data.riderId == request.auth.uid &&
+          request.resource.data
+            .diff(resource.data)
+            .affectedKeys()
+            .hasOnly([
+              'riderId',
+              'status',
+              'qcStatus',
+              'qcPhotos',
+              'qcNote',
+              'qcCompletedAt',
+              'updatedAt'
+            ])
+        );
+
+      allow delete: if isSuperAdmin();
+    }
+
+
+    // ============================================================
+    // USERS
+    // ============================================================
+
+    match /users/{uId} {
+
+      allow read: if isOwner(uId) || isAdmin() || isViewer();
+
+      allow create: if isOwner(uId) &&
+        !request.resource.data.keys().hasAny([
+          'isAdmin',
+          'admin',
+          'walletBalance',
+          'rewardPoints',
+          'referralCode',
+          'referredBy',
+          'hasCompletedFirstOrder',
+          'customClaims'
+        ]) &&
+        // Only allow role='Rider' from Delivery App (not Customer/Admin roles)
+        (!request.resource.data.keys().hasAny(['role']) ||
+          request.resource.data.role == 'Rider'
+        );
+
+      allow update: if isSuperAdmin() ||
+        (
+          isOwner(uId) &&
+          !request.resource.data
+            .diff(resource.data)
+            .affectedKeys()
+            .hasAny([
+              'role',
+              'isAdmin',
+              'admin',
+              'walletBalance',
+              'rewardPoints',
+              'referredBy',
+              'hasCompletedFirstOrder',
+              'customClaims'
+            ]) &&
+          (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['referralCode']) ||
+            !('referralCode' in resource.data) || resource.data.referralCode == null || resource.data.referralCode == ''
+          )
+        );
+
+      allow delete: if isSuperAdmin();
+
+      match /addresses/{addressId} {
+        allow read, write: if isOwner(uId) || isAdmin();
+      }
+
+      match /cart/{cartItemId} {
+        allow read, write: if isOwner(uId) || isAdmin();
+      }
+
+      match /wishlist/{wishlistItemId} {
+        allow read, write: if isOwner(uId) || isAdmin();
+      }
+
+      // Blocker 7 & H3: allow riders to send delivery notifications with validated schema
+      match /notifications/{notifId} {
+        allow create: if isRider() &&
+          request.resource.data.keys().hasOnly(['orderId', 'type', 'message', 'createdAt']) &&
+          request.resource.data.type in ['DELIVERY_STARTED', 'DELIVERY_NEAR', 'DELIVERY_COMPLETED', 'RIDER_ASSIGNED'];
+        allow read: if isOwner(uId) || isAdmin();
+      }
+
+      // FCM Token Registry for multi-device support
+      match /fcm_tokens/{tokenId} {
+        allow read, write: if isOwner(uId) || isAdmin();
+      }
+
+      match /{document=**} {
+        allow read, write: if false;
+      }
+    }
+
+
+    // ============================================================
+    // RIDERS & WHITELIST
+    // ============================================================
+
+    match /whitelisted_riders/{id} {
+      allow get: if isAdmin() || (
+        isAuthenticated() && (
+          request.auth.token.phone_number == id ||
+          request.auth.token.phone_number == ('+91' + id) ||
+          (resource.data.phone != null && resource.data.phone == request.auth.token.phone_number) ||
+          (resource.data.phone != null && ('+91' + resource.data.phone) == request.auth.token.phone_number)
+        )
+      );
+      allow list: if isAdmin();
+      allow update, create, delete: if isAdmin();
+    }
+
+    match /riders/{riderId} {
+      allow read: if isAdmin() || isViewer() || isOwner(riderId);
+      // Self-creation blocked: Only Admin can onboard/create rider profiles
+      allow create: if isAdmin();
+      // Rider self-updates restricted to non-sensitive profile fields
+      allow update: if isAdmin() || (
+        isRider() && isOwner(riderId) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['kycStatus']) ||
+          request.resource.data.kycStatus == 'PENDING_VERIFICATION'
+        ) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'phone', 'address', 'vehicleDetails', 'isAvailable', 'currentLocation', 'location', 'fcmToken', 'updatedAt',
+          'currentLat', 'currentLng', 'lastLocationUpdate',
+          'online', 'shiftStartTime', 'shiftEndTime',
+          'bankAccount', 'bankName', 'ifscCode', 'vehicleNumber', 'vehicleType',
+          'documents', 'kycStatus', 'lastKycSubmissionAt'
+        ])
+      );
+      allow delete: if isAdmin();
+    }
+
+
+    // ============================================================
+    // WISHLIST
+    // ============================================================
+
+    match /wishlists/{userId}/{itemId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+
+    // ============================================================
+    // STOCK NOTIFICATION REQUESTS
+    // ============================================================
+
+    match /stock_notification_requests/{id} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+
+    // ============================================================
+    // SETTINGS
+    // ============================================================
+
+    match /settings/{allPaths=**} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+
+    // ============================================================
+    // SOS / EMERGENCY ALERTS
+    // ============================================================
+
+    match /sos_alerts/{alertId} {
+      allow create: if isAuthenticated();
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    match /emergency_alerts/{alertId} {
+      allow create: if isAuthenticated();
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+
+    // ============================================================
+    // AUDIT LOGS
+    // ============================================================
+
+    match /audit_logs/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+
+    // ============================================================
+    // REFERRALS & WALLET
+    // ============================================================
+
+    match /referrals/{referralId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == resource.data.referrerUid ||
+        request.auth.uid == resource.data.refereeUid ||
+        isAdmin()
+      );
+      allow write: if false; // Only Cloud Functions mutate this
+    }
+
+    match /wallet_transactions/{txnId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == resource.data.uid ||
+        isAdmin()
+      );
+      allow write: if false; // Only Cloud Functions mutate this
+    }
+
+
+    // ============================================================
+    // SUPPLIERS & PROCUREMENT (Phase 1 & 2)
+    // ============================================================
+
+    match /suppliers/{supplierId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /procurement_queue/{itemId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /purchase_orders/{poId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+      match /{document=**} {
+        allow read, write: if isAdmin();
+      }
+    }
+
+    match /goods_receipts/{grnId} {
+      allow read, write: if isAdmin();
+      match /{document=**} {
+        allow read, write: if isAdmin();
+      }
+    }
+
+    match /inventory_movements/{movementId} {
+      allow read: if isAdmin();
+      allow write: if false; // Immutable ledger: mutated strictly via Cloud Functions / Admin SDK
+    }
+
+    match /warehouse_stock/{docId} {
+      allow read: if isAdmin();
+      allow write: if false; // Cloud Functions SSoT for location inventory
+    }
+
+    match /warehouses/{warehouseId} {
+      allow read: if true;
+      allow write: if isAdmin();
+      match /{document=**} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+    }
+
+    match /idempotency_keys/{key} {
+      allow read, write: if false; // Internal backend idempotency locks
+    }
+
+    match /supplier_ledger/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    match /customer_ledger/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    match /unit_economics/{orderId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ============================================================
+    // CRM SYSTEM (Support, Complaints, Feedback) - M3
+    // ============================================================
+
+    match /support_tickets/{ticketId} {
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'message', 'updatedAt']));
+      allow delete: if isAdmin();
+      match /{document=**} {
+        allow read, write: if isAuthenticated() &&
+          (get(/databases/$(database)/documents/support_tickets/$(ticketId)).data.userId == request.auth.uid || isAdmin());
+      }
+    }
+
+    match /complaints/{complaintId} {
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'description', 'updatedAt']));
+      allow delete: if isAdmin();
+      match /{document=**} {
+        allow read, write: if isAuthenticated() &&
+          (get(/databases/$(database)/documents/complaints/$(complaintId)).data.userId == request.auth.uid || isAdmin());
+      }
+    }
+
+    match /customer_feedback/{feedbackId} {
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'comment', 'updatedAt']));
+      allow delete: if isAdmin();
+      match /{document=**} {
+        allow read, write: if isAuthenticated() &&
+          (get(/databases/$(database)/documents/customer_feedback/$(feedbackId)).data.userId == request.auth.uid || isAdmin());
+      }
+    }
+
+
+    // ============================================================
+    // INTERNAL INFRASTRUCTURE
+    // ============================================================
+
+    match /notification_logs/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /outbox/{id} {
+      allow read, write: if false;
+    }
+
+
+    // ============================================================
+    // CASH DEPOSITS
+    // ============================================================
+    
+    match /cash_deposits/{id} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow create: if isRider() && request.resource.data.riderId == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // ABANDONED CARTS
+    // ============================================================
+    
+    match /abandoned_carts/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    // ============================================================
+    // SERVICE MARKETPLACE
+    // ============================================================
+
+    match /service_bookings/{bookingId} {
+      // Farmer, Assigned Partner, Admin, or verified partner/serviceman viewing PENDING_ASSIGNMENT can read
+      allow read: if isAuthenticated() && (
+                    request.auth.uid == resource.data.farmerId
+                    || request.auth.uid == resource.data.assignedPartnerId
+                    || (resource.data.status == "PENDING_ASSIGNMENT" && request.auth.token.role in ['Serviceman', 'Partner', 'ADMIN'])
+                    || isAdmin()
+                  );
+      // All service booking creations MUST go through createServiceBooking Cloud Function. Client direct write blocked.
+      allow create: if false;
+      // Client direct update & delete blocked — ALL state mutations MUST go through Cloud Functions
+      allow update, delete: if false;
+    }
+
+    match /partner_wallets/{partnerId} {
+      // Partner can read their own wallet, admin can read all
+      allow read: if isAuthenticated() && (request.auth.uid == partnerId || isAdmin());
+      // Direct client updates blocked — ONLY Cloud Functions can modify balance
+      allow write: if false;
+    }
+
+    match /partner_wallet_transactions/{txnId} {
+      // Partner can read their transaction history
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.partnerId || isAdmin());
+      // Direct client creation blocked — ONLY Cloud Functions can record transactions
+      allow write: if false;
+    }
+
+    match /services/{serviceId} {
+      // Public read for service catalog (Sprayman, Soil Testing, Drone Spray)
+      allow read: if true;
+      // Only Admin can add or update service definitions
+      allow write: if isAdmin();
+    }
+
+
+    // ============================================================
+    // DEFAULT DENY
+    // ============================================================
+
     match /{document=**} {
-      allow read: if isAdmin();
-      allow write: if isSuperAdmin() && isSystemActive();
+      allow read, write: if false;
     }
   }
 }

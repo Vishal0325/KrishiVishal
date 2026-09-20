@@ -1,68 +1,314 @@
 rules_version = '2';
+
 service firebase.storage {
   match /b/{bucket}/o {
-    
-    // Helper function to check if user is authenticated
+
+    // ============================================================
+    // AUTHENTICATION / RBAC HELPERS
+    // ============================================================
+
     function isAuthenticated() {
       return request.auth != null;
     }
-    
-    // Helper function for admin check
+
+    // Canonical administrative roles.
+    // Viewer is intentionally NOT included because Viewer is read-only.
     function isAdmin() {
       return isAuthenticated() && (
         request.auth.token.admin == true ||
         request.auth.token.isAdmin == true ||
-        request.auth.token.role in ['SuperAdmin', 'HRAdmin', 'Admin', 'WarehouseManager', 'Operations', 'FinanceAdmin']
+        request.auth.token.role in [
+          "ADMIN",
+          "SuperAdmin",
+          "CatalogManager",
+          "OrderManager",
+          "WarehouseManager",
+          "HRAdmin",
+          "FinanceAdmin"
+        ]
       );
     }
-    
-    // Workforce Documents Storage Rules (ID Cards, Contracts, Passports, Aadhaar)
-    match /workforce-documents/{allPaths=**} {
-      // Only SuperAdmin, HRAdmin and verified Admins can read workforce documents
-      allow read: if isAuthenticated() && (
-        request.auth.token.role in ['SuperAdmin', 'HRAdmin'] ||
-        request.auth.token.isAdmin == true ||
-        request.auth.token.admin == true
+
+    function isRider() {
+      return isAuthenticated() &&
+        request.auth.token.role == "Rider";
+    }
+
+    // ============================================================
+    // FILE VALIDATION HELPERS
+    // ============================================================
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isValidImage() {
+      return isImage() &&
+        request.resource.size < 10 * 1024 * 1024;
+    }
+
+    function isValidProfileImage() {
+      return isImage() &&
+        request.resource.size < 5 * 1024 * 1024;
+    }
+
+    function isValidDocument() {
+      return (
+        request.resource.contentType.matches('application/pdf') ||
+        isImage()
+      ) &&
+      request.resource.size < 15 * 1024 * 1024;
+    }
+
+    // ============================================================
+    // ORDER HELPERS
+    // ============================================================
+
+    function orderExists(orderId) {
+      return firestore.exists(
+        /databases/(default)/documents/orders/$(orderId)
       );
-      allow write: if isAuthenticated() && isAdmin() &&
-        request.resource.size < 20 * 1024 * 1024 &&
-        request.resource.contentType.matches('image/.*|application/pdf|application/msword|application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    }
-    
-    // User profile avatars
-    match /avatars/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && (request.auth.uid == userId || isAdmin()) &&
-        request.resource.size < 5 * 1024 * 1024 &&
-        request.resource.contentType.matches('image/.*');
-    }
-    match /avatars/{userId}/{fileName} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && (request.auth.uid == userId || isAdmin()) &&
-        request.resource.size < 5 * 1024 * 1024 &&
-        request.resource.contentType.matches('image/.*');
-    }
-    
-    // Public Catalog & Media Assets (products, categories, brands, crops, banners)
-    match /{folder}/{allPaths=**} {
-      allow read: if folder in ['products', 'categories', 'brands', 'crops', 'banners', 'public'];
-      allow write: if isAdmin() &&
-        request.resource.size < 15 * 1024 * 1024 &&
-        request.resource.contentType.matches('image/.*|video/.*|application/pdf');
     }
 
-    // Expense Receipts & Invoices (Restricted to Admins)
-    match /expenses/{allPaths=**} {
-      allow read, write: if isAdmin();
+    function isOrderOwner(orderId) {
+      return isAuthenticated() &&
+        orderExists(orderId) &&
+        firestore.get(
+          /databases/(default)/documents/orders/$(orderId)
+        ).data.userId == request.auth.uid;
     }
 
-    match /invoices/{allPaths=**} {
-      allow read, write: if isAdmin();
+    function isAssignedRider(orderId) {
+      return isRider() &&
+        orderExists(orderId) &&
+        firestore.get(
+          /databases/(default)/documents/orders/$(orderId)
+        ).data.riderId == request.auth.uid;
     }
-    
-    // Default fallback: Admin only
+
+    // ============================================================
+    // RETURN HELPERS
+    // ============================================================
+
+    function returnExists(returnId) {
+      return firestore.exists(
+        /databases/(default)/documents/returns/$(returnId)
+      );
+    }
+
+    function isReturnOwner(returnId) {
+      return isAuthenticated() &&
+        returnExists(returnId) &&
+        firestore.get(
+          /databases/(default)/documents/returns/$(returnId)
+        ).data.userId == request.auth.uid;
+    }
+
+    function isReturnRider(returnId) {
+      return isRider() &&
+        returnExists(returnId) &&
+        firestore.get(
+          /databases/(default)/documents/returns/$(returnId)
+        ).data.riderId == request.auth.uid;
+    }
+
+    // ============================================================
+    // PUBLIC PRODUCT IMAGES
+    // ============================================================
+
+    match /products/{allPaths=**} {
+      allow read: if true;
+
+      allow create, update: if isAdmin() &&
+        isValidImage();
+
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // PUBLIC BANNERS
+    // ============================================================
+
+    match /banners/{allPaths=**} {
+      allow read: if true;
+
+      allow create, update: if isAdmin() &&
+        isValidImage();
+
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // PUBLIC BRAND LOGOS
+    // ============================================================
+
+    match /brands/{allPaths=**} {
+      allow read: if true;
+
+      allow create, update: if isAdmin() &&
+        isValidImage();
+
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // PUBLIC CATEGORY IMAGES
+    // ============================================================
+
+    match /categories/{allPaths=**} {
+      allow read: if true;
+
+      allow create, update: if isAdmin() &&
+        isValidImage();
+
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // PUBLIC SUBCATEGORY IMAGES
+    // ============================================================
+
+    match /subcategories/{allPaths=**} {
+      allow read: if true;
+
+      allow create, update: if isAdmin() &&
+        isValidImage();
+
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // USER PROFILE FILES
+    // Structure:
+    // users/{userId}/{fileName}
+    // ============================================================
+
+    match /users/{userId}/{fileName} {
+
+      allow read: if isAuthenticated() &&
+        (
+          request.auth.uid == userId ||
+          isAdmin()
+        );
+
+      allow create, update: if isAuthenticated() &&
+        request.auth.uid == userId &&
+        isValidProfileImage();
+
+      allow delete: if isAuthenticated() &&
+        (
+          request.auth.uid == userId ||
+          isAdmin()
+        );
+    }
+
+    // ============================================================
+    // KYC DOCUMENTS
+    // Structure:
+    // kyc/{userId}/{fileName}   (driving licence, RC, aadhaar, etc.)
+    // ============================================================
+
+    match /kyc/{userId}/{fileName} {
+
+      allow read: if isAdmin() ||
+        (isAuthenticated() && request.auth.uid == userId);
+
+      // Rider can upload their own KYC documents (images or PDFs, max 15 MB)
+      allow create, update: if isAuthenticated() &&
+        request.auth.uid == userId &&
+        isValidDocument();
+
+      // Only admin can delete KYC evidence
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // PROOF OF DELIVERY
+    // Structure:
+    // pod/{orderId}/{fileName}
+    // ============================================================
+
+    match /pod/{orderId}/{fileName} {
+
+      allow read: if isAdmin() ||
+        isOrderOwner(orderId) ||
+        isAssignedRider(orderId);
+
+      // Assigned rider or admin can create.
+      // Existing evidence cannot be overwritten.
+      allow create: if (isAdmin() || isAssignedRider(orderId)) &&
+        isValidImage() &&
+        resource == null;
+
+      // Rider cannot modify/delete evidence.
+      allow update, delete: if isAdmin();
+    }
+
+    // ============================================================
+    // LEGACY ORDER FILES
+    // Structure:
+    // orders/{orderId}/...
+    // ============================================================
+
+    match /orders/{orderId}/{allPaths=**} {
+
+      allow read: if isAdmin() ||
+        isOrderOwner(orderId) ||
+        isAssignedRider(orderId);
+
+      allow create: if isAdmin() ||
+        (
+          isAssignedRider(orderId) &&
+          isValidImage()
+        );
+
+      allow update, delete: if isAdmin();
+    }
+
+    // ============================================================
+    // RETURN QC PHOTOS
+    // Structure:
+    // returns/{returnId}/{fileName}
+    // ============================================================
+
+    match /returns/{returnId}/{fileName} {
+
+      allow read: if isAdmin() ||
+        isReturnOwner(returnId) ||
+        isReturnRider(returnId);
+
+      // Assigned rider or admin can create.
+      // Existing evidence cannot be overwritten.
+      allow create: if (isAdmin() || isReturnRider(returnId)) &&
+        isValidImage() &&
+        resource == null;
+
+      // Rider cannot modify/delete evidence.
+      allow update, delete: if isAdmin();
+    }
+
+    // ============================================================
+    // EXPENSE ATTACHMENTS
+    // Structure:
+    // expenses/{expenseId}/{fileName}
+    // ============================================================
+
+    match /expenses/{expenseId}/{fileName} {
+
+      allow read: if isAdmin();
+
+      allow create: if isAdmin() &&
+        isValidDocument();
+
+      allow update, delete: if isAdmin();
+    }
+
+    // ============================================================
+    // DEFAULT DENY
+    // ============================================================
+
     match /{allPaths=**} {
-      allow read, write: if isAdmin();
+      allow read, write: if false;
     }
   }
 }
