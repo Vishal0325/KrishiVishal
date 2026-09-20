@@ -55,6 +55,9 @@ class WishlistRepositoryImpl @Inject constructor(
         saveFetchResult = { items ->
             if (items.isNotEmpty()) {
                 wishlistDao.insertProducts(items)
+                if (userId != Constants.GUEST_USER_ID) {
+                    wishlistDao.deleteGuestItemsByProductIds(items.map { it.productId })
+                }
             }
         },
         shouldFetch = { userId != Constants.GUEST_USER_ID },

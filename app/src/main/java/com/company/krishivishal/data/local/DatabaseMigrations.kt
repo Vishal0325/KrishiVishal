@@ -440,19 +440,14 @@ object DatabaseMigrations {
 
     /**
      * Migration from 55 to 56
-     * Cleans up legacy 'guest_user' wishlist items that were persisted by older app versions,
-     * but ONLY if they are already present for an authenticated user (polluted rows).
-     * This preserves legitimate guest wishlist items for unauthenticated users.
+     * Structural no-op; schema remains identical to version 55.
+     * Stale guest wishlist cleanup is handled contextually in WishlistRepository
+     * upon authenticated remote fetch to prevent upgrade-time data loss.
      */
     val MIGRATION_55_56 = object : Migration(55, 56) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL(
-                """
-                DELETE FROM `wishlist_items` 
-                WHERE `userId` = 'guest_user' 
-                AND `productId` IN (SELECT `productId` FROM `wishlist_items` WHERE `userId` != 'guest_user')
-                """.trimIndent()
-            )
+            // No-op: Contextual deduplication of guest items against authenticated items
+            // occurs at runtime in WishlistRepository when remote product IDs provide accurate context.
         }
     }
 

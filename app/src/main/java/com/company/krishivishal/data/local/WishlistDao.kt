@@ -28,6 +28,9 @@ interface WishlistDao {
     @Query("DELETE FROM wishlist_items WHERE userId = 'guest_user'")
     suspend fun clearGuestWishlist()
     
+    @Query("DELETE FROM wishlist_items WHERE userId = 'guest_user' AND productId IN (:productIds)")
+    suspend fun deleteGuestItemsByProductIds(productIds: List<String>)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProducts(items: List<WishlistItem>)
 }
