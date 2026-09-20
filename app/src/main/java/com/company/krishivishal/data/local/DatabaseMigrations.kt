@@ -438,6 +438,17 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * Migration from 55 to 56
+     * Cleans up legacy 'guest_user' wishlist items that were persisted by older app versions.
+     * Prevents these stale rows from incorrectly entering the guest-wishlist merge path.
+     */
+    val MIGRATION_55_56 = object : Migration(55, 56) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("DELETE FROM `wishlist_items` WHERE `userId` = 'guest_user'")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_33_34,
         MIGRATION_34_35,
@@ -453,7 +464,8 @@ object DatabaseMigrations {
         MIGRATION_51_52,
         MIGRATION_52_54,
         MIGRATION_53_54,
-        MIGRATION_54_55
+        MIGRATION_54_55,
+        MIGRATION_55_56
     )
 }
 
