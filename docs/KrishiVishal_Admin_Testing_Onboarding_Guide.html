@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="hi" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KrishiVishal - 0 to Finish Complete Operations & Testing Master Guide</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Plus Jakarta Sans & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Mermaid.js for Diagrams -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'monospace'],
+                    },
+                    colors: {
+                        agri: {
+                            50: '#f0fdf4',
+                            100: '#dcfce7',
+                            200: '#bbf7d0',
+                            500: '#22c55e',
+                            600: '#16a34a',
+                            700: '#15803d',
+                            800: '#166534',
+                            900: '#0B4D31',
+                            950: '#052e16',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+        .glass-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); border: 1px solid rgba(226, 232, 240, 0.9); }
+        .tab-btn.active { background: #0B4D31; color: white; border-color: #0B4D31; }
+        .task-checkbox:checked + div strong { text-decoration: line-through; color: #94a3b8; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased font-sans min-h-screen">
+
+    <!-- Top Sticky Header -->
+    <header class="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-agri-900 text-white flex items-center justify-center shadow-md">
+                    <i data-lucide="sprout" class="w-6 h-6 text-emerald-300"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-extrabold text-lg text-slate-900 leading-none">KrishiVishal</span>
+                        <span class="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 rounded-full border border-emerald-200">E2E Master Guide</span>
+                    </div>
+                    <p class="text-xs text-slate-500 font-medium">0 Se Finish Tak: Admin ERP + Customer App + Delivery App</p>
+                </div>
+            </div>
+
+            <!-- Header Actions -->
+            <div class="flex items-center gap-3">
+                <button onclick="resetAllCheckboxes()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all">
+                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Reset Progress
+                </button>
+                <button onclick="window.print()" class="px-3.5 py-1.5 bg-agri-900 hover:bg-agri-950 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow transition-all">
+                    <i data-lucide="printer" class="w-4 h-4"></i> Print Checklist
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10">
+
+        <!-- Hero Banner with Live Progress -->
+        <section class="relative rounded-3xl bg-gradient-to-r from-agri-950 via-agri-900 to-emerald-900 text-white p-6 sm:p-10 shadow-xl overflow-hidden">
+            <div class="absolute right-0 top-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
+            
+            <div class="relative z-10 max-w-4xl space-y-4">
+                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-emerald-200 text-xs font-bold backdrop-blur-sm border border-white/10">
+                    <i data-lucide="award" class="w-3.5 h-3.5"></i> 100% Production Ready Testing Playbook
+                </div>
+                <h1 class="text-3xl sm:text-4xl font-black tracking-tight leading-tight">
+                    KrishiVishal: 0 Se Start Karke Finish Tak Kaise Test Karein?
+                </h1>
+                <p class="text-slate-200 text-sm sm:text-base leading-relaxed">
+                    Bina kisi purane data ke bilkul naye system par pehla successful order place karne, deliver karne aur balance sheet reconcile karne ke liye yeh <strong>Click-by-Click Guide</strong> banayi gayi hai.
+                </p>
+
+                <!-- Live Checklist Progress Bar -->
+                <div class="pt-4 space-y-2">
+                    <div class="flex items-center justify-between text-xs font-bold">
+                        <span class="text-emerald-200 flex items-center gap-1.5">
+                            <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i> Testing Progress:
+                        </span>
+                        <span id="progressText" class="font-mono text-emerald-300">0 / 25 Done (0%)</span>
+                    </div>
+                    <div class="w-full h-3 bg-white/10 rounded-full overflow-hidden p-0.5 border border-white/10">
+                        <div id="progressBar" class="h-full bg-gradient-to-r from-emerald-400 to-emerald-300 rounded-full transition-all duration-300 w-0"></div>
+                    </div>
+                </div>
+
+                <!-- 3 Apps Overview Badge Grid -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-white/10 text-xs">
+                    <div class="bg-white/5 p-3 rounded-2xl border border-white/10 flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-300 flex items-center justify-center font-bold">1</div>
+                        <div>
+                            <span class="font-black text-white block">Web Admin ERP</span>
+                            <span class="text-slate-300 text-[11px]">Warehouse, Stock, Fleet & P&L</span>
+                        </div>
+                    </div>
+                    <div class="bg-white/5 p-3 rounded-2xl border border-white/10 flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center font-bold">2</div>
+                        <div>
+                            <span class="font-black text-white block">Customer Mobile App</span>
+                            <span class="text-slate-300 text-[11px]">Shopping, Cart, COD & Tracking</span>
+                        </div>
+                    </div>
+                    <div class="bg-white/5 p-3 rounded-2xl border border-white/10 flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center font-bold">3</div>
+                        <div>
+                            <span class="font-black text-white block">Delivery Mobile App</span>
+                            <span class="text-slate-300 text-[11px]">Trips, OTP Delivery & Cash Recon</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Interactive Filter Tabs & Search -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 sticky top-16 z-40 bg-slate-50/90 py-2 backdrop-blur-md">
+            <!-- Filter Tabs -->
+            <div class="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 custom-scrollbar">
+                <button onclick="switchTab('all')" id="tab-all" class="tab-btn active px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white hover:bg-slate-100 transition-all flex items-center gap-1.5 shrink-0">
+                    <i data-lucide="layers" class="w-3.5 h-3.5"></i> All Steps (0 - 25)
+                </button>
+                <button onclick="switchTab('admin')" id="tab-admin" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white hover:bg-slate-100 transition-all flex items-center gap-1.5 shrink-0">
+                    <i data-lucide="building-2" class="w-3.5 h-3.5"></i> 1. Admin Panel Only
+                </button>
+                <button onclick="switchTab('customer')" id="tab-customer" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white hover:bg-slate-100 transition-all flex items-center gap-1.5 shrink-0">
+                    <i data-lucide="smartphone" class="w-3.5 h-3.5"></i> 2. Customer App Only
+                </button>
+                <button onclick="switchTab('delivery')" id="tab-delivery" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white hover:bg-slate-100 transition-all flex items-center gap-1.5 shrink-0">
+                    <i data-lucide="bike" class="w-3.5 h-3.5"></i> 3. Delivery App Only
+                </button>
+                <button onclick="switchTab('cheatsheet')" id="tab-cheatsheet" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white hover:bg-slate-100 transition-all flex items-center gap-1.5 shrink-0">
+                    <i data-lucide="file-text" class="w-3.5 h-3.5"></i> Copyable Test Data
+                </button>
+            </div>
+
+            <!-- Search Bar -->
+            <div class="relative w-full sm:w-64 shrink-0">
+                <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                <input type="text" id="quickSearch" placeholder="Search any step, button, route..." onkeyup="filterSteps()" class="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-agri-900 shadow-sm">
+            </div>
+        </div>
+
+        <!-- CHEATSHEET TAB CONTAINER (Hidden by default, toggled via JS) -->
+        <section id="cheatsheet-content" class="hidden space-y-6">
+            <div class="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
+                <div class="flex items-center gap-3 border-b border-slate-100 pb-4">
+                    <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-black">
+                        <i data-lucide="clipboard-copy" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-black text-slate-900">Copy-Paste Test Data Library</h2>
+                        <p class="text-xs text-slate-500">Testing form bharte samay sochne ki zaroorat nahi, yahan se direct copy karein!</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+                    <!-- Warehouse Card -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                        <span class="font-bold text-emerald-800 flex items-center gap-1.5">
+                            <i data-lucide="building-2" class="w-4 h-4"></i> Sample Warehouse
+                        </span>
+                        <div class="space-y-1 font-mono text-[11px] text-slate-600">
+                            <div><strong>Name:</strong> Samastipur Central Hub</div>
+                            <div><strong>Code:</strong> SAM01</div>
+                            <div><strong>District:</strong> Samastipur</div>
+                            <div><strong>Pincode:</strong> <span class="bg-emerald-100 text-emerald-800 px-1 rounded font-bold">848117</span></div>
+                            <div><strong>Manager:</strong> Vishal Kumar (7763044160)</div>
+                        </div>
+                    </div>
+
+                    <!-- Category & Crop -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                        <span class="font-bold text-indigo-800 flex items-center gap-1.5">
+                            <i data-lucide="sprout" class="w-4 h-4"></i> Sample Crop & Category
+                        </span>
+                        <div class="space-y-1 font-mono text-[11px] text-slate-600">
+                            <div><strong>Crop Name:</strong> Gehu (Wheat) / Dhan (Paddy)</div>
+                            <div><strong>Category:</strong> Crop Nutrition & Fertilizers</div>
+                            <div><strong>Brand Name:</strong> IFFCO / Bayer CropScience</div>
+                        </div>
+                    </div>
+
+                    <!-- Product Card -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                        <span class="font-bold text-amber-800 flex items-center gap-1.5">
+                            <i data-lucide="package" class="w-4 h-4"></i> Sample Product SKU
+                        </span>
+                        <div class="space-y-1 font-mono text-[11px] text-slate-600">
+                            <div><strong>Name:</strong> Nano Urea Liquid (500ml)</div>
+                            <div><strong>SKU Code:</strong> UREA-NANO-500</div>
+                            <div><strong>MRP:</strong> ₹250 | <strong>Selling Price:</strong> ₹225</div>
+                            <div><strong>HSN Code:</strong> 31021000 | <strong>GST Rate:</strong> 5%</div>
+                        </div>
+                    </div>
+
+                    <!-- Supplier & GRN -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                        <span class="font-bold text-purple-800 flex items-center gap-1.5">
+                            <i data-lucide="truck" class="w-4 h-4"></i> Sample Supplier & GRN
+                        </span>
+                        <div class="space-y-1 font-mono text-[11px] text-slate-600">
+                            <div><strong>Supplier:</strong> Kisan Agro Supplies Pvt Ltd</div>
+                            <div><strong>GSTIN:</strong> 10AAECK1234F1Z5</div>
+                            <div><strong>Inward Qty:</strong> 100 Pieces</div>
+                            <div><strong>Batch No:</strong> BATCH-2026-09</div>
+                            <div><strong>Expiry Date:</strong> 2027-12-31</div>
+                        </div>
+                    </div>
+
+                    <!-- Test Rider -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                        <span class="font-bold text-rose-800 flex items-center gap-1.5">
+                            <i data-lucide="bike" class="w-4 h-4"></i> Sample Delivery Rider
+                        </span>
+                        <div class="space-y-1 font-mono text-[11px] text-slate-600">
+                            <div><strong>Name:</strong> Suresh Kumar</div>
+                            <div><strong>Phone:</strong> 9999999999</div>
+                            <div><strong>Assigned Hub:</strong> Samastipur Central Hub</div>
+                            <div><strong>Vehicle:</strong> Hero Splendor (BR-33-A-1234)</div>
+                            <div><strong>Status:</strong> AVAILABLE / ONLINE</div>
+                        </div>
+                    </div>
+
+                    <!-- Test Customer -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                        <span class="font-bold text-blue-800 flex items-center gap-1.5">
+                            <i data-lucide="user" class="w-4 h-4"></i> Sample Customer
+                        </span>
+                        <div class="space-y-1 font-mono text-[11px] text-slate-600">
+                            <div><strong>Name:</strong> Ramesh Farmer</div>
+                            <div><strong>Phone:</strong> 9888888888</div>
+                            <div><strong>Address:</strong> Village Rahthuli, Post Shripur Gahar</div>
+                            <div><strong>Pincode:</strong> <span class="bg-emerald-100 text-emerald-800 px-1 rounded font-bold">848117</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- STEPS CONTAINER (ALL PHASES) -->
+        <div id="steps-container" class="space-y-12">
+
+            <!-- ========================================================================= -->
+            <!-- PHASE 0: FOUNDATION & MASTER DATA (ADMIN ERP) -->
+            <!-- ========================================================================= -->
+            <section class="step-card bg-white rounded-3xl p-6 sm:p-8 border-2 border-emerald-200 shadow-sm space-y-6" data-category="admin">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-black text-lg">
+                            P0
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-900">Admin Panel Setup</span>
+                                <span class="text-xs font-bold text-slate-400">Step 1 to 6</span>
+                            </div>
+                            <h2 class="text-xl font-black text-slate-900">Phase 0: Master Data & Stock Inwarding</h2>
+                        </div>
+                    </div>
+                    <span class="text-xs text-slate-500 font-medium italic">⚠️ Bina stock aur pincode ke order place nahi ho sakta.</span>
+                </div>
+
+                <div class="space-y-4 text-xs">
+
+                    <!-- STEP 1 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 hover:border-slate-300 transition-all space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-1" onchange="toggleTask('task-1')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 1: Regional Warehouse & Pincode Add Karein
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Admin me <strong>Supply Chain ➔ Warehouses</strong> tab par jayein. <strong>"Add New Hub"</strong> button par click karein aur ye details bharein:
+                                </p>
+                                <div class="bg-white p-3 rounded-xl border border-slate-200 font-mono text-[11px] space-y-1">
+                                    <div>• <strong>Hub Name:</strong> Samastipur Central Hub</div>
+                                    <div>• <strong>Type:</strong> CENTRAL_DEPOT</div>
+                                    <div>• <strong>District:</strong> Samastipur</div>
+                                    <div>• <strong>Pincode (*Most Critical):</strong> <span class="text-emerald-700 font-black">848117</span> <em class="text-slate-400">(Customer isi pin se order karega)</em></div>
+                                    <div>• <strong>Manager Name & Phone:</strong> Vishal Kumar / 7763044160</div>
+                                </div>
+                                <div class="text-[11px] text-emerald-800 font-bold flex items-center gap-1 mt-1">
+                                    <i data-lucide="check" class="w-3.5 h-3.5"></i> Save karte hi ye Pincode poore system me Serviceable ban jayega!
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 2 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 hover:border-slate-300 transition-all space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-2" onchange="toggleTask('task-2')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 2: Crop & Category Master Banayein
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    <strong>Catalog Hub</strong> me jayein:
+                                </p>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                                    <div class="bg-white p-2.5 rounded-xl border border-slate-200">
+                                        <span class="font-bold text-slate-800 block">A. Crops Tab:</span>
+                                        Add Crop: <strong>Gehu (Wheat)</strong>, Season: Rabi.
+                                    </div>
+                                    <div class="bg-white p-2.5 rounded-xl border border-slate-200">
+                                        <span class="font-bold text-slate-800 block">B. Categories Tab:</span>
+                                        Add Category: <strong>Fertilizers & Nutrients</strong>.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 3 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 hover:border-slate-300 transition-all space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-3" onchange="toggleTask('task-3')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 3: Product SKU Add Karein (Catalog Hub ➔ Products)
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    <strong>"Add New Product"</strong> click karein:
+                                </p>
+                                <div class="bg-white p-3 rounded-xl border border-slate-200 font-mono text-[11px] space-y-1">
+                                    <div>• <strong>Product Name:</strong> Nano Urea Liquid 500ml</div>
+                                    <div>• <strong>SKU Code:</strong> UREA-NANO-500</div>
+                                    <div>• <strong>Category:</strong> Fertilizers & Nutrients | <strong>Crop:</strong> Gehu</div>
+                                    <div>• <strong>MRP:</strong> ₹250 | <strong>Selling Price:</strong> ₹225</div>
+                                    <div>• <strong>GST %:</strong> 5% | <strong>HSN:</strong> 31021000</div>
+                                </div>
+                                <div class="text-[11px] text-amber-700 font-medium">
+                                    <em>Note: Abhi yeh product "Out of Stock" dikhega kyunki inventory me stock add nahi hua hai.</em>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 4 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 hover:border-slate-300 transition-all space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-4" onchange="toggleTask('task-4')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 4: Supplier Create Karein (Supply Chain ➔ Suppliers)
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Maal khareedne ke liye ek vendor chahiye. <strong>"Add Supplier"</strong> click karein:
+                                </p>
+                                <div class="bg-white p-2.5 rounded-xl border border-slate-200 font-mono text-[11px]">
+                                    Name: <strong>Kisan Agro Supplies</strong> | GSTIN: <strong>10AAECK1234F1Z5</strong> | State: Bihar
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 5 -->
+                    <div class="p-4 bg-emerald-50/50 rounded-2xl border-2 border-emerald-200 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-5" onchange="toggleTask('task-5')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 5: Goods Receipt Note (GRN) Inwarding ➔ Stock Live Karein!
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    <strong>Supply Chain ➔ Goods Receipt (GRN)</strong> par jayein aur <strong>"Create GRN"</strong> karein:
+                                </p>
+                                <div class="bg-white p-3 rounded-xl border border-emerald-200 font-mono text-[11px] space-y-1">
+                                    <div>• <strong>Destination Hub:</strong> Samastipur Central Hub</div>
+                                    <div>• <strong>Supplier:</strong> Kisan Agro Supplies</div>
+                                    <div>• <strong>Select SKU:</strong> UREA-NANO-500 (Nano Urea Liquid)</div>
+                                    <div>• <strong>Received Quantity:</strong> 50 Bottles</div>
+                                    <div>• <strong>Batch Number:</strong> BATCH-SEP-26</div>
+                                    <div>• <strong>Expiry Date:</strong> 2027-12-31</div>
+                                    <div>• <strong>Purchase Rate:</strong> ₹190 / bottle</div>
+                                </div>
+                                <div class="text-[11px] text-emerald-800 font-black flex items-center gap-1 mt-1">
+                                    <i data-lucide="sparkles" class="w-3.5 h-3.5 text-emerald-600"></i> "Submit GRN" karte hi Warehouse Inventory me 50 stock add ho gaya! Ab product Customer App me "IN STOCK" dikhega!
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 6 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 hover:border-slate-300 transition-all space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-6" onchange="toggleTask('task-6')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 6: Delivery Rider Onboard Karein (Fleet Hub ➔ Fleet Directory)
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Order deliver karne wale Rider ka account banayein. <strong>"Add Rider"</strong> click karein:
+                                </p>
+                                <div class="bg-white p-3 rounded-xl border border-slate-200 font-mono text-[11px] space-y-1">
+                                    <div>• <strong>Rider Name:</strong> Suresh Kumar</div>
+                                    <div>• <strong>Phone Number (*Login ID):</strong> <span class="text-rose-700 font-black">9999999999</span></div>
+                                    <div>• <strong>Assigned Warehouse:</strong> Samastipur Central Hub</div>
+                                    <div>• <strong>Vehicle Type:</strong> Two Wheeler Bike (BR-33-A-1234)</div>
+                                    <div>• <strong>Status:</strong> AVAILABLE / WHITELISTED</div>
+                                </div>
+                                <div class="text-[11px] text-slate-500">
+                                    <em>P0 Note: Humne security rules me check kiya tha ki Rider sirf whitelisted hone par hi Delivery App me login kar sakta hai.</em>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+
+            <!-- ========================================================================= -->
+            <!-- PHASE 1: CUSTOMER APP ORDERING (KRISHIVISHAL APP) -->
+            <!-- ========================================================================= -->
+            <section class="step-card bg-white rounded-3xl p-6 sm:p-8 border-2 border-amber-200 shadow-sm space-y-6" data-category="customer">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center font-black text-lg">
+                            P1
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-900">Customer Mobile App</span>
+                                <span class="text-xs font-bold text-slate-400">Step 7 to 11</span>
+                            </div>
+                            <h2 class="text-xl font-black text-slate-900">Phase 1: Customer Order Booking Flow</h2>
+                        </div>
+                    </div>
+                    <span class="text-xs text-slate-500 font-medium italic">📱 KrishiVishal App (Farmer / Buyer Device)</span>
+                </div>
+
+                <div class="space-y-4 text-xs">
+
+                    <!-- STEP 7 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-7" onchange="toggleTask('task-7')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 7: KrishiVishal App Open Karein & Farmer Login
+                                </strong>
+                                <p class="text-slate-600">
+                                    Apne mobile me <strong>KrishiVishal App</strong> open karein. Apna mobile number daal kar OTP se login karein.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 8 -->
+                    <div class="p-4 bg-amber-50/50 rounded-2xl border-2 border-amber-200 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-8" onchange="toggleTask('task-8')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 8: Delivery Address Add Karein (*Pincode Must Match!)
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    App me <strong>Profile ➔ Saved Addresses ➔ Add New Address</strong> par jayein:
+                                </p>
+                                <div class="bg-white p-3 rounded-xl border border-amber-200 font-mono text-[11px] space-y-1">
+                                    <div>• <strong>Full Name:</strong> Ramesh Farmer | <strong>Phone:</strong> 9888888888</div>
+                                    <div>• <strong>Village / Landmark:</strong> Rahthuli, Near Shiv Mandir</div>
+                                    <div>• <strong>District:</strong> Samastipur | <strong>State:</strong> Bihar</div>
+                                    <div>• <strong>Pincode (*Crucial):</strong> <span class="text-amber-800 font-black bg-amber-100 px-1 rounded">848117</span></div>
+                                </div>
+                                <div class="text-[11px] text-rose-700 font-bold flex items-center gap-1 mt-1">
+                                    <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i> Agar aap koi dusra pincode daalenge toh app bolega: "Delivery Not Available in this Area". Isliye 848117 hi dalein!
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 9 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-9" onchange="toggleTask('task-9')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 9: Product Browse Karein & Cart Me Add Karein
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Home page par ya Search me <strong>"Nano Urea"</strong> dhoondhein.
+                                </p>
+                                <div class="text-[11px] text-slate-700">
+                                    • Product par click karein -> Check karein ki Green color me <strong>"In Stock"</strong> dikh raha hai ya nahi.<br>
+                                    • Quantity: <strong>2 Bottles</strong> select karein aur <strong>"Add to Cart"</strong> dabayein.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 10 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-10" onchange="toggleTask('task-10')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 10: Checkout & Payment Mode Select Karein
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Cart me jakar <strong>"Proceed to Checkout"</strong> karein:
+                                </p>
+                                <div class="bg-white p-3 rounded-xl border border-slate-200 text-[11px] space-y-1">
+                                    <div>1. Apna saved address (PIN: 848117) select karein.</div>
+                                    <div>2. Bill Summary dekhein: Subtotal ₹450 + Delivery charges (agar applicable ho).</div>
+                                    <div>3. Payment method me <strong>"Cash on Delivery (COD)"</strong> select karein. (Testing ke liye COD best hai).</div>
+                                    <div>4. Tap karein: <strong>"Confirm & Place Order"</strong>.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 11 -->
+                    <div class="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-200 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-11" onchange="toggleTask('task-11')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 11: Order Confirmation & Delivery OTP Note Karein
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Order Place hote hi screen par <strong>"Order Placed Successfully!"</strong> aayega.
+                                </p>
+                                <div class="bg-white p-3 rounded-xl border border-emerald-200 font-mono text-[11px] space-y-1">
+                                    <div>• <strong>Order ID:</strong> Jaise `ORD-98234` (Ise note kar lein).</div>
+                                    <div>• <strong>Delivery OTP:</strong> Screen par 4-digit ka Delivery OTP dikhega (Jaise: <span class="text-emerald-800 font-black">4821</span>).</div>
+                                </div>
+                                <div class="text-[11px] text-slate-600">
+                                    <em>Customer ko ye OTP delivery ke waqt Rider ko batana hoga. Tabhi delivery complete hogi!</em>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+
+            <!-- ========================================================================= -->
+            <!-- PHASE 2: FULFILLMENT & DISPATCH (ADMIN ERP) -->
+            <!-- ========================================================================= -->
+            <section class="step-card bg-white rounded-3xl p-6 sm:p-8 border-2 border-indigo-200 shadow-sm space-y-6" data-category="admin">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-800 flex items-center justify-center font-black text-lg">
+                            P2
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-indigo-100 text-indigo-900">Admin ERP Operations</span>
+                                <span class="text-xs font-bold text-slate-400">Step 12 to 15</span>
+                            </div>
+                            <h2 class="text-xl font-black text-slate-900">Phase 2: Depot Packing & Trip Assignment</h2>
+                        </div>
+                    </div>
+                    <span class="text-xs text-slate-500 font-medium italic">🏢 Admin Orders Hub & Fleet Management</span>
+                </div>
+
+                <div class="space-y-4 text-xs">
+
+                    <!-- STEP 12 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-12" onchange="toggleTask('task-12')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 12: Order Ingestion Check Karein (Orders Hub ➔ All Orders)
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Admin me <strong>Orders Hub ➔ All Customer Orders</strong> tab par jayein:
+                                </p>
+                                <div class="text-[11px] text-slate-700">
+                                    • Aapka naya order top par dikhai dega.<br>
+                                    • Status check karein: <span class="px-2 py-0.5 bg-blue-100 text-blue-800 rounded font-bold font-mono">PLACED</span> hona chahiye.<br>
+                                    • Assigned Hub: Automatically <strong>Samastipur Central Hub</strong> show hoga kyunki pincode match hua hai!
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 13 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-13" onchange="toggleTask('task-13')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 13: Auto-Batching / Dispatch Cluster (Orders Hub ➔ Smart Dispatch)
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    <strong>Orders Hub ➔ Smart Panchayat Dispatch</strong> tab par jayein:
+                                </p>
+                                <div class="text-[11px] text-slate-700">
+                                    • Same pincode (848117) ke orders ko ek saath cluster karein.<br>
+                                    • Click karein: <strong>"Create Dispatch Batch"</strong>.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 14 -->
+                    <div class="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-200 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-14" onchange="toggleTask('task-14')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 14: Packing Station & Barcode Scan (Orders Hub ➔ Packing Station)
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Warehouse staff package pack karta hai:
+                                </p>
+                                <div class="bg-white p-3 rounded-xl border border-indigo-200 text-[11px] space-y-1">
+                                    <div>1. Order select karein ya Barcode scanner se SKU scan karein.</div>
+                                    <div>2. 2 x Nano Urea verify karein.</div>
+                                    <div>3. <strong>"Complete Packing & Generate Shipping Label"</strong> par click karein.</div>
+                                    <div>4. Status change hokar <span class="px-2 py-0.5 bg-purple-100 text-purple-800 rounded font-bold font-mono">PACKED / READY_FOR_PICKUP</span> ho jayega.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 15 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-15" onchange="toggleTask('task-15')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 15: Trip Banayein & Rider Ko Assign Karein (Fleet Hub ➔ Trips)
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    <strong>Fleet Hub ➔ Trips History</strong> me jayein aur <strong>"Create New Delivery Trip"</strong> karein:
+                                </p>
+                                <div class="text-[11px] text-slate-700 space-y-1">
+                                    <div>• Rider select karein: <strong>Suresh Kumar (9999999999)</strong>.</div>
+                                    <div>• Packed order ko is trip me add karein.</div>
+                                    <div>• Click karein: <strong>"Assign Trip & Dispatch"</strong>.</div>
+                                    <div class="text-emerald-700 font-bold mt-1">
+                                        <em>Backend Magic: Cloud Function order me rider ka naam, phone aur status update kar dega!</em>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+
+            <!-- ========================================================================= -->
+            <!-- PHASE 3: LAST MILE DELIVERY (DELIVERY APP) -->
+            <!-- ========================================================================= -->
+            <section class="step-card bg-white rounded-3xl p-6 sm:p-8 border-2 border-rose-200 shadow-sm space-y-6" data-category="delivery">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-2xl bg-rose-100 text-rose-800 flex items-center justify-center font-black text-lg">
+                            P3
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-rose-100 text-rose-900">Delivery Mobile App</span>
+                                <span class="text-xs font-bold text-slate-400">Step 16 to 21</span>
+                            </div>
+                            <h2 class="text-xl font-black text-slate-900">Phase 3: Rider Execution & OTP Handover</h2>
+                        </div>
+                    </div>
+                    <span class="text-xs text-slate-500 font-medium italic">🛵 KrishiVishalDelivery App (Rider Device)</span>
+                </div>
+
+                <div class="space-y-4 text-xs">
+
+                    <!-- STEP 16 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-16" onchange="toggleTask('task-16')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 16: Delivery App Login & Go Online
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Mobile me <strong>KrishiVishalDelivery App</strong> open karein:
+                                </p>
+                                <div class="bg-white p-3 rounded-xl border border-slate-200 font-mono text-[11px] space-y-1">
+                                    <div>• Phone Number: <strong>9999999999</strong> daal kar OTP se login karein.</div>
+                                    <div>• Dashboard par top-right switch ko <strong>"OFFLINE" se "ONLINE"</strong> karein.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 17 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-17" onchange="toggleTask('task-17')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 17: Order Alert Dekhein & Accept Karein
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Rider ke screen par Assigned Trip ka notification aayega:
+                                </p>
+                                <div class="text-[11px] text-slate-700">
+                                    • Tap karein: <strong>"Accept Order"</strong> (Status: <span class="font-mono font-bold text-blue-700">RIDER_ACCEPTED</span>).<br>
+                                    • Warehouse se package pick karein. (Agar barcode scanner use kar rahe hain toh QR code scan karein).
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 18 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-18" onchange="toggleTask('task-18')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 18: Out For Delivery & Live GPS Tracking
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Rider app me <strong>"Start Delivery / Out for Delivery"</strong> button dabayein:
+                                </p>
+                                <div class="text-[11px] text-slate-700">
+                                    • Order status ban jayega: <span class="font-mono font-bold text-amber-700">OUT_FOR_DELIVERY</span>.<br>
+                                    • Rider ki live background location Customer App me map par real-time dikhne lagegi!
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 19 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-19" onchange="toggleTask('task-19')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 19: Customer App Me Live Tracking Verify Karein
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Ab wapas <strong>Customer App</strong> kholein aur <strong>Orders ➔ Track Order</strong> par jayein:
+                                </p>
+                                <div class="text-[11px] text-slate-700">
+                                    • Check karein: Rider ka naam <em>"Suresh Kumar"</em> aur phone <em>"9999999999"</em> show ho raha hai.<br>
+                                    • "Call Rider" button kaam kar raha hai ya nahi dekhein.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 20 -->
+                    <div class="p-4 bg-rose-50/50 rounded-2xl border-2 border-rose-200 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-20" onchange="toggleTask('task-20')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 20: COD Cash Collection & OTP Verification (Delivery Done!)
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Rider customer ke ghar pahunch kar:
+                                </p>
+                                <div class="bg-white p-3 rounded-xl border border-rose-200 font-mono text-[11px] space-y-1">
+                                    <div>1. Customer se COD cash collect karein: <strong>₹450</strong>.</div>
+                                    <div>2. Customer se Step 11 wala 4-digit Delivery OTP (jaise: <strong>4821</strong>) poochein.</div>
+                                    <div>3. Rider app me OTP daal kar <strong>"Verify & Complete Delivery"</strong> dabayein.</div>
+                                </div>
+                                <div class="text-[11px] text-emerald-800 font-black flex items-center gap-1 mt-1">
+                                    <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-600"></i> Success! Order officially 'DELIVERED' ho gaya. Rider ke app wallet me ₹450 Cash Liability add ho gayi!
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+
+            <!-- ========================================================================= -->
+            <!-- PHASE 4: RECONCILIATION, RETURNS & FINANCE CLOSURE -->
+            <!-- ========================================================================= -->
+            <section class="step-card bg-white rounded-3xl p-6 sm:p-8 border-2 border-purple-200 shadow-sm space-y-6" data-category="admin">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-2xl bg-purple-100 text-purple-800 flex items-center justify-center font-black text-lg">
+                            P4
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-purple-100 text-purple-900">Finance & Reconciliation</span>
+                                <span class="text-xs font-bold text-slate-400">Step 21 to 25</span>
+                            </div>
+                            <h2 class="text-xl font-black text-slate-900">Phase 4: Cash Deposit, Reconciliation & P&L</h2>
+                        </div>
+                    </div>
+                    <span class="text-xs text-slate-500 font-medium italic">💰 Cash Collection Se Company Bank Account Tak</span>
+                </div>
+
+                <div class="space-y-4 text-xs">
+
+                    <!-- STEP 21 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-21" onchange="toggleTask('task-21')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 21: Rider Cash Handover Request (Delivery App ➔ Cash Recon)
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Delivery App me <strong>Earnings / Cash Reconciliation</strong> tab par jayein:
+                                </p>
+                                <div class="bg-white p-3 rounded-xl border border-slate-200 text-[11px] space-y-1">
+                                    <div>• Total Cash in Hand dikhayega: <strong>₹450</strong>.</div>
+                                    <div>• Rider <strong>"Deposit Cash to Hub Cashier"</strong> par click karega.</div>
+                                    <div>• Amount: <strong>₹450</strong> daal kar submit karega. Status ban jayega: <span class="font-mono font-bold text-amber-700">SUBMITTED</span>.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 22 -->
+                    <div class="p-4 bg-purple-50/50 rounded-2xl border-2 border-purple-200 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-22" onchange="toggleTask('task-22')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 22: Cashier Verification in Admin (Fleet Hub ➔ Cash Recon)
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Admin me <strong>Fleet Hub ➔ Cash Recon</strong> tab par jayein:
+                                </p>
+                                <div class="bg-white p-3 rounded-xl border border-purple-200 font-mono text-[11px] space-y-1">
+                                    <div>1. Rider Suresh Kumar ka ₹450 pending deposit dikhai dega.</div>
+                                    <div>2. Cashier cash ginta hai aur <strong>"Verify & Accept Cash"</strong> dabata hai.</div>
+                                    <div>3. Bank Slip Number daal kar confirm karta hai.</div>
+                                </div>
+                                <div class="text-[11px] text-emerald-800 font-bold flex items-center gap-1 mt-1">
+                                    <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-600"></i> P0 Server Rule Check: Cloud Function verify karega ki deposit amount = order total. Exact match hone par Rider ka balance ₹0 ho jayega aur Ledger entry post ho jayegi!
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 23 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-23" onchange="toggleTask('task-23')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 23: Return / Exchange Test Karein (Customer App ➔ My Orders)
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Customer App me deliver hue order par jayein aur <strong>"Request Return"</strong> click karein:
+                                </p>
+                                <div class="text-[11px] text-slate-700">
+                                    • Reason select karein: <em>"Bottle Damaged / Leaking"</em>.<br>
+                                    • Ek photo upload karein aur submit karein. Status: <span class="font-mono font-bold text-amber-700">RETURN_REQUESTED</span>.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 24 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-24" onchange="toggleTask('task-24')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 24: Admin Return Approval & Reverse Stock Restock
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Admin me <strong>Orders Hub ➔ Returns & Exchanges</strong> tab par jayein:
+                                </p>
+                                <div class="text-[11px] text-slate-700 space-y-1">
+                                    <div>• Return request open karein aur <strong>"Approve Return & Assign Pickup"</strong> karein.</div>
+                                    <div>• Rider package pickup karke warehouse wapas lata hai.</div>
+                                    <div>• Warehouse manager <strong>"Restock to Warehouse"</strong> dabata hai.</div>
+                                    <div class="text-emerald-700 font-bold">
+                                        • Check karein: Inventory me stock wapas +2 add ho gaya!
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 25 -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" id="task-25" onchange="toggleTask('task-25')" class="task-checkbox mt-1 w-4 h-4 rounded text-agri-900 focus:ring-agri-900">
+                            <div class="space-y-1 flex-1">
+                                <strong class="text-sm font-bold text-slate-900 block">
+                                    Step 25: Finance Desk P&L, GST & Executive Dashboard Check Karein
+                                </strong>
+                                <p class="text-slate-600 leading-relaxed">
+                                    Aakhiri step me check karein ki poori accounting sahi se reflect hui ya nahi:
+                                </p>
+                                <div class="bg-white p-3 rounded-xl border border-slate-200 text-[11px] space-y-1">
+                                    <div>• <strong>Finance Desk ➔ Statements:</strong> Delivered order ka Gross Revenue aur COGS (Cost of Goods) dikhai dega.</div>
+                                    <div>• <strong>Finance Desk ➔ GST Reports:</strong> GSTR-1 me B2C Sales me 5% GST ka break-up dikhega.</div>
+                                    <div>• <strong>Dashboard:</strong> Total Sales counter update ho chuka hoga!</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+        </div>
+
+        <!-- Footer -->
+        <footer class="text-center py-8 text-xs text-slate-400 border-t border-slate-200 space-y-2">
+            <p class="font-bold text-slate-600">KrishiVishal Enterprise Multi-Hub Agri ERP v2.5.0</p>
+            <p>Designed for Hyperlocal Logistics, 200+ Fleet Management & Full Statutory Accounting Compliance.</p>
+        </footer>
+
+    </main>
+
+    <!-- Interactive Scripts -->
+    <script>
+        // Lucide Icons Init
+        lucide.createIcons();
+
+        // LocalStorage Checkbox Sync
+        const TOTAL_TASKS = 25;
+
+        function loadTaskProgress() {
+            let done = 0;
+            for (let i = 1; i <= TOTAL_TASKS; i++) {
+                const checked = localStorage.getItem('kv_task_' + i) === 'true';
+                const el = document.getElementById('task-' + i);
+                if (el) {
+                    el.checked = checked;
+                    if (checked) done++;
+                }
+            }
+            updateProgressBar(done);
+        }
+
+        function toggleTask(taskId) {
+            const el = document.getElementById(taskId);
+            if (el) {
+                localStorage.setItem('kv_' + taskId.replace('-', '_'), el.checked ? 'true' : 'false');
+            }
+            // Recount
+            let done = 0;
+            for (let i = 1; i <= TOTAL_TASKS; i++) {
+                if (localStorage.getItem('kv_task_' + i) === 'true') done++;
+            }
+            updateProgressBar(done);
+        }
+
+        function updateProgressBar(done) {
+            const pct = Math.round((done / TOTAL_TASKS) * 100);
+            const bar = document.getElementById('progressBar');
+            const text = document.getElementById('progressText');
+            if (bar) bar.style.width = pct + '%';
+            if (text) text.innerText = `${done} / ${TOTAL_TASKS} Done (${pct}%)`;
+        }
+
+        function resetAllCheckboxes() {
+            if (confirm("Kya aap sach me testing progress reset karna chahte hain?")) {
+                for (let i = 1; i <= TOTAL_TASKS; i++) {
+                    localStorage.removeItem('kv_task_' + i);
+                    const el = document.getElementById('task-' + i);
+                    if (el) el.checked = false;
+                }
+                updateProgressBar(0);
+            }
+        }
+
+        // Tab Switching
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            const activeBtn = document.getElementById('tab-' + tabId);
+            if (activeBtn) activeBtn.classList.add('active');
+
+            const stepsContainer = document.getElementById('steps-container');
+            const cheatsheet = document.getElementById('cheatsheet-content');
+
+            if (tabId === 'cheatsheet') {
+                stepsContainer.classList.add('hidden');
+                cheatsheet.classList.remove('hidden');
+            } else {
+                stepsContainer.classList.remove('hidden');
+                cheatsheet.classList.add('hidden');
+
+                const cards = document.querySelectorAll('.step-card');
+                cards.forEach(card => {
+                    if (tabId === 'all') {
+                        card.classList.remove('hidden');
+                    } else {
+                        const cat = card.getAttribute('data-category');
+                        if (cat === tabId) {
+                            card.classList.remove('hidden');
+                        } else {
+                            card.classList.add('hidden');
+                        }
+                    }
+                });
+            }
+        }
+
+        // Search Filter
+        function filterSteps() {
+            const query = document.getElementById('quickSearch').value.toLowerCase();
+            const items = document.querySelectorAll('#steps-container > section > div > div');
+
+            items.forEach(item => {
+                const text = item.innerText.toLowerCase();
+                if (text.includes(query)) {
+                    item.style.display = '';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        }
+
+        // Run on load
+        window.addEventListener('DOMContentLoaded', () => {
+            loadTaskProgress();
+        });
+    </script>
+</body>
+</html>

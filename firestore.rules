@@ -210,6 +210,17 @@ service cloud.firestore {
 
 
     // ============================================================
+    // ADMIN SYSTEM NOTIFICATIONS
+    // ============================================================
+
+    match /notifications/{id} {
+      allow read, update: if isAdmin();
+      allow create: if isAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+
+    // ============================================================
     // BROADCAST NOTIFICATIONS
     // ============================================================
 
