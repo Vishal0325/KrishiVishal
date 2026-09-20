@@ -20,7 +20,7 @@ inline fun <ResultType, RequestType> networkBoundResource(
 
         try {
             val fetchedResult = withContext(dispatcher) { fetch() }
-            saveFetchResult(fetchedResult)
+            withContext(dispatcher) { saveFetchResult(fetchedResult) }
             emitAll(query().map { Resource.Success(it) })
         } catch (throwable: Throwable) {
             val latestCached = try { query().first() } catch (e: Exception) { initialData }
@@ -30,4 +30,4 @@ inline fun <ResultType, RequestType> networkBoundResource(
     } else {
         emitAll(query().map { Resource.Success(it) })
     }
-}
+}.flowOn(dispatcher)

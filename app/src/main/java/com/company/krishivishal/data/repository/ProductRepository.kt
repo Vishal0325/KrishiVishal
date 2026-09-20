@@ -52,14 +52,14 @@ class ProductRepositoryImpl @Inject constructor(
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : ProductRepository {
 
-    private suspend fun saveProductsToLocal(products: List<Product>) {
-        if (products.isEmpty()) return
+    private suspend fun saveProductsToLocal(products: List<Product>) = kotlinx.coroutines.withContext(ioDispatcher) {
+        if (products.isEmpty()) return@withContext
 
         productDao.insertProducts(products)
 
         // Sync Crop Junction Table for fast indexed lookups
         val cropRefs = products.flatMap { product ->
-            product.associatedCropIds.map { cropId ->
+            (product.associatedCropIds ?: emptyList()).map { cropId ->
                 com.company.krishivishal.core.model.ProductCropCrossRef(product.id, cropId)
             }
         }
@@ -68,7 +68,7 @@ class ProductRepositoryImpl @Inject constructor(
         }
 
         val allVariants = products.flatMap { p ->
-            p.variants.onEach { v -> if (v.productId.isEmpty()) v.productId = p.id }
+            (p.variants ?: emptyList()).onEach { v -> if (v.productId.isEmpty()) v.productId = p.id }
         }
         if (allVariants.isNotEmpty()) {
             productDao.insertVariants(allVariants)
@@ -121,6 +121,12 @@ class ProductRepositoryImpl @Inject constructor(
             firestore.collection("products").whereEqualTo("category", category).get().await().mapNotNull { it.toProduct() }
         },
         saveFetchResult = { products ->
+            val activeIds = products.map { it.id }
+            if (activeIds.isNotEmpty()) {
+                productDao.deleteProductsNotInListForCategory(activeIds, category)
+            } else {
+                productDao.deleteAllProductsForCategory(category)
+            }
             saveProductsToLocal(products)
         },
         dispatcher = ioDispatcher
@@ -139,6 +145,12 @@ class ProductRepositoryImpl @Inject constructor(
             firestore.collection("products").whereEqualTo("brand", brand).get().await().mapNotNull { it.toProduct() }
         },
         saveFetchResult = { products ->
+            val activeIds = products.map { it.id }
+            if (activeIds.isNotEmpty()) {
+                productDao.deleteProductsNotInListForBrand(activeIds, brand)
+            } else {
+                productDao.deleteAllProductsForBrand(brand)
+            }
             saveProductsToLocal(products)
         },
         dispatcher = ioDispatcher
@@ -157,6 +169,12 @@ class ProductRepositoryImpl @Inject constructor(
             firestore.collection("products").whereArrayContains("associatedCropIds", cropId).get().await().mapNotNull { it.toProduct() }
         },
         saveFetchResult = { products ->
+            val activeIds = products.map { it.id }
+            if (activeIds.isNotEmpty()) {
+                productDao.deleteProductsNotInListForCrop(activeIds, cropId)
+            } else {
+                productDao.deleteAllProductsForCrop(cropId)
+            }
             saveProductsToLocal(products)
         },
         dispatcher = ioDispatcher
@@ -211,7 +229,8 @@ class ProductRepositoryImpl @Inject constructor(
         emit(Resource.Loading())
         try {
             // 1. First, ensure all variants have IDs and correct productId
-            product.variants.forEach { variant ->
+            val safeVariants = product.variants ?: emptyList()
+            safeVariants.forEach { variant ->
                 if (variant.id.isEmpty()) {
                     variant.id = UUID.randomUUID().toString()
                 }
@@ -227,7 +246,7 @@ class ProductRepositoryImpl @Inject constructor(
             // Handle deletions
             val existingVariantsSnapshot = variantsCollection.get().await()
             val existingIds = existingVariantsSnapshot.documents.map { it.id }
-            val currentIds = product.variants.map { it.id }
+            val currentIds = safeVariants.map { it.id }
             
             existingIds.forEach { id ->
                 if (!currentIds.contains(id)) {
@@ -236,7 +255,7 @@ class ProductRepositoryImpl @Inject constructor(
             }
 
             // Save/Update variants in sub-collection
-            product.variants.forEach { variant ->
+            safeVariants.forEach { variant ->
                 variantsCollection.document(variant.id).set(variant).await()
             }
 

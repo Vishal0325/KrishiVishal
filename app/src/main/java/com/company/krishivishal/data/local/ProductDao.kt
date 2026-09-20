@@ -64,6 +64,24 @@ interface ProductDao {
     @Query("DELETE FROM products WHERE id NOT IN (:activeIds)")
     suspend fun deleteProductsNotInList(activeIds: List<String>)
 
+    @Query("DELETE FROM products WHERE brand = :brand AND id NOT IN (:activeIds)")
+    suspend fun deleteProductsNotInListForBrand(activeIds: List<String>, brand: String)
+
+    @Query("DELETE FROM products WHERE brand = :brand")
+    suspend fun deleteAllProductsForBrand(brand: String)
+
+    @Query("DELETE FROM products WHERE category = :category AND id NOT IN (:activeIds)")
+    suspend fun deleteProductsNotInListForCategory(activeIds: List<String>, category: String)
+
+    @Query("DELETE FROM products WHERE category = :category")
+    suspend fun deleteAllProductsForCategory(category: String)
+
+    @Query("DELETE FROM products WHERE id IN (SELECT productId FROM product_crop_cross_ref WHERE cropId = :cropId) AND id NOT IN (:activeIds)")
+    suspend fun deleteProductsNotInListForCrop(activeIds: List<String>, cropId: String)
+
+    @Query("DELETE FROM products WHERE id IN (SELECT productId FROM product_crop_cross_ref WHERE cropId = :cropId)")
+    suspend fun deleteAllProductsForCrop(cropId: String)
+
     @Query("SELECT * FROM products WHERE id = :productId")
     fun getProductByIdFlow(productId: String): Flow<Product?>
 

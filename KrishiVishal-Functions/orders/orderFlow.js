@@ -105,6 +105,17 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
         throw new HttpsError('invalid-argument', 'Invalid payment method.');
     }
 
+    if (paymentMethod === 'RAZORPAY_ONLINE') {
+        const keyId = getSecretVal(razorpayKeyId, 'RAZORPAY_KEY_ID');
+        const keySecret = getSecretVal(razorpayKeySecret, 'RAZORPAY_KEY_SECRET');
+        if (!keyId || !keySecret) {
+            throw new HttpsError(
+                'failed-precondition',
+                'Online UPI/Card payment is currently not configured by the store owner. Please select Cash on Delivery (COD) or Wallet payment.'
+            );
+        }
+    }
+
     // H2: Validate user details
     if (!userName || typeof userName !== 'string' || userName.trim().length === 0 || userName.length > 100) {
         throw new HttpsError('invalid-argument', 'Invalid user name.');
@@ -124,6 +135,22 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
 
             // 1. Read settings/config
             const settingsSnap = await transaction.get(db.collection("settings").doc("config"));
+
+            // 1b. Read active warehouses for dynamic routing
+            const warehousesSnap = await transaction.get(db.collection("warehouses"));
+            let assignedWarehouseId = null;
+            let assignedWarehouseName = "Main Hub";
+
+            if (!warehousesSnap.empty) {
+                const whList = warehousesSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(w => w.isActive !== false);
+                if (whList.length > 0) {
+                    const matchedByPincode = whList.find(w => Array.isArray(w.pincodes) && w.pincodes.includes(cleanPincode));
+                    const primary = whList.find(w => w.isPrimary === true);
+                    const selected = matchedByPincode || primary || whList[0];
+                    assignedWarehouseId = selected.id;
+                    assignedWarehouseName = selected.name || selected.id;
+                }
+            }
 
             // 2. Read delivery slot (if provided)
             let slotDoc = null;
@@ -316,6 +343,10 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 address: addressString,
                 structuredAddress: structuredAddress,
                 landmark: structuredAddress.landmark || "",
+                warehouseId: assignedWarehouseId,
+                fulfillmentWarehouseId: assignedWarehouseId,
+                warehouseName: assignedWarehouseName,
+                hubCode: assignedWarehouseId,
                 customerOTP: otp,
                 deliveryOtp: otp,
                 items,

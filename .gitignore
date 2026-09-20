@@ -22,3 +22,4 @@ google-services.json
 
 # Sensitive config (contains cert pins, API keys, keystore passwords)
 gradle.properties
+KrishiVishal-Functions/.env*
