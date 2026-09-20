@@ -8,6 +8,7 @@ import com.company.krishivishal.security.SecureStorage
 import com.company.krishivishal.security.TokenManager
 import com.company.krishivishal.session.SessionManager
 import com.google.firebase.auth.FirebaseAuth
+import okhttp3.OkHttpClient
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -46,6 +47,12 @@ object SecurityPerformanceModule {
 
     @Provides
     @Singleton
+    fun providePinnedOkHttpClient(
+        certificatePinningManager: CertificatePinningManager
+    ): OkHttpClient = certificatePinningManager.createPinnedOkHttpClient()
+
+    @Provides
+    @Singleton
     fun provideSessionManager(
         secureStorage: SecureStorage,
         tokenManager: TokenManager,
@@ -58,8 +65,9 @@ object SecurityPerformanceModule {
     @Provides
     @Singleton
     fun provideImageCacheManager(
-        @ApplicationContext context: Context
-    ): ImageCacheManager = ImageCacheManager(context)
+        @ApplicationContext context: Context,
+        okHttpClient: OkHttpClient
+    ): ImageCacheManager = ImageCacheManager(context, okHttpClient)
 
     // ==================== PAYMENT ====================
 

@@ -12,6 +12,7 @@ import com.company.krishivishal.utils.networkBoundResource
 import com.company.krishivishal.utils.safeCall
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.tasks.await
@@ -318,7 +319,7 @@ class OrderRepositoryImpl @Inject constructor(
             }
             
             val products = firestore.collection("products")
-                .whereIn("id", productIds)
+                .whereIn(FieldPath.documentId(), productIds)
                 .get()
                 .await()
                 .documents

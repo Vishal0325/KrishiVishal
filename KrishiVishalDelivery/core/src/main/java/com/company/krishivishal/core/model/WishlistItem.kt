@@ -14,9 +14,11 @@ import kotlinx.parcelize.Parcelize
  */
 @IgnoreExtraProperties
 @Parcelize
-@Entity(tableName = "wishlist_items")
+@Entity(
+    tableName = "wishlist_items",
+    primaryKeys = ["userId", "productId"]
+)
 data class WishlistItem(
-    @PrimaryKey
     @ColumnInfo(name = "productId")
     @SerializedName("productId")
     val productId: String = "",

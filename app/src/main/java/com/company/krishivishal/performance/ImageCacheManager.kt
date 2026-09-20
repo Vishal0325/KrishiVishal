@@ -10,6 +10,7 @@ import com.company.krishivishal.BuildConfig
 import okhttp3.OkHttpClient
 import timber.log.Timber
 import java.io.File
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,7 +19,10 @@ import javax.inject.Singleton
  * Implements memory cache + disk cache for optimal performance
  */
 @Singleton
-class ImageCacheManager @Inject constructor(context: Context) {
+class ImageCacheManager @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val okHttpClient: OkHttpClient
+) {
 
     companion object {
         // Cache validity
@@ -28,15 +32,16 @@ class ImageCacheManager @Inject constructor(context: Context) {
     private val imageLoader: ImageLoader
 
     init {
-        imageLoader = createImageLoader(context)
-        Timber.d("ImageCacheManager initialized with Coil")
+        imageLoader = createImageLoader(context, okHttpClient)
+        Timber.d("ImageCacheManager initialized with Coil and Certificate-Pinned OkHttpClient")
     }
 
     /**
      * Create optimized ImageLoader with caching
      */
-    private fun createImageLoader(context: Context): ImageLoader {
+    private fun createImageLoader(context: Context, client: OkHttpClient): ImageLoader {
         return ImageLoader.Builder(context)
+            .okHttpClient(client)
             .memoryCache {
                 MemoryCache.Builder(context)
                     .maxSizePercent(0.25)

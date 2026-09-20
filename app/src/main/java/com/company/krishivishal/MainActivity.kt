@@ -26,6 +26,7 @@ import com.company.krishivishal.ui.theme.KrishiVishalTheme
 import com.company.krishivishal.ui.theme.PrimaryGreen
 import com.company.krishivishal.utils.LocaleManager
 import com.company.krishivishal.utils.DeepLinkManager
+import com.company.krishivishal.utils.DeepLinkDestination
 import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.data.repository.ConfigRepository
 import com.company.krishivishal.crashlytics.CrashlyticsErrorReporter
@@ -83,7 +84,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
         val intentData = intent
         if (intentData?.action == Intent.ACTION_VIEW) {
             val uri = intentData.data
-            if (uri != null && !isValidDeepLink(uri)) {
+            if (uri != null && !deepLinkManager.isValidDeepLink(uri) && !isValidDeepLink(uri)) {
                 Timber.e("Invalid deeplink attempted: $uri")
                 finish()
                 return
@@ -195,13 +196,31 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
         }
 
         val uri = intent.data ?: return
-        if (!deepLinkManager.isValidDeepLink(uri)) {
+        val destination = deepLinkManager.parseDeepLink(uri)
+        if (destination == null && !isValidDeepLink(uri)) {
             deepLinkProductId = null
             if (!isFinishing) finish()
             return
         }
 
-        deepLinkProductId = deepLinkManager.getProductIdFromUri(uri)
+        when (destination) {
+            is DeepLinkDestination.Product -> {
+                deepLinkProductId = destination.productId
+            }
+            is DeepLinkDestination.Order -> {
+                // Order deeplinks are logged and not routed as product details
+                deepLinkProductId = null
+                Timber.d("Received order deeplink: ${destination.orderId}")
+            }
+            null -> {
+                val path = uri.path ?: ""
+                if (path.startsWith("/product/")) {
+                    deepLinkProductId = path.split("/").lastOrNull()
+                } else {
+                    deepLinkProductId = null
+                }
+            }
+        }
     }
 
     override fun onPaymentSuccess(razorpayPaymentId: String?, data: PaymentData?) {

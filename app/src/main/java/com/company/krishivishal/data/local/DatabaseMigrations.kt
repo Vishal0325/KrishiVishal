@@ -398,6 +398,46 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * Migration from 54 to 55
+     * Updates wishlist_items table to use composite primary key (userId, productId)
+     * preventing multiple accounts from overwriting each other's items.
+     */
+    val MIGRATION_54_55 = object : Migration(54, 55) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `wishlist_items_new` (
+                    `productId` TEXT NOT NULL,
+                    `productName` TEXT NOT NULL,
+                    `price` REAL NOT NULL,
+                    `imageUrl` TEXT NOT NULL,
+                    `userId` TEXT NOT NULL,
+                    `timestamp` INTEGER NOT NULL,
+                    PRIMARY KEY(`userId`, `productId`)
+                )
+                """.trimIndent()
+            )
+
+            val cursor = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='wishlist_items'")
+            val tableExists = cursor != null && cursor.count > 0
+            cursor?.close()
+
+            if (tableExists) {
+                db.execSQL(
+                    """
+                    INSERT OR IGNORE INTO `wishlist_items_new` (`productId`, `productName`, `price`, `imageUrl`, `userId`, `timestamp`)
+                    SELECT `productId`, `productName`, `price`, `imageUrl`, `userId`, `timestamp` FROM `wishlist_items`
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE `wishlist_items`")
+            }
+
+            db.execSQL("ALTER TABLE `wishlist_items_new` RENAME TO `wishlist_items`")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_wishlist_items_userId` ON `wishlist_items` (`userId`)")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_33_34,
         MIGRATION_34_35,
@@ -412,7 +452,8 @@ object DatabaseMigrations {
         MIGRATION_50_51,
         MIGRATION_51_52,
         MIGRATION_52_54,
-        MIGRATION_53_54
+        MIGRATION_53_54,
+        MIGRATION_54_55
     )
 }
 

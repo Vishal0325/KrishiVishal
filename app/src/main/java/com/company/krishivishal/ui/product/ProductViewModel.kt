@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -25,6 +26,12 @@ class ProductViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ProductUiState())
     val uiState: StateFlow<ProductUiState> = _uiState.asStateFlow()
 
+    private var brandJob: Job? = null
+    private var categoryJob: Job? = null
+    private var subCategoryJob: Job? = null
+    private var cropJob: Job? = null
+    private var productDetailJob: Job? = null
+
     val brandProducts: StateFlow<Resource<List<Product>>> = uiState.map { it.brandProducts }
         .stateIn(viewModelScope, SharingStarted.Eagerly, Resource.Idle())
     val categoryProducts: StateFlow<Resource<List<Product>>> = uiState.map { it.categoryProducts }
@@ -35,7 +42,8 @@ class ProductViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, Resource.Idle())
 
     fun loadProductsByBrand(brand: String) {
-        viewModelScope.launch {
+        brandJob?.cancel()
+        brandJob = viewModelScope.launch {
             productRepository.getProductsByBrand(brand).collectLatest { resource ->
                 _uiState.update { it.copy(brandProducts = resource) }
             }
@@ -43,7 +51,8 @@ class ProductViewModel @Inject constructor(
     }
 
     fun loadProductsByCategory(category: String) {
-        viewModelScope.launch {
+        categoryJob?.cancel()
+        categoryJob = viewModelScope.launch {
             productRepository.getProductsByCategory(category).collectLatest { resource ->
                 _uiState.update { it.copy(categoryProducts = resource) }
             }
@@ -51,7 +60,8 @@ class ProductViewModel @Inject constructor(
     }
 
     fun loadProductsBySubCategory(category: String, subCategory: String) {
-        viewModelScope.launch {
+        subCategoryJob?.cancel()
+        subCategoryJob = viewModelScope.launch {
             // Reusing getProductsByCategory but filtering locally in the repository or adding a new method
             productRepository.getProductsByCategory(category).collectLatest { resource ->
                 if (resource is Resource.Success) {
@@ -65,7 +75,8 @@ class ProductViewModel @Inject constructor(
     }
 
     fun loadProductsByCrop(cropId: String, cropName: String) {
-        viewModelScope.launch {
+        cropJob?.cancel()
+        cropJob = viewModelScope.launch {
             productRepository.getProductsByCrop(cropId, cropName).collectLatest { resource ->
                 _uiState.update { it.copy(cropProducts = resource) }
             }
@@ -73,7 +84,8 @@ class ProductViewModel @Inject constructor(
     }
 
     fun loadProductDetails(productId: String) {
-        viewModelScope.launch {
+        productDetailJob?.cancel()
+        productDetailJob = viewModelScope.launch {
             productRepository.getProductDetails(productId).collectLatest { resource ->
                 _uiState.update { it.copy(productDetail = resource) }
             }

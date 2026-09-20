@@ -30,8 +30,8 @@ import com.company.krishivishal.core.model.*
         Warehouse::class,
         InventoryMovement::class
     ],
-    version = 54,
-    exportSchema = false  // [FIXED] Disabled to avoid KSP compilation error with large schema
+    version = 55,
+    exportSchema = true
 )
 @TypeConverters(AppConverters::class)
 abstract class AppDatabase : RoomDatabase() {
