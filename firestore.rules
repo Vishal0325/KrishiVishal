@@ -607,10 +607,10 @@ service cloud.firestore {
     }
 
     match /warehouses/{warehouseId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow write: if isAdmin();
       match /{document=**} {
-        allow read: if isAuthenticated();
+        allow read: if true;
         allow write: if isAdmin();
       }
     }

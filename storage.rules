@@ -14,12 +14,19 @@ service firebase.storage {
     // Canonical administrative roles.
     // Viewer is intentionally NOT included because Viewer is read-only.
     function isAdmin() {
-      return isAuthenticated() &&
+      return isAuthenticated() && (
+        request.auth.token.admin == true ||
+        request.auth.token.isAdmin == true ||
         request.auth.token.role in [
+          "ADMIN",
           "SuperAdmin",
           "CatalogManager",
-          "OrderManager"
-        ];
+          "OrderManager",
+          "WarehouseManager",
+          "HRAdmin",
+          "FinanceAdmin"
+        ]
+      );
     }
 
     function isRider() {
