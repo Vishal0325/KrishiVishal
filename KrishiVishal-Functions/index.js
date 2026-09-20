@@ -147,3 +147,13 @@ exports.claimRiderRole = roleProvisioning.claimRiderRole;
 exports.setUserRole = roleProvisioning.setUserRole;
 exports.deactivateUser = roleProvisioning.deactivateUser;
 
+// --- ADMIN SERVICES ---
+const adminServices = require('./admin/adminServices');
+exports.addSecureAuditLog = adminServices.addSecureAuditLog;
+exports.getSecureProductCost = adminServices.getSecureProductCost;
+exports.searchUsers = adminServices.searchUsers;
+exports.createStaffMember = adminServices.createStaffMember;
+exports.generateWorkforceId = adminServices.generateWorkforceId;
+exports.getFinanceSummary = adminServices.getFinanceSummary;
+exports.saveExpense = adminServices.saveExpense;
+
