@@ -24,7 +24,12 @@ service cloud.firestore {
     }
 
     function isSuperAdmin() {
-      return isAuthenticated() && request.auth.token.role == "SuperAdmin";
+      return isAuthenticated() && (
+        request.auth.token.role == "SuperAdmin" ||
+        request.auth.token.admin == true ||
+        request.auth.token.isAdmin == true ||
+        request.auth.token.isSuperAdmin == true
+      );
     }
 
     function canViewFinance() {
@@ -56,7 +61,7 @@ service cloud.firestore {
       // Price and Stock are derived from SKUs via Cloud Functions
       allow update: if isAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['price', 'stockQuantity']);
       allow create: if isAdmin();
-      allow delete: if isSuperAdmin();
+      allow delete: if isSuperAdmin() || isAdmin();
 
       match /variants/{variantId} {
         allow read: if true;
