@@ -70,6 +70,7 @@ class WishlistRepositoryImpl @Inject constructor(
             entityId = item.productId,
             userId = item.userId,
             payload = mapOf(
+                "userId" to item.userId,
                 "productId" to item.productId,
                 "productName" to item.productName,
                 "price" to item.price,

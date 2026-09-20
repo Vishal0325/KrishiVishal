@@ -7,12 +7,18 @@ import androidx.navigation.compose.rememberNavController
 import com.company.krishivishal.ui.main.MainScreen
 
 @Composable
-fun AppNavigation(deepLinkProductId: String? = null) {
+fun AppNavigation(
+    deepLinkProductId: String? = null,
+    deepLinkOrderId: String? = null
+) {
     val navController = rememberNavController()
   
     NavHost(navController = navController, startDestination = "main") {
         composable("main") {
-            MainScreen(initialProductId = deepLinkProductId)
+            MainScreen(
+                initialProductId = deepLinkProductId,
+                initialOrderId = deepLinkOrderId
+            )
         }
     }
 }

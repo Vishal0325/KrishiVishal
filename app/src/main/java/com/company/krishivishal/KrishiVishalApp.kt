@@ -69,35 +69,11 @@ class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provide
     @Inject
     lateinit var crashlyticsTree: CrashlyticsTree
 
-    override fun newImageLoader(): ImageLoader {
-        val activityManager = getSystemService<ActivityManager>()
-        val isLowRam = activityManager?.isLowRamDevice ?: false
-        val memoryCachePercent = if (isLowRam) 0.15 else 0.25
+    @Inject
+    lateinit var imageCacheManager: com.company.krishivishal.performance.ImageCacheManager
 
-        return ImageLoader.Builder(this)
-            .memoryCache {
-                MemoryCache.Builder(this)
-                    .maxSizePercent(memoryCachePercent)
-                    .build()
-            }
-            .diskCache {
-                DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(100L * 1024 * 1024)
-                    .build()
-            }
-            .crossfade(true)
-            // OPTIMIZATION: Use RGB_565 on low-RAM devices to halve bitmap memory usage (2 bytes/px vs 4 bytes/px)
-            // preventing OutOfMemory errors on entry-level farmer devices.
-            .allowRgb565(isLowRam)
-            // OPTIMIZATION: Enable hardware bitmaps on modern devices to offload textures directly to GPU memory.
-            .allowHardware(!isLowRam && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
-            // respectCacheHeaders = false: Firebase Storage URLs include a content-hash token
-            // (e.g., ?token=...) so each unique image URL is effectively immutable.
-            // Ignoring server cache headers means we cache aggressively locally, which is safe
-            // because product image URLs change when the image changes.
-            .respectCacheHeaders(false)
-            .build()
+    override fun newImageLoader(): ImageLoader {
+        return imageCacheManager.getImageLoader()
     }
 
     override fun onCreate() {

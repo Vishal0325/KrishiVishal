@@ -28,7 +28,6 @@ class ProductViewModel @Inject constructor(
 
     private var brandJob: Job? = null
     private var categoryJob: Job? = null
-    private var subCategoryJob: Job? = null
     private var cropJob: Job? = null
     private var productDetailJob: Job? = null
 
@@ -60,8 +59,8 @@ class ProductViewModel @Inject constructor(
     }
 
     fun loadProductsBySubCategory(category: String, subCategory: String) {
-        subCategoryJob?.cancel()
-        subCategoryJob = viewModelScope.launch {
+        categoryJob?.cancel()
+        categoryJob = viewModelScope.launch {
             // Reusing getProductsByCategory but filtering locally in the repository or adding a new method
             productRepository.getProductsByCategory(category).collectLatest { resource ->
                 if (resource is Resource.Success) {

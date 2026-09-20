@@ -114,6 +114,7 @@ fun MaintenanceScreen() {
 @Composable
 fun MainScreen(
     initialProductId: String? = null,
+    initialOrderId: String? = null,
     viewModel: MainViewModel = hiltViewModel(),
     supportViewModel: SupportViewModel = hiltViewModel()
 ) {
@@ -197,6 +198,14 @@ fun MainScreen(
         if (initialProductId != null && initialProductId != consumedDeepLink) {
             navController.navigate(Screen.ProductDetail.createRoute(initialProductId))
             consumedDeepLink = initialProductId
+        }
+    }
+
+    var consumedOrderLink by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(initialOrderId) {
+        if (initialOrderId != null && initialOrderId != consumedOrderLink) {
+            navController.navigate(Screen.Tracking.createRoute(initialOrderId))
+            consumedOrderLink = initialOrderId
         }
     }
     

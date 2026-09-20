@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     lateinit var errorReporter: CrashlyticsErrorReporter
 
     private var deepLinkProductId by mutableStateOf<String?>(null)
+    private var deepLinkOrderId by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -134,7 +135,10 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                 ) {
                     ErrorBoundary(errorReporter = errorReporter, screenName = "GlobalRoot") {
                         Box(modifier = Modifier.fillMaxSize()) {
-                            AppNavigation(deepLinkProductId = deepLinkProductId)
+                            AppNavigation(
+                                deepLinkProductId = deepLinkProductId,
+                                deepLinkOrderId = deepLinkOrderId
+                            )
                             
                             if (showUpdateDialog) {
                                 UpdateRequiredDialog()
@@ -206,18 +210,25 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
         when (destination) {
             is DeepLinkDestination.Product -> {
                 deepLinkProductId = destination.productId
+                deepLinkOrderId = null
             }
             is DeepLinkDestination.Order -> {
-                // Order deeplinks are logged and not routed as product details
+                // Route order deeplinks to tracking
                 deepLinkProductId = null
+                deepLinkOrderId = destination.orderId
                 Timber.d("Received order deeplink: ${destination.orderId}")
             }
             null -> {
                 val path = uri.path ?: ""
                 if (path.startsWith("/product/")) {
                     deepLinkProductId = path.split("/").lastOrNull()
+                    deepLinkOrderId = null
+                } else if (path.startsWith("/order/")) {
+                    deepLinkOrderId = path.split("/").lastOrNull()
+                    deepLinkProductId = null
                 } else {
                     deepLinkProductId = null
+                    deepLinkOrderId = null
                 }
             }
         }
