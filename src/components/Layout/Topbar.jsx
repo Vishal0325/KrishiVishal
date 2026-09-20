@@ -76,30 +76,30 @@ const Topbar = ({ toggleSidebar, isSidebarOpen }) => {
   const userPhoto = user?.photoURL || `https://api.dicebear.com/7.x/notionists/svg?seed=${firstName}&backgroundColor=e5e7eb`;
 
   return (
-    <header className="h-[88px] bg-[#fdfdfd] border-b border-gray-100 flex items-center justify-between px-8 z-10 sticky top-0 flex-shrink-0">
+    <header className="h-[76px] sm:h-[84px] bg-[#fdfdfd] border-b border-gray-100 flex items-center justify-between px-4 sm:px-8 z-40 sticky top-0 flex-shrink-0">
       {/* Greeting or Breadcrumbs */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3 sm:gap-4 min-w-0">
         {!isSidebarOpen && (
           <button 
             onClick={toggleSidebar} 
-            className="p-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-sm text-gray-600"
+            className="p-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-sm text-gray-600 shrink-0"
           >
             <Menu size={18} />
           </button>
         )}
-        <div>
+        <div className="min-w-0">
           {isDashboard ? (
-            <div className="animate-in fade-in slide-in-from-left-4 duration-500">
-              <h1 className="text-[22px] font-black text-gray-900 tracking-tight flex items-center gap-2 capitalize">
-                Good Morning, {firstName}! <span className="text-2xl animate-wave origin-bottom-right">👋</span>
+            <div className="animate-in fade-in slide-in-from-left-4 duration-500 min-w-0">
+              <h1 className="text-base sm:text-lg lg:text-[20px] font-black text-gray-900 tracking-tight flex items-center gap-2 capitalize truncate">
+                <span>Good Morning, {firstName}!</span> <span className="text-lg sm:text-xl animate-wave origin-bottom-right shrink-0">👋</span>
               </h1>
-              <p className="text-xs text-gray-500 font-medium mt-0.5">
+              <p className="text-[11px] text-gray-500 font-medium truncate hidden sm:block">
                 Here's what's happening with your business today.
               </p>
             </div>
           ) : (
-            <div className="animate-in fade-in duration-300">
-              <h1 className="text-[22px] font-black text-gray-900 tracking-tight capitalize">
+            <div className="animate-in fade-in duration-300 min-w-0">
+              <h1 className="text-base sm:text-lg lg:text-[20px] font-black text-gray-900 tracking-tight capitalize truncate">
                 {location.pathname.replace('/', '').replace(/-/g, ' ') || 'Page'}
               </h1>
             </div>
@@ -136,7 +136,12 @@ const Topbar = ({ toggleSidebar, isSidebarOpen }) => {
           </button>
 
           {showWarehouseMenu && (
-            <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-150">
+            <>
+              <div 
+                className="fixed inset-0 z-40 cursor-default" 
+                onClick={() => setShowWarehouseMenu(false)} 
+              />
+              <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-150">
               <div className="p-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
                 <div>
                   <h4 className="text-xs font-black text-gray-900 uppercase tracking-wider">Operational Hub</h4>
@@ -187,6 +192,7 @@ const Topbar = ({ toggleSidebar, isSidebarOpen }) => {
                 })}
               </div>
             </div>
+            </>
           )}
         </div>
 
@@ -215,7 +221,12 @@ const Topbar = ({ toggleSidebar, isSidebarOpen }) => {
           </button>
           
           {showNotifications && (
-            <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50">
+            <>
+              <div 
+                className="fixed inset-0 z-40 cursor-default" 
+                onClick={() => setShowNotifications(false)} 
+              />
+              <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50">
               <div className="p-3 border-b border-gray-100 flex justify-between items-center bg-gray-50">
                 <h3 className="font-bold text-gray-800 text-sm">Notifications</h3>
                 {notifications.length > 0 && (
@@ -279,6 +290,7 @@ const Topbar = ({ toggleSidebar, isSidebarOpen }) => {
                 <span className="text-xs text-green-700 font-bold hover:underline">View all notifications</span>
               </div>
             </div>
+            </>
           )}
         </div>
 
@@ -309,33 +321,54 @@ const Topbar = ({ toggleSidebar, isSidebarOpen }) => {
           </div>
           
           {showProfileMenu && (
-            <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50">
-              <div className="p-3 border-b border-gray-50 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg overflow-hidden bg-gray-100">
-                  <img src="https://api.dicebear.com/7.x/notionists/svg?seed=Admin&backgroundColor=e5e7eb" alt="Avatar" className="w-full h-full object-cover" />
+            <>
+              {/* Invisible backdrop for outside click */}
+              <div 
+                className="fixed inset-0 z-40 cursor-default" 
+                onClick={() => setShowProfileMenu(false)} 
+              />
+              <div className="absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-150">
+                <div className="p-3.5 border-b border-gray-100 flex items-center gap-3 bg-gray-50/70">
+                  <div className="w-9 h-9 rounded-xl overflow-hidden border border-gray-200 bg-emerald-100 flex-shrink-0">
+                    <img 
+                      src={userPhoto} 
+                      alt={firstName} 
+                      className="w-full h-full object-cover" 
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80";
+                      }}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-black text-gray-900 truncate capitalize">{user?.displayName || firstName}</p>
+                    <p className="text-[10px] text-emerald-800 font-bold bg-emerald-100/80 px-1.5 py-0.5 rounded-md inline-block mt-0.5">{role || "SuperAdmin"}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs font-bold text-gray-800">Admin</p>
-                  <p className="text-[9px] text-gray-500">{role || "Super Admin"}</p>
+                <div className="p-1.5 space-y-0.5">
+                  <button 
+                    onClick={() => { setShowProfileMenu(false); navigate('/profile'); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-bold text-gray-700 hover:text-emerald-800 hover:bg-emerald-50 rounded-xl transition-colors cursor-pointer"
+                  >
+                    <User size={14} className="text-gray-400" />
+                    My Profile
+                  </button>
+                  <button 
+                    onClick={async () => { 
+                      setShowProfileMenu(false); 
+                      if (logout) {
+                        await logout();
+                      }
+                      navigate('/login'); 
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
+                  >
+                    <LogOut size={14} />
+                    Logout
+                  </button>
                 </div>
               </div>
-              <div className="p-1">
-                <button 
-                  onClick={() => { setShowProfileMenu(false); navigate('/profile'); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors"
-                >
-                  <User size={14} />
-                  My Profile
-                </button>
-                <button 
-                  onClick={() => { setShowProfileMenu(false); if (logout) logout(); else navigate('/login'); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg transition-colors mt-1"
-                >
-                  <LogOut size={14} />
-                  Logout
-                </button>
-              </div>
-            </div>
+            </>
           )}
         </div>
 

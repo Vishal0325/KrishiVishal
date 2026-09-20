@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { auth, db } from '../firebase/config';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 
 export function useAuth() {
@@ -63,5 +63,13 @@ export function useAuth() {
     return unsubscribe;
   }, []);
 
-  return { user, loading, isAdmin, role, isSuperAdmin, authError };
+  const logout = async () => {
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.error("Signout error:", err);
+    }
+  };
+
+  return { user, loading, isAdmin, role, isSuperAdmin, authError, logout };
 }

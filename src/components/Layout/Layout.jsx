@@ -11,7 +11,7 @@ const Layout = () => {
       <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <Topbar toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} isSidebarOpen={isSidebarOpen} />
-        <main className="flex-1 overflow-y-auto p-3.5 md:p-5 custom-scrollbar">
+        <main className="flex-1 overflow-y-auto p-3.5 md:p-5 custom-scrollbar relative z-0">
           <Outlet />
         </main>
       </div>
