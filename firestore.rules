@@ -260,6 +260,11 @@ service cloud.firestore {
         (
           isRider() &&
           resource.data.riderId == request.auth.uid
+        ) ||
+        (
+          isRider() &&
+          (!('riderId' in resource.data) || resource.data.riderId == null || resource.data.riderId == "") &&
+          resource.data.status in ['READY_FOR_PICKUP', 'PACKED', 'PLACED', 'CONFIRMED']
         );
 
       // ALL client order creation MUST go through createOrder Cloud Function. Direct client writes blocked.
