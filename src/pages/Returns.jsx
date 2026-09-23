@@ -1,10 +1,26 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useReturns } from '../hooks/useReturns';
 import DataTable from '../components/common/DataTable';
-import PageHeader from '../components/common/PageHeader';
-import MetricCard from '../components/common/MetricCard';
+import DetailDrawer from '../components/common/DetailDrawer';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
-import { RefreshCcw, Search, Filter, Eye, X, CheckCircle2, Ban, Truck, ShieldAlert, MapPin, User, Package, AlertTriangle, Inbox } from 'lucide-react';
+import { 
+  RefreshCcw, 
+  Search, 
+  Filter, 
+  Eye, 
+  CheckCircle2, 
+  Ban, 
+  Truck, 
+  ShieldAlert, 
+  Package, 
+  AlertTriangle, 
+  CheckCircle,
+  Clock,
+  ArrowRight,
+  ExternalLink,
+  Wallet,
+  CreditCard
+} from 'lucide-react';
 import StatusBadge from '../components/common/StatusBadge';
 import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -33,7 +49,7 @@ const Returns = () => {
   const [selectedRiderId, setSelectedRiderId] = useState('');
   const [orderDetails, setSelectedOrderDetails] = useState(null);
   const [refundAmount, setRefundAmount] = useState('');
-  const [refundDestination, setRefundDestination] = useState('WALLET'); // 'WALLET' | 'GATEWAY'
+  const [refundDestination, setRefundDestination] = useState('WALLET');
   const [isRefunding, setIsRefunding] = useState(false);
 
   useEffect(() => {
@@ -48,22 +64,25 @@ const Returns = () => {
       getDoc(doc(db, 'orders', selectedReturn.orderId)).then(snap => {
         if (snap.exists()) setSelectedOrderDetails(snap.data());
       });
-      // [FIXED] Point #164 & #168: Clear admin note when selecting a different return request
-      setAdminNote(selectedReturn.adminNote || '');
+      setAdminNote(selectedReturn.adminNote || selectedReturn.adminNotes || '');
+      setRefundAmount(selectedReturn.refundAmount || '');
     } else {
       setSelectedOrderDetails(null);
       setSelectedRiderId('');
       setAdminNote('');
+      setRefundAmount('');
     }
   }, [selectedReturn]);
 
-  const sortedRiders = [...riders].map(rider => {
-    const distance = orderDetails ? getDistance(
-      orderDetails.targetLat, orderDetails.targetLng,
-      rider.currentLat, rider.currentLng
-    ) : Infinity;
-    return { ...rider, distance };
-  }).sort((a, b) => a.distance - b.distance);
+  const sortedRiders = useMemo(() => {
+    return [...riders].map(rider => {
+      const distance = orderDetails ? getDistance(
+        orderDetails.targetLat, orderDetails.targetLng,
+        rider.currentLat, rider.currentLng
+      ) : Infinity;
+      return { ...rider, distance };
+    }).sort((a, b) => a.distance - b.distance);
+  }, [riders, orderDetails]);
 
   const handleRefund = async () => {
     if (!refundAmount || isNaN(refundAmount) || Number(refundAmount) <= 0) {
@@ -77,7 +96,7 @@ const Returns = () => {
       await initiateRefund({
         returnId: selectedReturn.id,
         refundAmount: Number(refundAmount),
-        refundDestination: refundDestination, // 'WALLET' or 'GATEWAY'
+        refundDestination: refundDestination,
       });
       toast.success(`Refund initiated via ${refundDestination === 'WALLET' ? 'Customer Wallet' : 'Razorpay Gateway'}`);
       setSelectedReturn(null);
@@ -89,268 +108,440 @@ const Returns = () => {
     }
   };
 
-  const filteredReturns = returns.filter(r =>
-    r.id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    r.productName?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredReturns = useMemo(() => {
+    return returns.filter(r =>
+      r.id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.orderId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.productName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.reason?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [returns, searchTerm]);
 
-  const columns = [
-    { header: 'ID', render: (r) => <span className="font-mono text-[10px] font-black">{r.id}</span> },
-    { header: 'Product', render: (r) => (
-      <div className="flex flex-col">
-        <span className="font-bold text-gray-900 leading-none mb-1">{r.productName}</span>
-        <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">Order: {r.orderId.substring(0,8)}</span>
-      </div>
-    )},
-    { header: 'Reason', key: 'reason', render: (r) => <span className="text-xs font-medium text-gray-600 italic">"{r.reason}"</span> },
-    { header: 'Status', render: (r) => (
-      <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
-        r.status === 'REQUESTED' ? 'bg-orange-50 text-orange-600 border-orange-100' :
-        r.status === 'APPROVED' ? 'bg-green-50 text-green-600 border-green-100' :
-        r.status === 'REJECTED' ? 'bg-red-50 text-red-600 border-red-100' : 'bg-blue-50 text-blue-600 border-blue-100'
-      }`}>
-        {r.status.replace('_', ' ')}
-      </span>
-    )},
-    { header: 'Date', render: (r) => <span className="text-gray-400 font-bold text-[10px]">{formatDateTime(r.createdAt)}</span> },
-    { header: 'Action', render: (r) => (
-      <button onClick={() => setSelectedReturn(r)} className="p-2 bg-gray-50 text-gray-400 hover:text-primary transition-colors rounded-xl border border-gray-100 shadow-sm">
-        <Eye size={18} />
-      </button>
-    )}
-  ];
-
-  // KPI Metrics
+  // KPI Metrics calculation
   const metrics = useMemo(() => {
     const requested = returns.filter(r => r.status === 'REQUESTED').length;
-    const approved = returns.filter(r => r.status === 'APPROVED').length;
+    const approved = returns.filter(r => r.status === 'APPROVED' || r.status === 'PICKUP_SCHEDULED').length;
     const completed = returns.filter(r => r.status === 'COMPLETED').length;
     const rejected = returns.filter(r => r.status === 'REJECTED').length;
     return { total: returns.length, requested, approved, completed, rejected };
   }, [returns]);
 
-  return (
-    <div className="space-y-6 pb-10 animate-in fade-in duration-300">
-      <PageHeader
-        title="Returns & Refund Management"
-        subtitle="Track return requests, manage pickups, QC, and process refunds via backend Cloud Functions"
-      />
+  const columns = [
+    { 
+      header: 'Return ID', 
+      render: (r) => (
+        <span className="font-mono text-xs font-bold text-[#0B4D31]">
+          #{r.id?.slice(-8) || r.id}
+        </span>
+      )
+    },
+    { 
+      header: 'Product & Order', 
+      render: (r) => (
+        <div className="flex flex-col max-w-[220px]">
+          <span className="font-bold text-xs text-gray-900 truncate leading-snug">{r.productName || 'Ordered Item'}</span>
+          <span className="text-[10px] text-gray-400 font-semibold font-mono">
+            Order #{r.orderId ? r.orderId.slice(-8).toUpperCase() : 'N/A'}
+          </span>
+        </div>
+      )
+    },
+    { 
+      header: 'Reason', 
+      render: (r) => (
+        <span className="text-xs text-gray-600 italic line-clamp-1 max-w-[200px]" title={r.reason}>
+          "{r.reason || 'No reason provided'}"
+        </span>
+      )
+    },
+    { 
+      header: 'QC Status', 
+      render: (r) => {
+        const qc = r.qcStatus || 'PENDING';
+        const styles = {
+          PASSED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+          FAILED: 'bg-red-50 text-red-700 border-red-200',
+          PENDING: 'bg-amber-50 text-amber-700 border-amber-200'
+        };
+        return (
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${styles[qc] || styles.PENDING}`}>
+            {qc}
+          </span>
+        );
+      }
+    },
+    { 
+      header: 'Status', 
+      render: (r) => {
+        const statusMap = {
+          REQUESTED: 'bg-amber-50 text-amber-700 border-amber-200',
+          APPROVED: 'bg-blue-50 text-blue-700 border-blue-200',
+          PICKUP_SCHEDULED: 'bg-purple-50 text-purple-700 border-purple-200',
+          PICKED_UP: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+          COMPLETED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+          REJECTED: 'bg-rose-50 text-rose-700 border-rose-200'
+        };
+        return (
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusMap[r.status] || 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+            {r.status?.replace('_', ' ') || 'UNKNOWN'}
+          </span>
+        );
+      }
+    },
+    { 
+      header: 'Date', 
+      render: (r) => (
+        <span className="text-gray-500 font-medium text-xs whitespace-nowrap">
+          {formatDateTime(r.createdAt)}
+        </span>
+      )
+    },
+    { 
+      header: 'Action', 
+      render: (r) => (
+        <button 
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedReturn(r);
+          }} 
+          className="inline-flex items-center gap-1.5 px-3 py-1 bg-gray-50 hover:bg-[#0B4D31] text-gray-700 hover:text-white rounded-lg border border-gray-200 hover:border-[#0B4D31] text-xs font-bold transition-all shadow-2xs cursor-pointer"
+        >
+          <Eye size={13} />
+          <span>Review</span>
+        </button>
+      )
+    }
+  ];
 
-      {/* KPI Metric Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard label="Total Returns" value={metrics.total} icon={Package} color="blue" />
-        <MetricCard label="Requested" value={metrics.requested} icon={AlertTriangle} color="amber" />
-        <MetricCard label="Approved" value={metrics.approved} icon={CheckCircle2} color="green" />
-        <MetricCard label="Completed" value={metrics.completed} icon={ShieldAlert} color="indigo" />
+  return (
+    <div className="space-y-4 animate-in fade-in duration-200">
+      {/* Compact KPI Metric Cards Strip */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-white p-3.5 rounded-xl border border-gray-100 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Total Returns</p>
+            <h4 className="text-xl font-black text-gray-900 tracking-tight mt-0.5">{metrics.total}</h4>
+          </div>
+          <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+            <Package size={18} />
+          </div>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-gray-100 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Pending Review</p>
+            <h4 className="text-xl font-black text-amber-600 tracking-tight mt-0.5">{metrics.requested}</h4>
+          </div>
+          <div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+            <AlertTriangle size={18} />
+          </div>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-gray-100 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Approved / Pickup</p>
+            <h4 className="text-xl font-black text-emerald-600 tracking-tight mt-0.5">{metrics.approved}</h4>
+          </div>
+          <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+            <CheckCircle2 size={18} />
+          </div>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-gray-100 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Completed</p>
+            <h4 className="text-xl font-black text-indigo-600 tracking-tight mt-0.5">{metrics.completed}</h4>
+          </div>
+          <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+            <CheckCircle size={18} />
+          </div>
+        </div>
       </div>
 
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap items-center gap-4">
-        <div className="flex-1 min-w-[250px] relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" size={18} />
+      {/* Compact Search & Filter Toolbar */}
+      <div className="bg-white p-2.5 rounded-xl shadow-2xs border border-gray-100 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex-1 min-w-[220px] max-w-md relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
           <input
-            type="text" placeholder="Search by Return ID or Product..."
-            value={searchTerm} onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl focus:ring-4 focus:ring-primary/5 outline-none text-sm transition-all font-medium"
+            type="text"
+            placeholder="Search by Return ID, Order ID, Product..."
+            value={searchTerm}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-9 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#0B4D31]/10 focus:border-[#0B4D31] outline-none text-xs font-medium transition-all"
           />
         </div>
-        <select
-          value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-          className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-gray-500 outline-none"
-        >
-          <option value="All">All Status</option>
-          <option value="REQUESTED">Requested</option>
-          <option value="APPROVED">Approved</option>
-          <option value="REJECTED">Rejected</option>
-          <option value="PICKED_UP">Picked Up</option>
-          <option value="COMPLETED">Completed</option>
-        </select>
+
+        <div className="flex items-center gap-2">
+          <Filter size={14} className="text-gray-400" />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-bold text-gray-700 outline-none focus:ring-2 focus:ring-[#0B4D31]/10"
+          >
+            <option value="All">All Statuses ({returns.length})</option>
+            <option value="REQUESTED">Requested ({metrics.requested})</option>
+            <option value="APPROVED">Approved</option>
+            <option value="PICKUP_SCHEDULED">Pickup Scheduled</option>
+            <option value="PICKED_UP">Picked Up</option>
+            <option value="COMPLETED">Completed ({metrics.completed})</option>
+            <option value="REJECTED">Rejected ({metrics.rejected})</option>
+          </select>
+
+          <span className="text-xs text-gray-400 font-semibold px-2">
+            Showing {filteredReturns.length} of {returns.length}
+          </span>
+        </div>
       </div>
 
-      <DataTable columns={columns} data={filteredReturns} loading={loading} />
+      {/* Main Table */}
+      <DataTable 
+        columns={columns} 
+        data={filteredReturns} 
+        loading={loading}
+        onRowClick={(r) => setSelectedReturn(r)}
+      />
 
-      {/* Detail Modal */}
-      {selectedReturn && (
-        <div className="fixed inset-0 z-50 flex items-center justify-end bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="w-full max-w-xl h-screen bg-white shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-500">
-            <div className="p-8 border-b border-gray-50 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur z-20">
-               <div>
-                <h2 className="text-xl font-black text-gray-900 tracking-tighter uppercase">Return Details</h2>
-                <p className="text-[10px] font-black text-orange-500 tracking-widest">{selectedReturn.id}</p>
-               </div>
-               <button onClick={() => setSelectedReturn(null)} className="p-2 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded-full transition-all">
-                <X size={24} />
-               </button>
+      {/* Compact Standard Detail Drawer */}
+      <DetailDrawer
+        isOpen={Boolean(selectedReturn)}
+        onClose={() => setSelectedReturn(null)}
+        title={selectedReturn ? `Return #${selectedReturn.id?.slice(-8) || selectedReturn.id}` : ''}
+        size="lg"
+      >
+        {selectedReturn && (
+          <div className="space-y-6 text-sm">
+            {/* Header Status Strip */}
+            <div className="flex items-center justify-between bg-gray-50 p-3 rounded-xl border border-gray-100">
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Status</p>
+                <span className="text-xs font-extrabold uppercase text-gray-800 tracking-wider">
+                  {selectedReturn.status?.replace('_', ' ')}
+                </span>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Created</p>
+                <span className="text-xs font-semibold text-gray-600">
+                  {formatDateTime(selectedReturn.createdAt)}
+                </span>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Linked Order</p>
+                <span className="text-xs font-mono font-bold text-[#0B4D31]">
+                  #{selectedReturn.orderId?.slice(-8).toUpperCase()}
+                </span>
+              </div>
             </div>
 
-            <div className="p-10 space-y-12 pb-32">
-              {/* Product Info */}
-              <section className="bg-gray-50 p-6 rounded-[2rem] border border-gray-100 flex items-center space-x-6">
-                 <div className="h-24 w-24 bg-white rounded-3xl overflow-hidden border border-gray-100 p-1 shadow-inner">
-                   <img src={selectedReturn.proofUrls?.[0] || 'https://placehold.co/200x200?text=No+Proof'} className="w-full h-full object-cover rounded-2xl" alt="" />
-                 </div>
-                 <div className="space-y-1">
-                   <h3 className="font-black text-gray-900 text-lg tracking-tight leading-none">{selectedReturn.productName}</h3>
-                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest italic">Reason: {selectedReturn.reason}</p>
-                 </div>
-              </section>
-
-              {/* Business Rules Warning */}
-              <div className="bg-orange-50/50 p-6 rounded-3xl border border-orange-100 flex items-start space-x-4 shadow-inner">
-                <ShieldAlert className="text-orange-500 shrink-0 mt-1" size={20} />
-                <div>
-                  <h4 className="text-xs font-black text-orange-800 uppercase tracking-widest mb-1 leading-none">Policy Alert</h4>
-                  <p className="text-[10px] font-bold text-orange-700/60 leading-relaxed italic">
-                    Fertilizers: Check if seal is broken. Pesticides: Only damage/expiry allowed.
+            {/* Product Summary */}
+            <div className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 shadow-2xs">
+              <div className="w-14 h-14 rounded-lg bg-gray-50 border border-gray-100 overflow-hidden flex items-center justify-center shrink-0">
+                <img 
+                  src={selectedReturn.proofUrls?.[0] || 'https://placehold.co/100x100?text=Item'} 
+                  alt="" 
+                  className="w-full h-full object-cover" 
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-bold text-gray-900 text-sm truncate">{selectedReturn.productName}</h4>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  <span className="font-semibold text-gray-700">Reason:</span> "{selectedReturn.reason}"
+                </p>
+                {selectedReturn.customerComment && (
+                  <p className="text-xs text-gray-400 italic mt-0.5 truncate">
+                    Comment: {selectedReturn.customerComment}
                   </p>
+                )}
+              </div>
+            </div>
+
+            {/* Policy Info Box */}
+            <div className="p-3 bg-amber-50/70 border border-amber-200/60 rounded-xl flex items-start gap-2.5">
+              <ShieldAlert className="text-amber-600 shrink-0 mt-0.5" size={16} />
+              <p className="text-xs text-amber-800 leading-relaxed font-medium">
+                <span className="font-bold">Inspection Policy:</span> Check container seal, original packaging & expiry. Pesticides/Chemicals are eligible only for damage or expiry.
+              </p>
+            </div>
+
+            {/* QC & Refund Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* QC Verification Card */}
+              <div className="p-4 bg-gray-50/80 rounded-xl border border-gray-100 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-gray-600">QC Status</span>
+                  <span className={`text-[11px] font-extrabold uppercase px-2 py-0.5 rounded border ${
+                    selectedReturn.qcStatus === 'PASSED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                    selectedReturn.qcStatus === 'FAILED' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                    'bg-amber-50 text-amber-700 border-amber-200'
+                  }`}>
+                    {selectedReturn.qcStatus || 'PENDING'}
+                  </span>
+                </div>
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => updateReturnStatus(selectedReturn.id, selectedReturn.status, adminNote, null, 'PASSED')}
+                    className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors shadow-2xs cursor-pointer"
+                  >
+                    ✓ Pass QC
+                  </button>
+                  <button
+                    onClick={() => updateReturnStatus(selectedReturn.id, selectedReturn.status, adminNote, null, 'FAILED')}
+                    className="flex-1 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-colors shadow-2xs cursor-pointer"
+                  >
+                    ✗ Fail QC
+                  </button>
                 </div>
               </div>
 
-              {/* Actions & Notes */}
-              <section className="space-y-6">
-                <div className="grid grid-cols-2 gap-8">
-                  <div>
-                    <h3 className="text-xs font-black text-primary-dark uppercase tracking-widest border-b border-gray-50 pb-2 mb-4">QC Status</h3>
-                    <div className={`p-4 rounded-2xl border font-black text-xs uppercase tracking-widest text-center ${
-                      selectedReturn.qcStatus === 'PASSED' ? 'bg-green-50 text-green-600 border-green-100' :
-                      selectedReturn.qcStatus === 'FAILED' ? 'bg-red-50 text-red-600 border-red-100' :
-                      'bg-gray-50 text-gray-400 border-gray-100'
-                    }`}>
-                      {selectedReturn.qcStatus || 'PENDING'}
-                    </div>
-                    {(selectedReturn.qcStatus === 'PENDING' || !selectedReturn.qcStatus) && selectedReturn.status !== 'PENDING' ? (
-                      <div className="flex space-x-2 mt-3">
-                        <button onClick={() => updateReturnStatus(selectedReturn.id, selectedReturn.status, adminNote, null, 'PASSED')} className="flex-1 py-2 bg-green-50 text-green-600 rounded-xl text-xs font-bold border border-green-100 hover:bg-green-100">PASS QC</button>
-                        <button onClick={() => updateReturnStatus(selectedReturn.id, selectedReturn.status, adminNote, null, 'FAILED')} className="flex-1 py-2 bg-red-50 text-red-600 rounded-xl text-xs font-bold border border-red-100 hover:bg-red-100">FAIL QC</button>
-                      </div>
-                    ) : null}
-                  </div>
-                  <div>
-                    <h3 className="text-xs font-black text-primary-dark uppercase tracking-widest border-b border-gray-50 pb-2 mb-4">Refund Status</h3>
-                    <div className={`p-4 rounded-2xl border font-black text-xs uppercase tracking-widest text-center ${
-                      selectedReturn.refundStatus === 'COMPLETED' ? 'bg-blue-50 text-blue-600 border-blue-100' :
-                      selectedReturn.refundStatus === 'FAILED' ? 'bg-red-50 text-red-600 border-red-100' :
-                      'bg-orange-50 text-orange-600 border-orange-100'
-                    }`}>
-                      {selectedReturn.refundStatus || 'PENDING'}
-                    </div>
-                    {selectedReturn.refundStatus !== 'COMPLETED' && (selectedReturn.qcStatus === 'PASSED' || selectedReturn.status === 'COMPLETED') ? (
-                      <div className="mt-3 space-y-2">
-                        <input
-                          type="number"
-                          placeholder="Amount (₹)"
-                          value={refundAmount}
-                          onChange={(e) => setRefundAmount(e.target.value)}
-                          className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-primary/20"
-                        />
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                          <button
-                            type="button"
-                            onClick={() => setRefundDestination('WALLET')}
-                            className={`py-1.5 px-2 rounded-lg font-bold border transition-all ${
-                              refundDestination === 'WALLET'
-                                ? 'bg-primary/10 border-primary text-primary-dark font-black'
-                                : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
-                            }`}
-                          >
-                            👛 Wallet
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setRefundDestination('GATEWAY')}
-                            className={`py-1.5 px-2 rounded-lg font-bold border transition-all ${
-                              refundDestination === 'GATEWAY'
-                                ? 'bg-blue-50 border-blue-500 text-blue-600 font-black'
-                                : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
-                            }`}
-                          >
-                            💳 Gateway
-                          </button>
-                        </div>
-                        <button 
-                          onClick={handleRefund}
-                          disabled={isRefunding}
-                          className="w-full py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md hover:bg-blue-700 disabled:opacity-50"
+              {/* Refund Card */}
+              <div className="p-4 bg-gray-50/80 rounded-xl border border-gray-100 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-gray-600">Refund Status</span>
+                  <span className={`text-[11px] font-extrabold uppercase px-2 py-0.5 rounded border ${
+                    selectedReturn.refundStatus === 'COMPLETED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                    selectedReturn.refundStatus === 'FAILED' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                    'bg-amber-50 text-amber-700 border-amber-200'
+                  }`}>
+                    {selectedReturn.refundStatus || 'PENDING'}
+                  </span>
+                </div>
+
+                {selectedReturn.refundStatus !== 'COMPLETED' ? (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        placeholder="₹ Amount"
+                        value={refundAmount}
+                        onChange={(e) => setRefundAmount(e.target.value)}
+                        className="flex-1 px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-[#0B4D31]/10"
+                      />
+                      <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setRefundDestination('WALLET')}
+                          className={`px-2 py-1 font-bold transition-colors cursor-pointer ${
+                            refundDestination === 'WALLET'
+                              ? 'bg-[#0B4D31] text-white'
+                              : 'bg-white text-gray-600 hover:bg-gray-50'
+                          }`}
                         >
-                          {isRefunding ? 'PROCESSING...' : `REFUND TO ${refundDestination === 'WALLET' ? 'WALLET' : 'GATEWAY'}`}
+                          Wallet
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRefundDestination('GATEWAY')}
+                          className={`px-2 py-1 font-bold transition-colors cursor-pointer ${
+                            refundDestination === 'GATEWAY'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-white text-gray-600 hover:bg-gray-50'
+                          }`}
+                        >
+                          Gateway
                         </button>
                       </div>
-                    ) : null}
+                    </div>
+                    <button
+                      onClick={handleRefund}
+                      disabled={isRefunding}
+                      className="w-full py-1.5 bg-[#0B4D31] hover:bg-[#073622] text-white rounded-lg text-xs font-bold transition-colors shadow-2xs disabled:opacity-50 cursor-pointer"
+                    >
+                      {isRefunding ? 'Processing Refund...' : `Refund to ${refundDestination === 'WALLET' ? 'Customer Wallet' : 'Payment Gateway'}`}
+                    </button>
                   </div>
-                </div>
-
-                <h3 className="text-xs font-black text-primary-dark uppercase tracking-widest border-b border-gray-50 pb-2">Admin Resolution</h3>
-                <textarea
-                  placeholder="Enter notes for the customer..."
-                  className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl focus:ring-4 focus:ring-primary/5 outline-none font-medium text-sm text-gray-700 shadow-inner"
-                  rows="4"
-                  value={adminNote}
-                  onChange={(e) => setAdminNote(e.target.value)}
-                />
-
-                <div className="grid grid-cols-2 gap-4">
-                   <button
-                    onClick={() => updateReturnStatus(selectedReturn.id, 'REJECTED', adminNote)}
-                    className="flex items-center justify-center space-x-2 py-4 rounded-2xl border-2 border-red-100 text-red-500 font-black text-xs uppercase tracking-widest hover:bg-red-50 transition-all active:scale-95"
-                   >
-                     <Ban size={18} />
-                     <span>Reject</span>
-                   </button>
-                   <button
-                    onClick={() => updateReturnStatus(selectedReturn.id, 'APPROVED', adminNote)}
-                    className="flex items-center justify-center space-x-2 py-4 rounded-2xl bg-primary text-white font-black text-xs uppercase tracking-widest shadow-xl shadow-green-100 hover:bg-primary-dark transition-all active:scale-95"
-                   >
-                     <CheckCircle2 size={18} />
-                     <span>Approve</span>
-                   </button>
-                </div>
-              </section>
-
-              {/* Proof Images */}
-              <section className="space-y-4">
-                 <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest border-b border-gray-50 pb-2">Proof Uploads</h3>
-                 <div className="grid grid-cols-3 gap-4">
-                   {selectedReturn.proofUrls?.map((url, i) => (
-                     <a href={url} target="_blank" key={i} className="aspect-square bg-gray-100 rounded-2xl overflow-hidden border border-gray-100 group relative">
-                       <img src={url} className="w-full h-full object-cover transition-transform group-hover:scale-110" alt="" />
-                       <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                         <Eye className="text-white" size={20} />
-                       </div>
-                     </a>
-                   ))}
-                 </div>
-              </section>
+                ) : (
+                  <p className="text-xs text-emerald-600 font-semibold pt-2">
+                    ✓ Refund completed successfully
+                  </p>
+                )}
+              </div>
             </div>
 
-            <div className="absolute bottom-0 left-0 right-0 p-8 bg-white/95 backdrop-blur border-t border-gray-100 space-y-4">
-               {selectedReturn.status === 'APPROVED' && (
-                 <div className="flex flex-col space-y-2">
-                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Assign Nearest Rider</label>
-                   <select
-                     value={selectedRiderId}
-                     onChange={(e) => setSelectedRiderId(e.target.value)}
-                     className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-4 py-3 text-sm font-bold text-gray-700 outline-none focus:ring-4 focus:ring-primary/5"
-                   >
-                     <option value="">Select a Rider</option>
-                     {sortedRiders.filter(r => r.online).map(r => (
-                       <option key={r.id} value={r.id}>
-                         {r.name} ({r.distance === Infinity ? 'Unknown dist' : `${r.distance.toFixed(1)} km away`})
-                       </option>
-                     ))}
-                   </select>
-                 </div>
-               )}
-               <button
-                 onClick={() => updateReturnStatus(selectedReturn.id, 'PICKUP_SCHEDULED', adminNote, selectedRiderId)}
-                 disabled={selectedReturn.status === 'APPROVED' && !selectedRiderId}
-                 className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 disabled:grayscale"
-               >
-                 <Truck size={18} />
-                 <span>Schedule Pickup</span>
-               </button>
+            {/* Rider Dispatch & Schedule Pickup */}
+            {selectedReturn.status === 'APPROVED' && (
+              <div className="p-4 bg-purple-50/60 rounded-xl border border-purple-100 space-y-3">
+                <label className="block text-xs font-bold uppercase tracking-wider text-purple-900">
+                  Assign Rider for Pickup
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    value={selectedRiderId}
+                    onChange={(e) => setSelectedRiderId(e.target.value)}
+                    className="flex-1 bg-white border border-purple-200 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-700 outline-none focus:ring-2 focus:ring-purple-500/20"
+                  >
+                    <option value="">Choose nearest online rider</option>
+                    {sortedRiders.filter(r => r.online !== false).map(r => (
+                      <option key={r.id} value={r.id}>
+                        {r.name || r.riderName || 'Rider'} ({r.distance === Infinity ? 'Near Hub' : `${r.distance.toFixed(1)} km away`})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => updateReturnStatus(selectedReturn.id, 'PICKUP_SCHEDULED', adminNote, selectedRiderId)}
+                    disabled={!selectedRiderId}
+                    className="px-4 py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-50 shadow-2xs cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Truck size={14} />
+                    <span>Dispatch</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Proof Photos Grid */}
+            {selectedReturn.proofUrls?.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-gray-600">Customer Proof Photos</span>
+                <div className="grid grid-cols-4 gap-2">
+                  {selectedReturn.proofUrls.map((url, i) => (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      key={i}
+                      className="aspect-square bg-gray-100 rounded-lg overflow-hidden border border-gray-200 hover:opacity-90 transition-opacity block"
+                    >
+                      <img src={url} alt={`Proof ${i+1}`} className="w-full h-full object-cover" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Admin Resolution & Notes */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600">
+                Resolution Note (Customer Visible)
+              </label>
+              <textarea
+                placeholder="Enter explanation, rejection reason or return instructions..."
+                rows={2}
+                value={adminNote}
+                onChange={(e) => setAdminNote(e.target.value)}
+                className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-medium text-gray-700 outline-none focus:ring-2 focus:ring-[#0B4D31]/10 focus:border-[#0B4D31]"
+              />
+            </div>
+
+            {/* Approval / Rejection Action Buttons */}
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => updateReturnStatus(selectedReturn.id, 'REJECTED', adminNote)}
+                className="flex-1 py-2 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+              >
+                <Ban size={15} />
+                <span>Reject Return</span>
+              </button>
+              <button
+                onClick={() => updateReturnStatus(selectedReturn.id, 'APPROVED', adminNote)}
+                className="flex-1 py-2 rounded-lg bg-[#0B4D31] hover:bg-[#083824] text-white font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+              >
+                <CheckCircle2 size={15} />
+                <span>Approve Return</span>
+              </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </DetailDrawer>
     </div>
   );
 };
