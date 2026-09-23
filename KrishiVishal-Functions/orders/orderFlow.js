@@ -333,7 +333,7 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 structuredAddress.pincode
             ].filter(Boolean).join(", ");
 
-            const otp = crypto.randomInt(1000, 9999).toString();
+            const otp = crypto.randomInt(1000, 10000).toString();
 
             const order = {
                 id: orderId,
@@ -651,49 +651,34 @@ exports.verifyDeliveryOTP = onCall({ region: REGION }, async (request) => {
                 throw new Error(`Order cannot be marked delivered from ${orderData.status} state.`);
             }
 
-            const otpRef = orderRef.collection("internal").doc("otp");
-            const otpSnap = await transaction.get(otpRef);
-
-            if (!otpSnap.exists) {
-                throw new Error('Delivery OTP not found or has expired.');
+            const otpVal = String(orderData.customerOTP || orderData.deliveryOtp || '');
+            if (!otpVal) {
+                throw new Error('Delivery OTP not found for this order.');
             }
 
-            const otpData = otpSnap.data();
-            const attempts = otpData.attempts || 0;
-
-            // Enforce max 3 attempts
-            if (attempts >= 3) {
-                transaction.delete(otpRef);
-                throw new Error('Maximum OTP verification attempts (3) exceeded. Please generate a new OTP or contact support.');
-            }
-
-            // Enforce 15 minutes expiry if createdAt exists
-            if (otpData.createdAt && otpData.createdAt.toMillis) {
-                const ageMs = Date.now() - otpData.createdAt.toMillis();
-                if (ageMs > 15 * 60 * 1000) {
-                    transaction.delete(otpRef);
-                    throw new Error('Delivery OTP has expired (15 minutes limit).');
-                }
+            // Enforce max attempts via a field on the order document
+            const attempts = orderData.otpAttempts || 0;
+            if (attempts >= 5) {
+                throw new Error('Maximum OTP verification attempts (5) exceeded.');
             }
 
             // Constant-time timing-safe comparison
-            const otpVal = String(otpData.value || '');
             let isValid = false;
             try {
                 isValid = crypto.timingSafeEqual(
-                    Buffer.from(otp, 'utf8'),
-                    Buffer.from(otpVal, 'utf8')
+                    Buffer.from(otp.trim(), 'utf8'),
+                    Buffer.from(otpVal.trim(), 'utf8')
                 );
             } catch (e) {
                 isValid = false;
             }
 
             if (!isValid) {
-                transaction.update(otpRef, {
-                    attempts: admin.firestore.FieldValue.increment(1),
-                    lastFailedAttemptAt: admin.firestore.FieldValue.serverTimestamp()
+                transaction.update(orderRef, {
+                    otpAttempts: admin.firestore.FieldValue.increment(1),
+                    lastFailedOtpAttemptAt: admin.firestore.FieldValue.serverTimestamp()
                 });
-                const remaining = 2 - attempts;
+                const remaining = 4 - attempts;
                 throw new Error(`Invalid OTP. ${remaining > 0 ? remaining + ' attempt(s) remaining.' : 'Attempts exceeded.'}`);
             }
 
@@ -756,7 +741,7 @@ const ALLOWED_TRANSITIONS = {
 /**
  * H1: updateOrderStatus - Validates order ownership and status progression.
  */
-exports.updateOrderStatus = onCall({ region: REGION }, async (request) => {
+exports.updateOrderStatus = onCall({ region: REGION, invoker: 'public' }, async (request) => {
     const data = request.data || {};
     const context = { auth: request.auth };
 
@@ -776,8 +761,15 @@ exports.updateOrderStatus = onCall({ region: REGION }, async (request) => {
 
     const orderData = orderSnap.data();
     const isOwner = orderData.userId === context.auth.uid;
-    const isAssignedRider = orderData.riderId === context.auth.uid;
+    let isAssignedRider = orderData.riderId === context.auth.uid;
     const isAdmin = await isAdminRequest(context);
+    const role = (context.auth.token?.role || '').toLowerCase();
+    const isRider = ['rider'].includes(role);
+
+    // Allow rider to assign themselves if order is unassigned and they are scanning it
+    if (isRider && !orderData.riderId && targetStatus === 'ASSIGNED') {
+        isAssignedRider = true;
+    }
 
     if (!isOwner && !isAssignedRider && !isAdmin) {
         throw new HttpsError('permission-denied', 'No permission to update this order.');
@@ -795,6 +787,8 @@ exports.updateOrderStatus = onCall({ region: REGION }, async (request) => {
             throw new HttpsError('permission-denied', 'DELIVERED status can only be set via verifyDeliveryOTP with customer OTP.');
         }
         const riderAllowed = {
+            PLACED: ['ASSIGNED'],
+            CONFIRMED: ['ASSIGNED'],
             READY_FOR_PICKUP: ['RIDER_ACCEPTED', 'ASSIGNED', 'RIDER_ASSIGNED'],
             RIDER_ASSIGNED: ['RIDER_ACCEPTED', 'OUT_FOR_DELIVERY', 'PICKED_UP'],
             ASSIGNED: ['RIDER_ACCEPTED', 'OUT_FOR_DELIVERY', 'PICKED_UP'],
@@ -819,6 +813,9 @@ exports.updateOrderStatus = onCall({ region: REGION }, async (request) => {
 
     if (riderId !== undefined && isAdmin) {
         updatePayload.riderId = riderId;
+    } else if (isRider && !orderData.riderId && targetStatus === 'ASSIGNED') {
+        // Rider assigns themselves
+        updatePayload.riderId = context.auth.uid;
     }
 
     if (note) {
@@ -889,7 +886,7 @@ exports.generateSignedQRPayload = onCall({ region: REGION, secrets: [qrHmacSecre
 /**
  * verifyScannedQR: Validates HMAC-signed QR token for package pickup / handover
  */
-exports.verifyScannedQR = onCall({ region: REGION, secrets: [qrHmacSecret] }, async (request) => {
+exports.verifyScannedQR = onCall({ region: REGION, secrets: [qrHmacSecret], invoker: 'public' }, async (request) => {
     const data = request.data || {};
     const context = { auth: request.auth };
 
@@ -935,10 +932,29 @@ exports.verifyScannedQR = onCall({ region: REGION, secrets: [qrHmacSecret] }, as
         }
     }
 
-    const orderSnap = await db.collection("orders").doc(orderId).get();
+    const orderRef = db.collection("orders").doc(orderId);
+    const orderSnap = await orderRef.get();
     if (!orderSnap.exists) throw new HttpsError('not-found', 'Order not found.');
 
     const orderData = orderSnap.data();
+    
+    // Auto-assign order to Rider if not already assigned
+    const isRider = ['rider'].includes(role);
+    if (isRider) {
+        if (!orderData.riderId) {
+            await orderRef.update({
+                riderId: context.auth.uid,
+                status: 'ASSIGNED',
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+            orderData.riderId = context.auth.uid;
+            orderData.status = 'ASSIGNED';
+            addToOutbox(null, 'RIDER_AUTO_ASSIGNED', { orderId, riderId: context.auth.uid });
+        } else if (orderData.riderId !== context.auth.uid) {
+            throw new HttpsError('permission-denied', 'This order is already assigned to another rider.');
+        }
+    }
+
     return {
         success: true,
         orderId,
