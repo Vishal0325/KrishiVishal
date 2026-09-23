@@ -686,8 +686,7 @@ exports.verifyDeliveryOTP = onCall({ region: REGION, invoker: 'public' }, async 
                 throw new Error(`Invalid OTP. ${remaining > 0 ? remaining + ' attempt(s) remaining.' : 'Attempts exceeded.'}`);
             }
 
-            // OTP verified successfully: delete OTP and complete inventory deduction
-            transaction.delete(otpRef);
+            // OTP verified successfully: complete inventory deduction
 
             // Complete inventory stock mutation atomically
             const selfStockItems = (orderData.items || []).filter(item => item.fulfillmentType !== 'ON_DEMAND');
