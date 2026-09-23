@@ -68,7 +68,7 @@ fun ProofOfDeliveryScreen(
     val order = (orderState as? Resource.Success)?.data?.find { it.id == orderId }
     
     var capturedPhoto by remember { mutableStateOf<Bitmap?>(null) }
-    var signaturePoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
+
     var otpValue by remember { mutableStateOf("") }
     var collectedCash by remember { mutableStateOf("") }
     var hasInitializedCash by remember { mutableStateOf(false) }
@@ -213,7 +213,7 @@ fun ProofOfDeliveryScreen(
             // Photo Capture
             Text("Package Photo", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
             if (capturedPhoto != null) {
-                Box(modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(8.dp))) {
+                Box(modifier = Modifier.fillMaxWidth().height(100.dp).clip(RoundedCornerShape(8.dp))) {
                     androidx.compose.foundation.Image(
                         bitmap = capturedPhoto!!.asImageBitmap(),
                         contentDescription = "Captured Photo",
@@ -230,7 +230,7 @@ fun ProofOfDeliveryScreen(
             } else {
                 OutlinedButton(
                     onClick = { cameraLauncher.launch() },
-                    modifier = Modifier.fillMaxWidth().height(100.dp),
+                    modifier = Modifier.fillMaxWidth().height(72.dp),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -240,50 +240,7 @@ fun ProofOfDeliveryScreen(
                 }
             }
 
-            // Signature Pad
-            Text("Customer Signature", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-            var signatureSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp)
-                    .onGloballyPositioned { signatureSize = it.size },
-                color = Color.White,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Box {
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(Unit) {
-                                detectDragGestures { change, _ ->
-                                    change.consume()
-                                    signaturePoints = signaturePoints + change.position
-                                }
-                            }
-                    ) {
-                        if (signaturePoints.size > 1) {
-                            val path = Path()
-                            path.moveTo(signaturePoints[0].x, signaturePoints[0].y)
-                            for (i in 1 until signaturePoints.size) {
-                                path.lineTo(signaturePoints[i].x, signaturePoints[i].y)
-                            }
-                            drawPath(
-                                path = path,
-                                color = Color.Black,
-                                style = Stroke(width = 4f, cap = StrokeCap.Round)
-                            )
-                        }
-                    }
-                    IconButton(
-                        onClick = { signaturePoints = emptyList() },
-                        modifier = Modifier.align(Alignment.TopEnd)
-                    ) {
-                        Icon(Icons.Default.Clear, contentDescription = "Clear Signature")
-                    }
-                }
-            }
+
 
             if (order?.isCOD == true) {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -306,9 +263,9 @@ fun ProofOfDeliveryScreen(
             Text("Customer Delivery PIN (OTP)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
             OutlinedTextField(
                 value = otpValue,
-                onValueChange = { if (it.length <= 6) otpValue = it },
+                onValueChange = { if (it.length <= 4) otpValue = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Enter 6-digit PIN") },
+                placeholder = { Text("Enter 4-digit PIN") },
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
                 ),
@@ -320,23 +277,17 @@ fun ProofOfDeliveryScreen(
 
             Button(
                 onClick = {
-                    if (otpValue.length < 6) {
-                        scope.launch { snackbarHostState.showSnackbar("Please enter valid 6-digit PIN") }
+                    if (otpValue.length < 4) {
+                        scope.launch { snackbarHostState.showSnackbar("Please enter valid 4-digit PIN") }
                         return@Button
                     }
                     scope.launch {
                         isUploading = true
-                        val signatureBitmap = if (signatureSize.width > 0 && signatureSize.height > 0) {
-                            createSignatureBitmap(signaturePoints, signatureSize.width, signatureSize.height)
-                        } else {
-                            createSignatureBitmap(signaturePoints, 400, 200)
-                        }
-                        
                         val deliveryResult = viewModel.completeDeliveryWithPOD(
                             orderId = orderId,
                             otp = otpValue,
                             photoBitmap = capturedPhoto,
-                            signatureBitmap = signatureBitmap,
+                            signatureBitmap = null,
                             collectedCash = collectedCash.toDoubleOrNull() ?: 0.0
                         )
                         isUploading = false
@@ -353,7 +304,7 @@ fun ProofOfDeliveryScreen(
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                enabled = !isUploading && capturedPhoto != null && signaturePoints.isNotEmpty() && otpValue.length == 4 && (order?.isCOD != true || collectedCash.isNotEmpty()),
+                enabled = !isUploading && capturedPhoto != null && otpValue.length == 4 && (order?.isCOD != true || collectedCash.isNotEmpty()),
                 shape = RoundedCornerShape(8.dp)
             ) {
                 if (isUploading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
@@ -369,22 +320,4 @@ private fun bitmapToByteArray(bitmap: Bitmap): ByteArray {
     return stream.toByteArray()
 }
 
-private fun createSignatureBitmap(points: List<Offset>, width: Int, height: Int): Bitmap? {
-    if (points.isEmpty()) return null
-    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-    val canvas = AndroidCanvas(bitmap)
-    val paint = Paint().apply {
-        color = android.graphics.Color.BLACK
-        strokeWidth = 4f
-        style = Paint.Style.STROKE
-        strokeJoin = Paint.Join.ROUND
-        strokeCap = Paint.Cap.ROUND
-    }
-    val path = AndroidPath()
-    path.moveTo(points[0].x, points[0].y)
-    for (i in 1 until points.size) {
-        path.lineTo(points[i].x, points[i].y)
-    }
-    canvas.drawPath(path, paint)
-    return bitmap
-}
+
