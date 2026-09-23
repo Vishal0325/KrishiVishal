@@ -70,8 +70,8 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Razorpay preload requires a thread with a Looper (Main thread)
-        lifecycleScope.launch(Dispatchers.Main.immediate) {
+        // Run Razorpay preload off the main thread to prevent UI freezing / ANR
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
                 Checkout.preload(applicationContext)
             } catch (e: Exception) {

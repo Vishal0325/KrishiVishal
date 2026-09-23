@@ -22,7 +22,7 @@ lifecycle = "2.8.7"
 navigation = "2.8.5"
 hilt = "2.52"
 hiltNavigationCompose = "1.2.0"
-room = "2.8.4"
+room = "2.6.1"
 retrofit = "2.11.0"
 okhttp = "4.12.0"
 firebaseBom = "33.1.2"
@@ -49,6 +49,7 @@ coroutinesTest = "1.7.3"
 turbine = "1.1.0"
 detekt = "1.23.7"
 kotlinSerialization = "2.0.21"
+zxing = "3.5.3"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -144,6 +145,7 @@ mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning"
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -148,7 +148,7 @@ class OrderRepository @Inject constructor(
                         }
                     }
 
-                    firestore.collection("orders").document(entity.id).update(updates).await()
+                    val payload = mapOf("orderId" to entity.id, "updates" to updates); val requestData = mapOf("action" to "SYNC_POD", "payload" to payload); functions.getHttpsCallable("riderMutations").call(requestData).await()
 
                     // Cleanup local disk cache and reset Room pending state
                     PodStorageHelper.deleteFileIfExists(entity.localPodPhotoPath)
@@ -182,7 +182,7 @@ class OrderRepository @Inject constructor(
                         }
                     }
 
-                    firestore.collection("orders").document(entity.id).update(updates).await()
+                    val payload = mapOf("orderId" to entity.id, "updates" to updates); val requestData = mapOf("action" to "SYNC_POD", "payload" to payload); functions.getHttpsCallable("riderMutations").call(requestData).await()
 
                     PodStorageHelper.deleteFileIfExists(entity.localFailurePhotoPath)
                     deliveryDao.clearFailureLocalPaths(entity.id)
@@ -335,12 +335,20 @@ class OrderRepository @Inject constructor(
         val doc = firestore.collection("orders").document(orderId).get().await()
         val order = doc.toObject(Order::class.java)?.let { it.copy(isCOD = it.isCOD || it.paymentMethod.equals("COD", ignoreCase = true), codAmount = if (it.codAmount > 0) it.codAmount else it.totalAmount) } ?: throw Exception("Order not found")
 
-        if (order.status != OrderStatus.PLACED.name && order.status != OrderStatus.CONFIRMED.name) throw Exception("Invalid status")
+        val validStatuses = listOf(
+            OrderStatus.PLACED.name, 
+            OrderStatus.CONFIRMED.name, 
+            "PACKED", 
+            "READY_FOR_PICKUP"
+        )
+        if (order.status !in validStatuses) throw Exception("Invalid status for assignment: ${order.status}")
         if (order.riderId.isNotEmpty() && order.riderId != riderId) throw Exception("Already assigned")
 
-        firestore.collection("orders").document(orderId).update(
-            mapOf("riderId" to riderId, "status" to OrderStatus.ASSIGNED.name)
-        ).await()
+        val data = hashMapOf(
+            "orderId" to orderId,
+            "targetStatus" to OrderStatus.ASSIGNED.name
+        )
+        functions.getHttpsCallable("updateOrderStatus").call(data).await()
 
         val updatedOrder = order.copy(riderId = riderId, status = OrderStatus.ASSIGNED.name)
         deliveryDao.insertOrder(updatedOrder.toEntity())
@@ -348,13 +356,15 @@ class OrderRepository @Inject constructor(
     }
 
     suspend fun rejectOrder(orderId: String, riderId: String, reason: String) {
-        val rejectionData = mapOf("riderId" to riderId, "reason" to reason, "timestamp" to System.currentTimeMillis())
-        firestore.runTransaction { transaction ->
-            val docRef = firestore.collection("orders").document(orderId)
-            transaction.update(docRef, "status", OrderStatus.CONFIRMED.name)
-            transaction.update(docRef, "riderId", "")
-            transaction.update(docRef, "rejectionHistory", FieldValue.arrayUnion(rejectionData))
-        }.await()
+        val payload = mapOf(
+            "orderId" to orderId,
+            "reason" to reason
+        )
+        val requestData = mapOf(
+            "action" to "REJECT_ORDER",
+            "payload" to payload
+        )
+        functions.getHttpsCallable("riderMutations").call(requestData).await()
         deliveryDao.deleteOrderById(orderId)
     }
 
@@ -458,7 +468,7 @@ class OrderRepository @Inject constructor(
                     }
                 }
 
-                firestore.collection("orders").document(orderId).update(updates).await()
+                val payload = mapOf("orderId" to orderId, "updates" to updates); val requestData = mapOf("action" to "SYNC_POD", "payload" to payload); functions.getHttpsCallable("riderMutations").call(requestData).await()
 
                 // Cleanup local disk cache and reset Room pending state
                 PodStorageHelper.deleteFileIfExists(localPhotoPath)
@@ -557,7 +567,7 @@ class OrderRepository @Inject constructor(
                             updates["podSignatureUrl"] = url
                         }
                     }
-                    firestore.collection("orders").document(orderId).update(updates).await()
+                    val payload = mapOf("orderId" to orderId, "updates" to updates); val requestData = mapOf("action" to "SYNC_POD", "payload" to payload); functions.getHttpsCallable("riderMutations").call(requestData).await()
 
                     // Cleanup local disk files
                     PodStorageHelper.deleteFileIfExists(localPhotoPath)

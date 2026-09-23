@@ -268,7 +268,8 @@ class OrderRepositoryImpl @Inject constructor(
         // Customer-facing order cancellations must use cancelOrder() which calls the Cloud Function.
         // Firestore security rules block non-admin direct writes to order status.
         Timber.w("updateOrderStatus() called directly — ensure this is admin-only context for orderId: $orderId")
-        firestore.collection("orders").document(orderId).update("status", status.name).await()
+        val data = hashMapOf("orderId" to orderId, "targetStatus" to status.name)
+        functions.getHttpsCallable("updateOrderStatus").call(data).await()
         
         val localOrder = orderDao.getOrderById(orderId)
         if (localOrder != null) {

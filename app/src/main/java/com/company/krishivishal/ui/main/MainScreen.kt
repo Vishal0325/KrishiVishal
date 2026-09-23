@@ -165,7 +165,7 @@ fun MainScreen(
                 com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
             }
             navController.navigate(Screen.Login.route) {
-                popUpTo(0) { inclusive = true }
+                popUpTo(navController.graph.startDestinationId) { inclusive = true }
             }
         } else if (currentUser != null && currentUser?.isAnonymous == false && currentRoute == Screen.Login.route) {
             navController.navigate(Screen.Home.route) {
@@ -344,7 +344,7 @@ fun MainScreen(
                 val bookingId = backStackEntry.arguments?.getString("bookingId") ?: ""
                 com.company.krishivishal.ui.services.BookingTrackingScreen(
                     bookingId = bookingId,
-                    onBack = { navController.navigate(Screen.Home.route) { popUpTo(0) } }
+                    onBack = { navController.navigate(Screen.Home.route) { popUpTo(navController.graph.startDestinationId) { inclusive = true } } }
                 )
             }
 
@@ -444,7 +444,7 @@ fun MainScreen(
                     onLoginRequired = {
                         com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
                         navController.navigate(Screen.Login.route) {
-                            popUpTo(0) { inclusive = true }
+                            popUpTo(navController.graph.startDestinationId) { inclusive = true }
                         }
                     }
                 )

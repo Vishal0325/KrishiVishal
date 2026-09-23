@@ -50,21 +50,37 @@ fun SubCategoryScreen(
 
         if (category.subCategories.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No sub-categories found for this category.")
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("No sub-categories found for this category.")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = { onSubCategoryClick(SubCategory(name = "null")) }) {
+                        Text("View All Products")
+                    }
+                }
             }
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                contentPadding = PaddingValues(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(category.subCategories) { subCategory ->
-                    SubCategoryItem(
-                        subCategory = subCategory,
-                        onClick = { onSubCategoryClick(subCategory) }
-                    )
+            Column(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
+                    TextButton(onClick = { onSubCategoryClick(SubCategory(name = "null")) }) {
+                        Text("View All Products", fontWeight = FontWeight.Bold)
+                    }
+                }
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(category.subCategories) { subCategory ->
+                        SubCategoryItem(
+                            subCategory = subCategory,
+                            onClick = { onSubCategoryClick(subCategory) }
+                        )
+                    }
                 }
             }
         }

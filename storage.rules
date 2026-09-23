@@ -11,12 +11,13 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    // Canonical administrative roles.
-    // Viewer is intentionally NOT included because Viewer is read-only.
+    function isNotAnonymous() {
+      return isAuthenticated() && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    // FIXED: Remove legacy token checks
     function isAdmin() {
-      return isAuthenticated() && (
-        request.auth.token.admin == true ||
-        request.auth.token.isAdmin == true ||
+      return isAuthenticated() && 
         request.auth.token.role in [
           "ADMIN",
           "SuperAdmin",
@@ -25,8 +26,11 @@ service firebase.storage {
           "WarehouseManager",
           "HRAdmin",
           "FinanceAdmin"
-        ]
-      );
+        ];
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && request.auth.token.role == "SuperAdmin";
     }
 
     function isRider() {
@@ -119,10 +123,10 @@ service firebase.storage {
     match /products/{allPaths=**} {
       allow read: if true;
 
-      allow create, update: if isAdmin() &&
+      allow create, update: if (isAdmin() || isSuperAdmin()) &&
         isValidImage();
 
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || isSuperAdmin();
     }
 
     // ============================================================
@@ -132,10 +136,10 @@ service firebase.storage {
     match /banners/{allPaths=**} {
       allow read: if true;
 
-      allow create, update: if isAdmin() &&
+      allow create, update: if (isAdmin() || isSuperAdmin()) &&
         isValidImage();
 
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || isSuperAdmin();
     }
 
     // ============================================================
@@ -145,10 +149,10 @@ service firebase.storage {
     match /brands/{allPaths=**} {
       allow read: if true;
 
-      allow create, update: if isAdmin() &&
+      allow create, update: if (isAdmin() || isSuperAdmin()) &&
         isValidImage();
 
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || isSuperAdmin();
     }
 
     // ============================================================
@@ -158,10 +162,10 @@ service firebase.storage {
     match /categories/{allPaths=**} {
       allow read: if true;
 
-      allow create, update: if isAdmin() &&
+      allow create, update: if (isAdmin() || isSuperAdmin()) &&
         isValidImage();
 
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || isSuperAdmin();
     }
 
     // ============================================================
@@ -171,16 +175,14 @@ service firebase.storage {
     match /subcategories/{allPaths=**} {
       allow read: if true;
 
-      allow create, update: if isAdmin() &&
+      allow create, update: if (isAdmin() || isSuperAdmin()) &&
         isValidImage();
 
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || isSuperAdmin();
     }
 
     // ============================================================
     // USER PROFILE FILES
-    // Structure:
-    // users/{userId}/{fileName}
     // ============================================================
 
     match /users/{userId}/{fileName} {
@@ -188,7 +190,7 @@ service firebase.storage {
       allow read: if isAuthenticated() &&
         (
           request.auth.uid == userId ||
-          isAdmin()
+          (isAdmin() || isSuperAdmin())
         );
 
       allow create, update: if isAuthenticated() &&
@@ -198,109 +200,95 @@ service firebase.storage {
       allow delete: if isAuthenticated() &&
         (
           request.auth.uid == userId ||
-          isAdmin()
+          (isAdmin() || isSuperAdmin())
         );
     }
 
     // ============================================================
     // KYC DOCUMENTS
-    // Structure:
-    // kyc/{userId}/{fileName}   (driving licence, RC, aadhaar, etc.)
     // ============================================================
 
     match /kyc/{userId}/{fileName} {
 
-      allow read: if isAdmin() ||
-        (isAuthenticated() && request.auth.uid == userId);
+      // FIXED: KYC read restricted to verified KYC only
+      allow read: if (isAdmin() || isSuperAdmin()) ||
+        (isAuthenticated() && request.auth.uid == userId &&
+         firestore.exists(/databases/(default)/documents/riders/$(userId)) &&
+         firestore.get(/databases/(default)/documents/riders/$(userId)).data.get('kycStatus', '') == 'VERIFIED');
 
-      // Rider can upload their own KYC documents (images or PDFs, max 15 MB)
       allow create, update: if isAuthenticated() &&
+        isNotAnonymous() &&
         request.auth.uid == userId &&
         isValidDocument();
 
-      // Only admin can delete KYC evidence
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || isSuperAdmin();
     }
 
     // ============================================================
     // PROOF OF DELIVERY
-    // Structure:
-    // pod/{orderId}/{fileName}
     // ============================================================
 
     match /pod/{orderId}/{fileName} {
 
-      allow read: if isAdmin() ||
+      allow read: if (isAdmin() || isSuperAdmin()) ||
         isOrderOwner(orderId) ||
         isAssignedRider(orderId);
 
-      // Assigned rider or admin can create.
-      // Existing evidence cannot be overwritten.
-      allow create: if (isAdmin() || isAssignedRider(orderId)) &&
+      allow create: if ((isAdmin() || isSuperAdmin()) || isAssignedRider(orderId)) &&
         isValidImage() &&
         resource == null;
 
-      // Rider cannot modify/delete evidence.
-      allow update, delete: if isAdmin();
+      allow update, delete: if isAdmin() || isSuperAdmin();
     }
 
     // ============================================================
     // LEGACY ORDER FILES
-    // Structure:
-    // orders/{orderId}/...
     // ============================================================
 
     match /orders/{orderId}/{allPaths=**} {
 
-      allow read: if isAdmin() ||
+      allow read: if (isAdmin() || isSuperAdmin()) ||
         isOrderOwner(orderId) ||
         isAssignedRider(orderId);
 
-      allow create: if isAdmin() ||
+      allow create: if (isAdmin() || isSuperAdmin()) ||
         (
           isAssignedRider(orderId) &&
           isValidImage()
         );
 
-      allow update, delete: if isAdmin();
+      allow update, delete: if isAdmin() || isSuperAdmin();
     }
 
     // ============================================================
     // RETURN QC PHOTOS
-    // Structure:
-    // returns/{returnId}/{fileName}
     // ============================================================
 
     match /returns/{returnId}/{fileName} {
 
-      allow read: if isAdmin() ||
+      allow read: if (isAdmin() || isSuperAdmin()) ||
         isReturnOwner(returnId) ||
         isReturnRider(returnId);
 
-      // Assigned rider or admin can create.
-      // Existing evidence cannot be overwritten.
-      allow create: if (isAdmin() || isReturnRider(returnId)) &&
+      allow create: if ((isAdmin() || isSuperAdmin()) || isReturnRider(returnId)) &&
         isValidImage() &&
         resource == null;
 
-      // Rider cannot modify/delete evidence.
-      allow update, delete: if isAdmin();
+      allow update, delete: if isAdmin() || isSuperAdmin();
     }
 
     // ============================================================
     // EXPENSE ATTACHMENTS
-    // Structure:
-    // expenses/{expenseId}/{fileName}
     // ============================================================
 
     match /expenses/{expenseId}/{fileName} {
 
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isSuperAdmin();
 
-      allow create: if isAdmin() &&
+      allow create: if (isAdmin() || isSuperAdmin()) &&
         isValidDocument();
 
-      allow update, delete: if isAdmin();
+      allow update, delete: if isAdmin() || isSuperAdmin();
     }
 
     // ============================================================

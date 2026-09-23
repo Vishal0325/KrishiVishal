@@ -4,12 +4,14 @@ import android.os.Parcelable
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.google.firebase.firestore.IgnoreExtraProperties
+import com.google.firebase.firestore.DocumentId
 import kotlinx.parcelize.Parcelize
 
 @IgnoreExtraProperties
 @Parcelize
 @Entity(tableName = "categories")
 data class Category(
+    @DocumentId
     @PrimaryKey val id: String = "",
     val name: String = "",
     val imageUrl: String = "",

@@ -12,6 +12,7 @@ for (const envVar of REQUIRED_ENV_VARS) {
 }
 
 const orders = require('./orders/orderFlow');
+const riderMutations = require('./orders/riderMutations');
 const deliverySlots = require('./orders/deliverySlots');
 const orderTriggers = require('./orders/orderTriggers');
 const razorpay = require('./finance/razorpay');
@@ -37,6 +38,7 @@ exports.cancelOrder = orders.cancelOrder;
 exports.updateOrderStatus = orders.updateOrderStatus;
 exports.generateSignedQRPayload = orders.generateSignedQRPayload;
 exports.verifyScannedQR = orders.verifyScannedQR;
+exports.riderMutations = riderMutations.riderMutations;
 exports.onOrderStatusUpdate = orderTriggers.onOrderStatusUpdate;
 exports.onReturnRequestCreated = orderTriggers.onReturnRequestCreated;
 exports.onOrderDeliveryUpdate = orderTriggers.onOrderDeliveryUpdate;

@@ -9,6 +9,7 @@ import com.company.krishivishal.domain.usecase.auth.GetCurrentUserUseCase
 import com.company.krishivishal.domain.usecase.order.CancelOrderUseCase
 import com.company.krishivishal.domain.usecase.order.GetOrdersUseCase
 import com.company.krishivishal.data.repository.ReturnRepository
+import com.company.krishivishal.data.repository.OrderRepository
 import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.analytics.AnalyticsTracker
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -24,6 +25,7 @@ class OrderViewModel @Inject constructor(
     private val cancelOrderUseCase: CancelOrderUseCase,
     private val getCurrentUserUseCase: GetCurrentUserUseCase,
     private val returnRepository: ReturnRepository,
+    private val orderRepository: OrderRepository,
     private val analyticsTracker: AnalyticsTracker,
     private val firestore: com.google.firebase.firestore.FirebaseFirestore
 ) : ViewModel() {
@@ -160,8 +162,11 @@ class OrderViewModel @Inject constructor(
     fun updateOrderStatus(orderId: String, status: String) {
         viewModelScope.launch {
             val orderStatus = OrderStatus.fromString(status)
-            firestore.collection("orders").document(orderId).update("status", orderStatus.name)
-            loadOrders()
+            orderRepository.updateOrderStatus(orderId, orderStatus).collectLatest { resource ->
+                if (resource is Resource.Success<*>) {
+                    loadOrders()
+                }
+            }
         }
     }
 
