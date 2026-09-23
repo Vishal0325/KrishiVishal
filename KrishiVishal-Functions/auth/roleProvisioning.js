@@ -12,7 +12,7 @@ const REGION = 'asia-south1';
  * Sets custom claim role='Rider' (or 'Serviceman'/'Partner' per whitelist).
  * Merges with existing custom claims.
  */
-exports.claimRiderRole = onCall({ region: REGION }, async (request) => {
+exports.claimRiderRole = onCall({ region: REGION, invoker: 'public' }, async (request) => {
     const context = { auth: request.auth };
     if (!context.auth) {
         throw new HttpsError('unauthenticated', 'User must be authenticated.');

@@ -614,7 +614,7 @@ exports.requestReturn = onCall({ region: REGION }, async (request) => {
 /**
  * C1: Hardened verifyDeliveryOTP with rate limiting, expiry, timing safety, and transactional protection.
  */
-exports.verifyDeliveryOTP = onCall({ region: REGION }, async (request) => {
+exports.verifyDeliveryOTP = onCall({ region: REGION, invoker: 'public' }, async (request) => {
     const data = request.data || {};
     const context = { auth: request.auth };
 
