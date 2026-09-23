@@ -91,7 +91,7 @@ class DashboardViewModel @Inject constructor(
     val codCashInHand: StateFlow<Double> = orders.map { res ->
         if (res is Resource.Success) {
             res.data?.filter { it.isCOD && it.status == OrderStatus.DELIVERED.name && !it.isCashDeposited }
-                ?.sumOf { it.codAmount } ?: 0.0
+                ?.sumOf { it.collectedCash } ?: 0.0
         } else 0.0
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
@@ -404,9 +404,10 @@ class DashboardViewModel @Inject constructor(
         orderId: String,
         otp: String,
         photoBitmap: Bitmap?,
-        signatureBitmap: Bitmap?
+        signatureBitmap: Bitmap?,
+        collectedCash: Double
     ): Resource<String> {
-        val result = orderRepository.completeDeliveryWithPOD(orderId, otp, photoBitmap, signatureBitmap)
+        val result = orderRepository.completeDeliveryWithPOD(orderId, otp, photoBitmap, signatureBitmap, collectedCash)
         if (result is Resource.Success) {
             loadOrders(currentRiderId)
         }
@@ -424,7 +425,7 @@ class DashboardViewModel @Inject constructor(
     suspend fun completeServiceBooking(bookingId: String, actualArea: Double, otp: String): Boolean {
         val areaUpdated = serviceBookingRepository.updateActualArea(bookingId, actualArea)
         if (areaUpdated) {
-            return serviceBookingRepository.verifyEndOtp(bookingId, otp)
+            return serviceBookingRepository.verifyEndOtp(bookingId, otp, actualArea)
         }
         return false
     }

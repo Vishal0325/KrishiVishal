@@ -111,7 +111,10 @@ fun QRScannerScreen(
                                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                 .build()
 
-                            val scanner = BarcodeScanning.getClient()
+                            val options = com.google.mlkit.vision.barcode.BarcodeScannerOptions.Builder()
+                                .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE)
+                                .build()
+                            val scanner = BarcodeScanning.getClient(options)
 
                             imageAnalysis.setAnalyzer(Executors.newSingleThreadExecutor(), object : ImageAnalysis.Analyzer {
                                 @ExperimentalGetImage

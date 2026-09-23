@@ -45,6 +45,23 @@ fun UploadKycDialog(
         if (bitmap != null) capturedBitmap = bitmap
     }
 
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            try {
+                val bitmap = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    val source = android.graphics.ImageDecoder.createSource(context.contentResolver, uri)
+                    android.graphics.ImageDecoder.decodeBitmap(source)
+                } else {
+                    @Suppress("DEPRECATION")
+                    android.provider.MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+                }
+                capturedBitmap = bitmap.copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+            } catch (e: Exception) {
+                Toast.makeText(context, "Error loading image", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     val docLabels = listOf(
         "dl" to "Driving License (ड्राइविंग लाइसेंस)",
         "aadhaar" to "Aadhaar Card (आधार कार्ड)",
@@ -181,25 +198,49 @@ fun UploadKycDialog(
                         )
                     }
                     Spacer(modifier = Modifier.height(6.dp))
-                    OutlinedButton(
-                        onClick = { cameraLauncher.launch() },
-                        modifier = Modifier.fillMaxWidth().height(40.dp),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("नया फोटो खींचें (Re-upload)", fontSize = 12.sp)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { cameraLauncher.launch() },
+                            modifier = Modifier.weight(1f).height(40.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("कैमरा", fontSize = 12.sp)
+                        }
+                        OutlinedButton(
+                            onClick = { galleryLauncher.launch("image/*") },
+                            modifier = Modifier.weight(1f).height(40.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("गैलरी", fontSize = 12.sp)
+                        }
                     }
                 } else {
-                    OutlinedButton(
-                        onClick = { cameraLauncher.launch() },
-                        modifier = Modifier.fillMaxWidth().height(120.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(32.dp), tint = Color(0xFF2E7D32))
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text("दस्तावेज का फोटो खींचें (Take Photo)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { cameraLauncher.launch() },
+                            modifier = Modifier.weight(1f).height(120.dp),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(32.dp), tint = Color(0xFF2E7D32))
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text("फोटो खींचें", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = { galleryLauncher.launch("image/*") },
+                            modifier = Modifier.weight(1f).height(120.dp),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(32.dp), tint = Color(0xFF2E7D32))
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text("गैलरी से चुनें", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }

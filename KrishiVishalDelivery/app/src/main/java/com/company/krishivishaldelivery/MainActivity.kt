@@ -20,6 +20,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.*
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.company.krishivishaldelivery.service.RiderLocationService
 import com.company.krishivishaldelivery.ui.dashboard.DashboardViewModel
 import com.company.krishivishaldelivery.ui.dashboard.LocationAction
@@ -129,7 +131,7 @@ class MainActivity : ComponentActivity() {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentDestination = navBackStackEntry?.destination
                 val partnerRole by dashboardViewModel.partnerRole.collectAsState()
-                val showBottomBar = currentDestination?.route in listOf("dashboard", "earnings", "profile", "partner_wallet")
+                val showBottomBar = currentDestination?.route in listOf("dashboard", "earnings", "profile", "partner_wallet", "scanner")
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
@@ -157,7 +159,7 @@ class MainActivity : ComponentActivity() {
         currentDestination: androidx.navigation.NavDestination?,
         partnerRole: String
     ) {
-        NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+        NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 8.dp) {
             val items = if (partnerRole == "service_man") {
                 listOf(
                     BottomNavItem("dashboard", "Home", Icons.Default.Home),
@@ -167,6 +169,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 listOf(
                     BottomNavItem("dashboard", "Home", Icons.Default.Home),
+                    BottomNavItem("scanner", "Scan", androidx.compose.material.icons.Icons.Default.QrCodeScanner),
                     BottomNavItem("earnings", "Earnings", Icons.Default.Payments),
                     BottomNavItem("profile", "Profile", Icons.Default.Person)
                 )
@@ -174,8 +177,15 @@ class MainActivity : ComponentActivity() {
             items.forEach { item ->
                 NavigationBarItem(
                     icon = { Icon(item.icon, contentDescription = item.label) },
-                    label = { Text(item.label) },
+                    label = { androidx.compose.material3.Text(item.label, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, fontSize = 11.sp) },
                     selected = currentDestination?.hierarchy?.any { it.route == item.route } == true,
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        unselectedIconColor = androidx.compose.ui.graphics.Color.Gray,
+                        unselectedTextColor = androidx.compose.ui.graphics.Color.Gray
+                    ),
                     onClick = {
                         navController.navigate(item.route) {
                             popUpTo(navController.graph.findStartDestination().id) {

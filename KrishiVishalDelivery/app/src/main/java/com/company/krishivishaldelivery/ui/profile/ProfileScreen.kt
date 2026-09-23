@@ -71,23 +71,38 @@ fun ProfileScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("My Profile", fontWeight = FontWeight.Bold) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF2E7D32), titleContentColor = Color.White)
+                title = { 
+                    Column {
+                        Text("प्रोफ़ाइल", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("My Profile", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
             )
         }
     ) { padding ->
         val rider = (riderResource as? Resource.Success)?.data
 
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background)
+        ) {
             item {
-                Column(modifier = Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(modifier = Modifier.size(100.dp).clip(CircleShape).background(Color.LightGray), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(60.dp), tint = Color.Gray)
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(rider?.name ?: "New Rider", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                    Text("ID: ${rider?.riderIdDisplay ?: "KV-PENDING"}", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text(rider?.phone ?: "No Phone", color = Color.Gray, fontSize = 12.sp)
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(2.dp)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(modifier = Modifier.size(100.dp).clip(CircleShape).background(Color(0xFFE5E7EB)), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(60.dp), tint = Color(0xFF9CA3AF))
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(rider?.name ?: "New Rider", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+                        Text("ID: ${rider?.riderIdDisplay ?: "KV-PENDING"}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(rider?.phone ?: "No Phone", color = Color.Gray, fontSize = 12.sp)
                     
                     // KYC Verification Status Tag
                     val kycLabel = when (rider?.kycStatus) {
@@ -117,14 +132,13 @@ fun ProfileScreen(
                             text = kycLabel,
                             color = kycColor,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                         )
                     }
                 }
             }
-
-            item {
+        }
+        item {
                 val currentRole = when {
                     rider?.partnerRole?.isNotBlank() == true -> rider.partnerRole.lowercase().trim()
                     rider?.role?.isNotBlank() == true -> rider.role.lowercase().trim()
@@ -134,17 +148,17 @@ fun ProfileScreen(
                 val isBoth = currentRole == "both"
 
                 if (isServiceMan || isBoth) {
-                    ProfileOption(Icons.Default.AccountBalanceWallet, "Partner Commission Wallet", "View balance & recharge") { onPartnerWalletClick() }
-                    ProfileOption(Icons.Default.Agriculture, "My Skills & Equipment", "${rider?.serviceSkills?.size ?: 0} skills selected • Tap to update") { onPartnerSkillsClick() }
+                    ProfileOption(Icons.Default.AccountBalanceWallet, "Partner Commission Wallet", "View balance & recharge", iconBgColor = Color(0xFFE0F2FE), iconColor = Color(0xFF0284C7)) { onPartnerWalletClick() }
+                    ProfileOption(Icons.Default.Agriculture, "My Skills & Equipment", "${rider?.serviceSkills?.size ?: 0} skills selected • Tap to update", iconBgColor = Color(0xFFFEF3C7), iconColor = Color(0xFFD97706)) { onPartnerSkillsClick() }
                 }
-                ProfileOption(Icons.Default.VerifiedUser, "KYC & Verification Docs", "${rider?.documents?.size ?: 0} Uploaded • Tap to update") { showKycDialog = true }
-                ProfileOption(Icons.Default.AccountBalance, "Bank Details", rider?.bankAccount?.ifBlank { "Add Account" } ?: "Add Account") { showEditDialog = true }
+                ProfileOption(Icons.Default.VerifiedUser, "KYC & Verification Docs", "${rider?.documents?.size ?: 0} Uploaded • Tap to update", iconBgColor = Color(0xFFDBEAFE), iconColor = Color(0xFF2563EB)) { showKycDialog = true }
+                ProfileOption(Icons.Default.AccountBalance, "Bank Details", rider?.bankAccount?.ifBlank { "Add Account" } ?: "Add Account", iconBgColor = Color(0xFFF3E8FF), iconColor = Color(0xFF9333EA)) { showEditDialog = true }
                 if (!isServiceMan) {
-                    ProfileOption(Icons.AutoMirrored.Filled.DirectionsBike, "Vehicle Details", "${rider?.vehicleType ?: "BIKE"}: ${rider?.vehicleNumber?.ifBlank { "Add Number" } ?: "Add Number"}") { showEditDialog = true }
+                    ProfileOption(Icons.AutoMirrored.Filled.DirectionsBike, "Vehicle Details", "${rider?.vehicleType ?: "BIKE"}: ${rider?.vehicleNumber?.ifBlank { "Add Number" } ?: "Add Number"}", iconBgColor = Color(0xFFFFEDD5), iconColor = Color(0xFFEA580C)) { showEditDialog = true }
                 }
-                ProfileOption(Icons.Default.Settings, "App Settings", "Theme, Notifications") { onSettingsClick() }
-                ProfileOption(Icons.Default.SupportAgent, "Contact Support", "24/7 help available") { onSupportClick() }
-                ProfileOption(Icons.Default.DeleteForever, stringResource(R.string.delete_account_data), "Permanent removal") { showDeleteConfirm = true }
+                ProfileOption(Icons.Default.Settings, "App Settings", "Theme, Notifications", iconBgColor = Color(0xFFE0F2FE), iconColor = Color(0xFF0284C7)) { onSettingsClick() }
+                ProfileOption(Icons.Default.SupportAgent, "Contact Support", "24/7 help available", iconBgColor = Color(0xFFDCFCE7), iconColor = Color(0xFF16A34A)) { onSupportClick() }
+                ProfileOption(Icons.Default.DeleteForever, stringResource(R.string.delete_account_data), "Permanent removal", iconBgColor = Color(0xFFFEE2E2), iconColor = Color(0xFFDC2626), titleColor = Color(0xFFDC2626)) { showDeleteConfirm = true }
 
                 
                 Spacer(modifier = Modifier.height(32.dp))
@@ -274,12 +288,42 @@ fun EditProfileDialog(
 }
 
 @Composable
-fun ProfileOption(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
-    ListItem(
-        headlineContent = { Text(title, fontWeight = FontWeight.Medium) },
-        supportingContent = { Text(subtitle, color = Color.Gray) },
-        leadingContent = { Icon(icon, contentDescription = null, tint = Color(0xFF2E7D32)) },
-        trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.LightGray) },
-        modifier = Modifier.clickable { onClick() }
-    )
+fun ProfileOption(
+    icon: ImageVector, 
+    title: String, 
+    subtitle: String, 
+    iconBgColor: Color = Color(0xFFF3F4F6),
+    iconColor: Color = Color(0xFF4B5563),
+    titleColor: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(0.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = iconBgColor,
+                modifier = Modifier.size(48.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(24.dp))
+                }
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = titleColor)
+                Text(subtitle, color = Color.Gray, fontSize = 13.sp)
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.LightGray)
+        }
+    }
 }

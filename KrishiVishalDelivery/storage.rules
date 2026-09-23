@@ -1,0 +1,101 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isNotAnonymous() {
+      return request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    function isRider() {
+      return isAuthenticated() &&  (
+        request.auth.token.role == "Rider" ||
+        request.auth.token.role == "SERVICE_MAN" ||
+        request.auth.token.role == "SERVICE_PARTNER" ||
+        request.auth.token.role == "BOTH"
+      );
+    }
+
+    function isValidImage() {
+      return request.resource.contentType.matches('image/.*') &&
+        request.resource.size < 10 * 1024 * 1024;
+    }
+
+    // ============================================================
+    // PUBLIC PRODUCT IMAGES
+    // ============================================================
+
+    match /products/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /banners/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /brands/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /categories/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ============================================================
+    // POD - PROOF OF DELIVERY
+    // ============================================================
+
+    match /pod/{orderId}/{fileName} {
+      allow read: if isRider();
+      allow create: if isRider() && isValidImage() && resource == null;
+      allow update, delete: if false;
+    }
+
+    // ============================================================
+    // ORDER FILES
+    // ============================================================
+
+    match /orders/{orderId}/{allPaths=**} {
+      allow read: if isRider();
+      allow create: if isRider() && isValidImage();
+      allow update, delete: if false;
+    }
+
+    // ============================================================
+    // RETURN QC PHOTOS
+    // ============================================================
+
+    match /returns/{returnId}/{fileName} {
+      allow read: if isRider();
+      allow create: if isRider() && isValidImage() && resource == null;
+      allow update, delete: if false;
+    }
+
+    // ============================================================
+    // RIDER PROFILE IMAGES
+    // ============================================================
+
+    match /riders/{riderId}/{fileName} {
+      allow read: if isRider();
+      allow create: if isRider() && request.auth.uid == riderId && isValidImage();
+      allow update: if isRider() && request.auth.uid == riderId && isValidImage();
+      allow delete: if isRider() && request.auth.uid == riderId;
+    }
+
+    // ============================================================
+    // DEFAULT DENY
+    // ============================================================
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

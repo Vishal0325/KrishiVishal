@@ -4,5 +4,11 @@
     "location": "asia-south1",
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
-  }
+  },
+  "storage": [
+    {
+      "bucket": "krishivishal-a9ed7.appspot.com",
+      "rules": "storage.rules"
+    }
+  ]
 }

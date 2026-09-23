@@ -156,12 +156,14 @@ dependencies {
     // Maps (New for Delivery App)
     implementation("com.google.android.gms:play-services-maps:19.0.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("com.google.maps.android:maps-compose:4.4.1")
 
     // Camera & QR Scanning
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.mlkit.barcode.scanning)
+    implementation(libs.zxing.core)
 
     // Testing
     testImplementation(libs.junit)

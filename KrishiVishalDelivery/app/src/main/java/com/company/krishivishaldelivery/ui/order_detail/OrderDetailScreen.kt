@@ -218,18 +218,35 @@ fun OrderDetailScreen(
                                     Text(order.userName, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
                                     Text("फोन: ${order.userPhone}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
                                     Spacer(modifier = Modifier.height(10.dp))
-                                    Button(
-                                        onClick = {
-                                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${order.userPhone}"))
-                                            context.startActivity(intent)
-                                        },
-                                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                                        shape = RoundedCornerShape(10.dp)
-                                    ) {
-                                        Icon(Icons.Default.Phone, contentDescription = null)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("किसान को कॉल करें (1-Tap Call)", fontWeight = FontWeight.Bold)
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Button(
+                                            onClick = {
+                                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${order.userPhone}"))
+                                                context.startActivity(intent)
+                                            },
+                                            modifier = Modifier.weight(1f).height(48.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("कॉल करें", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                val cleanPhone = order.userPhone.replace("+91", "").replace(" ", "").trim()
+                                                val waUri = Uri.parse("https://api.whatsapp.com/send?phone=91$cleanPhone&text=" + Uri.encode("नमस्ते ${order.userName} जी, मैं कृषि विशाल से आपका डिलीवरी पार्टनर हूँ।"))
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, waUri))
+                                            },
+                                            modifier = Modifier.weight(1f).height(48.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("WhatsApp", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        }
                                     }
                                 }
                             }
@@ -309,8 +326,8 @@ fun OrderDetailScreen(
                                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                                     SummaryRow("Total", "₹${order.totalAmount}", isBold = true)
                                     Text(
-                                        text = "Payment: ${if (order.paymentMethod.equals("COD", ignoreCase = true)) "Cash on Delivery" else "Online (Prepaid)"}",
-                                        color = if (order.paymentMethod.equals("COD", ignoreCase = true)) Color(0xFFE65100) else Color(0xFF2E7D32),
+                                        text = "Payment: ${if (order.isCOD) "Cash on Delivery" else "Online (Prepaid)"}",
+                                        color = if (order.isCOD) Color(0xFFE65100) else Color(0xFF2E7D32),
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(top = 8.dp)
                                     )
@@ -415,8 +432,8 @@ fun ActionBottomBar(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             val (buttonText, nextStatus) = when (order.status) {
-                OrderStatus.ASSIGNED.name -> "START PICKUP" to OrderStatus.PICKED_UP.name
-                OrderStatus.PICKED_UP.name -> "OUT FOR DELIVERY" to OrderStatus.OUT_FOR_DELIVERY.name
+                OrderStatus.ASSIGNED.name, "RIDER_ASSIGNED", "RIDER_ACCEPTED", "READY_FOR_PICKUP" -> "START PICKUP" to OrderStatus.PICKED_UP.name
+                OrderStatus.PICKED_UP.name, "IN_TRANSIT" -> "OUT FOR DELIVERY" to OrderStatus.OUT_FOR_DELIVERY.name
                 OrderStatus.OUT_FOR_DELIVERY.name -> "MARK DELIVERED" to OrderStatus.DELIVERED.name
                 else -> "COMPLETED" to ""
             }

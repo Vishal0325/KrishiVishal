@@ -10,12 +10,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,6 +26,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -54,6 +58,8 @@ fun DashboardScreen(
     onServiceJobClick: (String, String) -> Unit,
     onWalletClick: () -> Unit = {},
     onSkillsClick: () -> Unit = {},
+    onViewRouteClick: () -> Unit = {},
+    onMorningBatchClick: () -> Unit = {},
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val ordersResource by viewModel.orders.collectAsState()
@@ -66,6 +72,7 @@ fun DashboardScreen(
     val incentiveProgress by viewModel.incentiveProgress.collectAsState()
     val codCashInHand by viewModel.codCashInHand.collectAsState()
     val isCodVaultLimitExceeded by viewModel.isCodVaultLimitExceeded.collectAsState()
+    val appConfigResource by viewModel.appConfig.collectAsState()
     
     val partnerRole by viewModel.partnerRole.collectAsState()
     val partnerWallet by viewModel.partnerWallet.collectAsState()
@@ -88,6 +95,12 @@ fun DashboardScreen(
     var showSOSDialog by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
 
+    LaunchedEffect(rider) {
+        if (rider != null) {
+            isOnline = rider.isOnline
+        }
+    }
+
     LaunchedEffect(tabs) {
         if (selectedTab >= tabs.size) {
             selectedTab = 0
@@ -109,18 +122,31 @@ fun DashboardScreen(
             Column {
                 TopAppBar(
                     title = {
-                        Text(
-                            when {
-                                isServiceMan -> "Service Partner Dashboard"
-                                isBoth -> "Partner & Delivery Dashboard"
-                                else -> "Assigned Orders"
-                            },
-                            fontWeight = FontWeight.Bold
-                        )
+                        Column {
+                            Text(
+                                when {
+                                    isServiceMan -> "सेवाएँ"
+                                    isBoth -> "ऑर्डर और सेवाएँ"
+                                    else -> "ऑर्डर"
+                                },
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                when {
+                                    isServiceMan -> "Assigned Services"
+                                    isBoth -> "Assigned Orders & Services"
+                                    else -> "Assigned Orders"
+                                },
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     },
                     actions = {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 8.dp)) {
-                            Text(if (isOnline) "Online" else "Offline", color = Color.White, fontSize = 14.sp)
+                            Text(if (isOnline) "Online" else "Offline", color = MaterialTheme.colorScheme.primary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Spacer(modifier = Modifier.width(8.dp))
                             Switch(
                                 checked = isOnline,
                                 onCheckedChange = { checked ->
@@ -134,29 +160,43 @@ fun DashboardScreen(
                                     }
                                 },
                                 colors = SwitchDefaults.colors(
-                                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                    uncheckedThumbColor = Color.White,
+                                    uncheckedTrackColor = Color.LightGray,
+                                    uncheckedBorderColor = Color.Transparent
                                 )
                             )
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primary, 
-                        titleContentColor = MaterialTheme.colorScheme.onPrimary
+                        containerColor = MaterialTheme.colorScheme.surface, 
+                        titleContentColor = MaterialTheme.colorScheme.onSurface
                     )
                 )
                 
                 if (tabs.size > 1) {
                     TabRow(
                         selectedTabIndex = selectedTab, 
-                        containerColor = MaterialTheme.colorScheme.primary, 
-                        contentColor = MaterialTheme.colorScheme.onPrimary
+                        containerColor = MaterialTheme.colorScheme.surface, 
+                        contentColor = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(8.dp)),
+                        indicator = { } // Remove default indicator
                     ) {
                         tabs.forEachIndexed { index, title ->
+                            val isSelected = selectedTab == index
                             Tab(
-                                selected = selectedTab == index,
+                                selected = isSelected,
                                 onClick = { selectedTab = index },
-                                text = { Text(title, fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal) }
+                                modifier = Modifier.background(if (isSelected) MaterialTheme.colorScheme.surface else Color(0xFFF3F4F6)),
+                                text = { 
+                                    Text(
+                                        title, 
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Gray,
+                                        fontSize = 13.sp
+                                    ) 
+                                }
                             )
                         }
                     }
@@ -171,32 +211,14 @@ fun DashboardScreen(
             }
         },
         floatingActionButton = {
-            Column(horizontalAlignment = Alignment.End) {
-                FloatingActionButton(
-                    onClick = { showSOSDialog = true },
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError,
-                    shape = CircleShape,
-                    modifier = Modifier.size(64.dp)
-                ) {
-                    Text("SOS", fontWeight = FontWeight.Bold)
-                }
-                val showScanFab = !isServiceMan && (selectedTab == 0 || (isBoth && selectedTab != 2))
-                if (showScanFab) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    FloatingActionButton(
-                        onClick = onScanClick,
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.height(64.dp).widthIn(min = 160.dp)
-                    ) {
-                        Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.QrCodeScanner, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Scan to Pick", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
+            if (tabs.getOrNull(selectedTab) == "Deliveries") {
+                ExtendedFloatingActionButton(
+                    onClick = onViewRouteClick,
+                    icon = { Icon(Icons.Default.Map, contentDescription = "View Route") },
+                    text = { Text("View Route") },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = Color.White
+                )
             }
         }
     ) { padding ->
@@ -227,8 +249,78 @@ fun DashboardScreen(
                     is Resource.Success<List<Order>> -> {
                         val orders = res.data ?: emptyList()
                         val trip = optimizedTrip
-                        
+                        val commissionPerOrder = (appConfigResource as? Resource.Success)?.data?.commissionPerOrder ?: 20.0
+
+                        var searchQuery by remember { mutableStateOf("") }
+                        var selectedFilter by remember { mutableStateOf("ALL") }
+
+                        val pendingStatuses = remember { listOf(OrderStatus.PLACED.name, OrderStatus.CONFIRMED.name, OrderStatus.ASSIGNED.name, "RIDER_ASSIGNED", "RIDER_ACCEPTED", "PACKED", "READY_FOR_PICKUP") }
+                        val pickedStatuses = remember { listOf(OrderStatus.PICKED_UP.name, OrderStatus.OUT_FOR_DELIVERY.name, "IN_TRANSIT") }
+                        val deliveredStatuses = remember { listOf(OrderStatus.DELIVERED.name) }
+
+                        val totalCount = orders.size
+                        val pendingCount = orders.count { it.status in pendingStatuses }
+                        val pickedCount = orders.count { it.status in pickedStatuses }
+                        val deliveredCount = orders.count { it.status in deliveredStatuses }
+
+                        val deliveredOrders = remember(orders) { orders.filter { it.status == OrderStatus.DELIVERED.name } }
+
+                        val filteredOrders = remember(orders, selectedFilter, searchQuery) {
+                            orders.filter { order ->
+                                val matchesFilter = when (selectedFilter) {
+                                    "PENDING" -> order.status in pendingStatuses
+                                    "PICKED" -> order.status in pickedStatuses
+                                    "DELIVERED" -> order.status in deliveredStatuses
+                                    else -> true
+                                }
+                                val query = searchQuery.trim()
+                                val matchesSearch = if (query.isBlank()) true else {
+                                    order.id.contains(query, ignoreCase = true) ||
+                                    order.userName.contains(query, ignoreCase = true) ||
+                                    order.userPhone.contains(query, ignoreCase = true) ||
+                                    order.address.contains(query, ignoreCase = true) ||
+                                    order.getEffectiveLandmark().contains(query, ignoreCase = true)
+                                }
+                                matchesFilter && matchesSearch
+                            }
+                        }
+
                         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            item {
+                                Card(
+                                    onClick = onMorningBatchClick,
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFBEB)),
+                                    elevation = CardDefaults.cardElevation(2.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                "Morning Order Pack (9:00 AM)",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 16.sp,
+                                                color = Color(0xFFB45309)
+                                            )
+                                            Text(
+                                                "90 Orders • 120 kg • ₹1,800 Est.",
+                                                color = Color(0xFFB45309).copy(alpha = 0.8f),
+                                                fontSize = 14.sp
+                                            )
+                                        }
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.ArrowForward,
+                                            contentDescription = "View Batch",
+                                            tint = Color(0xFFB45309)
+                                        )
+                                    }
+                                }
+                            }
+
                             // 0. Active Service Booking Card (Only shown if partner has delivery + service role)
                             if (isBoth && activeServiceBooking != null) {
                                 item {
@@ -258,7 +350,7 @@ fun DashboardScreen(
                                                 )
                                             }
                                             Icon(
-                                                Icons.Default.ArrowForward,
+                                                Icons.AutoMirrored.Filled.ArrowForward,
                                                 contentDescription = "Execute",
                                                 tint = MaterialTheme.colorScheme.onTertiaryContainer
                                             )
@@ -283,7 +375,114 @@ fun DashboardScreen(
                                 IncentiveProgressCard(incentiveProgress)
                             }
 
-                            
+                            // 3. Search Bar
+                            item {
+                                OutlinedTextField(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it },
+                                    placeholder = { Text("Search by Order #, Farmer name, phone...", fontSize = 13.sp, color = Color.Gray) },
+                                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.Gray, modifier = Modifier.size(20.dp)) },
+                                    trailingIcon = {
+                                        if (searchQuery.isNotEmpty()) {
+                                            IconButton(onClick = { searchQuery = "" }) {
+                                                Icon(Icons.Default.Clear, contentDescription = "Clear", tint = Color.Gray, modifier = Modifier.size(18.dp))
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(54.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedContainerColor = Color.White,
+                                        unfocusedContainerColor = Color.White,
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = Color(0xFFE5E7EB)
+                                    ),
+                                    singleLine = true
+                                )
+                            }
+
+                            // 4. Quick Status Filter Chips
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = selectedFilter == "ALL",
+                                        onClick = { selectedFilter = "ALL" },
+                                        label = { Text("All ($totalCount)", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                            selectedLabelColor = Color.White,
+                                            containerColor = Color.White,
+                                            labelColor = Color.DarkGray
+                                        ),
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            borderColor = if (selectedFilter == "ALL") MaterialTheme.colorScheme.primary else Color(0xFFE5E7EB),
+                                            selectedBorderColor = MaterialTheme.colorScheme.primary,
+                                            enabled = true,
+                                            selected = selectedFilter == "ALL"
+                                        )
+                                    )
+                                    FilterChip(
+                                        selected = selectedFilter == "PENDING",
+                                        onClick = { selectedFilter = "PENDING" },
+                                        label = { Text("Pending ($pendingCount)", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFFF59E0B),
+                                            selectedLabelColor = Color.White,
+                                            containerColor = Color.White,
+                                            labelColor = Color(0xFFB45309)
+                                        ),
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            borderColor = if (selectedFilter == "PENDING") Color(0xFFF59E0B) else Color(0xFFE5E7EB),
+                                            selectedBorderColor = Color(0xFFF59E0B),
+                                            enabled = true,
+                                            selected = selectedFilter == "PENDING"
+                                        )
+                                    )
+                                    FilterChip(
+                                        selected = selectedFilter == "PICKED",
+                                        onClick = { selectedFilter = "PICKED" },
+                                        label = { Text("Picked ($pickedCount)", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFF2563EB),
+                                            selectedLabelColor = Color.White,
+                                            containerColor = Color.White,
+                                            labelColor = Color(0xFF1D4ED8)
+                                        ),
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            borderColor = if (selectedFilter == "PICKED") Color(0xFF2563EB) else Color(0xFFE5E7EB),
+                                            selectedBorderColor = Color(0xFF2563EB),
+                                            enabled = true,
+                                            selected = selectedFilter == "PICKED"
+                                        )
+                                    )
+                                    FilterChip(
+                                        selected = selectedFilter == "DELIVERED",
+                                        onClick = { selectedFilter = "DELIVERED" },
+                                        label = { Text("Delivered ($deliveredCount)", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFF16A34A),
+                                            selectedLabelColor = Color.White,
+                                            containerColor = Color.White,
+                                            labelColor = Color(0xFF15803D)
+                                        ),
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            borderColor = if (selectedFilter == "DELIVERED") Color(0xFF16A34A) else Color(0xFFE5E7EB),
+                                            selectedBorderColor = Color(0xFF16A34A),
+                                            enabled = true,
+                                            selected = selectedFilter == "DELIVERED"
+                                        )
+                                    )
+                                }
+                            }
+
+                            // 5. Cloud Sync Button
                             item {
                                 OutlinedButton(
                                     onClick = { 
@@ -291,11 +490,11 @@ fun DashboardScreen(
                                             viewModel.syncData(it)
                                         } 
                                     },
-                                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                                    modifier = Modifier.fillMaxWidth().height(44.dp),
                                     shape = RoundedCornerShape(12.dp),
                                     border = BorderStroke(1.dp, Color.LightGray)
                                 ) {
-                                    Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text("Sync Cloud Data", color = Color.Gray, fontSize = 12.sp)
                                 }
@@ -303,14 +502,84 @@ fun DashboardScreen(
                             
                             if (orders.isEmpty()) {
                                 item {
-                                    Box(modifier = Modifier.fillMaxWidth().height(300.dp), contentAlignment = Alignment.Center) {
+                                    Box(modifier = Modifier.fillMaxWidth().height(260.dp), contentAlignment = Alignment.Center) {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Icon(Icons.Default.LocalShipping, contentDescription = null, modifier = Modifier.size(64.dp), tint = Color.LightGray)
                                             Text("No orders assigned today!", color = Color.Gray)
                                         }
                                     }
                                 }
+                            } else if (searchQuery.isNotBlank() || selectedFilter != "ALL") {
+                                // Search or Specific Filter Active
+                                if (filteredOrders.isEmpty()) {
+                                    item {
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                            shape = RoundedCornerShape(16.dp),
+                                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                                            border = BorderStroke(1.dp, Color(0xFFE5E7EB))
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Icon(Icons.Default.SearchOff, contentDescription = null, modifier = Modifier.size(48.dp), tint = Color.Gray)
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Text("No matching orders found", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                                Text("Try changing search keywords or filter", fontSize = 12.sp, color = Color.Gray)
+                                                Spacer(modifier = Modifier.height(12.dp))
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        searchQuery = ""
+                                                        selectedFilter = "ALL"
+                                                    },
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Text("Reset Filters")
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    items(filteredOrders) { order ->
+                                        if (order.status == OrderStatus.DELIVERED.name) {
+                                            DeliveredOrderCard(
+                                                order = order,
+                                                commissionPerOrder = commissionPerOrder,
+                                                onClick = { onOrderClick(order.id) }
+                                            )
+                                        } else {
+                                            OrderCard(
+                                                order = order,
+                                                stopNumber = null,
+                                                distanceKm = null,
+                                                onStatusClick = { viewModel.updateStatus(order.id, it) },
+                                                onNavigateClick = {
+                                                    val navUri = if (order.targetLat != 0.0 && order.targetLng != 0.0)
+                                                        "google.navigation:q=${order.targetLat},${order.targetLng}&mode=d"
+                                                    else {
+                                                        val lm = order.getEffectiveLandmark()
+                                                        val query = if (lm.isNotBlank()) "${order.address} ($lm)" else order.address
+                                                        "google.navigation:q=${Uri.encode(query)}&mode=d"
+                                                    }
+                                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(navUri)).setPackage("com.google.android.apps.maps"))
+                                                },
+                                                onCallClick = {
+                                                    val phoneUri = Uri.parse("tel:${order.userPhone}")
+                                                    context.startActivity(Intent(Intent.ACTION_DIAL, phoneUri))
+                                                },
+                                                onWhatsAppClick = {
+                                                    val cleanPhone = order.userPhone.replace("+91", "").replace(" ", "").trim()
+                                                    val waUri = Uri.parse("https://api.whatsapp.com/send?phone=91$cleanPhone&text=" + Uri.encode("नमस्ते ${order.userName} जी, मैं कृषि विशाल से आपका डिलीवरी पार्टनर हूँ।"))
+                                                    context.startActivity(Intent(Intent.ACTION_VIEW, waUri))
+                                                },
+                                                onClick = { onOrderClick(order.id) }
+                                            )
+                                        }
+                                    }
+                                }
                             } else {
+                                // Default "ALL" Unfiltered View (Shortest Route Sequence + Delivered Orders)
                                 if (trip != null && trip.stops.isNotEmpty()) {
                                     item { TripSummaryCard(trip) }
                                     item { 
@@ -343,11 +612,17 @@ fun DashboardScreen(
                                                 val phoneUri = Uri.parse("tel:${stop.order.userPhone}")
                                                 context.startActivity(Intent(Intent.ACTION_DIAL, phoneUri))
                                             },
+                                            onWhatsAppClick = {
+                                                val cleanPhone = stop.order.userPhone.replace("+91", "").replace(" ", "").trim()
+                                                val waUri = Uri.parse("https://api.whatsapp.com/send?phone=91$cleanPhone&text=" + Uri.encode("नमस्ते ${stop.order.userName} जी, मैं कृषि विशाल से आपका डिलीवरी पार्टनर हूँ।"))
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, waUri))
+                                            },
                                             onClick = { onOrderClick(stop.order.id) }
                                         )
                                     }
                                 } else {
-                                    items(orders) { order -> 
+                                    val undelivered = orders.filter { it.status != OrderStatus.DELIVERED.name }
+                                    items(undelivered) { order -> 
                                         OrderCard(
                                             order = order, 
                                             stopNumber = null,
@@ -367,6 +642,50 @@ fun DashboardScreen(
                                                 val phoneUri = Uri.parse("tel:${order.userPhone}")
                                                 context.startActivity(Intent(Intent.ACTION_DIAL, phoneUri))
                                             },
+                                            onWhatsAppClick = {
+                                                val cleanPhone = order.userPhone.replace("+91", "").replace(" ", "").trim()
+                                                val waUri = Uri.parse("https://api.whatsapp.com/send?phone=91$cleanPhone&text=" + Uri.encode("नमस्ते ${order.userName} जी, मैं कृषि विशाल से आपका डिलीवरी पार्टनर हूँ।"))
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, waUri))
+                                            },
+                                            onClick = { onOrderClick(order.id) }
+                                        )
+                                    }
+                                }
+
+                                // ── Delivered Orders Section with Earnings ──
+                                if (deliveredOrders.isNotEmpty()) {
+                                    item {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        HorizontalDivider(color = Color(0xFFE5E7EB))
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text("✅", fontSize = 18.sp)
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("Delivered Orders", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                            }
+                                            Surface(
+                                                shape = RoundedCornerShape(20.dp),
+                                                color = Color(0xFFDCFCE7)
+                                            ) {
+                                                Text(
+                                                    "₹${(deliveredOrders.size * commissionPerOrder).toInt()} कमाई",
+                                                    color = Color(0xFF16A34A),
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                    items(deliveredOrders) { order ->
+                                        DeliveredOrderCard(
+                                            order = order,
+                                            commissionPerOrder = commissionPerOrder,
                                             onClick = { onOrderClick(order.id) }
                                         )
                                     }
@@ -502,72 +821,74 @@ fun CodVaultSecurityBanner(
 fun IncentiveProgressCard(progress: IncentiveProgress) {
     Card(
         modifier = Modifier.fillMaxWidth(), 
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                horizontalArrangement = Arrangement.SpaceBetween, 
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.EmojiEvents, contentDescription = null, tint = PrimaryGreen)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("आज की लाइव कमाई (Today's Earnings)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, fontSize = 14.sp)
-                }
-                if (progress.slabAchieved) {
-                    Surface(
-                        color = PrimaryGreen.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("बोनस अनलॉक 🎉", color = PrimaryGreen, fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                        colors = listOf(Color(0xFF22C55E), Color(0xFF15803D))
+                    )
+                )
+                .padding(16.dp)
+        ) {
+            Column {
+                Text("TODAY'S EARNINGS", color = Color(0xFFDCFCE7), fontSize = 11.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.sp)
+                
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text("₹${progress.totalEarningsToday.toInt()}", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                    if (progress.nextSlab != null) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        val goal = progress.totalEarningsToday + progress.nextSlab.bonusAmount
+                        Text("/ ₹${goal.toInt()} goal", color = Color(0xFFDCFCE7), fontSize = 14.sp)
                     }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Highlighted live equation
-            Surface(
-                color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "आज ${progress.currentCount} डिलीवरी पूरी की = ₹${progress.earnedCommission.toInt()} कमाई + ₹${progress.earnedBonus.toInt()} बोनस",
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "कुल लाइव कमाई: ₹${progress.totalEarningsToday.toInt()}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp,
-                        color = Color(0xFF2E7D32)
-                    )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Column {
+                            Text("ORDERS", color = Color(0xFFDCFCE7), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text("${progress.currentCount}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Column {
+                            Text("BONUS", color = Color(0xFFDCFCE7), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text("₹${progress.earnedBonus.toInt()}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    
+                    if (progress.slabAchieved) {
+                        Surface(
+                            color = Color.White.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f))
+                        ) {
+                            Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.EmojiEvents, contentDescription = null, tint = Color(0xFFFDE047), modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Goal Achieved", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    } else if (progress.nextSlab != null) {
+                        Text("${progress.ordersRemaining} more", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                LinearProgressIndicator(
+                    progress = { progress.progress }, 
+                    modifier = Modifier.fillMaxWidth().height(4.dp), 
+                    color = Color.White, 
+                    trackColor = Color.White.copy(alpha = 0.3f)
+                )
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
-            LinearProgressIndicator(
-                progress = { progress.progress }, 
-                modifier = Modifier.fillMaxWidth().height(8.dp), 
-                color = MaterialTheme.colorScheme.primary, 
-                trackColor = MaterialTheme.colorScheme.surface
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                if (progress.nextSlab != null)
-                    "अगले ₹${progress.nextSlab.bonusAmount.toInt()} बोनस के लिए केवल ${progress.ordersRemaining} डिलीवरी और! 🚀"
-                else
-                    "शानदार! आज के सभी इंसेंटिव लक्ष्य प्राप्त कर लिए गए हैं! 🌟",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
         }
     }
 }
@@ -617,9 +938,6 @@ private fun TripStatChip(label: String, value: String) {
     }
 }
 
-/**
- * Order Card with Landmark & 1-Tap Call Button & Sequential Stop Badge
- */
 @Composable
 fun OrderCard(
     order: Order, 
@@ -628,111 +946,249 @@ fun OrderCard(
     onStatusClick: (String) -> Unit, 
     onNavigateClick: () -> Unit,
     onCallClick: () -> Unit,
+    onWhatsAppClick: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
     val landmark = order.getEffectiveLandmark()
 
-    Card(
-        onClick = onClick, 
-        shape = RoundedCornerShape(14.dp), 
-        elevation = CardDefaults.cardElevation(4.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-            Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (stopNumber != null) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.primary,
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
+    Box(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+        Card(
+            onClick = onClick, 
+            shape = RoundedCornerShape(16.dp), 
+            elevation = CardDefaults.cardElevation(2.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.dp, Color(0xFFF3F4F6))
+        ) {
+            Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
+                Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(end = 40.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (stopNumber != null) {
                             Text(
-                                text = "क्रम #$stopNumber", 
-                                color = MaterialTheme.colorScheme.onPrimary, 
+                                text = "Seq #$stopNumber", 
+                                color = MaterialTheme.colorScheme.primary, 
                                 fontWeight = FontWeight.ExtraBold, 
                                 fontSize = 12.sp,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                modifier = Modifier.padding(end = 8.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("#${order.id.takeLast(8).uppercase()}", fontWeight = FontWeight.Bold, color = Color.Gray, fontSize = 12.sp)
                     }
-                    Text("Order #${order.id.takeLast(8).uppercase()}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    StatusBadge(order.status)
                 }
-                StatusBadge(order.status)
+
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(order.userName, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Default.Place, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(16.dp).padding(top = 2.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Column {
+                        Text(order.address, color = Color.DarkGray, fontSize = 14.sp, lineHeight = 18.sp)
+                        if (landmark.isNotBlank()) {
+                            Surface(
+                                color = Color(0xFFF3F4F6),
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier.padding(top = 6.dp)
+                            ) {
+                                Text("Landmark: $landmark", fontSize = 10.sp, color = Color.DarkGray, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp))
+                            }
+                        }
+                    }
+                }
+
+                if (distanceKm != null && distanceKm > 0.0) {
+                    Text("~${(distanceKm * 10).toInt() / 10.0} km away", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(top = 8.dp, start = 20.dp))
+                }
+
+                // Action Buttons (Call, WhatsApp, Navigate, Action)
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(
+                        onClick = onCallClick,
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF9FAFB), contentColor = Color(0xFF374151)),
+                        border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                            Icon(Icons.Default.Phone, contentDescription = "Call", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                            Text("Call", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (onWhatsAppClick != null) {
+                        Button(
+                            onClick = onWhatsAppClick,
+                            modifier = Modifier.weight(1f).height(46.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDCFCE7), contentColor = Color(0xFF15803D)),
+                            border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                Icon(Icons.Default.Chat, contentDescription = "WhatsApp", modifier = Modifier.size(18.dp), tint = Color(0xFF16A34A))
+                                Text("Chat", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = onNavigateClick,
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF9FAFB), contentColor = Color(0xFF374151)),
+                        border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                            Icon(Icons.Default.Navigation, contentDescription = "Navigate", modifier = Modifier.size(18.dp), tint = Color(0xFF2563EB))
+                            Text("Map", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Button(
+                        onClick = { onStatusClick(getNextStatus(order.status)) },
+                        modifier = Modifier.weight(1.2f).height(46.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDCFCE7), contentColor = MaterialTheme.colorScheme.primary),
+                        border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                            Icon(Icons.Default.QrCodeScanner, contentDescription = "Action", modifier = Modifier.size(18.dp))
+                            val btnText = when(order.status) {
+                                OrderStatus.ASSIGNED.name -> "Scan Pick"
+                                OrderStatus.PICKED_UP.name -> "Deliver"
+                                else -> "Delivered"
+                            }
+                            Text(btnText, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
+        }
+        
+        // Small SOS button overlapping right corner
+        Surface(
+            onClick = { /* Could expose an onSOSClick lambda if needed, for now just show */ },
+            shape = CircleShape,
+            color = Color(0xFFFEE2E2),
+            modifier = Modifier.align(Alignment.TopEnd).padding(end = 12.dp, top = 12.dp).size(36.dp),
+            shadowElevation = 2.dp
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text("SOS", color = Color(0xFFDC2626), fontSize = 10.sp, fontWeight = FontWeight.Black)
+            }
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.height(6.dp))
-            Text("Customer: ${order.userName}", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
-            Text(order.address, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-
-            // Rural Landmark Badge (गाँव का लैंडमार्क)
-            if (landmark.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
+@Composable
+fun DeliveredOrderCard(
+    order: Order,
+    commissionPerOrder: Double,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(1.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+        border = BorderStroke(1.dp, Color(0xFFBBF7D0))
+    ) {
+        Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = "Delivered",
+                        tint = Color(0xFF16A34A),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "#${order.id.takeLast(8).uppercase()}",
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Gray,
+                        fontSize = 12.sp
+                    )
+                }
                 Surface(
-                    color = Color(0xFFFFF8E1),
-                    border = BorderStroke(1.dp, Color(0xFFFFD54F)),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFDCFCE7)
                 ) {
-                    Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Place, contentDescription = null, tint = Color(0xFFE65100), modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("लैंडमार्क: ", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFFE65100))
-                        Text(landmark, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Color(0xFF3E2723))
+                    Text(
+                        "DELIVERED",
+                        color = Color(0xFF16A34A),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(order.userName, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.Black)
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                Icon(Icons.Default.Place, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(14.dp).padding(top = 2.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(order.address, color = Color.DarkGray, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2)
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider(color = Color(0xFFE5E7EB))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Earnings Breakdown Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Order Amount
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("ऑर्डर राशि", fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("₹${order.totalAmount.toInt()}", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                }
+                // Payment Mode
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("भुगतान", fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (order.isCOD) Color(0xFFFEF3C7) else Color(0xFFDBEAFE)
+                    ) {
+                        Text(
+                            if (order.isCOD) "💵 COD" else "💳 Online",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (order.isCOD) Color(0xFF92400E) else Color(0xFF1E40AF),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
                     }
                 }
-            }
-
-            if (distanceKm != null && distanceKm > 0.0) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text("अगले स्टॉप से दूरी: ~${(distanceKm * 10).toInt() / 10.0} km", fontSize = 11.sp, color = Color.Gray)
-            }
-
-            // Action Buttons: 1-Tap Call, Navigate, Next Status
-            Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // 1-Tap Call Button
-                OutlinedButton(
-                    onClick = onCallClick,
-                    modifier = Modifier.height(46.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF2E7D32)),
-                    border = BorderStroke(1.2.dp, Color(0xFF2E7D32)),
-                    contentPadding = PaddingValues(horizontal = 12.dp)
-                ) {
-                    Icon(Icons.Default.Phone, contentDescription = "Call", modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Call", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
-
-                // Google Maps Navigate Button
-                Button(
-                    onClick = onNavigateClick,
-                    modifier = Modifier.height(46.dp).weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
-                ) {
-                    Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Navigate", fontSize = 13.sp)
-                }
-
-                // Status Progression Button
-                Button(
-                    onClick = { onStatusClick(getNextStatus(order.status)) },
-                    modifier = Modifier.height(46.dp).weight(1.2f),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                ) { 
-                    Text(when(order.status) {
-                        OrderStatus.ASSIGNED.name -> "Pick Up"
-                        OrderStatus.PICKED_UP.name -> "Start Delivery"
-                        else -> "Mark Delivered"
-                    }, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                // Your Earning
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("आपकी कमाई", fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "+₹${commissionPerOrder.toInt()}",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFF16A34A)
+                    )
                 }
             }
         }
     }
 }
+
 
 @Composable
 fun ReturnPickupCard(request: ReturnRequest, onClick: () -> Unit, onPickup: () -> Unit) {
@@ -888,7 +1344,7 @@ fun ServicePartnerDashboardContent(
                         ) {
                             Text("Start / Continue Service Job", fontWeight = FontWeight.Bold)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                         }
                     }
                 }

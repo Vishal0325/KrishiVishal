@@ -96,7 +96,7 @@ class RiderRepository @Inject constructor(
     ): Resource<String> {
         return try {
             val storageRef = com.google.firebase.storage.FirebaseStorage.getInstance().reference
-                .child("riders/$riderId/documents/${docType}_${System.currentTimeMillis()}.jpg")
+                .child("kyc/$riderId/${docType}_${System.currentTimeMillis()}.jpg")
             storageRef.putBytes(imageBytes).await()
             val downloadUrl = storageRef.downloadUrl.await().toString()
 

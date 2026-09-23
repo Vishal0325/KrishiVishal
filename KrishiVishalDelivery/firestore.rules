@@ -1,9 +1,286 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow any authenticated user to read and write to all collections
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isNotAnonymous() {
+      return isAuthenticated() && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    // Rider app: Only rider role allowed
+    function isRider() {
+      return isAuthenticated() && (
+        request.auth.token.role == "Rider" ||
+        request.auth.token.role == "SERVICE_MAN" ||
+        request.auth.token.role == "SERVICE_PARTNER" ||
+        request.auth.token.role == "BOTH"
+      );
+    }
+
+    function isOwnerRider(riderId) {
+      return isAuthenticated() && request.auth.uid == riderId;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && request.auth.token.role == "SuperAdmin";
+    }
+
+    function canViewFinance() {
+      return isSuperAdmin();
+    }
+
+    // ============================================================
+    // PRODUCTS (Public Read Only)
+    // ============================================================
+
+    match /products/{id} {
+      allow read: if true;
+      allow write: if false;
+
+      match /variants/{variantId} {
+        allow read: if true;
+        allow write: if false;
+      }
+
+      match /reviews/{reviewId} {
+        allow read: if true;
+        allow write: if false;
+      }
+    }
+
+    match /skus/{skuId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /categories/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /brands/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ============================================================
+    // ORDERS (Rider specific)
+    // ============================================================
+
+    match /orders/{orderId} {
+      // Rider can read orders assigned to them
+      allow read: if isRider() && resource.data.riderId == request.auth.uid;
+
+      allow create: if false;
+
+      // Rider can update specific fields on assigned orders
+      allow update: if isRider() &&
+        resource.data.riderId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'deliveryStatus',
+          'deliveryLocation',
+          'riderLocation',
+          'deliveryProof',
+          'deliveryProofUrl',
+          'podPhoto',
+          'podPhotoUrl',
+          'podSignature',
+          'podSignatureUrl',
+          'riderNote',
+          'updatedAt',
+          'syncId',
+          'rejectionHistory',
+          'ndrReason',
+          'ndrNotes',
+          'lastAttemptAt',
+          'attemptHistory'
+        ]);
+
+      allow delete: if false;
+
+      match /tracking/{trackingId} {
+        allow read: if isRider() && get(/databases/$(database)/documents/orders/$(orderId)).data.riderId == request.auth.uid;
+        allow write: if false;
+      }
+
+      match /internal/{document=**} {
+        allow read, write: if false;
+      }
+    }
+
+    // ============================================================
+    // RETURNS (Rider specific)
+    // ============================================================
+
+    match /returns/{returnId} {
+      // Rider can read returns assigned to them
+      allow read: if isRider() && resource.data.riderId == request.auth.uid;
+
+      allow create: if false;
+
+      // Rider can update QC fields
+      allow update: if isRider() &&
+        resource.data.riderId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'qcStatus',
+          'qcPhotos',
+          'qcNote',
+          'qcCompletedAt',
+          'updatedAt'
+        ]);
+
+      allow delete: if false;
+    }
+
+    // ============================================================
+    // RIDERS (Self profile only)
+    // ============================================================
+
+    match /riders/{riderId} {
+      // Rider can read own profile
+      allow read: if isOwnerRider(riderId);
+
+      allow create: if false;
+
+      // Rider can update non-sensitive profile fields
+      allow update: if isOwnerRider(riderId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'currentLocation',
+          'currentLat',
+          'currentLng',
+          'isAvailable',
+          'online',
+          'lastLocationUpdate',
+          'fcmToken',
+          'updatedAt'
+        ]);
+
+      allow delete: if false;
+    }
+
+    // ============================================================
+    // WHITELISTED RIDERS (Self verification only)
+    // ============================================================
+
+    match /whitelisted_riders/{id} {
+      allow get: if isAuthenticated() && isNotAnonymous() && (
+        request.auth.token.phone_number == id ||
+        request.auth.token.phone_number == ('+91' + id)
+      );
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    // ============================================================
+    // SERVICE BOOKINGS (Partner assigned only)
+    // ============================================================
+
+    match /service_bookings/{bookingId} {
+      // Partner can read jobs assigned to them
+      allow read: if isRider() && resource.data.assignedPartnerId == request.auth.uid;
+
+      allow create: if false;
+
+      // Partner can update job status
+      allow update: if isRider() &&
+        resource.data.assignedPartnerId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'startOtp',
+          'endOtp',
+          'actualArea',
+          'startedAt',
+          'completedAt',
+          'notes',
+          'updatedAt'
+        ]);
+
+      allow delete: if false;
+    }
+
+    // ============================================================
+    // PARTNER WALLETS (Self only)
+    // ============================================================
+
+    match /partner_wallets/{partnerId} {
+      allow read: if isOwnerRider(partnerId);
+      allow write: if false;
+    }
+
+    match /partner_wallet_transactions/{txnId} {
+      allow read: if isRider() && resource.data.partnerId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // ============================================================
+    // CASH DEPOSITS (Self cash deposit & verification)
+    // ============================================================
+
+    match /cash_deposits/{id} {
+      // Rider can read own deposits
+      allow read: if isRider() && resource.data.riderId == request.auth.uid;
+
+      // Rider can create deposit request
+      allow create: if isRider() && request.resource.data.riderId == request.auth.uid;
+
+      // Rider cannot modify (admin only)
+      allow update, delete: if false;
+    }
+
+    // ============================================================
+    // SOS & EMERGENCY ALERTS (Self creation only)
+    // ============================================================
+
+    match /sos_alerts/{alertId} {
+      allow create: if isAuthenticated() && isNotAnonymous();
+      allow read: if isRider() && resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /emergency_alerts/{alertId} {
+      allow create: if isAuthenticated() && isNotAnonymous();
+      allow read: if isRider() && resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ============================================================
+    // DELIVERY SLOTS (Read only)
+    // ============================================================
+
+    match /delivery_slots/{slotId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // ============================================================
+    // AUDIT LOGS (Read only for own entries)
+    // ============================================================
+
+    match /audit_logs/{id} {
+      allow read: if isRider() && resource.data.riderId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // ============================================================
+    // FCM TOKENS (Self only)
+    // ============================================================
+
+    match /riders/{riderId}/fcm_tokens/{tokenId} {
+      allow read, write: if isOwnerRider(riderId);
+    }
+
+    // ============================================================
+    // DEFAULT DENY
+    // ============================================================
+
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

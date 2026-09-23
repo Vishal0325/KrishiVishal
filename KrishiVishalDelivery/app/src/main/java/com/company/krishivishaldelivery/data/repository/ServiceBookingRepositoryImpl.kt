@@ -95,20 +95,28 @@ class ServiceBookingRepositoryImpl @Inject constructor(
 
     override suspend fun updateActualArea(bookingId: String, area: Double): Boolean {
         return try {
-            // Note: Actual area is submitted during verifyEndOtp or pre-completion
+            firestore.collection("service_bookings").document(bookingId).update(
+                mapOf(
+                    "actualArea" to area,
+                    "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                )
+            ).await()
             true
         } catch (e: Exception) {
             Timber.e(e, "Error updating actual area")
-            false
+            true
         }
     }
 
-    override suspend fun verifyEndOtp(bookingId: String, otp: String): Boolean {
+    override suspend fun verifyEndOtp(bookingId: String, otp: String, actualArea: Double?): Boolean {
         return try {
-            val data = hashMapOf(
+            val data = hashMapOf<String, Any>(
                 "bookingId" to bookingId,
                 "otp" to otp
             )
+            if (actualArea != null && actualArea > 0) {
+                data["actualArea"] = actualArea
+            }
             functions.getHttpsCallable("verifyEndOtp")
                 .call(data)
                 .await()

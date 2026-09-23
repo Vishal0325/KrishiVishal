@@ -52,10 +52,10 @@ class ScannerViewModel @Inject constructor(
                 val currentOrders = orderRepository.getAssignedOrders().first()
                 val currentCashInHand = currentOrders
                     .filter { it.isCOD && it.status == OrderStatus.DELIVERED.name && !it.isCashDeposited }
-                    .sumOf { it.codAmount }
+                    .sumOf { if (it.codAmount > 0) it.codAmount else it.totalAmount }
 
                 val previewOrder = _scannedOrderPreview.value
-                val isOrderCOD = previewOrder?.isCOD == true || (previewOrder?.codAmount ?: 0.0) > 0
+                val isOrderCOD = previewOrder?.isCOD == true || (previewOrder?.codAmount ?: 0.0) > 0 || (previewOrder?.paymentMethod == "COD")
                 val isHighValue = (previewOrder?.totalAmount ?: 0.0) >= 500.0
 
                 if (currentCashInHand >= COD_VAULT_LIMIT && (isOrderCOD || isHighValue)) {

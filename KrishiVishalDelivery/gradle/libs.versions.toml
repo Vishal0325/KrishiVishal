@@ -47,8 +47,10 @@ mockk = "1.13.10"
 coroutinesTest = "1.7.3"
 turbine = "1.1.0"
 detekt = "1.23.7"
+zxing = "3.5.3"
 
 [libraries]
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "compose-bom" }
 androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }

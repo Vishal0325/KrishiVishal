@@ -12,7 +12,6 @@ import javax.inject.Inject
 
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
-import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.android.gms.security.ProviderInstaller
 
 @HiltAndroidApp
@@ -35,7 +34,7 @@ class KrishiVishalDeliveryApp : Application(), Configuration.Provider {
         val firebaseAppCheck = FirebaseAppCheck.getInstance()
         if (BuildConfig.DEBUG) {
             firebaseAppCheck.installAppCheckProviderFactory(
-                DebugAppCheckProviderFactory.getInstance()
+                com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory.getInstance()
             )
         } else {
             firebaseAppCheck.installAppCheckProviderFactory(

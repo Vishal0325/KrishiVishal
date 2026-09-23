@@ -88,6 +88,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         // Extract Data Payload
+        val bookingId = data["bookingId"] ?: ""
         val serviceName = data["serviceName"] ?: "New Service Job"
         val location = data["location"] ?: "Farm Plot"
         val area = data["area"] ?: "Unknown"
@@ -95,7 +96,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
         // Create DeepLink URI for Compose Navigation
         val deepLinkUri = Uri.parse(
-            "krishivishal://job_alert/${Uri.encode(serviceName)}?location=${Uri.encode(location)}&area=${Uri.encode(area)}&earnings=${Uri.encode(earnings)}"
+            "krishivishal://job_alert/${Uri.encode(serviceName)}?bookingId=${Uri.encode(bookingId)}&location=${Uri.encode(location)}&area=${Uri.encode(area)}&earnings=${Uri.encode(earnings)}"
         )
 
         val intent = Intent(Intent.ACTION_VIEW, deepLinkUri, this, MainActivity::class.java).apply {

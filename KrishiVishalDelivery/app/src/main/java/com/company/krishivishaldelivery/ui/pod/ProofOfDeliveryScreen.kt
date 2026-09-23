@@ -70,6 +70,15 @@ fun ProofOfDeliveryScreen(
     var capturedPhoto by remember { mutableStateOf<Bitmap?>(null) }
     var signaturePoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var otpValue by remember { mutableStateOf("") }
+    var collectedCash by remember { mutableStateOf("") }
+    var hasInitializedCash by remember { mutableStateOf(false) }
+    
+    if (!hasInitializedCash && order != null) {
+        if (order.isCOD) {
+            collectedCash = (if (order.codAmount > 0) order.codAmount else order.totalAmount).toInt().toString()
+        }
+        hasInitializedCash = true
+    }
     var isUploading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -276,6 +285,23 @@ fun ProofOfDeliveryScreen(
                 }
             }
 
+            if (order?.isCOD == true) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Collected Cash Amount (₹)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                OutlinedTextField(
+                    value = collectedCash,
+                    onValueChange = { collectedCash = it.filter { char -> char.isDigit() } },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Enter amount collected") },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                    ),
+                    leadingIcon = { Text(" ₹", fontWeight = FontWeight.Bold) },
+                    shape = RoundedCornerShape(12.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            
             // OTP Verification Section
             Text("Customer Delivery PIN (OTP)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
             OutlinedTextField(
@@ -310,7 +336,8 @@ fun ProofOfDeliveryScreen(
                             orderId = orderId,
                             otp = otpValue,
                             photoBitmap = capturedPhoto,
-                            signatureBitmap = signatureBitmap
+                            signatureBitmap = signatureBitmap,
+                            collectedCash = collectedCash.toDoubleOrNull() ?: 0.0
                         )
                         isUploading = false
 
@@ -326,7 +353,7 @@ fun ProofOfDeliveryScreen(
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                enabled = !isUploading && capturedPhoto != null && signaturePoints.isNotEmpty() && otpValue.length == 6,
+                enabled = !isUploading && capturedPhoto != null && signaturePoints.isNotEmpty() && otpValue.length == 4 && (order?.isCOD != true || collectedCash.isNotEmpty()),
                 shape = RoundedCornerShape(8.dp)
             ) {
                 if (isUploading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))

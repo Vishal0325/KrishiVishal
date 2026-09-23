@@ -70,6 +70,12 @@ fun AppNavGraph(
                 },
                 onSkillsClick = {
                     navController.navigate("partner_skills")
+                },
+                onViewRouteClick = {
+                    navController.navigate("route_screen")
+                },
+                onMorningBatchClick = {
+                    navController.navigate("morning_batch")
                 }
             )
         }
@@ -181,19 +187,22 @@ fun AppNavGraph(
 
         // Partner Job Screens
         composable(
-            route = "partner_job_alert/{serviceName}?location={location}&area={area}&earnings={earnings}",
+            route = "partner_job_alert/{serviceName}?bookingId={bookingId}&location={location}&area={area}&earnings={earnings}",
             arguments = listOf(
                 navArgument("serviceName") { type = NavType.StringType },
+                navArgument("bookingId") { type = NavType.StringType; nullable = true; defaultValue = "" },
                 navArgument("location") { type = NavType.StringType; nullable = true; defaultValue = "Farm Plot" },
                 navArgument("area") { type = NavType.StringType; nullable = true; defaultValue = "Unknown Area" },
                 navArgument("earnings") { type = NavType.StringType; nullable = true; defaultValue = "0.0" }
             ),
-            deepLinks = listOf(androidx.navigation.navDeepLink { uriPattern = "krishivishal://job_alert/{serviceName}?location={location}&area={area}&earnings={earnings}" })
+            deepLinks = listOf(androidx.navigation.navDeepLink { uriPattern = "krishivishal://job_alert/{serviceName}?bookingId={bookingId}&location={location}&area={area}&earnings={earnings}" })
         ) { backStackEntry ->
             val serviceName = backStackEntry.arguments?.getString("serviceName") ?: "Service"
+            val bookingId = backStackEntry.arguments?.getString("bookingId") ?: ""
             val location = backStackEntry.arguments?.getString("location") ?: "Farm Plot"
             val area = backStackEntry.arguments?.getString("area") ?: "Unknown Area"
             val earnings = backStackEntry.arguments?.getString("earnings")?.toDoubleOrNull() ?: 0.0
+            val scope = rememberCoroutineScope()
             
             com.company.krishivishaldelivery.ui.partner.IncomingJobAlertScreen(
                 serviceName = serviceName,
@@ -201,11 +210,27 @@ fun AppNavGraph(
                 farmArea = area,
                 estimatedEarnings = earnings,
                 onAccept = {
-                    navController.navigate("partner_job_execution/ON_THE_WAY") {
-                        popUpTo("dashboard")
+                    if (bookingId.isNotBlank()) {
+                        scope.launch {
+                            dashboardViewModel.acceptServiceBooking(bookingId)
+                            navController.navigate("partner_job_execution/$bookingId/ON_THE_WAY") {
+                                popUpTo("dashboard")
+                            }
+                        }
+                    } else {
+                        navController.navigate("dashboard") {
+                            popUpTo("dashboard")
+                        }
                     }
                 },
-                onDecline = { navController.popBackStack() }
+                onDecline = {
+                    if (bookingId.isNotBlank()) {
+                        scope.launch {
+                            dashboardViewModel.rejectServiceBooking(bookingId, "Partner declined")
+                        }
+                    }
+                    navController.popBackStack()
+                }
             )
         }
 
@@ -271,6 +296,29 @@ fun AppNavGraph(
             )
         }
 
+        composable("route_screen") {
+            com.company.krishivishaldelivery.ui.tracking.RouteScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onStartDelivery = { navController.popBackStack() }
+            )
+        }
+
+        composable("morning_batch") {
+            com.company.krishivishaldelivery.ui.batch.MorningBatchScreen(
+                onAcceptAll = {
+                    Toast.makeText(context, "Batch Accepted", Toast.LENGTH_SHORT).show()
+                    navController.popBackStack()
+                },
+                onPartialAccept = {
+                    Toast.makeText(context, "Partial Accept Initiated", Toast.LENGTH_SHORT).show()
+                },
+                onReject = { reason ->
+                    Toast.makeText(context, "Batch Rejected: $reason", Toast.LENGTH_SHORT).show()
+                    navController.popBackStack()
+                },
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
 
     }
 }

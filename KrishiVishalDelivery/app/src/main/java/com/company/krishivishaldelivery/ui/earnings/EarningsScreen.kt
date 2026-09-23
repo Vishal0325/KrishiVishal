@@ -83,10 +83,14 @@ fun EarningsScreen(viewModel: EarningsViewModel = hiltViewModel()) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Rider Wallet & Incentives", fontWeight = FontWeight.Bold) },
+                title = { 
+                    Column {
+                        Text("कमाई", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Earnings & Wallet", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary
+                    containerColor = MaterialTheme.colorScheme.surface
                 )
             )
         }
@@ -95,46 +99,35 @@ fun EarningsScreen(viewModel: EarningsViewModel = hiltViewModel()) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp),
+                .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Requirement 4: Live Rider Wallet and Incentive Card
-            item {
-                LiveRiderIncentiveCard(
-                    deliveredCount = todayDeliveredCount,
-                    commission = todayCommission,
-                    bonus = achievedBonus,
-                    total = todayTotalEarnings,
-                    nextSlab = nextSlab
-                )
-            }
-
             item {
                 EarningSummaryCard(totalEarningsPotential, pendingSettlement, selectedFilter)
             }
 
             item {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = selectedFilter == "Today",
-                        onClick = { selectedFilter = "Today" },
-                        label = { Text("Today") }
-                    )
-                    FilterChip(
-                        selected = selectedFilter == "Last 7 Days",
-                        onClick = { selectedFilter = "Last 7 Days" },
-                        label = { Text("Last 7 Days") }
-                    )
-                    FilterChip(
-                        selected = selectedFilter == "This Month",
-                        onClick = { selectedFilter = "This Month" },
-                        label = { Text("This Month") }
-                    )
-                    FilterChip(
-                        selected = selectedFilter == "All Time",
-                        onClick = { selectedFilter = "All Time" },
-                        label = { Text("All Time") }
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(), 
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val filters = listOf("Today", "Last 7 Days", "This Month", "All Time")
+                    filters.forEach { filter ->
+                        Surface(
+                            onClick = { selectedFilter = filter },
+                            color = if (selectedFilter == filter) MaterialTheme.colorScheme.primary else Color(0xFFF3F4F6),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Text(
+                                filter,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (selectedFilter == filter) Color.White else Color.DarkGray
+                            )
+                        }
+                    }
                 }
             }
 
@@ -343,40 +336,61 @@ fun PayoutLogItem(log: Map<String, Any>) {
 fun EarningSummaryCard(total: Double, pending: Double, filter: String) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF2E7D32)),
-        shape = RoundedCornerShape(16.dp)
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(2.dp)
     ) {
-        Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Total Potential Earnings", color = Color.White.copy(alpha = 0.8f))
-            Text("₹${total.toInt()}", color = Color.White, fontSize = 36.sp, fontWeight = FontWeight.Bold)
-            
-            if (pending > 0) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Surface(
-                    color = Color.White.copy(alpha = 0.15f),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(
-                        "Pending Settle: ₹${pending.toInt()}", 
-                        color = Color.Yellow, 
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                        colors = listOf(Color(0xFF22C55E), Color(0xFF15803D))
                     )
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            Surface(
-                color = Color.White.copy(alpha = 0.2f),
-                shape = RoundedCornerShape(20.dp)
-            ) {
-                Text(
-                    filter, 
-                    color = Color.White, 
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    fontSize = 12.sp
                 )
+                .padding(24.dp)
+        ) {
+            Column {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Total Potential Earnings", color = Color(0xFFDCFCE7), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Surface(
+                        color = Color.White.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            filter, 
+                            color = Color.White, 
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("₹${total.toInt()}", color = Color.White, fontSize = 36.sp, fontWeight = FontWeight.Bold)
+                
+                if (pending > 0) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Surface(
+                        color = Color.White.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f))
+                    ) {
+                        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = Color(0xFFFDE047), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                "Pending Settlement", 
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            Text("₹${pending.toInt()}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+                    }
+                }
             }
         }
     }

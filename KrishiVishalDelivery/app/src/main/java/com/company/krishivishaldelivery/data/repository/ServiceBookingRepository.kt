@@ -11,7 +11,7 @@ interface ServiceBookingRepository {
     suspend fun rejectBooking(bookingId: String, reason: String? = null): Boolean
     suspend fun verifyStartOtp(bookingId: String, otp: String): Boolean
     suspend fun updateActualArea(bookingId: String, area: Double): Boolean
-    suspend fun verifyEndOtp(bookingId: String, otp: String): Boolean
+    suspend fun verifyEndOtp(bookingId: String, otp: String, actualArea: Double? = null): Boolean
     fun getPartnerWallet(partnerId: String): Flow<PartnerWallet?>
     fun getWalletTransactions(partnerId: String): Flow<List<PartnerWalletTransaction>>
     suspend fun rechargeWallet(partnerId: String, amount: Double): Boolean

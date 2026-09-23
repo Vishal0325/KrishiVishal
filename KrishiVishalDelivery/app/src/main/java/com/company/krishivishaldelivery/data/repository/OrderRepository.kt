@@ -63,7 +63,7 @@ class OrderRepository @Inject constructor(
                 .whereGreaterThanOrEqualTo("updatedAt", todayStart)
                 .get().await()
 
-            val orders = snapshot.toObjects(Order::class.java)
+            val orders = snapshot.toObjects(Order::class.java).map { it.copy(isCOD = it.isCOD || it.paymentMethod.equals("COD", ignoreCase = true), codAmount = if (it.codAmount > 0) it.codAmount else it.totalAmount) }
 
             val activeStatuses = listOf(
                 OrderStatus.ASSIGNED.name,
@@ -118,6 +118,11 @@ class OrderRepository @Inject constructor(
                         "status" to OrderStatus.DELIVERED.name,
                         "deliveredAt" to FieldValue.serverTimestamp()
                     )
+                    
+                    if (entity.isCOD) {
+                        updates["collectedCash"] = entity.collectedCash
+                        updates["paymentStatus"] = "PAID"
+                    }
 
                     // Upload Photo from local storage if available
                     entity.localPodPhotoPath?.let { path ->
@@ -226,7 +231,7 @@ class OrderRepository @Inject constructor(
                 val verifiedOrderId = data?.get("orderId") as? String
                 if (!verifiedOrderId.isNullOrBlank()) {
                     val doc = firestore.collection("orders").document(verifiedOrderId).get().await()
-                    if (doc.exists()) return doc.toObject(Order::class.java)
+                    if (doc.exists()) return doc.toObject(Order::class.java)?.let { it.copy(isCOD = it.isCOD || it.paymentMethod.equals("COD", ignoreCase = true), codAmount = if (it.codAmount > 0) it.codAmount else it.totalAmount) }
                 }
             } catch (e: Exception) {
                 Timber.w(e, "verifyScannedQR failed or offline, falling back to local/direct lookup")
@@ -236,12 +241,12 @@ class OrderRepository @Inject constructor(
         val cleanId = extractOrderIdFromScan(scannedRawText)
         val doc = firestore.collection("orders").document(cleanId).get().await()
         if (doc.exists()) {
-            return doc.toObject(Order::class.java)
+            return doc.toObject(Order::class.java)?.let { it.copy(isCOD = it.isCOD || it.paymentMethod.equals("COD", ignoreCase = true), codAmount = if (it.codAmount > 0) it.codAmount else it.totalAmount) }
         }
         // Fallback: check if id matches prefix
         return try {
             val snap = firestore.collection("orders").whereEqualTo("id", cleanId).get().await()
-            snap.documents.firstOrNull()?.toObject(Order::class.java)
+            snap.documents.firstOrNull()?.toObject(Order::class.java)?.let { it.copy(isCOD = it.isCOD || it.paymentMethod.equals("COD", ignoreCase = true), codAmount = if (it.codAmount > 0) it.codAmount else it.totalAmount) }
         } catch (e: Exception) {
             null
         }
@@ -328,7 +333,7 @@ class OrderRepository @Inject constructor(
 
     suspend fun acceptOrderByScan(orderId: String, riderId: String): Order {
         val doc = firestore.collection("orders").document(orderId).get().await()
-        val order = doc.toObject(Order::class.java) ?: throw Exception("Order not found")
+        val order = doc.toObject(Order::class.java)?.let { it.copy(isCOD = it.isCOD || it.paymentMethod.equals("COD", ignoreCase = true), codAmount = if (it.codAmount > 0) it.codAmount else it.totalAmount) } ?: throw Exception("Order not found")
 
         if (order.status != OrderStatus.PLACED.name && order.status != OrderStatus.CONFIRMED.name) throw Exception("Invalid status")
         if (order.riderId.isNotEmpty() && order.riderId != riderId) throw Exception("Already assigned")
@@ -483,7 +488,8 @@ class OrderRepository @Inject constructor(
         orderId: String,
         otp: String,
         photoBitmap: Bitmap?,
-        signatureBitmap: Bitmap?
+        signatureBitmap: Bitmap?,
+        collectedCash: Double
     ): Resource<String> {
         return try {
             val localOrder = deliveryDao.getOrderById(orderId)
@@ -519,6 +525,7 @@ class OrderRepository @Inject constructor(
                 orderId = orderId,
                 photoPath = localPhotoPath,
                 signaturePath = localSignaturePath,
+                collectedCash = collectedCash,
                 isPendingSync = true
             )
 
@@ -668,7 +675,7 @@ class OrderRepository @Inject constructor(
             items = items, totalAmount = totalAmount, address = address,
             landmark = landmark.ifBlank { getEffectiveLandmark() },
             status = status, riderId = riderId, createdAtMillis = createdAt.time,
-            customerOTP = customerOTP, isCOD = isCOD, codAmount = codAmount,
+            customerOTP = customerOTP, isCOD = isCOD || paymentMethod.equals("COD", ignoreCase = true), codAmount = if (codAmount > 0) codAmount else totalAmount,
             collectedCash = collectedCash, isCashDeposited = isCashDeposited,
             targetLat = targetLat, targetLng = targetLng, isPendingSync = false
         )
@@ -682,7 +689,8 @@ class OrderRepository @Inject constructor(
             status = status, riderId = riderId, createdAt = Date(createdAtMillis),
             customerOTP = customerOTP, isCOD = isCOD, codAmount = codAmount,
             collectedCash = collectedCash, isCashDeposited = isCashDeposited,
-            targetLat = targetLat, targetLng = targetLng
+            targetLat = targetLat, targetLng = targetLng,
+            paymentMethod = if (isCOD) "COD" else ""
         )
     }
 }

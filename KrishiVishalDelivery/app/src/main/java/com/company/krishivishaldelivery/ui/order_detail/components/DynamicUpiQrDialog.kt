@@ -18,12 +18,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import coil.compose.AsyncImage
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.runtime.remember
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
 import java.net.URLEncoder
 
 @Composable
@@ -40,7 +45,25 @@ fun DynamicUpiQrDialog(
     
     // Standard NPCI UPI URI
     val upiUriString = "upi://pay?pa=$upiVpa&pn=${URLEncoder.encode(merchantName, "UTF-8")}&am=$amount&cu=INR&tn=${URLEncoder.encode(txnNote, "UTF-8")}"
-    val qrApiUrl = "https://api.qrserver.com/v1/create-qr-code/?size=350x350&data=${URLEncoder.encode(upiUriString, "UTF-8")}"
+    
+    // Generate QR locally using ZXing (100% offline capable)
+    val qrBitmap = remember(upiUriString) {
+        try {
+            val writer = QRCodeWriter()
+            val bitMatrix = writer.encode(upiUriString, BarcodeFormat.QR_CODE, 512, 512)
+            val width = bitMatrix.width
+            val height = bitMatrix.height
+            val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+            for (x in 0 until width) {
+                for (y in 0 until height) {
+                    bmp.setPixel(x, y, if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+                }
+            }
+            bmp
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -128,12 +151,16 @@ fun DynamicUpiQrDialog(
                         .padding(8.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    AsyncImage(
-                        model = qrApiUrl,
-                        contentDescription = "Dynamic UPI QR",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    )
+                    if (qrBitmap != null) {
+                        Image(
+                            bitmap = qrBitmap.asImageBitmap(),
+                            contentDescription = "Dynamic UPI QR",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
+                        )
+                    } else {
+                        CircularProgressIndicator(color = Color(0xFF2E7D32))
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
