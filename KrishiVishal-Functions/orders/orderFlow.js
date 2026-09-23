@@ -646,8 +646,12 @@ exports.verifyDeliveryOTP = onCall({ region: REGION, invoker: 'public' }, async 
                 throw new Error('Only the assigned delivery rider or admin can verify OTP.');
             }
 
-            // Verify order state
-            if (!['OUT_FOR_DELIVERY', 'RIDER_ACCEPTED'].includes(orderData.status) && !isAdmin) {
+            // Verify order state - allow any active rider fulfillment status
+            const allowedDeliveryStatuses = [
+                'ASSIGNED', 'RIDER_ASSIGNED', 'RIDER_ACCEPTED', 
+                'PICKED_UP', 'PICKING_UP', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'
+            ];
+            if (!allowedDeliveryStatuses.includes(orderData.status) && !isAdmin) {
                 throw new Error(`Order cannot be marked delivered from ${orderData.status} state.`);
             }
 
