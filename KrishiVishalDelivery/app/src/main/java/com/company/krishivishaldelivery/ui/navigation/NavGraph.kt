@@ -73,9 +73,6 @@ fun AppNavGraph(
                 },
                 onViewRouteClick = {
                     navController.navigate("route_screen")
-                },
-                onMorningBatchClick = {
-                    navController.navigate("morning_batch")
                 }
             )
         }
@@ -303,22 +300,7 @@ fun AppNavGraph(
             )
         }
 
-        composable("morning_batch") {
-            com.company.krishivishaldelivery.ui.batch.MorningBatchScreen(
-                onAcceptAll = {
-                    Toast.makeText(context, "Batch Accepted", Toast.LENGTH_SHORT).show()
-                    navController.popBackStack()
-                },
-                onPartialAccept = {
-                    Toast.makeText(context, "Partial Accept Initiated", Toast.LENGTH_SHORT).show()
-                },
-                onReject = { reason ->
-                    Toast.makeText(context, "Batch Rejected: $reason", Toast.LENGTH_SHORT).show()
-                    navController.popBackStack()
-                },
-                onNavigateBack = { navController.popBackStack() }
-            )
-        }
+
 
     }
 }

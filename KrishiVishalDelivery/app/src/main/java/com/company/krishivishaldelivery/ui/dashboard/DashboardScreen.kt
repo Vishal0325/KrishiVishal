@@ -59,7 +59,7 @@ fun DashboardScreen(
     onWalletClick: () -> Unit = {},
     onSkillsClick: () -> Unit = {},
     onViewRouteClick: () -> Unit = {},
-    onMorningBatchClick: () -> Unit = {},
+
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val ordersResource by viewModel.orders.collectAsState()
@@ -286,41 +286,6 @@ fun DashboardScreen(
                         }
 
                         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            item {
-                                Card(
-                                    onClick = onMorningBatchClick,
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFBEB)),
-                                    elevation = CardDefaults.cardElevation(2.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column {
-                                            Text(
-                                                "Morning Order Pack (9:00 AM)",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 16.sp,
-                                                color = Color(0xFFB45309)
-                                            )
-                                            Text(
-                                                "90 Orders • 120 kg • ₹1,800 Est.",
-                                                color = Color(0xFFB45309).copy(alpha = 0.8f),
-                                                fontSize = 14.sp
-                                            )
-                                        }
-                                        Icon(
-                                            Icons.AutoMirrored.Filled.ArrowForward,
-                                            contentDescription = "View Batch",
-                                            tint = Color(0xFFB45309)
-                                        )
-                                    }
-                                }
-                            }
-
                             // 0. Active Service Booking Card (Only shown if partner has delivery + service role)
                             if (isBoth && activeServiceBooking != null) {
                                 item {
