@@ -25,7 +25,8 @@ import {
   Droplets,
   Layers,
   ArrowUpRight,
-  Warehouse
+  Warehouse,
+  AlertOctagon
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -42,6 +43,7 @@ import {
 import { useOrders } from '../hooks/useOrders';
 import { useProducts } from '../hooks/useProducts';
 import { formatCurrency } from '../utils/formatters';
+import { calculateOrderMetrics, toDateSafe, FAILED_CANCELLED_STATUSES } from '../utils/revenueMetrics';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
 
@@ -77,7 +79,7 @@ const getStatusBadgeStyle = (status) => {
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { orders: allOrders } = useOrders();
+  const { orders: allOrders, hasMore } = useOrders('All', 200);
   const { products } = useProducts();
   const [salesFilter, setSalesFilter] = useState('This Week');
   const [categoryFilter, setCategoryFilter] = useState('This Month');
@@ -93,13 +95,22 @@ const Dashboard = () => {
 
   // 1. Dynamic Metrics Calculation via Web Worker
   const [dynamicMetrics, setDynamicMetrics] = useState({
-    totalOrders: 0, totalRevenue: 0, pendingDelivery: 0,
-    inventoryValue: 0, lowStockCount: 0, codCollection: 0
+    totalOrders: 0,
+    netRevenue: 0,
+    grossBookedGMV: 0,
+    cancelledFailedGMV: 0,
+    pendingDelivery: 0,
+    inventoryValue: 0,
+    lowStockCount: 0,
+    codCollection: 0,
+    unknownStatusCount: 0,
+    unknownStatusGMV: 0,
+    missingGstCount: 0
   });
 
   useEffect(() => {
     if (!allOrders && !products) return;
-    const worker = new Worker(new URL('../workers/dashboardMetricsWorker.js', import.meta.url));
+    const worker = new Worker(new URL('../workers/dashboardMetricsWorker.js', import.meta.url), { type: 'module' });
     worker.postMessage({ allOrders, products });
     worker.onmessage = (e) => {
       setDynamicMetrics(e.data);
@@ -112,27 +123,28 @@ const Dashboard = () => {
     const days = 7;
     const result = [];
     for (let i = days - 1; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
+      const start = new Date();
+      start.setDate(start.getDate() - i);
+      start.setHours(0, 0, 0, 0);
+
+      const end = new Date(start);
+      end.setHours(23, 59, 59, 999);
+
+      const dayMetrics = calculateOrderMetrics(allOrders || [], { start, end });
+
+      const dayBookedOrdersCount = (allOrders || []).filter(o => {
+        const d = toDateSafe(o.createdAt);
+        const status = (o.status || '').toUpperCase();
+        return d && d >= start && d <= end && !FAILED_CANCELLED_STATUSES.includes(status);
+      }).length;
+
       result.push({
-        date: d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
-        dateStr: d.toDateString(),
-        revenue: 0,
-        orders: 0
+        date: start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+        revenue: dayMetrics.netRevenue,
+        orders: dayBookedOrdersCount
       });
     }
-    if (allOrders) {
-      allOrders.forEach(o => {
-        if (!o.createdAt) return;
-        const d = o.createdAt?.toDate ? o.createdAt.toDate() : new Date(o.createdAt);
-        const match = result.find(r => r.dateStr === d.toDateString());
-        if (match) {
-          match.orders++;
-          match.revenue += Number(o.totalAmount || 0);
-        }
-      });
-    }
-    return result.map(r => ({ date: r.date, revenue: r.revenue, orders: r.orders }));
+    return result;
   }, [allOrders]);
 
   // 3. Dynamic Status Distribution
@@ -200,12 +212,15 @@ const Dashboard = () => {
     return [];
   }, [allOrders]);
 
+  const orderLabel = hasMore ? `Recent ${allOrders.length} Orders` : 'Lifetime Orders';
+  const recentTag = hasMore ? ` (Recent ${allOrders.length})` : '';
+
   // KPI Metric Cards Data
   const metricCards = [
     {
       title: "Total Orders",
       value: dynamicMetrics.totalOrders.toLocaleString(),
-      change: "Lifetime Orders",
+      change: orderLabel,
       trend: "up",
       icon: ShoppingCart,
       iconBg: "bg-emerald-600",
@@ -213,54 +228,54 @@ const Dashboard = () => {
       path: "/orders"
     },
     {
-      title: "Total Revenue",
-      value: formatCurrency(dynamicMetrics.totalRevenue),
-      change: "Lifetime Revenue",
+      title: "Net Revenue",
+      value: formatCurrency(dynamicMetrics.netRevenue),
+      change: `Excl. GST & Returns${recentTag}`,
       trend: "up",
       icon: IndianRupee,
-      iconBg: "bg-blue-600",
-      waveColor: "#3b82f6",
+      iconBg: "bg-emerald-700",
+      waveColor: "#047857",
       path: "/finance"
     },
     {
-      title: "Inventory Value",
-      value: formatCurrency(dynamicMetrics.inventoryValue),
-      change: "Based on active products",
+      title: "GMV (Booked)",
+      value: formatCurrency(dynamicMetrics.grossBookedGMV),
+      change: `Active & Delivered${recentTag}`,
       trend: "up",
-      icon: Package,
-      iconBg: "bg-purple-600",
-      waveColor: "#a855f7",
-      path: "/products"
+      icon: TrendingUp,
+      iconBg: "bg-blue-600",
+      waveColor: "#3b82f6",
+      path: "/orders"
+    },
+    {
+      title: "Cancelled / Failed",
+      value: formatCurrency(dynamicMetrics.cancelledFailedGMV),
+      change: `Lost / Voided Value${recentTag}`,
+      trend: "down",
+      icon: AlertOctagon,
+      iconBg: "bg-rose-600",
+      waveColor: "#e11d48",
+      path: "/orders?filter=CANCELLED"
     },
     {
       title: "Pending Delivery",
       value: dynamicMetrics.pendingDelivery.toString(),
       change: "Orders in pipeline",
-      trend: "down",
+      trend: "subtext",
       icon: Truck,
       iconBg: "bg-orange-500",
       waveColor: "#f97316",
       path: "/trips"
     },
     {
-      title: "COD Collection",
-      value: formatCurrency(dynamicMetrics.codCollection),
-      change: "Pending to deposit",
-      trend: "subtext",
-      icon: Wallet,
-      iconBg: "bg-teal-600",
-      waveColor: "#14b8a6",
-      path: "/cash-recon"
-    },
-    {
-      title: "Low Stock SKUs",
-      value: dynamicMetrics.lowStockCount.toString(),
-      change: "Below threshold (10)",
-      trend: "subtext",
-      icon: AlertTriangle,
-      iconBg: "bg-amber-500",
-      waveColor: "#f59e0b",
-      path: "/products?filter=low-stock"
+      title: "Inventory Value",
+      value: formatCurrency(dynamicMetrics.inventoryValue),
+      change: "Active stock value",
+      trend: "up",
+      icon: Package,
+      iconBg: "bg-purple-600",
+      waveColor: "#a855f7",
+      path: "/catalog?tab=products"
     }
   ];
 
@@ -349,11 +364,11 @@ const Dashboard = () => {
         path: '/orders'
       });
     }
-    if (dynamicMetrics.totalRevenue > 0) {
+    if (dynamicMetrics.netRevenue > 0) {
       list.push({
         icon: TrendingUp,
         color: 'text-purple-600 bg-purple-50',
-        title: `Total Sales: ${formatCurrency(dynamicMetrics.totalRevenue)}`,
+        title: `Net Revenue: ${formatCurrency(dynamicMetrics.netRevenue)} (GMV: ${formatCurrency(dynamicMetrics.grossBookedGMV)})`,
         sub: `${dynamicMetrics.totalOrders} total orders processed`,
         path: '/finance'
       });
@@ -391,6 +406,20 @@ const Dashboard = () => {
           </div>
           <div className="text-[10px] font-bold text-gray-400 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100">
             Viewing metrics for: <span className="text-gray-700">{hubFilter === 'All' ? 'Entire Network' : warehouses.find(w => w.id === hubFilter)?.name}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Unknown Status & Missing GST Alert Banner */}
+      {(dynamicMetrics.unknownStatusCount > 0 || dynamicMetrics.missingGstCount > 0) && (
+        <div className="bg-amber-50 border border-amber-200 px-4 py-3 rounded-2xl flex items-center justify-between text-amber-900 text-xs font-bold shadow-sm">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle size={18} className="text-amber-600 shrink-0" />
+            <span>
+              {dynamicMetrics.unknownStatusCount > 0 && `⚠️ ${dynamicMetrics.unknownStatusCount} order(s) have unclassified status (${formatCurrency(dynamicMetrics.unknownStatusGMV)} GMV). `}
+              {dynamicMetrics.missingGstCount > 0 && `⚠️ ${dynamicMetrics.missingGstCount} item(s) are missing gstRate. `}
+              Please review in Orders ERP.
+            </span>
           </div>
         </div>
       )}
@@ -455,14 +484,14 @@ const Dashboard = () => {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-5">
               <div>
-                <span className="text-[10px] font-semibold text-gray-400 block uppercase">Total Sales</span>
-                <span className="text-lg font-black text-gray-900 block">{formatCurrency(dynamicMetrics.totalRevenue)}</span>
-                <span className="text-[9px] font-bold text-emerald-600">Lifetime Revenue</span>
+                <span className="text-[10px] font-semibold text-gray-400 block uppercase">Net Revenue (Delivered)</span>
+                <span className="text-lg font-black text-emerald-800 block">{formatCurrency(dynamicMetrics.netRevenue)}</span>
+                <span className="text-[9px] font-bold text-gray-500">GMV: {formatCurrency(dynamicMetrics.grossBookedGMV)}</span>
               </div>
               <div>
                 <span className="text-[10px] font-semibold text-gray-400 block uppercase">Total Orders</span>
                 <span className="text-lg font-black text-gray-900 block">{dynamicMetrics.totalOrders.toLocaleString()}</span>
-                <span className="text-[9px] font-bold text-emerald-600">Lifetime Orders</span>
+                <span className="text-[9px] font-bold text-emerald-600">{orderLabel}</span>
               </div>
             </div>
 
