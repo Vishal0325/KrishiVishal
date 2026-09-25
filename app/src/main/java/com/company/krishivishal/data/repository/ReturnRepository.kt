@@ -40,6 +40,7 @@ class ReturnRepositoryImpl @Inject constructor(
             "proofUrls" to request.proofUrls,
             "productId" to request.productId,
             "productName" to request.productName,
+            "skuCode" to request.skuCode,
             "quantity" to request.quantity
         )
 
@@ -75,7 +76,11 @@ class ReturnRepositoryImpl @Inject constructor(
                 .get()
                 .await()
             
-            val networkData = networkSnapshot.toObjects(ReturnRequest::class.java)
+            val networkData = networkSnapshot.documents.mapNotNull { doc ->
+                runCatching {
+                    doc.toObject(ReturnRequest::class.java)?.copy(id = doc.id)
+                }.getOrNull()
+            }
             
             if (networkData.isNotEmpty()) {
                 // Update local database with fresh server data
@@ -99,7 +104,8 @@ class ReturnRepositoryImpl @Inject constructor(
     }
 
     override fun getReturnDetails(returnId: String): Flow<Resource<ReturnRequest?>> = safeCall(ioDispatcher) {
-        firestore.collection("returns").document(returnId).get().await().toObject(ReturnRequest::class.java)
+        val doc = firestore.collection("returns").document(returnId).get().await()
+        doc.toObject(ReturnRequest::class.java)?.copy(id = doc.id)
     }
 
     override fun updateReturnStatus(returnId: String, status: ReturnStatus, adminNotes: String?): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
@@ -107,7 +113,7 @@ class ReturnRepositoryImpl @Inject constructor(
             "status" to status.name,
             "updatedAt" to FieldValue.serverTimestamp()
         )
-        adminNotes?.let { updates["adminNotes"] = it }
+        adminNotes?.let { updates["adminNotes"] = FieldValue.arrayUnion(it) }
 
         val docRef = firestore.collection("returns").document(returnId)
         val snapshot = docRef.get().await()
@@ -127,7 +133,7 @@ class ReturnRepositoryImpl @Inject constructor(
             val updatedLocal = localReturn.copy(
                 status = status.name, 
                 updatedAt = java.util.Date()
-            ).let { if (adminNotes != null) it.copy(adminNotes = adminNotes) else it }
+            ).let { if (adminNotes != null) it.copy(adminNotes = it.adminNotes + adminNotes) else it }
             returnDao.insertReturn(updatedLocal)
         }
     }

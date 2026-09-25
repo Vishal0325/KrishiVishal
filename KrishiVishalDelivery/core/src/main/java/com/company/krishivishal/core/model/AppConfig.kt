@@ -9,6 +9,7 @@ data class AppConfig(
     val supportEmail: String = "",
     val baseSalaryPerDay: Double = 300.0,
     val commissionPerOrder: Double = 20.0,
+    val commissionPerReturn: Double = 25.0,
     val fuelAllowancePerDay: Double = 50.0,
     val adminAlertWhatsApp: String = "",
     val lowStockThreshold: Int = 10,

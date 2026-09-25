@@ -196,6 +196,10 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 });
             }
 
+            // 4. Read user document (for WALLET validation and customer profile)
+            const userRef = db.collection("users").doc(context.auth.uid);
+            const userSnap = await transaction.get(userRef);
+
             // ── PHASE 2: IN-MEMORY CALCULATIONS & VALIDATIONS (No Firestore I/O) ──
 
             // Validate delivery slot
@@ -325,6 +329,13 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             const totalAmount = netCartValue + totalExtraTax + deliveryCharge;
             const initialStatus = hasOnDemandItems ? "PROCUREMENT_PENDING" : "PLACED";
 
+            if (paymentMethod === 'WALLET') {
+                const userWalletBalance = Number(userSnap.data()?.walletBalance) || 0;
+                if (userWalletBalance < totalAmount) {
+                    throw new Error(`Insufficient wallet balance. Required: ₹${totalAmount}, Available: ₹${userWalletBalance}`);
+                }
+            }
+
             const addressString = [
                 structuredAddress.line1,
                 structuredAddress.line2,
@@ -356,7 +367,7 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 deliveryCharges: deliveryCharge,
                 totalAmount,
                 paymentMethod,
-                paymentStatus: "PENDING",
+                paymentStatus: paymentMethod === 'WALLET' ? "PAID" : "PENDING",
                 status: initialStatus,
                 hasOnDemandItems,
                 deliverySlotId: deliverySlotId || null,
@@ -396,6 +407,36 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             // 3. Set on-demand queue items
             for (const od of onDemandQueueEntries) {
                 transaction.set(od.ref, od.data);
+            }
+
+            // 3b. If WALLET payment, deduct balance & log to wallet history
+            if (paymentMethod === 'WALLET') {
+                transaction.update(userRef, {
+                    walletBalance: admin.firestore.FieldValue.increment(-totalAmount),
+                    lastWalletTransactionAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+
+                const walletLogRef = db.collection("users").doc(context.auth.uid).collection("wallet_history").doc();
+                transaction.set(walletLogRef, {
+                    id: walletLogRef.id,
+                    type: "ORDER_PAYMENT",
+                    orderId: orderId,
+                    amount: totalAmount,
+                    description: `Paid for Order #${orderId.slice(-6).toUpperCase()}`,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                });
+
+                const wtRef = db.collection("wallet_transactions").doc();
+                transaction.set(wtRef, {
+                    id: wtRef.id,
+                    uid: context.auth.uid,
+                    userId: context.auth.uid,
+                    type: "ORDER_PAYMENT",
+                    amount: totalAmount,
+                    orderId: orderId,
+                    description: `Order Payment #${orderId.slice(-6).toUpperCase()}`,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                });
             }
 
             // 4. Save order document
@@ -520,12 +561,12 @@ exports.cancelOrder = onCall({ region: REGION }, async (request) => {
  * 5. Creates return doc in 'returns' collection
  * 6. Updates order returnStatus
  */
-exports.requestReturn = onCall({ region: REGION }, async (request) => {
+exports.requestReturn = onCall({ region: REGION, invoker: 'public' }, async (request) => {
     const data = request.data || {};
     const context = { auth: request.auth };
 
     if (!context.auth) throw new HttpsError('unauthenticated', 'Login required.');
-    const { orderId, reason, customerComment, proofUrls, productId, productName, quantity } = data;
+    const { orderId, reason, customerComment, proofUrls, productId, productName, quantity, skuCode } = data;
 
     if (!orderId || typeof orderId !== 'string') {
         throw new HttpsError('invalid-argument', 'Invalid or missing orderId.');
@@ -572,20 +613,42 @@ exports.requestReturn = onCall({ region: REGION }, async (request) => {
         throw new HttpsError('already-exists', 'An active return request already exists for this order.');
     }
 
+    // Identify target product details
+    const matchedItem = (orderData.items && Array.isArray(orderData.items))
+        ? (orderData.items.find(i => (productId && i.productId === productId) || (skuCode && i.skuCode === skuCode)) || orderData.items[0])
+        : null;
+
+    const returnQty = typeof quantity === 'number' && quantity > 0
+        ? quantity
+        : (matchedItem ? (matchedItem.quantity || 1) : 1);
+
+    const itemPrice = matchedItem ? (Number(matchedItem.price) || 0) : 0;
+    const calcRefundAmount = itemPrice > 0 ? (itemPrice * returnQty) : (Number(orderData.totalAmount) || 0);
+
+    const customerName = orderData.customerName || orderData.userName || orderData.shippingAddress?.fullName || orderData.shippingAddress?.name || "";
+    const customerPhone = orderData.customerPhone || orderData.userPhone || orderData.shippingAddress?.phoneNumber || orderData.shippingAddress?.phone || "";
+    const customerAddress = orderData.shippingAddress?.fullAddress || orderData.shippingAddress?.address || orderData.deliveryAddress || orderData.address || "";
+
     // Generate unique return ID
     const returnId = "RET-" + crypto.randomBytes(4).toString("hex").toUpperCase();
-    const targetProduct = (orderData.items && orderData.items.length > 0) ? orderData.items[0] : null;
 
     const returnDoc = {
         id: returnId,
         orderId,
         userId: context.auth.uid,
-        productId: productId || (targetProduct ? targetProduct.productId : "general"),
-        productName: productName || (targetProduct ? (targetProduct.productName || targetProduct.name || "Item") : "Ordered Item"),
-        quantity: typeof quantity === 'number' && quantity > 0 ? quantity : (targetProduct ? (targetProduct.quantity || 1) : 1),
+        productId: productId || (matchedItem ? matchedItem.productId : "general"),
+        productName: productName || (matchedItem ? (matchedItem.productName || matchedItem.name || "Item") : "Ordered Item"),
+        skuCode: skuCode || (matchedItem ? (matchedItem.skuCode || "") : ""),
+        quantity: returnQty,
+        refundAmount: calcRefundAmount,
         reason: reason.trim(),
         customerComment: typeof customerComment === 'string' ? customerComment.trim() : "",
         proofUrls: Array.isArray(proofUrls) ? proofUrls : [],
+        customerName: customerName,
+        customerPhone: customerPhone,
+        customerAddress: typeof customerAddress === 'object' ? JSON.stringify(customerAddress) : String(customerAddress),
+        targetLat: orderData.targetLat || orderData.shippingAddress?.lat || null,
+        targetLng: orderData.targetLng || orderData.shippingAddress?.lng || null,
         status: "REQUESTED",
         refundMethod: orderData.paymentMethod === "RAZORPAY_ONLINE" ? "UPI" : "WALLET",
         createdAt: admin.firestore.FieldValue.serverTimestamp(),

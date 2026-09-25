@@ -16,6 +16,7 @@ data class Rider(
     val bankAccount: String = "",
     val bankName: String = "",
     val ifscCode: String = "",
+    val upiId: String = "",
     val fcmToken: String = "",
     val riderIdDisplay: String = "",
     val riderSerialId: String = "",

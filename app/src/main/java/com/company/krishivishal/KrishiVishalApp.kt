@@ -42,13 +42,9 @@ class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provide
     lateinit var workerFactory: HiltWorkerFactory
 
     override val workManagerConfiguration: Configuration
-        get() = if (::workerFactory.isInitialized) {
-            Configuration.Builder()
-                .setWorkerFactory(workerFactory)
-                .build()
-        } else {
-            Configuration.Builder().build()
-        }
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .build()
 
     companion object {
         private var _instance: KrishiVishalApp? = null

@@ -253,9 +253,16 @@ fun OrderScreen(
             val returnOrder = orderToReturn
             if (returnOrder != null) {
                 ReturnRequestDialog(
+                    order = returnOrder,
                     onDismiss = { orderToReturn = null },
-                    onConfirm = { reason ->
-                        viewModel.requestReturn(returnOrder, reason)
+                    onConfirm = { item, quantity, reason, comment ->
+                        viewModel.requestReturn(
+                            order = returnOrder,
+                            item = item,
+                            quantity = quantity,
+                            reason = reason,
+                            comment = comment
+                        )
                         orderToReturn = null
                     }
                 )
@@ -479,7 +486,7 @@ fun ReferenceOrderItemCard(
                                     .padding(top = 4.dp),
                                 contentAlignment = Alignment.CenterEnd
                             ) {
-                                ReferenceStatusBadge(status = order.orderStatus)
+                                ReferenceStatusBadge(order = order)
                             }
                         }
                     }
@@ -689,8 +696,52 @@ fun ReferenceOrderItemCard(
                         }
                     }
 
-                    // Return Items Section
-                    if (order.orderStatus == OrderStatus.DELIVERED) {
+                    // Return & Refund Status Section
+                    val isRefunded = order.status == "RETURNED" || order.status == "REFUNDED" || order.refundStatus == "REFUNDED" || order.returnStatus == "RETURN_COMPLETED"
+                    val isReturnPending = order.returnStatus.isNotBlank() && !isRefunded
+
+                    if (isRefunded) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFE8F5E9),
+                            border = BorderStroke(1.dp, Color(0xFFA5D6A7))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text("Return & Refund Completed", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF1B5E20))
+                                    val amt = if (order.refundAmount > 0) "₹${order.refundAmount.toInt()}" else "₹${order.totalAmount.toInt()}"
+                                    Text("$amt has been credited to your Wallet.", fontSize = 12.sp, color = Color(0xFF2E7D32))
+                                }
+                            }
+                        }
+                    } else if (isReturnPending) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFFFF8E1),
+                            border = BorderStroke(1.dp, Color(0xFFFFD54F))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.HourglassTop, contentDescription = null, tint = Color(0xFFE65100), modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text("Return Request Under Review", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFFE65100))
+                                    Text("Our rider/support team is processing your request.", fontSize = 12.sp, color = Color(0xFFBF360C))
+                                }
+                            }
+                        }
+                    } else if (order.orderStatus == OrderStatus.DELIVERED) {
                         val returnState by viewModel.uiState.collectAsState()
 
                         LaunchedEffect(returnState.returnRequestResource) {
@@ -732,14 +783,28 @@ fun ReferenceOrderItemCard(
 
 /**
  * Status Badge matching the Reference Image:
- * Pill shape, light green background, light green border, dark green text.
+ * Pill shape with contextual color for Delivered, Refunded, Return In Progress, Cancelled, etc.
  */
 @Composable
-fun ReferenceStatusBadge(status: OrderStatus) {
-    val (bgColor, borderColor, textColor) = when (status) {
-        OrderStatus.DELIVERED -> Triple(Color(0xFFE8F5E9), Color(0xFFA5D6A7), Color(0xFF388E3C))
-        OrderStatus.CANCELLED -> Triple(Color(0xFFFFEBEE), Color(0xFFEF9A9A), Color(0xFFD32F2F))
-        OrderStatus.OUT_FOR_DELIVERY -> Triple(Color(0xFFF3E5F5), Color(0xFFCE93D8), Color(0xFF7B1FA2))
+fun ReferenceStatusBadge(order: Order) {
+    val isRefunded = order.status == "RETURNED" || order.status == "REFUNDED" || order.refundStatus == "REFUNDED" || order.returnStatus == "RETURN_COMPLETED"
+    val isReturnRequested = order.returnStatus.isNotBlank() && !isRefunded
+
+    val label = when {
+        isRefunded -> "Refunded"
+        isReturnRequested -> "Return In Progress"
+        order.orderStatus == OrderStatus.DELIVERED -> "Delivered"
+        order.orderStatus == OrderStatus.CANCELLED -> "Cancelled"
+        order.orderStatus == OrderStatus.OUT_FOR_DELIVERY -> "Out for Delivery"
+        else -> order.orderStatus.displayName
+    }
+
+    val (bgColor, borderColor, textColor) = when {
+        isRefunded -> Triple(Color(0xFFFFF8E1), Color(0xFFFFD54F), Color(0xFFF57F17))
+        isReturnRequested -> Triple(Color(0xFFFFF8E1), Color(0xFFFFD54F), Color(0xFFF57F17))
+        order.orderStatus == OrderStatus.DELIVERED -> Triple(Color(0xFFE8F5E9), Color(0xFFA5D6A7), Color(0xFF388E3C))
+        order.orderStatus == OrderStatus.CANCELLED -> Triple(Color(0xFFFFEBEE), Color(0xFFEF9A9A), Color(0xFFD32F2F))
+        order.orderStatus == OrderStatus.OUT_FOR_DELIVERY -> Triple(Color(0xFFF3E5F5), Color(0xFFCE93D8), Color(0xFF7B1FA2))
         else -> Triple(Color(0xFFE3F2FD), Color(0xFF90CAF9), Color(0xFF1976D2))
     }
 
@@ -749,10 +814,10 @@ fun ReferenceStatusBadge(status: OrderStatus) {
         border = BorderStroke(1.dp, borderColor)
     ) {
         Text(
-            text = status.displayName,
+            text = label,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
             fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.Bold,
             color = textColor
         )
     }
@@ -820,47 +885,188 @@ fun WriteReviewDialog(
 
 @Composable
 fun ReturnRequestDialog(
+    order: Order,
     onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
+    onConfirm: (item: OrderItem, quantity: Int, reason: String, comment: String) -> Unit
 ) {
+    val items = order.items
+    var selectedItemIndex by remember { mutableIntStateOf(0) }
+    val currentItem = items.getOrNull(selectedItemIndex) ?: items.firstOrNull() ?: OrderItem()
+
+    val maxQty = if (currentItem.quantity > 0) currentItem.quantity else 1
+    var returnQty by remember(selectedItemIndex) { mutableIntStateOf(1) }
     var selectedReason by remember { mutableStateOf("") }
-    val reasons = listOf("Defective/Damaged", "Wrong Item Received", "Quality not as expected", "Expired Product", "Changed my mind")
+    var customerComment by remember { mutableStateOf("") }
+
+    val reasons = listOf(
+        "Defective/Damaged",
+        "Wrong Item Received",
+        "Quality not as expected",
+        "Expired Product",
+        "Changed my mind"
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Request Return", fontWeight = FontWeight.Bold) },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Refresh, contentDescription = null, tint = PrimaryGreen, modifier = Modifier.size(22.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Request Return", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            }
+        },
         text = {
-            Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
-                Text("Why are you returning this?", fontSize = 13.sp, color = Color.Gray)
-                Spacer(modifier = Modifier.height(10.dp))
-                reasons.forEach { reason ->
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Item Selector (if multiple items in order)
+                if (items.size > 1) {
+                    item {
+                        Text("Select Item to Return:", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F2937))
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items.forEachIndexed { index, item ->
+                                val isSelected = (index == selectedItemIndex)
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            selectedItemIndex = index
+                                            returnQty = 1
+                                        },
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(if (isSelected) 1.5.dp else 0.5.dp, if (isSelected) PrimaryGreen else Color.LightGray),
+                                    color = if (isSelected) PrimaryGreen.copy(alpha = 0.05f) else Color.White
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(
+                                            selected = isSelected,
+                                            onClick = {
+                                                selectedItemIndex = index
+                                                returnQty = 1
+                                            },
+                                            colors = RadioButtonDefaults.colors(selectedColor = PrimaryGreen)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(item.productName, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
+                                            Text("Ordered: ${item.quantity} | ₹${item.price.toInt()}", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (currentItem.productName.isNotBlank()) {
+                    item {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFF9FAFB),
+                            border = BorderStroke(0.5.dp, Color.LightGray)
+                        ) {
+                            Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.ShoppingBag, contentDescription = null, tint = PrimaryGreen, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(currentItem.productName, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("Ordered Qty: ${currentItem.quantity} | ₹${currentItem.price.toInt()}", fontSize = 11.sp, color = Color.Gray)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Quantity Selector
+                item {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .selectable(
-                                selected = (selectedReason == reason),
-                                onClick = { selectedReason = reason },
-                                role = Role.RadioButton
-                            )
-                            .padding(vertical = 6.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        RadioButton(
-                            selected = (selectedReason == reason),
-                            onClick = null
-                        )
-                        Text(text = reason, modifier = Modifier.padding(start = 10.dp), fontSize = 13.sp)
+                        Column {
+                            Text("Return Quantity:", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F2937))
+                            Text("Max: $maxQty", fontSize = 11.sp, color = Color.Gray)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            FilledTonalIconButton(
+                                onClick = { if (returnQty > 1) returnQty-- },
+                                enabled = returnQty > 1,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Remove, contentDescription = "Decrease", modifier = Modifier.size(16.dp))
+                            }
+                            Text(
+                                text = "$returnQty",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 15.sp,
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+                            FilledTonalIconButton(
+                                onClick = { if (returnQty < maxQty) returnQty++ },
+                                enabled = returnQty < maxQty,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "Increase", modifier = Modifier.size(16.dp))
+                            }
+                        }
                     }
+                }
+
+                // Return Reason
+                item {
+                    Text("Reason for Return:", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F2937))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
+                        reasons.forEach { reason ->
+                            val isSelected = (selectedReason == reason)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .selectable(
+                                        selected = isSelected,
+                                        onClick = { selectedReason = reason },
+                                        role = Role.RadioButton
+                                    )
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = null,
+                                    colors = RadioButtonDefaults.colors(selectedColor = PrimaryGreen)
+                                )
+                                Text(text = reason, modifier = Modifier.padding(start = 8.dp), fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+
+                // Customer Notes / Comment
+                item {
+                    OutlinedTextField(
+                        value = customerComment,
+                        onValueChange = { customerComment = it },
+                        label = { Text("Additional Comment / Issue (Optional)") },
+                        placeholder = { Text("e.g. Seal was broken or expired") },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 2,
+                        shape = RoundedCornerShape(8.dp)
+                    )
                 }
             }
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(selectedReason) },
-                enabled = selectedReason.isNotEmpty(),
+                onClick = { onConfirm(currentItem, returnQty, selectedReason, customerComment.trim()) },
+                enabled = selectedReason.isNotBlank() && currentItem.productId.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
             ) {
-                Text("Submit Request")
+                Text("Submit Request", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

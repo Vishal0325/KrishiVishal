@@ -90,9 +90,22 @@ class WalletRepositoryImpl @Inject constructor(
                     orderId = map["orderId"] as? String,
                     returnId = map["returnId"] as? String,
                     razorpayPaymentId = map["razorpayPaymentId"] as? String,
-                    timestamp = (map["timestamp"] as? String)?.let {
-                        try { java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).parse(it) }
-                        catch (_: Exception) { null }
+                    timestamp = when (val t = map["timestamp"] ?: map["timestampMs"]) {
+                        is Number -> java.util.Date(t.toLong())
+                        is String -> {
+                            try {
+                                java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
+                                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                                }.parse(t) ?: java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                                }.parse(t)
+                            } catch (_: Exception) {
+                                try {
+                                    java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).parse(t)
+                                } catch (_: Exception) { null }
+                            }
+                        }
+                        else -> null
                     }
                 )
             }

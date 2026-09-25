@@ -13,5 +13,7 @@ data class IncentiveProgress(
     val slabAchieved: Boolean = false,
     val earnedBonus: Double = 0.0,
     val earnedCommission: Double = 0.0,
+    val returnsCount: Int = 0,
+    val earnedReturnCommission: Double = 0.0,
     val totalEarningsToday: Double = 0.0
 )

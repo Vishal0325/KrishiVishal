@@ -325,7 +325,7 @@ fun DashboardScreen(
                             }
 
                             // 1. Cash Limit Security (COD Vault Limit) Banner
-                            if (isCodVaultLimitExceeded || codCashInHand >= 10000.0) {
+                            if (codCashInHand > 0.0) {
                                 item {
                                     CodVaultSecurityBanner(
                                         cashInHand = codCashInHand,
@@ -747,7 +747,7 @@ fun CodVaultSecurityBanner(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (isExceeded) "कैश लिमिट सुरक्षा (COD Vault Limit Exceeded)" else "COD Vault Warning",
+                    text = if (isExceeded) "कैश लिमिट सुरक्षा (COD Vault Limit Exceeded)" else "हाथ में नकद (COD Cash in Hand)",
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 15.sp,
                     color = contentColor
@@ -758,7 +758,7 @@ fun CodVaultSecurityBanner(
                 text = if (isExceeded)
                     "आपके पास ₹${cashInHand.toInt()} नकद जमा है। ₹15,000 की सुरक्षा सीमा पार हो गई है! नया ऑर्डर तब तक नहीं मिलेगा जब तक आप वेयरहाउस में कैश जमा न कर दें।"
                 else
-                    "आपके पास ₹${cashInHand.toInt()} नकद जमा है। ₹15,000 की सीमा नज़दीक है।",
+                    "आपके पास ₹${cashInHand.toInt()} नकद जमा है। वेयरहाउस में जमा करके रसीद प्राप्त करें।",
                 fontSize = 13.sp,
                 color = contentColor.copy(alpha = 0.9f),
                 lineHeight = 18.sp
@@ -772,7 +772,7 @@ fun CodVaultSecurityBanner(
             ) {
                 Icon(Icons.Default.Warehouse, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("वेयरहाउस में जमा करें", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("जमा करें व रसीदें देखें", fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -822,6 +822,12 @@ fun IncentiveProgressCard(progress: IncentiveProgress) {
                         Column {
                             Text("ORDERS", color = Color(0xFFDCFCE7), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             Text("${progress.currentCount}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        if (progress.returnsCount > 0) {
+                            Column {
+                                Text("RETURNS", color = Color(0xFFDCFCE7), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text("${progress.returnsCount} (₹${progress.earnedReturnCommission.toInt()})", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            }
                         }
                         Column {
                             Text("BONUS", color = Color(0xFFDCFCE7), fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -1157,21 +1163,100 @@ fun DeliveredOrderCard(
 
 @Composable
 fun ReturnPickupCard(request: ReturnRequest, onClick: () -> Unit, onPickup: () -> Unit) {
-    Card(onClick = onClick, shape = RoundedCornerShape(12.dp), elevation = CardDefaults.cardElevation(4.dp)) {
-        Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text("Return #${request.id.takeLast(8).uppercase()}", fontWeight = FontWeight.Bold)
-                StatusBadge(request.status)
+    Card(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(2.dp),
+        border = BorderStroke(
+            1.dp,
+            when (request.status) {
+                "PICKED_UP" -> Color(0xFFFFD54F)
+                "HUB_RECEIVED", "COMPLETED", "REFUNDED" -> Color(0xFFA5D6A7)
+                else -> Color(0xFFE5E7EB)
             }
-            Text("Product: ${request.productName}", fontSize = 14.sp)
-            Text("Reason: ${request.reason}", color = Color.Gray, fontSize = 12.sp)
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
+            Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text("Return #${request.id.takeLast(6).uppercase()}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                when (request.status) {
+                    "PICKED_UP" -> {
+                        Surface(
+                            color = Color(0xFFFFF8E1),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, Color(0xFFFFD54F))
+                        ) {
+                            Text("🎒 In Rider Bag", color = Color(0xFFE65100), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                        }
+                    }
+                    "HUB_RECEIVED" -> {
+                        Surface(
+                            color = Color(0xFFE8F5E9),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, Color(0xFFA5D6A7))
+                        ) {
+                            Text("🏢 Hub Deposited", color = Color(0xFF2E7D32), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                        }
+                    }
+                    else -> StatusBadge(request.status)
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text("Product: ${request.productName} (Qty: ${request.quantity})", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            val custName = request.customerName.ifBlank { "Customer" }
+            Text("Customer: $custName", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (request.reason.isNotBlank()) {
+                Text("Reason: ${request.reason}", color = Color.Gray, fontSize = 12.sp)
+            }
             Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = onPickup,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
-            ) {
-                Text("Quick Pickup", fontWeight = FontWeight.Bold)
+            when (request.status) {
+                ReturnStatus.PICKUP_SCHEDULED.name -> {
+                    Button(
+                        onClick = onClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Inspect QC & Pickup", fontWeight = FontWeight.Bold)
+                    }
+                }
+                "PICKED_UP" -> {
+                    Button(
+                        onClick = onClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Warehouse, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Deposit at Hub (+₹25)", fontWeight = FontWeight.Bold)
+                    }
+                }
+                "HUB_RECEIVED" -> {
+                    Surface(
+                        color = Color(0xFFE8F5E9),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.padding(8.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Verified at Hub (₹25 Commission Earned)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1B5E20))
+                        }
+                    }
+                }
+                else -> {
+                    OutlinedButton(
+                        onClick = onClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("View Return Details", fontWeight = FontWeight.Medium)
+                    }
+                }
             }
         }
     }

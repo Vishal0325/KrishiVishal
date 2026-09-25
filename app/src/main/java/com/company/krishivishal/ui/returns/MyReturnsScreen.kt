@@ -144,7 +144,7 @@ fun ReturnItemCard(returnRequest: ReturnRequest) {
                 ) {
                     PaddingValues(8.dp)
                     Text(
-                        text = "QC Failed: ${returnRequest.adminNotes}",
+                        text = "QC Failed: ${returnRequest.adminNotes.joinToString(", ")}",
                         color = Color.Red,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(12.dp),

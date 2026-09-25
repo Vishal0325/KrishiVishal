@@ -3,6 +3,7 @@ package com.company.krishivishal.ui.order
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.company.krishivishal.core.model.Order
+import com.company.krishivishal.core.model.OrderItem
 import com.company.krishivishal.core.model.OrderStatus
 import com.company.krishivishal.core.model.ReturnRequest
 import com.company.krishivishal.domain.usecase.auth.GetCurrentUserUseCase
@@ -170,16 +171,30 @@ class OrderViewModel @Inject constructor(
         }
     }
 
-    fun requestReturn(order: Order, reason: String = "Customer requested return") {
+    fun requestReturn(
+        order: Order,
+        item: OrderItem? = null,
+        quantity: Int = 1,
+        reason: String = "Customer requested return",
+        comment: String = "",
+        proofUrls: List<String> = emptyList()
+    ) {
         viewModelScope.launch {
             _uiState.update { it.copy(returnRequestResource = Resource.Loading()) }
+
+            val targetItem = item ?: order.items.firstOrNull()
+            val effectiveQty = if (quantity > 0) quantity else (targetItem?.quantity ?: 1)
 
             val request = ReturnRequest(
                 orderId = order.id,
                 userId = order.userId,
-                productId = order.items.firstOrNull()?.productId ?: "general",
-                productName = order.items.firstOrNull()?.productName ?: "Ordered Item",
+                productId = targetItem?.productId ?: "general",
+                productName = targetItem?.productName ?: "Ordered Item",
+                skuCode = targetItem?.skuCode ?: "",
+                quantity = effectiveQty,
                 reason = reason,
+                customerComment = comment,
+                proofUrls = proofUrls,
                 status = "REQUESTED"
             )
 

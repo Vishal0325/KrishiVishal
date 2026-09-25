@@ -97,7 +97,12 @@ fun AppNavGraph(
         }
         composable("earnings") {
             val viewModel: EarningsViewModel = hiltViewModel()
-            EarningsScreen(viewModel = viewModel)
+            EarningsScreen(
+                viewModel = viewModel,
+                onNavigateToReconciliation = {
+                    navController.navigate("reconciliation")
+                }
+            )
         }
         composable("profile") {
             val viewModel: ProfileViewModel = hiltViewModel()
@@ -119,6 +124,9 @@ fun AppNavGraph(
                 },
                 onPartnerSkillsClick = {
                     navController.navigate("partner_skills")
+                },
+                onReconciliationClick = {
+                    navController.navigate("reconciliation")
                 }
             )
         }

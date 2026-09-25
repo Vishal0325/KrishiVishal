@@ -33,7 +33,7 @@ data class WalletTransaction(
      * Returns true if this transaction adds money to the wallet (credit).
      */
     val isCredit: Boolean
-        get() = type in listOf("TOP_UP", "REFUND_CREDIT", "ADMIN_CREDIT", "REFERRAL_CREDIT", "REFERRAL_SIGNUP_CREDIT")
+        get() = type in listOf("TOP_UP", "REFUND_CREDIT", "CREDIT", "ADMIN_CREDIT", "REFERRAL_CREDIT", "REFERRAL_SIGNUP_CREDIT")
 
     /**
      * Display-friendly transaction type label.
@@ -43,6 +43,7 @@ data class WalletTransaction(
             "TOP_UP"         -> "Wallet Recharge"
             "ORDER_PAYMENT"  -> "Order Payment"
             "REFUND_CREDIT"  -> "Refund Credit"
+            "CREDIT"         -> "Refund Credit"
             "ADMIN_CREDIT"   -> "Bonus Credit"
             "ADMIN_DEBIT"    -> "Adjustment"
             "REFERRAL_CREDIT" -> "Referral Reward"

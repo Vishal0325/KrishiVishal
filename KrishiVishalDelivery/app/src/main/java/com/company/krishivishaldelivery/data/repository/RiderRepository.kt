@@ -135,6 +135,55 @@ class RiderRepository @Inject constructor(
         awaitClose { listener.remove() }
     }
 
+    fun getPayoutRequests(riderId: String): Flow<Resource<List<com.company.krishivishaldelivery.data.model.PayoutRequest>>> = callbackFlow {
+        val listener = firestore.collection("payout_requests")
+            .whereEqualTo("riderId", riderId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(Resource.Error(error.message ?: "Failed to fetch payout requests"))
+                    return@addSnapshotListener
+                }
+                val requests = snapshot?.documents?.mapNotNull { doc ->
+                    runCatching {
+                        doc.toObject(com.company.krishivishaldelivery.data.model.PayoutRequest::class.java)?.copy(id = doc.id)
+                    }.getOrNull()
+                }?.sortedByDescending { it.requestedAt?.time ?: 0L } ?: emptyList()
+                trySend(Resource.Success(requests))
+            }
+        awaitClose { listener.remove() }
+    }
+
+    suspend fun requestPayout(
+        amount: Double,
+        paymentMethod: String,
+        upiId: String,
+        bankDetails: Map<String, String>? = null,
+        notes: String = ""
+    ): Resource<String> {
+        return try {
+            val payload = mutableMapOf<String, Any>(
+                "amount" to amount,
+                "paymentMethod" to paymentMethod,
+                "upiId" to upiId,
+                "notes" to notes
+            )
+            bankDetails?.let { payload["bankDetails"] = it }
+
+            val requestData = mapOf(
+                "action" to "REQUEST_PAYOUT",
+                "payload" to payload
+            )
+            val functions = com.google.firebase.functions.FirebaseFunctions.getInstance("asia-south1")
+            val result = functions.getHttpsCallable("riderMutations").call(requestData).await()
+            val data = result.data as? Map<*, *>
+            val message = data?.get("message") as? String ?: "Withdrawal request submitted successfully"
+            Resource.Success(message)
+        } catch (e: Exception) {
+            Timber.e(e, "requestPayout failed")
+            Resource.Error(e.localizedMessage ?: "Failed to submit withdrawal request")
+        }
+    }
+
     suspend fun updatePartnerSkills(riderId: String, skills: List<String>, equipment: List<String>): Boolean {
         return try {
             firestore.collection("users").document(riderId).update(

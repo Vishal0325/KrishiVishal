@@ -3,12 +3,14 @@ package com.company.krishivishal.core.model
 import android.os.Parcelable
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.google.firebase.firestore.IgnoreExtraProperties
 import com.google.gson.annotations.SerializedName
 import kotlinx.parcelize.Parcelize
 import java.util.Date
 
 @Parcelize
 @Entity(tableName = "returns")
+@IgnoreExtraProperties
 data class ReturnRequest(
     @PrimaryKey
     @SerializedName("id")
@@ -41,6 +43,18 @@ data class ReturnRequest(
     @SerializedName("customerComment")
     val customerComment: String = "",
 
+    @SerializedName("customerName")
+    val customerName: String = "",
+
+    @SerializedName("customerPhone")
+    val customerPhone: String = "",
+
+    @SerializedName("customerAddress")
+    val customerAddress: String = "",
+
+    @SerializedName("skuCode")
+    val skuCode: String = "",
+    
     @SerializedName("proofUrls")
     val proofUrls: List<String> = emptyList(),
     
@@ -72,8 +86,41 @@ data class ReturnRequest(
     val refundMethod: String = "UPI", // UPI, BANK_ACCOUNT, WALLET
     
     @SerializedName("adminNotes")
-    val adminNotes: String = "",
+    val adminNotes: List<String> = emptyList(),
+
+    @SerializedName("qcNote")
+    val qcNote: String = "",
+
+    @SerializedName("qcCompletedAt")
+    val qcCompletedAt: Date? = null,
+
+    @SerializedName("hubDepositedAt")
+    val hubDepositedAt: Date? = null,
+
+    @SerializedName("hubDepositedWarehouseId")
+    val hubDepositedWarehouseId: String = "",
+
+    @SerializedName("hubReceivedBy")
+    val hubReceivedBy: String = "",
+
+    @SerializedName("riderCommissionEarned")
+    val riderCommissionEarned: Double = 0.0,
+
+    @SerializedName("isRiderCommissionSettled")
+    val isRiderCommissionSettled: Boolean = false,
     
+    @SerializedName("stockRestored")
+    val stockRestored: Boolean = false,
+
+    @SerializedName("stockRestoredAt")
+    val stockRestoredAt: Date? = null,
+
+    @SerializedName("ledgerPosted")
+    val ledgerPosted: Boolean = false,
+
+    @SerializedName("ledgerPostedAt")
+    val ledgerPostedAt: Date? = null,
+
     @SerializedName("pickupDate")
     val pickupDate: Date? = null,
     

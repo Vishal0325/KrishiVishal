@@ -83,6 +83,49 @@ async function runP0Tests() {
         failed++;
     }
 
+    // Test 6: Verify cash_deposits is NOT open to any authenticated user
+    const cashDepositsSecure = !rulesContent.includes("match /cash_deposits/{id} {\n      allow read, write: if isAuthenticated();") &&
+                               !rulesContent.includes("match /cash_deposits/{id} {\r\n      allow read, write: if isAuthenticated();");
+    if (cashDepositsSecure) {
+        console.log("PASS: Test 6 (cash_deposits is protected against open isAuthenticated access)");
+        passed++;
+    } else {
+        console.log("FAIL: Test 6 (cash_deposits has open isAuthenticated access)");
+        failed++;
+    }
+
+    // Test 7: Verify payout_requests is NOT open to any authenticated user
+    const payoutRequestsSecure = !rulesContent.includes("match /payout_requests/{reqId} {\n      allow read, write: if isAuthenticated();") &&
+                                 !rulesContent.includes("match /payout_requests/{reqId} {\r\n      allow read, write: if isAuthenticated();");
+    if (payoutRequestsSecure) {
+        console.log("PASS: Test 7 (payout_requests is protected against open isAuthenticated access)");
+        passed++;
+    } else {
+        console.log("FAIL: Test 7 (payout_requests has open isAuthenticated access)");
+        failed++;
+    }
+
+    // Test 8: Verify hub_bank_deposits requires admin access
+    const hubBankDepositsSecure = rulesContent.includes("match /hub_bank_deposits/{id}") &&
+                                  rulesContent.includes("allow read, write: if isAdmin() || isSuperAdmin();");
+    if (hubBankDepositsSecure) {
+        console.log("PASS: Test 8 (hub_bank_deposits is restricted to Admin/SuperAdmin)");
+        passed++;
+    } else {
+        console.log("FAIL: Test 8 (hub_bank_deposits is not properly restricted)");
+        failed++;
+    }
+
+    // Test 9: Verify financial collections do not have || isAuthenticated()
+    const financeSecure = !rulesContent.includes("canViewFinance() || isAdmin() || isSuperAdmin() || isAuthenticated()");
+    if (financeSecure) {
+        console.log("PASS: Test 9 (financial collections do not leak to isAuthenticated users)");
+        passed++;
+    } else {
+        console.log("FAIL: Test 9 (financial collections contain || isAuthenticated leak)");
+        failed++;
+    }
+
     console.log(`\n==========================================`);
     console.log(`P0 SECURITY TESTS COMPLETED: ${passed} PASSED, ${failed} FAILED.`);
     console.log(`==========================================\n`);

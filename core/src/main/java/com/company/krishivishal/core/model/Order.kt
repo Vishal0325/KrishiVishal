@@ -203,7 +203,23 @@ data class Order(
 
     @ColumnInfo(name = "packagingFee")
     @SerializedName("packagingFee")
-    val packagingFee: Double = 0.0
+    val packagingFee: Double = 0.0,
+
+    @ColumnInfo(name = "returnStatus", defaultValue = "''")
+    @SerializedName("returnStatus")
+    val returnStatus: String = "",
+
+    @ColumnInfo(name = "returnId", defaultValue = "''")
+    @SerializedName("returnId")
+    val returnId: String = "",
+
+    @ColumnInfo(name = "refundStatus", defaultValue = "''")
+    @SerializedName("refundStatus")
+    val refundStatus: String = "",
+
+    @ColumnInfo(name = "refundAmount", defaultValue = "0.0")
+    @SerializedName("refundAmount")
+    val refundAmount: Double = 0.0
 ) : Parcelable {
     @get:Exclude
     val orderStatus: OrderStatus 

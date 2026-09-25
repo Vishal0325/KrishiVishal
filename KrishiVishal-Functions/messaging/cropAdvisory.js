@@ -3,7 +3,7 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db, admin } = require("../core/admin");
 const { isAdminRequest } = require("../core/utils");
 
-const REGION = "asia-south1";
+const REGION = 'asia-south1';
 
 /**
  * Month lookup map supporting English and Hindi names or numeric strings.

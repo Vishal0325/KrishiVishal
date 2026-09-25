@@ -220,58 +220,205 @@ exports.getWalletHistory = onCall({ region: REGION }, async (request) => {
 
     const uid = context.auth.uid;
 
-    const [historySnap, txnSnap] = await Promise.all([
-        db.collection('users').doc(uid).collection('wallet_history')
-          .orderBy('timestamp', 'desc').limit(50).get(),
-        db.collection('wallet_transactions')
-          .where('uid', '==', uid)
-          .orderBy('createdAt', 'desc').limit(50).get()
-    ]);
+    const parseDate = (val) => {
+        if (!val) return { ms: 0, iso: null };
+        if (typeof val.toDate === 'function') {
+            const d = val.toDate();
+            return { ms: d.getTime(), iso: d.toISOString() };
+        }
+        if (val instanceof Date) {
+            return { ms: val.getTime(), iso: val.toISOString() };
+        }
+        if (typeof val === 'number') {
+            const d = new Date(val);
+            return { ms: d.getTime(), iso: d.toISOString() };
+        }
+        if (typeof val === 'string') {
+            const d = new Date(val);
+            if (!isNaN(d.getTime())) {
+                return { ms: d.getTime(), iso: d.toISOString() };
+            }
+        }
+        return { ms: 0, iso: null };
+    };
+
+    let historyDocs = [];
+    let txnByUidDocs = [];
+    let txnByUserIdDocs = [];
+    let walletOrderDocs = [];
+    let walletReturnDocs = [];
+
+    // Query 1: users/{uid}/wallet_history (Standard wallet subcollection)
+    try {
+        const snap = await db.collection('users').doc(uid).collection('wallet_history').limit(50).get();
+        historyDocs = snap.docs;
+    } catch (err) {
+        console.warn('[getWalletHistory] wallet_history query error:', err.message);
+    }
+
+    // Query 2: wallet_transactions where uid == uid
+    try {
+        const snap = await db.collection('wallet_transactions').where('uid', '==', uid).limit(50).get();
+        txnByUidDocs = snap.docs;
+    } catch (err) {
+        console.warn('[getWalletHistory] wallet_transactions by uid query error:', err.message);
+    }
+
+    // Query 3: wallet_transactions where userId == uid (Admin portal refund records)
+    try {
+        const snap = await db.collection('wallet_transactions').where('userId', '==', uid).limit(50).get();
+        txnByUserIdDocs = snap.docs;
+    } catch (err) {
+        console.warn('[getWalletHistory] wallet_transactions by userId query error:', err.message);
+    }
+
+    // Query 4: orders where userId == uid and paymentMethod == 'WALLET' (captures any order paid by wallet)
+    try {
+        const snap = await db.collection('orders').where('userId', '==', uid).where('paymentMethod', '==', 'WALLET').limit(50).get();
+        walletOrderDocs = snap.docs;
+    } catch (err) {
+        console.warn('[getWalletHistory] orders query error:', err.message);
+    }
+
+    // Query 5: returns where userId == uid (captures any return refunded to wallet)
+    try {
+        const snap = await db.collection('returns').where('userId', '==', uid).limit(50).get();
+        walletReturnDocs = snap.docs;
+    } catch (err) {
+        console.warn('[getWalletHistory] returns query error:', err.message);
+    }
 
     let transactions = [];
-    
-    historySnap.docs.forEach(doc => {
+    const seenIds = new Set();
+    const seenOrderPayments = new Set();
+    const seenReturnIds = new Set();
+
+    historyDocs.forEach(doc => {
         const d = doc.data();
+        if (seenIds.has(doc.id)) return;
+        seenIds.add(doc.id);
+        if (d.orderId && (d.type === 'ORDER_PAYMENT' || d.type === 'REDEEMED_AT_CHECKOUT')) {
+            seenOrderPayments.add(d.orderId);
+        }
+        if (d.returnId) {
+            seenReturnIds.add(d.returnId);
+        }
+
+        const parsed = parseDate(d.timestamp || d.createdAt || d.updatedAt);
         transactions.push({
             id: doc.id,
-            type: d.type,
-            amount: d.amount,
-            description: d.description || '',
+            type: d.type || 'REFUND_CREDIT',
+            amount: Number(d.amount) || 0,
+            description: d.description || (d.type === 'ORDER_PAYMENT' ? 'Order Payment' : 'Refund Credit'),
             orderId: d.orderId || null,
-            timestamp: d.timestamp?.toDate?.()?.getTime() || 0,
-            isoString: d.timestamp?.toDate?.()?.toISOString() || null
+            returnId: d.returnId || null,
+            timestampMs: parsed.ms,
+            isoString: parsed.iso
         });
     });
 
-    txnSnap.docs.forEach(doc => {
+    const mapTxnDoc = (doc) => {
         const d = doc.data();
-        let description = "";
-        if (d.type === "REFERRAL_CREDIT" || d.type === "REFERRAL_SIGNUP_CREDIT") description = "Referral Reward";
-        else if (d.type === "REFERRAL_REVERSAL") description = "Referral Reversal";
-        else if (d.type === "REDEEMED_AT_CHECKOUT") description = "Wallet Redeemed at Checkout";
+        if (seenIds.has(doc.id)) return;
+        seenIds.add(doc.id);
 
+        const orderId = d.orderId || d.referenceOrderId || null;
+        const returnId = d.referenceId || d.returnId || null;
+
+        let description = d.description || "";
+        let type = d.type || "";
+
+        if (d.category === "REFUND" && (d.type === "CREDIT" || !d.type)) {
+            type = "REFUND_CREDIT";
+            description = description || "Refund credited to wallet";
+        } else if (d.type === "REFERRAL_CREDIT" || d.type === "REFERRAL_SIGNUP_CREDIT") {
+            description = description || "Referral Reward";
+        } else if (d.type === "REFERRAL_REVERSAL") {
+            description = description || "Referral Reversal";
+        } else if (d.type === "REDEEMED_AT_CHECKOUT" || d.type === "ORDER_PAYMENT") {
+            type = "ORDER_PAYMENT";
+            description = description || "Order Payment";
+        } else if (!type) {
+            type = "REFUND_CREDIT";
+        }
+
+        if (orderId && type === 'ORDER_PAYMENT') {
+            seenOrderPayments.add(orderId);
+        }
+        if (returnId) {
+            seenReturnIds.add(returnId);
+        }
+
+        const parsed = parseDate(d.createdAt || d.timestamp || d.updatedAt);
         transactions.push({
             id: doc.id,
-            type: d.type,
-            amount: d.amount,
+            type: type,
+            amount: Number(d.amount) || 0,
             description: description,
-            orderId: d.referenceOrderId || null,
-            timestamp: d.createdAt?.toDate?.()?.getTime() || 0,
-            isoString: d.createdAt?.toDate?.()?.toISOString() || null
+            orderId: orderId,
+            returnId: returnId,
+            timestampMs: parsed.ms,
+            isoString: parsed.iso
+        });
+    };
+
+    txnByUidDocs.forEach(mapTxnDoc);
+    txnByUserIdDocs.forEach(mapTxnDoc);
+
+    // Process fallback: Wallet Orders not yet recorded in history subcollection
+    walletOrderDocs.forEach(doc => {
+        const d = doc.data();
+        if (seenIds.has(doc.id) || seenOrderPayments.has(doc.id)) return;
+        seenIds.add(doc.id);
+        seenOrderPayments.add(doc.id);
+
+        const parsed = parseDate(d.createdAt || d.updatedAt);
+        transactions.push({
+            id: `ord_${doc.id}`,
+            type: "ORDER_PAYMENT",
+            amount: Number(d.totalAmount) || 0,
+            description: `Order #${doc.id.slice(-6).toUpperCase()}`,
+            orderId: doc.id,
+            returnId: null,
+            timestampMs: parsed.ms,
+            isoString: parsed.iso
         });
     });
 
-    transactions.sort((a, b) => b.timestamp - a.timestamp);
-    transactions = transactions.slice(0, 50).map(t => {
-        return {
-            id: t.id,
-            type: t.type,
-            amount: t.amount,
-            description: t.description,
-            orderId: t.orderId,
-            timestamp: t.isoString
-        };
+    // Process fallback: Returns with refundMethod == 'WALLET' not yet recorded
+    walletReturnDocs.forEach(doc => {
+        const d = doc.data();
+        if (seenIds.has(doc.id) || seenReturnIds.has(doc.id)) return;
+        if (d.refundMethod === 'WALLET' || d.status === 'REFUNDED' || d.refundStatus === 'COMPLETED') {
+            seenIds.add(doc.id);
+            seenReturnIds.add(doc.id);
+
+            const parsed = parseDate(d.refundedAt || d.updatedAt || d.createdAt);
+            transactions.push({
+                id: `ret_${doc.id}`,
+                type: "REFUND_CREDIT",
+                amount: Number(d.refundAmount || d.amount) || 0,
+                description: `Refund for Return #${doc.id.slice(-6).toUpperCase()}`,
+                orderId: d.orderId || null,
+                returnId: doc.id,
+                timestampMs: parsed.ms,
+                isoString: parsed.iso
+            });
+        }
     });
 
-    return { success: true, transactions };
+    // Sort in memory (newest first)
+    transactions.sort((a, b) => b.timestampMs - a.timestampMs);
+
+    const formattedTxns = transactions.slice(0, 50).map(t => ({
+        id: t.id,
+        type: t.type,
+        amount: t.amount,
+        description: t.description,
+        orderId: t.orderId,
+        returnId: t.returnId,
+        timestamp: t.isoString
+    }));
+
+    return { success: true, transactions: formattedTxns };
 });

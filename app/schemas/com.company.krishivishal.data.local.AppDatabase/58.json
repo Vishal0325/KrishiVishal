@@ -1,0 +1,2469 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 58,
+    "identityHash": "b365af61be54bf8d851bfa977a112e31",
+    "entities": [
+      {
+        "tableName": "users",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `email` TEXT, `phone` TEXT, `image_url` TEXT, `tier` TEXT NOT NULL, `walletBalance` REAL NOT NULL DEFAULT 0, `role` TEXT NOT NULL, `location` TEXT NOT NULL, `interestedCategories` TEXT NOT NULL, `fcmToken` TEXT, `age` INTEGER, `totalLand` REAL NOT NULL DEFAULT 0.0, `landUnit` TEXT NOT NULL DEFAULT 'Katha', `cropAllocations` TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "email",
+            "columnName": "email",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "phone",
+            "columnName": "phone",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "imageUrl",
+            "columnName": "image_url",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "tier",
+            "columnName": "tier",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "walletBalance",
+            "columnName": "walletBalance",
+            "affinity": "REAL",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "role",
+            "columnName": "role",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "location",
+            "columnName": "location",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "interestedCategories",
+            "columnName": "interestedCategories",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fcmToken",
+            "columnName": "fcmToken",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "age",
+            "columnName": "age",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "totalLand",
+            "columnName": "totalLand",
+            "affinity": "REAL",
+            "notNull": true,
+            "defaultValue": "0.0"
+          },
+          {
+            "fieldPath": "landUnit",
+            "columnName": "landUnit",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'Katha'"
+          },
+          {
+            "fieldPath": "cropAllocations",
+            "columnName": "cropAllocations",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'[]'"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "addresses",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `fullName` TEXT NOT NULL, `mobileNumber` TEXT NOT NULL, `houseNo` TEXT NOT NULL, `street` TEXT NOT NULL, `ward` TEXT NOT NULL, `pincode` TEXT NOT NULL, `block` TEXT NOT NULL, `district` TEXT NOT NULL, `landmark` TEXT NOT NULL, `state` TEXT NOT NULL, `isDefault` INTEGER NOT NULL, `addressType` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fullName",
+            "columnName": "fullName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mobileNumber",
+            "columnName": "mobileNumber",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "houseNo",
+            "columnName": "houseNo",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "street",
+            "columnName": "street",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ward",
+            "columnName": "ward",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pincode",
+            "columnName": "pincode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "block",
+            "columnName": "block",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "district",
+            "columnName": "district",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "landmark",
+            "columnName": "landmark",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isDefault",
+            "columnName": "isDefault",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "addressType",
+            "columnName": "addressType",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_addresses_userId",
+            "unique": false,
+            "columnNames": [
+              "userId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_addresses_userId` ON `${TABLE_NAME}` (`userId`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "products",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `brand` TEXT NOT NULL, `description` TEXT NOT NULL, `composition` TEXT NOT NULL, `category` TEXT NOT NULL, `cropId` TEXT NOT NULL, `cropName` TEXT NOT NULL, `associatedCropIds` TEXT NOT NULL, `associatedCropNames` TEXT NOT NULL, `isAllCrops` INTEGER NOT NULL, `classification` TEXT NOT NULL, `subCategory` TEXT NOT NULL, `imageUrl` TEXT NOT NULL, `basePrice` REAL NOT NULL, `discountedPrice` REAL NOT NULL, `discountPercent` INTEGER NOT NULL, `savedPrice` REAL NOT NULL, `rating` REAL NOT NULL, `reviewsCount` INTEGER NOT NULL, `deliveryLocation` TEXT NOT NULL, `deliveryDate` TEXT NOT NULL, `mfgDate` INTEGER, `expiryDate` INTEGER, `stockQuantity` INTEGER NOT NULL, `isActive` INTEGER NOT NULL, `isReturnable` INTEGER NOT NULL, `features` TEXT NOT NULL, `mrp` REAL NOT NULL, `unit` TEXT NOT NULL, `weight` TEXT NOT NULL, `weightGrams` INTEGER, `images` TEXT NOT NULL, `hsnCode` TEXT NOT NULL, `gstRate` REAL NOT NULL, `isTaxInclusive` INTEGER NOT NULL, `technicalName` TEXT NOT NULL, `technicalNameNormalized` TEXT NOT NULL, `formulationType` TEXT NOT NULL, `priceBand` TEXT NOT NULL, `packSizeBand` TEXT NOT NULL, `salesCount` INTEGER NOT NULL, `salesCount90d` INTEGER NOT NULL, `viewCount` INTEGER NOT NULL, `searchCount` INTEGER NOT NULL, `tags` TEXT NOT NULL, `targetPestIds` TEXT NOT NULL, `usageInstructions` TEXT NOT NULL, `targetCrops` TEXT NOT NULL, `targetPests` TEXT NOT NULL, `targetDiseases` TEXT NOT NULL, `applicationMethod` TEXT NOT NULL, `safetyNotes` TEXT NOT NULL, `mixingCompatibility` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "brand",
+            "columnName": "brand",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "composition",
+            "columnName": "composition",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "category",
+            "columnName": "category",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cropId",
+            "columnName": "cropId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cropName",
+            "columnName": "cropName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "associatedCropIds",
+            "columnName": "associatedCropIds",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "associatedCropNames",
+            "columnName": "associatedCropNames",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isAllCrops",
+            "columnName": "isAllCrops",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "classification",
+            "columnName": "classification",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subCategory",
+            "columnName": "subCategory",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageUrl",
+            "columnName": "imageUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "basePrice",
+            "columnName": "basePrice",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "discountedPrice",
+            "columnName": "discountedPrice",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "discountPercent",
+            "columnName": "discountPercent",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "savedPrice",
+            "columnName": "savedPrice",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rating",
+            "columnName": "rating",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reviewsCount",
+            "columnName": "reviewsCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deliveryLocation",
+            "columnName": "deliveryLocation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deliveryDate",
+            "columnName": "deliveryDate",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mfgDate",
+            "columnName": "mfgDate",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "expiryDate",
+            "columnName": "expiryDate",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "stockQuantity",
+            "columnName": "stockQuantity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "isActive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isReturnable",
+            "columnName": "isReturnable",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "features",
+            "columnName": "features",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mrp",
+            "columnName": "mrp",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unit",
+            "columnName": "unit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weight",
+            "columnName": "weight",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weightGrams",
+            "columnName": "weightGrams",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "images",
+            "columnName": "images",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hsnCode",
+            "columnName": "hsnCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gstRate",
+            "columnName": "gstRate",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isTaxInclusive",
+            "columnName": "isTaxInclusive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "technicalName",
+            "columnName": "technicalName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "technicalNameNormalized",
+            "columnName": "technicalNameNormalized",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "formulationType",
+            "columnName": "formulationType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "priceBand",
+            "columnName": "priceBand",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "packSizeBand",
+            "columnName": "packSizeBand",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "salesCount",
+            "columnName": "salesCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "salesCount90d",
+            "columnName": "salesCount90d",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "viewCount",
+            "columnName": "viewCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "searchCount",
+            "columnName": "searchCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tags",
+            "columnName": "tags",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetPestIds",
+            "columnName": "targetPestIds",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "usageInstructionsField",
+            "columnName": "usageInstructions",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetCrops",
+            "columnName": "targetCrops",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetPests",
+            "columnName": "targetPests",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetDiseases",
+            "columnName": "targetDiseases",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "applicationMethod",
+            "columnName": "applicationMethod",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "safetyNotes",
+            "columnName": "safetyNotes",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mixingCompatibility",
+            "columnName": "mixingCompatibility",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_products_category",
+            "unique": false,
+            "columnNames": [
+              "category"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_products_category` ON `${TABLE_NAME}` (`category`)"
+          },
+          {
+            "name": "index_products_brand",
+            "unique": false,
+            "columnNames": [
+              "brand"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_products_brand` ON `${TABLE_NAME}` (`brand`)"
+          },
+          {
+            "name": "index_products_cropId",
+            "unique": false,
+            "columnNames": [
+              "cropId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_products_cropId` ON `${TABLE_NAME}` (`cropId`)"
+          },
+          {
+            "name": "index_products_technicalNameNormalized",
+            "unique": false,
+            "columnNames": [
+              "technicalNameNormalized"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_products_technicalNameNormalized` ON `${TABLE_NAME}` (`technicalNameNormalized`)"
+          },
+          {
+            "name": "index_products_isActive",
+            "unique": false,
+            "columnNames": [
+              "isActive"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_products_isActive` ON `${TABLE_NAME}` (`isActive`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "variants",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `productId` TEXT NOT NULL, `size` TEXT NOT NULL, `price` REAL NOT NULL, `basePrice` REAL NOT NULL, `discountPercent` INTEGER NOT NULL, `isBestSeller` INTEGER NOT NULL, `mfgDate` INTEGER, `expiryDate` INTEGER, `stock` INTEGER NOT NULL, `batchNumber` TEXT NOT NULL, `label` TEXT NOT NULL, `weight` TEXT NOT NULL, `weightGrams` INTEGER, `unit` TEXT NOT NULL, `skuCode` TEXT NOT NULL DEFAULT '', `barcode` TEXT NOT NULL DEFAULT '', `reorderLevel` INTEGER NOT NULL DEFAULT 0, `availableStock` INTEGER NOT NULL DEFAULT 0, `committedStock` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`id`), FOREIGN KEY(`productId`) REFERENCES `products`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productId",
+            "columnName": "productId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "size",
+            "columnName": "size",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "price",
+            "columnName": "price",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "basePrice",
+            "columnName": "basePrice",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "discountPercent",
+            "columnName": "discountPercent",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isBestSeller",
+            "columnName": "isBestSeller",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mfgDate",
+            "columnName": "mfgDate",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "expiryDate",
+            "columnName": "expiryDate",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "stock",
+            "columnName": "stock",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "batchNumber",
+            "columnName": "batchNumber",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weight",
+            "columnName": "weight",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weightGrams",
+            "columnName": "weightGrams",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "unit",
+            "columnName": "unit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "skuCode",
+            "columnName": "skuCode",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "barcode",
+            "columnName": "barcode",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "reorderLevel",
+            "columnName": "reorderLevel",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "availableStock",
+            "columnName": "availableStock",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "committedStock",
+            "columnName": "committedStock",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_variants_productId",
+            "unique": false,
+            "columnNames": [
+              "productId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_variants_productId` ON `${TABLE_NAME}` (`productId`)"
+          },
+          {
+            "name": "index_variants_skuCode",
+            "unique": false,
+            "columnNames": [
+              "skuCode"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_variants_skuCode` ON `${TABLE_NAME}` (`skuCode`)"
+          },
+          {
+            "name": "index_variants_barcode",
+            "unique": false,
+            "columnNames": [
+              "barcode"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_variants_barcode` ON `${TABLE_NAME}` (`barcode`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "products",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "productId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "categories",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `imageUrl` TEXT NOT NULL, `subCategories` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageUrl",
+            "columnName": "imageUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subCategories",
+            "columnName": "subCategories",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "cart_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `productId` TEXT NOT NULL, `variantId` TEXT, `quantity` INTEGER NOT NULL, `skuCode` TEXT, `isSelected` INTEGER NOT NULL, `timestamp` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productId",
+            "columnName": "productId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "variantId",
+            "columnName": "variantId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "quantity",
+            "columnName": "quantity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "skuCode",
+            "columnName": "skuCode",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "isSelected",
+            "columnName": "isSelected",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_cart_items_userId",
+            "unique": false,
+            "columnNames": [
+              "userId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_cart_items_userId` ON `${TABLE_NAME}` (`userId`)"
+          },
+          {
+            "name": "index_cart_items_productId",
+            "unique": false,
+            "columnNames": [
+              "productId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_cart_items_productId` ON `${TABLE_NAME}` (`productId`)"
+          },
+          {
+            "name": "index_cart_items_variantId",
+            "unique": false,
+            "columnNames": [
+              "variantId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_cart_items_variantId` ON `${TABLE_NAME}` (`variantId`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "orders",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `items` TEXT NOT NULL, `totalAmount` REAL NOT NULL, `paymentMethod` TEXT NOT NULL, `paymentStatus` TEXT NOT NULL, `razorpayPaymentId` TEXT, `address` TEXT NOT NULL, `landmark` TEXT NOT NULL DEFAULT '', `status` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `expectedDelivery` INTEGER NOT NULL, `riderId` TEXT NOT NULL, `isCOD` INTEGER NOT NULL, `codAmount` REAL NOT NULL, `isSettledByAdmin` INTEGER NOT NULL, `targetLat` REAL NOT NULL, `targetLng` REAL NOT NULL, `customerOTP` TEXT NOT NULL, `userName` TEXT NOT NULL, `userPhone` TEXT NOT NULL, `collectedCash` REAL NOT NULL, `isCashDeposited` INTEGER NOT NULL, `totalTax` REAL NOT NULL, `taxableTotal` REAL NOT NULL, `cgst` REAL NOT NULL, `sgst` REAL NOT NULL, `igst` REAL NOT NULL, `subtotal` REAL NOT NULL, `totalDiscount` REAL NOT NULL, `deliveryCharges` REAL NOT NULL, `platformFee` REAL NOT NULL, `handlingCharge` REAL NOT NULL, `packagingFee` REAL NOT NULL, `returnStatus` TEXT NOT NULL DEFAULT '', `returnId` TEXT NOT NULL DEFAULT '', `refundStatus` TEXT NOT NULL DEFAULT '', `refundAmount` REAL NOT NULL DEFAULT 0.0, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "items",
+            "columnName": "items",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalAmount",
+            "columnName": "totalAmount",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paymentMethod",
+            "columnName": "paymentMethod",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paymentStatus",
+            "columnName": "paymentStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "razorpayPaymentId",
+            "columnName": "razorpayPaymentId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "address",
+            "columnName": "address",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "landmark",
+            "columnName": "landmark",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expectedDelivery",
+            "columnName": "expectedDelivery",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "riderId",
+            "columnName": "riderId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isCOD",
+            "columnName": "isCOD",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "codAmount",
+            "columnName": "codAmount",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isSettledByAdmin",
+            "columnName": "isSettledByAdmin",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetLat",
+            "columnName": "targetLat",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetLng",
+            "columnName": "targetLng",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "customerOTP",
+            "columnName": "customerOTP",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userName",
+            "columnName": "userName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userPhone",
+            "columnName": "userPhone",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "collectedCash",
+            "columnName": "collectedCash",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isCashDeposited",
+            "columnName": "isCashDeposited",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalTax",
+            "columnName": "totalTax",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taxableTotal",
+            "columnName": "taxableTotal",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cgst",
+            "columnName": "cgst",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sgst",
+            "columnName": "sgst",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "igst",
+            "columnName": "igst",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subtotal",
+            "columnName": "subtotal",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalDiscount",
+            "columnName": "totalDiscount",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deliveryCharges",
+            "columnName": "deliveryCharges",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "platformFee",
+            "columnName": "platformFee",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "handlingCharge",
+            "columnName": "handlingCharge",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "packagingFee",
+            "columnName": "packagingFee",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "returnStatus",
+            "columnName": "returnStatus",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "returnId",
+            "columnName": "returnId",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "refundStatus",
+            "columnName": "refundStatus",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "refundAmount",
+            "columnName": "refundAmount",
+            "affinity": "REAL",
+            "notNull": true,
+            "defaultValue": "0.0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_orders_userId",
+            "unique": false,
+            "columnNames": [
+              "userId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_orders_userId` ON `${TABLE_NAME}` (`userId`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "wishlist_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`productId` TEXT NOT NULL, `productName` TEXT NOT NULL, `price` REAL NOT NULL, `imageUrl` TEXT NOT NULL, `userId` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, PRIMARY KEY(`userId`, `productId`))",
+        "fields": [
+          {
+            "fieldPath": "productId",
+            "columnName": "productId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productName",
+            "columnName": "productName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "price",
+            "columnName": "price",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageUrl",
+            "columnName": "imageUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "userId",
+            "productId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_wishlist_items_userId",
+            "unique": false,
+            "columnNames": [
+              "userId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_wishlist_items_userId` ON `${TABLE_NAME}` (`userId`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "search_history",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `userId` TEXT NOT NULL, `query` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, FOREIGN KEY(`userId`) REFERENCES `users`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "query",
+            "columnName": "query",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_search_history_userId",
+            "unique": false,
+            "columnNames": [
+              "userId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_search_history_userId` ON `${TABLE_NAME}` (`userId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "users",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "userId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "returns",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `orderId` TEXT NOT NULL, `orderItemId` TEXT NOT NULL, `userId` TEXT NOT NULL, `productId` TEXT NOT NULL, `productName` TEXT NOT NULL, `quantity` INTEGER NOT NULL, `reason` TEXT NOT NULL, `description` TEXT NOT NULL, `customerComment` TEXT NOT NULL, `customerName` TEXT NOT NULL, `customerPhone` TEXT NOT NULL, `customerAddress` TEXT NOT NULL, `skuCode` TEXT NOT NULL, `proofUrls` TEXT NOT NULL, `status` TEXT NOT NULL, `riderId` TEXT NOT NULL, `qcStatus` TEXT NOT NULL, `qcPhotos` TEXT NOT NULL, `refundStatus` TEXT NOT NULL, `refundAmount` REAL NOT NULL, `gatewayRefundId` TEXT NOT NULL, `rejectionReason` TEXT NOT NULL, `refundMethod` TEXT NOT NULL, `adminNotes` TEXT NOT NULL, `qcNote` TEXT NOT NULL, `qcCompletedAt` INTEGER, `hubDepositedAt` INTEGER, `hubDepositedWarehouseId` TEXT NOT NULL, `hubReceivedBy` TEXT NOT NULL, `riderCommissionEarned` REAL NOT NULL, `isRiderCommissionSettled` INTEGER NOT NULL, `stockRestored` INTEGER NOT NULL, `stockRestoredAt` INTEGER, `ledgerPosted` INTEGER NOT NULL, `ledgerPostedAt` INTEGER, `pickupDate` INTEGER, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "orderId",
+            "columnName": "orderId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "orderItemId",
+            "columnName": "orderItemId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productId",
+            "columnName": "productId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productName",
+            "columnName": "productName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quantity",
+            "columnName": "quantity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reason",
+            "columnName": "reason",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "customerComment",
+            "columnName": "customerComment",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "customerName",
+            "columnName": "customerName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "customerPhone",
+            "columnName": "customerPhone",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "customerAddress",
+            "columnName": "customerAddress",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "skuCode",
+            "columnName": "skuCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "proofUrls",
+            "columnName": "proofUrls",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "riderId",
+            "columnName": "riderId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "qcStatus",
+            "columnName": "qcStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "qcPhotos",
+            "columnName": "qcPhotos",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "refundStatus",
+            "columnName": "refundStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "refundAmount",
+            "columnName": "refundAmount",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gatewayRefundId",
+            "columnName": "gatewayRefundId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rejectionReason",
+            "columnName": "rejectionReason",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "refundMethod",
+            "columnName": "refundMethod",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "adminNotes",
+            "columnName": "adminNotes",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "qcNote",
+            "columnName": "qcNote",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "qcCompletedAt",
+            "columnName": "qcCompletedAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "hubDepositedAt",
+            "columnName": "hubDepositedAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "hubDepositedWarehouseId",
+            "columnName": "hubDepositedWarehouseId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hubReceivedBy",
+            "columnName": "hubReceivedBy",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "riderCommissionEarned",
+            "columnName": "riderCommissionEarned",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isRiderCommissionSettled",
+            "columnName": "isRiderCommissionSettled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stockRestored",
+            "columnName": "stockRestored",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stockRestoredAt",
+            "columnName": "stockRestoredAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "ledgerPosted",
+            "columnName": "ledgerPosted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ledgerPostedAt",
+            "columnName": "ledgerPostedAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "pickupDate",
+            "columnName": "pickupDate",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "brands",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `imageUrl` TEXT NOT NULL, `isActive` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageUrl",
+            "columnName": "imageUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "isActive",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "sync_operations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `operationType` TEXT NOT NULL, `entityType` TEXT NOT NULL, `entityId` TEXT NOT NULL, `userId` TEXT NOT NULL, `payload` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `attemptCount` INTEGER NOT NULL, `lastAttemptAt` INTEGER, `isSynced` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operationType",
+            "columnName": "operationType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attemptCount",
+            "columnName": "attemptCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastAttemptAt",
+            "columnName": "lastAttemptAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "isSynced",
+            "columnName": "isSynced",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "crops",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `imageUrl` TEXT NOT NULL, `isActive` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageUrl",
+            "columnName": "imageUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "isActive",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "notifications",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `body` TEXT NOT NULL, `type` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, `isRead` INTEGER NOT NULL, `data` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "body",
+            "columnName": "body",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isRead",
+            "columnName": "isRead",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "data",
+            "columnName": "data",
+            "affinity": "TEXT",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "product_crop_cross_ref",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`productId` TEXT NOT NULL, `cropId` TEXT NOT NULL, PRIMARY KEY(`productId`, `cropId`))",
+        "fields": [
+          {
+            "fieldPath": "productId",
+            "columnName": "productId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cropId",
+            "columnName": "cropId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "productId",
+            "cropId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_product_crop_cross_ref_cropId",
+            "unique": false,
+            "columnNames": [
+              "cropId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_product_crop_cross_ref_cropId` ON `${TABLE_NAME}` (`cropId`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "product_recommendations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sourceProductId` TEXT NOT NULL, `recommendedProductId` TEXT NOT NULL, `type` TEXT NOT NULL, `score` INTEGER NOT NULL, `position` INTEGER NOT NULL, PRIMARY KEY(`sourceProductId`, `recommendedProductId`, `type`))",
+        "fields": [
+          {
+            "fieldPath": "sourceProductId",
+            "columnName": "sourceProductId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recommendedProductId",
+            "columnName": "recommendedProductId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "score",
+            "columnName": "score",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "position",
+            "columnName": "position",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sourceProductId",
+            "recommendedProductId",
+            "type"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_product_recommendations_sourceProductId_type_position",
+            "unique": false,
+            "columnNames": [
+              "sourceProductId",
+              "type",
+              "position"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_product_recommendations_sourceProductId_type_position` ON `${TABLE_NAME}` (`sourceProductId`, `type`, `position`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "recently_viewed",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT NOT NULL, `productId` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, PRIMARY KEY(`userId`, `productId`))",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productId",
+            "columnName": "productId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "userId",
+            "productId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_recently_viewed_userId_timestamp",
+            "unique": false,
+            "columnNames": [
+              "userId",
+              "timestamp"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recently_viewed_userId_timestamp` ON `${TABLE_NAME}` (`userId`, `timestamp`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "recent_searches",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `query` TEXT NOT NULL, `searchedAt` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "query",
+            "columnName": "query",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "searchedAt",
+            "columnName": "searchedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "skus",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`skuCode` TEXT NOT NULL, `productId` TEXT NOT NULL, `name` TEXT NOT NULL, `categoryCode` TEXT NOT NULL, `itemCode` TEXT NOT NULL, `varietyCode` TEXT NOT NULL, `gradeCode` TEXT NOT NULL, `packCode` TEXT NOT NULL, `brandCode` TEXT NOT NULL, `unit` TEXT NOT NULL, `size` TEXT NOT NULL, `weightGrams` INTEGER, `mrp` REAL NOT NULL, `consumerPrice` REAL NOT NULL, `dealerPrice` REAL NOT NULL, `landingCost` REAL NOT NULL, `totalStock` INTEGER NOT NULL, `availableStock` INTEGER NOT NULL, `committedStock` INTEGER NOT NULL, `hsnCode` TEXT NOT NULL, `gstRate` REAL NOT NULL, `barcode` TEXT NOT NULL, `reorderLevel` INTEGER NOT NULL, `minStockLimit` INTEGER NOT NULL, `isActive` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`skuCode`))",
+        "fields": [
+          {
+            "fieldPath": "skuCode",
+            "columnName": "skuCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productId",
+            "columnName": "productId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryCode",
+            "columnName": "categoryCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemCode",
+            "columnName": "itemCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "varietyCode",
+            "columnName": "varietyCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gradeCode",
+            "columnName": "gradeCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "packCode",
+            "columnName": "packCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "brandCode",
+            "columnName": "brandCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unit",
+            "columnName": "unit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "size",
+            "columnName": "size",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weightGrams",
+            "columnName": "weightGrams",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "mrp",
+            "columnName": "mrp",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "consumerPrice",
+            "columnName": "consumerPrice",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dealerPrice",
+            "columnName": "dealerPrice",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "landingCost",
+            "columnName": "landingCost",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalStock",
+            "columnName": "totalStock",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "availableStock",
+            "columnName": "availableStock",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "committedStock",
+            "columnName": "committedStock",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hsnCode",
+            "columnName": "hsnCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gstRate",
+            "columnName": "gstRate",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "barcode",
+            "columnName": "barcode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reorderLevel",
+            "columnName": "reorderLevel",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "minStockLimit",
+            "columnName": "minStockLimit",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "isActive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "skuCode"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_skus_productId",
+            "unique": false,
+            "columnNames": [
+              "productId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_skus_productId` ON `${TABLE_NAME}` (`productId`)"
+          },
+          {
+            "name": "index_skus_barcode",
+            "unique": false,
+            "columnNames": [
+              "barcode"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_skus_barcode` ON `${TABLE_NAME}` (`barcode`)"
+          },
+          {
+            "name": "index_skus_isActive",
+            "unique": false,
+            "columnNames": [
+              "isActive"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_skus_isActive` ON `${TABLE_NAME}` (`isActive`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "batches",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`batchId` TEXT NOT NULL, `skuCode` TEXT NOT NULL, `batchNumber` TEXT NOT NULL, `mfgDate` INTEGER, `expiryDate` INTEGER, `stock` INTEGER NOT NULL, `warehouseId` TEXT NOT NULL, `binLocation` TEXT NOT NULL, `supplierId` TEXT NOT NULL, `purchaseOrderId` TEXT NOT NULL, `grnId` TEXT NOT NULL, `landingCost` REAL NOT NULL, `qualityStatus` TEXT NOT NULL, `isActive` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`batchId`))",
+        "fields": [
+          {
+            "fieldPath": "batchId",
+            "columnName": "batchId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "skuCode",
+            "columnName": "skuCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "batchNumber",
+            "columnName": "batchNumber",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mfgDate",
+            "columnName": "mfgDate",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "expiryDate",
+            "columnName": "expiryDate",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "stock",
+            "columnName": "stock",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "warehouseId",
+            "columnName": "warehouseId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "binLocation",
+            "columnName": "binLocation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "supplierId",
+            "columnName": "supplierId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "purchaseOrderId",
+            "columnName": "purchaseOrderId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "grnId",
+            "columnName": "grnId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "landingCost",
+            "columnName": "landingCost",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "qualityStatus",
+            "columnName": "qualityStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "isActive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "batchId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_batches_skuCode",
+            "unique": false,
+            "columnNames": [
+              "skuCode"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_batches_skuCode` ON `${TABLE_NAME}` (`skuCode`)"
+          },
+          {
+            "name": "index_batches_expiryDate",
+            "unique": false,
+            "columnNames": [
+              "expiryDate"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_batches_expiryDate` ON `${TABLE_NAME}` (`expiryDate`)"
+          },
+          {
+            "name": "index_batches_warehouseId",
+            "unique": false,
+            "columnNames": [
+              "warehouseId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_batches_warehouseId` ON `${TABLE_NAME}` (`warehouseId`)"
+          },
+          {
+            "name": "index_batches_qualityStatus",
+            "unique": false,
+            "columnNames": [
+              "qualityStatus"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_batches_qualityStatus` ON `${TABLE_NAME}` (`qualityStatus`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "warehouses",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `city` TEXT NOT NULL, `state` TEXT NOT NULL, `type` TEXT NOT NULL, `isActive` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "city",
+            "columnName": "city",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "isActive",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "inventory_movements",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`movementId` TEXT NOT NULL, `movementType` TEXT NOT NULL, `skuCode` TEXT NOT NULL, `batchId` TEXT, `batchNumber` TEXT, `warehouseId` TEXT NOT NULL, `quantity` INTEGER NOT NULL, `availableBefore` INTEGER NOT NULL, `availableAfter` INTEGER NOT NULL, `committedBefore` INTEGER NOT NULL, `committedAfter` INTEGER NOT NULL, `referenceId` TEXT NOT NULL, `actorId` TEXT NOT NULL, `actorRole` TEXT NOT NULL, `reason` TEXT NOT NULL, `note` TEXT NOT NULL, `idempotencyKey` TEXT, `timestamp` INTEGER NOT NULL, PRIMARY KEY(`movementId`))",
+        "fields": [
+          {
+            "fieldPath": "movementId",
+            "columnName": "movementId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "movementType",
+            "columnName": "movementType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "skuCode",
+            "columnName": "skuCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "batchId",
+            "columnName": "batchId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "batchNumber",
+            "columnName": "batchNumber",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "warehouseId",
+            "columnName": "warehouseId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quantity",
+            "columnName": "quantity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "availableBefore",
+            "columnName": "availableBefore",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "availableAfter",
+            "columnName": "availableAfter",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "committedBefore",
+            "columnName": "committedBefore",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "committedAfter",
+            "columnName": "committedAfter",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "referenceId",
+            "columnName": "referenceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorId",
+            "columnName": "actorId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorRole",
+            "columnName": "actorRole",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reason",
+            "columnName": "reason",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idempotencyKey",
+            "columnName": "idempotencyKey",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "movementId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_inventory_movements_skuCode",
+            "unique": false,
+            "columnNames": [
+              "skuCode"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_inventory_movements_skuCode` ON `${TABLE_NAME}` (`skuCode`)"
+          },
+          {
+            "name": "index_inventory_movements_timestamp",
+            "unique": false,
+            "columnNames": [
+              "timestamp"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_inventory_movements_timestamp` ON `${TABLE_NAME}` (`timestamp`)"
+          },
+          {
+            "name": "index_inventory_movements_referenceId",
+            "unique": false,
+            "columnNames": [
+              "referenceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_inventory_movements_referenceId` ON `${TABLE_NAME}` (`referenceId`)"
+          }
+        ],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b365af61be54bf8d851bfa977a112e31')"
+    ]
+  }
+}

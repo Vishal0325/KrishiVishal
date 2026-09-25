@@ -3,6 +3,12 @@
  * Consolidated and simplified exports for reliable Firebase deployment.
  */
 
+const { setGlobalOptions } = require('firebase-functions/v2');
+// Enforce all Cloud Functions to deploy exclusively to asia-south1 (Mumbai) with optimized resource limits
+setGlobalOptions({ region: 'asia-south1', maxInstances: 10, memory: '256MiB', cpu: 0.083 });
+
+
+
 // L3: Startup environment variable configuration verification
 const REQUIRED_ENV_VARS = ['RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'QR_HMAC_SECRET', 'CLEARTAX_AUTH_TOKEN'];
 for (const envVar of REQUIRED_ENV_VARS) {

@@ -451,6 +451,32 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * Migration from 56 to 57
+     * Adds customerName, customerPhone, customerAddress, skuCode columns to returns table
+     * for improved return pickup experience (rider sees customer contact info).
+     */
+    val MIGRATION_56_57 = object : Migration(56, 57) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE returns ADD COLUMN customerName TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE returns ADD COLUMN customerPhone TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE returns ADD COLUMN customerAddress TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE returns ADD COLUMN skuCode TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE returns ADD COLUMN qcNote TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE returns ADD COLUMN qcCompletedAt INTEGER")
+            db.execSQL("ALTER TABLE returns ADD COLUMN hubDepositedAt INTEGER")
+            db.execSQL("ALTER TABLE returns ADD COLUMN hubDepositedWarehouseId TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE returns ADD COLUMN hubReceivedBy TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE returns ADD COLUMN riderCommissionEarned REAL NOT NULL DEFAULT 0.0")
+            db.execSQL("ALTER TABLE returns ADD COLUMN isRiderCommissionSettled INTEGER NOT NULL DEFAULT 0")
+
+            db.execSQL("ALTER TABLE orders ADD COLUMN returnStatus TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE orders ADD COLUMN returnId TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE orders ADD COLUMN refundStatus TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE orders ADD COLUMN refundAmount REAL NOT NULL DEFAULT 0.0")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_33_34,
         MIGRATION_34_35,
@@ -467,7 +493,8 @@ object DatabaseMigrations {
         MIGRATION_52_54,
         MIGRATION_53_54,
         MIGRATION_54_55,
-        MIGRATION_55_56
+        MIGRATION_55_56,
+        MIGRATION_56_57
     )
 }
 

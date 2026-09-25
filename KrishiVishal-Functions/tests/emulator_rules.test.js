@@ -761,6 +761,244 @@ async function runEmulatorRulesTests() {
         }));
     });
 
+    // ============================================================
+    // 11. SENSITIVE COLLECTIONS LOCKDOWN TESTS (P0 HOTFIX AUDIT)
+    // ============================================================
+
+    await env.withSecurityRulesDisabled(async (context) => {
+        const db = context.firestore();
+        await db.collection('cash_deposits').doc('dep_suresh').set({
+            riderId: 'rider_suresh',
+            amount: 500,
+            status: 'DEPOSITED_AT_WAREHOUSE'
+        });
+        await db.collection('cash_deposits').doc('dep_ramesh').set({
+            riderId: 'rider_ramesh',
+            amount: 1500,
+            status: 'DEPOSITED_AT_WAREHOUSE'
+        });
+        await db.collection('hub_bank_deposits').doc('bank_dep_1').set({
+            warehouseId: 'HUB-SAM-001',
+            amount: 25000,
+            status: 'DEPOSITED'
+        });
+        await db.collection('payout_requests').doc('payout_suresh').set({
+            riderId: 'rider_suresh',
+            amount: 200,
+            status: 'PENDING'
+        });
+        await db.collection('payout_requests').doc('payout_ramesh').set({
+            riderId: 'rider_ramesh',
+            amount: 500,
+            status: 'PENDING'
+        });
+        await db.collection('ledger').doc('led_test_1').set({
+            amount: 5000,
+            account: 'SALES'
+        });
+        await db.collection('accounts').doc('CASH_IN_HAND').set({
+            balance: 10000
+        });
+        await db.collection('expenses').doc('exp_test_1').set({
+            amount: 1200,
+            category: 'OFFICE_RENT'
+        });
+    });
+
+    const customerCharlie = env.authenticatedContext('customer_charlie', { role: 'Customer' });
+    const riderRamesh = env.authenticatedContext('rider_ramesh', { role: 'Rider' });
+    const adminVikash = env.authenticatedContext('admin_vikash', { role: 'SuperAdmin', isAdmin: true, admin: true });
+    const financeUser = env.authenticatedContext('finance_user', { role: 'FinanceAdmin' });
+
+    // 11.1: Customer CANNOT read or write cash_deposits
+    await testRule("11.1 Customer CANNOT read or write cash_deposits", async (env) => {
+        await assertFails(customerCharlie.firestore().collection('cash_deposits').doc('dep_suresh').get());
+        await assertFails(customerCharlie.firestore().collection('cash_deposits').doc('dep_hack').set({
+            riderId: 'customer_charlie',
+            amount: 99999
+        }));
+    });
+
+    // 11.2: Rider CAN read/create own cash_deposit, CANNOT access another rider's deposit
+    await testRule("11.2 Rider CAN read/create own cash_deposit, CANNOT access another rider's deposit", async (env) => {
+        const riderSuresh = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+        await assertSucceeds(riderSuresh.firestore().collection('cash_deposits').doc('dep_suresh').get());
+        await assertSucceeds(riderSuresh.firestore().collection('cash_deposits').doc('dep_suresh_new').set({
+            riderId: 'rider_suresh',
+            amount: 300,
+            status: 'DEPOSITED_AT_WAREHOUSE'
+        }));
+        await assertFails(riderSuresh.firestore().collection('cash_deposits').doc('dep_ramesh').get());
+        await assertFails(riderSuresh.firestore().collection('cash_deposits').doc('dep_ramesh').update({
+            amount: 0
+        }));
+    });
+
+    // 11.3: Customer & Rider CANNOT read or write hub_bank_deposits
+    await testRule("11.3 Customer and Rider CANNOT read or write hub_bank_deposits", async (env) => {
+        const riderSuresh = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+        await assertFails(customerCharlie.firestore().collection('hub_bank_deposits').doc('bank_dep_1').get());
+        await assertFails(customerCharlie.firestore().collection('hub_bank_deposits').doc('bank_hack').set({ amount: 1000 }));
+        await assertFails(riderSuresh.firestore().collection('hub_bank_deposits').doc('bank_dep_1').get());
+        await assertFails(riderSuresh.firestore().collection('hub_bank_deposits').doc('bank_hack').set({ amount: 1000 }));
+    });
+
+    // 11.4: Admin CAN read and write hub_bank_deposits
+    await testRule("11.4 Admin CAN read and write hub_bank_deposits", async (env) => {
+        await assertSucceeds(adminVikash.firestore().collection('hub_bank_deposits').doc('bank_dep_1').get());
+        await assertSucceeds(adminVikash.firestore().collection('hub_bank_deposits').doc('bank_dep_new').set({
+            warehouseId: 'HUB-SAM-001',
+            amount: 50000,
+            status: 'DEPOSITED'
+        }));
+    });
+
+    // 11.5: Customer CANNOT read or write payout_requests
+    await testRule("11.5 Customer CANNOT read or write payout_requests", async (env) => {
+        await assertFails(customerCharlie.firestore().collection('payout_requests').doc('payout_suresh').get());
+        await assertFails(customerCharlie.firestore().collection('payout_requests').doc('payout_hack').set({ amount: 5000 }));
+    });
+
+    // 11.6: Rider CAN read own payout_requests, CANNOT read other's or write directly
+    await testRule("11.6 Rider CAN read own payout_requests, CANNOT read other's or write directly", async (env) => {
+        const riderSuresh = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+        await assertSucceeds(riderSuresh.firestore().collection('payout_requests').doc('payout_suresh').get());
+        await assertFails(riderSuresh.firestore().collection('payout_requests').doc('payout_ramesh').get());
+        await assertFails(riderSuresh.firestore().collection('payout_requests').doc('payout_suresh').update({ status: 'TRANSFERRED' }));
+        await assertFails(riderSuresh.firestore().collection('payout_requests').doc('payout_direct').set({ riderId: 'rider_suresh', amount: 500 }));
+    });
+
+    // 11.7: Customer & Rider CANNOT read or write ledger, finance, accounts, expenses
+    await testRule("11.7 Customer & Rider CANNOT read or write ledger, finance, accounts, expenses", async (env) => {
+        const riderSuresh = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+        await assertFails(customerCharlie.firestore().collection('ledger').doc('led_test_1').get());
+        await assertFails(customerCharlie.firestore().collection('ledger').doc('led_test_1').set({ amount: 100 }));
+        await assertFails(riderSuresh.firestore().collection('ledger').doc('led_test_1').get());
+        await assertFails(riderSuresh.firestore().collection('accounts').doc('CASH_IN_HAND').get());
+        await assertFails(riderSuresh.firestore().collection('expenses').doc('exp_test_1').get());
+        await assertFails(customerCharlie.firestore().collection('expenses').doc('exp_test_1').get());
+    });
+
+    // 11.8: Admin & Finance CAN read ledger, accounts, expenses
+    await testRule("11.8 Admin & Finance CAN read ledger, accounts, expenses", async (env) => {
+        await assertSucceeds(adminVikash.firestore().collection('ledger').doc('led_test_1').get());
+        await assertSucceeds(adminVikash.firestore().collection('accounts').doc('CASH_IN_HAND').get());
+        await assertSucceeds(adminVikash.firestore().collection('expenses').doc('exp_test_1').get());
+    });
+
+    // ============================================================
+    // 12. NEW 13 COLLECTIONS ACCESS CONTROL TESTS
+    // ============================================================
+    await env.withSecurityRulesDisabled(async (context) => {
+        const db = context.firestore();
+        const testDocs = [
+            'expenseCategories', 'expense_categories', 'expenseVendors', 'expense_vendors',
+            'corporate_capital', 'corporate_shareholders', 'corporate_loans', 'corporate_interest_ledger',
+            'corporate_funding_rounds', 'corporate_simulations', 'journal_vouchers', 'system_summaries',
+            'sales_stats'
+        ];
+        for (const col of testDocs) {
+            await db.collection(col).doc('test_doc_1').set({ testField: 'value_123' });
+        }
+    });
+
+    const corporateCollections = [
+        'corporate_capital', 'corporate_shareholders', 'corporate_loans',
+        'corporate_interest_ledger', 'corporate_funding_rounds', 'corporate_simulations'
+    ];
+
+    const financeCollections = [
+        'expenseCategories', 'expense_categories', 'expenseVendors', 'expense_vendors',
+        'journal_vouchers', 'system_summaries'
+    ];
+
+    const allThirteenCollections = [...corporateCollections, ...financeCollections, 'sales_stats'];
+
+    // 12.1: Customer BLOCKED on all 13 collections
+    await testRule("12.1 Customer BLOCKED from reading or writing all 13 financial/corporate collections", async (env) => {
+        for (const col of allThirteenCollections) {
+            await assertFails(customerCharlie.firestore().collection(col).doc('test_doc_1').get());
+            await assertFails(customerCharlie.firestore().collection(col).doc('hack_doc').set({ hack: true }));
+        }
+    });
+
+    // 12.2: Rider / Non-Finance staff BLOCKED on all 13 collections
+    await testRule("12.2 Rider / Non-Finance staff BLOCKED on all 13 financial/corporate collections", async (env) => {
+        const riderSuresh = env.authenticatedContext('rider_suresh', { role: 'Rider' });
+        for (const col of allThirteenCollections) {
+            await assertFails(riderSuresh.firestore().collection(col).doc('test_doc_1').get());
+            await assertFails(riderSuresh.firestore().collection(col).doc('hack_doc').set({ hack: true }));
+        }
+    });
+
+    // 12.3: FinanceAdmin ALLOWED on expense & accounting collections, BLOCKED on corporate_* collections
+    await testRule("12.3 FinanceAdmin ALLOWED on finance collections, BLOCKED on corporate_* collections", async (env) => {
+        for (const col of financeCollections) {
+            await assertSucceeds(financeUser.firestore().collection(col).doc('test_doc_1').get());
+            await assertSucceeds(financeUser.firestore().collection(col).doc(`finance_write_${col}`).set({ ok: true }));
+        }
+        for (const col of corporateCollections) {
+            await assertFails(financeUser.firestore().collection(col).doc('test_doc_1').get());
+            await assertFails(financeUser.firestore().collection(col).doc(`finance_hack_${col}`).set({ ok: true }));
+        }
+    });
+
+    // 12.4: HubManager (opsRoles) ALLOWED to write journal_vouchers (PhysicalStockAudit & ReturnToVendor)
+    await testRule("12.4 HubManager (opsRoles) ALLOWED to write journal_vouchers for stock audit & return to vendor", async (env) => {
+        const hubManager = env.authenticatedContext('hub_manager_1', { role: 'HubManager' });
+        await assertSucceeds(hubManager.firestore().collection('journal_vouchers').doc('jv_stock_audit').set({
+            voucherNumber: 'JV-AUD-001',
+            narration: 'Physical Stock Shortage Write-off',
+            amount: 500
+        }));
+        // But HubManager is BLOCKED from corporate collections
+        for (const col of corporateCollections) {
+            await assertFails(hubManager.firestore().collection(col).doc('test_doc_1').get());
+        }
+    });
+
+    // 12.5: SuperAdmin ALLOWED to read/write all 13 collections
+    await testRule("12.5 SuperAdmin ALLOWED to read/write all 13 collections including corporate data", async (env) => {
+        for (const col of [...corporateCollections, ...financeCollections]) {
+            await assertSucceeds(adminVikash.firestore().collection(col).doc('test_doc_1').get());
+            await assertSucceeds(adminVikash.firestore().collection(col).doc(`admin_write_${col}`).set({ ok: true }));
+        }
+        await assertSucceeds(adminVikash.firestore().collection('sales_stats').doc('test_doc_1').get());
+        await assertSucceeds(adminVikash.firestore().collection('sales_stats').doc('admin_stat').set({ count: 1 }));
+    });
+
+    // 12.6: Prove non-SuperAdmin accounts with blanket admin:true claims are BLOCKED on corporate collections
+    await testRule("12.6 Accounts with admin:true claims (FinanceAdmin, DeptManager, Viewer, Rider, LegacyAdmin) BLOCKED on corporate_* collections, Founder ALLOWED", async (env) => {
+        const financeWithAdmin = env.authenticatedContext('user_finance', { role: 'FinanceAdmin', admin: true, isAdmin: true });
+        const deptManagerWithAdmin = env.authenticatedContext('user_dept_mgr', { role: 'DepartmentManager', admin: true, isAdmin: true });
+        const viewerWithAdmin = env.authenticatedContext('user_viewer', { role: 'Viewer', admin: true, isAdmin: true });
+        const riderWithAdmin = env.authenticatedContext('user_rider', { role: 'RIDER', admin: true, isRider: true });
+        const legacyAdmin = env.authenticatedContext('user_legacy', { admin: true });
+        const founder = env.authenticatedContext('user_founder', { role: 'SuperAdmin', admin: true, isAdmin: true });
+
+        const nonSuperAdminContexts = [
+            { name: 'financeWithAdmin', ctx: financeWithAdmin },
+            { name: 'deptManagerWithAdmin', ctx: deptManagerWithAdmin },
+            { name: 'viewerWithAdmin', ctx: viewerWithAdmin },
+            { name: 'riderWithAdmin', ctx: riderWithAdmin },
+            { name: 'legacyAdmin', ctx: legacyAdmin }
+        ];
+
+        // Assert all 5 non-SuperAdmin contexts are BLOCKED (read and write) on all 6 corporate collections
+        for (const { name, ctx } of nonSuperAdminContexts) {
+            for (const col of corporateCollections) {
+                await assertFails(ctx.firestore().collection(col).doc('test_doc_1').get());
+                await assertFails(ctx.firestore().collection(col).doc(`hack_${name}_${col}`).set({ unauthorized: true }));
+            }
+        }
+
+        // Assert founder is ALLOWED (read and write) on all 6 corporate collections
+        for (const col of corporateCollections) {
+            await assertSucceeds(founder.firestore().collection(col).doc('test_doc_1').get());
+            await assertSucceeds(founder.firestore().collection(col).doc(`founder_doc_${col}`).set({ authorized: true }));
+        }
+    });
+
     await env.cleanup();
 
     console.log(`\n==========================================`);

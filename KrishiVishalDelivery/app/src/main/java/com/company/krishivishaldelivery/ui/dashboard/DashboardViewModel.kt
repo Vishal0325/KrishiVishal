@@ -115,16 +115,38 @@ class DashboardViewModel @Inject constructor(
         trip?.stops?.map { it.order }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    // Live Rider Incentive & Earnings Equation: [Delivered Count] orders = ₹[Earnings] + ₹[Bonus]
-    val incentiveProgress = combine(orders, _incentiveSlabs, _appConfig) { res, slabs, configRes ->
+    // Live Rider Incentive & Earnings Equation: [Today's Delivered Count] orders + [Today's Returns Count] = ₹[Earnings] + ₹[Bonus]
+    val incentiveProgress = combine(orders, _returns, _incentiveSlabs, _appConfig) { res, returnsRes, slabs, configRes ->
         if (res is Resource.Success) {
             val ordersList = res.data ?: emptyList()
-            val count = ordersList.count { it.status == OrderStatus.DELIVERED.name }
+            val todayOrders = ordersList.filter {
+                val cal1 = java.util.Calendar.getInstance().apply { time = it.createdAt }
+                val cal2 = java.util.Calendar.getInstance()
+                cal1.get(java.util.Calendar.YEAR) == cal2.get(java.util.Calendar.YEAR) &&
+                cal1.get(java.util.Calendar.DAY_OF_YEAR) == cal2.get(java.util.Calendar.DAY_OF_YEAR)
+            }
+            val count = todayOrders.count { it.status == OrderStatus.DELIVERED.name }
             val next = slabs.firstOrNull { it.ordersRequired > count }
             val prev = slabs.lastOrNull { it.ordersRequired <= count }
-            val commissionPerOrder = (configRes as? Resource.Success)?.data?.commissionPerOrder ?: 50.0
+            val config = (configRes as? Resource.Success)?.data
+            val commissionPerOrder = if ((config?.commissionPerOrder ?: 0.0) > 0) config!!.commissionPerOrder else 20.0
+            val commissionPerReturn = if ((config?.commissionPerReturn ?: 0.0) > 0) config!!.commissionPerReturn else 25.0
+
+            val returnsList = (returnsRes as? Resource.Success)?.data ?: emptyList()
+            val todayReturns = returnsList.filter {
+                val returnDate = it.hubDepositedAt ?: it.qcCompletedAt ?: it.createdAt
+                val cal1 = java.util.Calendar.getInstance().apply { time = returnDate }
+                val cal2 = java.util.Calendar.getInstance()
+                cal1.get(java.util.Calendar.YEAR) == cal2.get(java.util.Calendar.YEAR) &&
+                cal1.get(java.util.Calendar.DAY_OF_YEAR) == cal2.get(java.util.Calendar.DAY_OF_YEAR)
+            }
+            val todayReturnsCount = todayReturns.count {
+                it.status == "PICKED_UP" || it.status == "HUB_RECEIVED" || it.status == "COMPLETED" || it.status == "REFUNDED"
+            }
+            val earnedReturnCommission = todayReturnsCount * commissionPerReturn
             val earnedCommission = count * commissionPerOrder
             val earnedBonus = prev?.bonusAmount ?: 0.0
+
             IncentiveProgress(
                 currentCount = count,
                 nextSlab = next,
@@ -133,7 +155,9 @@ class DashboardViewModel @Inject constructor(
                 slabAchieved = prev != null,
                 earnedBonus = earnedBonus,
                 earnedCommission = earnedCommission,
-                totalEarningsToday = earnedCommission + earnedBonus
+                returnsCount = todayReturnsCount,
+                earnedReturnCommission = earnedReturnCommission,
+                totalEarningsToday = earnedCommission + earnedReturnCommission + earnedBonus
             )
         } else IncentiveProgress()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), IncentiveProgress())
@@ -359,11 +383,44 @@ class DashboardViewModel @Inject constructor(
     suspend fun submitReturnQC(
         returnId: String,
         qcPassed: Boolean,
-        note: String
+        note: String,
+        photoBitmap: Bitmap? = null
     ): Boolean {
         val status = "PICKED_UP"
         val qcStatus = if (qcPassed) "PASSED" else "FAILED"
-        val success = orderRepository.completeReturnPickupQC(returnId, status, qcStatus, note)
+        val success = orderRepository.completeReturnPickupQC(
+            returnId = returnId,
+            status = status,
+            qcStatus = qcStatus,
+            qcNote = note,
+            photoBitmap = photoBitmap
+        )
+        if (success) {
+            loadReturns(currentRiderId)
+        }
+        return success
+    }
+
+    suspend fun depositReturnAtHub(returnId: String, warehouseId: String = ""): Boolean {
+        val success = orderRepository.depositReturnAtHub(returnId, warehouseId)
+        if (success) {
+            loadReturns(currentRiderId)
+        }
+        return success
+    }
+
+    suspend fun rejectReturnAtDoorstep(
+        returnId: String,
+        reason: String,
+        notes: String,
+        photoBitmap: Bitmap?
+    ): Boolean {
+        val success = orderRepository.rejectReturnAtDoorstep(
+            returnId = returnId,
+            reason = reason,
+            notes = notes,
+            photoBitmap = photoBitmap
+        )
         if (success) {
             loadReturns(currentRiderId)
         }

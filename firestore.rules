@@ -33,7 +33,11 @@ service cloud.firestore {
     }
 
     function canViewFinance() {
-      return isSuperAdmin();
+      return isAuthenticated() && (
+        isSuperAdmin() ||
+        isAdmin() ||
+        request.auth.token.role in ["FinanceAdmin", "Accountant", "FinanceManager"]
+      );
     }
 
     function isViewer() {
@@ -158,6 +162,83 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /expenseCategories/{id} {
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
+    }
+
+    match /expense_categories/{id} {
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
+    }
+
+    match /expenseVendors/{id} {
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
+    }
+
+    match /expense_vendors/{id} {
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
+    }
+
+    // TEMPORARY STRICT CHECK: Explicit role check used instead of isSuperAdmin() helper
+    // to prevent staff members with blanket admin:true claims from accessing corporate cap table.
+    match /corporate_capital/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    match /capital_structure/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    match /corporate_shareholders/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    match /shareholders/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    match /corporate_loans/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    match /corporate_interest_ledger/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    match /interest_ledger/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    match /corporate_funding_rounds/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    match /funding_rounds/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    match /corporate_simulations/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    // TODO: journal_vouchers ka HubManager/WarehouseManager write access
+    // temporary hai. Long-term isse Cloud Function (Admin SDK) route karo
+    // taaki entry type (STOCK_AUDIT/RTV) validate ho sake, client arbitrary
+    // journal entry na bana sake. — added 2026-09-25
+    match /journal_vouchers/{id} {
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin() ||
+        (isAuthenticated() && request.auth.token.role in ["HubManager", "WarehouseManager"]);
+    }
+
     match /expenses/{id} {
       allow read: if canViewFinance();
       allow create: if canViewFinance() &&
@@ -170,8 +251,7 @@ service cloud.firestore {
     }
 
     match /sales_stats/{statId} {
-      allow read: if isAdmin();
-      allow write: if false;
+      allow read, write: if isAdmin() || isSuperAdmin();
     }
 
 
@@ -439,12 +519,14 @@ service cloud.firestore {
         allow read, write: if isOwner(uId) || isAdmin();
       }
 
-      // Blocker 7 & H3: allow riders to send delivery notifications with validated schema
+      // Blocker 7 & H3: allow riders and admin to send delivery/promotional notifications
       match /notifications/{notifId} {
-        allow create: if isRider() &&
+        allow create: if isAdmin() || (
+          isRider() &&
           request.resource.data.keys().hasOnly(['orderId', 'type', 'message', 'createdAt']) &&
-          request.resource.data.type in ['DELIVERY_STARTED', 'DELIVERY_NEAR', 'DELIVERY_COMPLETED', 'RIDER_ASSIGNED'];
-        allow read: if isOwner(uId) || isAdmin();
+          request.resource.data.type in ['DELIVERY_STARTED', 'DELIVERY_NEAR', 'DELIVERY_COMPLETED', 'RIDER_ASSIGNED']
+        );
+        allow read, update, delete: if isOwner(uId) || isAdmin();
       }
 
       // FCM Token Registry for multi-device support
@@ -475,6 +557,11 @@ service cloud.firestore {
       allow update, create, delete: if isAdmin();
     }
 
+    match /payout_requests/{reqId} {
+      allow read: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow write: if isAdmin() || isSuperAdmin();
+    }
+
     match /riders/{riderId} {
       allow read: if isAdmin() || isViewer() || isOwner(riderId);
       // Self-creation blocked: Only Admin can onboard/create rider profiles
@@ -494,6 +581,19 @@ service cloud.firestore {
         ])
       );
       allow delete: if isAdmin();
+    }
+
+
+    // ============================================================
+    // HR & COMPLIANCE
+    // ============================================================
+
+    match /employees/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    match /employee_documents/{id} {
+      allow read, write: if isAdmin();
     }
 
 
@@ -519,12 +619,42 @@ service cloud.firestore {
 
 
     // ============================================================
-    // SETTINGS
+    // SETTINGS & SYSTEM CONFIG
     // ============================================================
 
     match /settings/{allPaths=**} {
       allow read: if isAdmin();
       allow write: if isAdmin();
+    }
+
+    match /system_settings/{allPaths=**} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /config/{allPaths=**} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /system_summaries/{allPaths=**} {
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
+    }
+
+    match /stock_transfers/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    match /stock_movements/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    match /payout_logs/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    match /rider_performance/{id} {
+      allow read, write: if isAdmin();
     }
 
 
@@ -710,10 +840,13 @@ service cloud.firestore {
     // ============================================================
     
     match /cash_deposits/{id} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
-      allow create: if isRider() && request.resource.data.riderId == request.auth.uid;
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow read: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow create: if (isAdmin() || isSuperAdmin()) || (isRider() && request.resource.data.riderId == request.auth.uid);
+      allow update, delete: if isAdmin() || isSuperAdmin();
+    }
+
+    match /hub_bank_deposits/{id} {
+      allow read, write: if isAdmin() || isSuperAdmin();
     }
 
     // ============================================================

@@ -70,8 +70,10 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Run Razorpay preload off the main thread to prevent UI freezing / ANR
-        lifecycleScope.launch(Dispatchers.IO) {
+        // Razorpay preload MUST run on the Main thread — Checkout.preload()
+        // creates a WebView internally which requires a Main Looper.
+        // Running on Dispatchers.IO causes: NullPointerException on Looper.mQueue
+        lifecycleScope.launch(Dispatchers.Main) {
             try {
                 Checkout.preload(applicationContext)
             } catch (e: Exception) {

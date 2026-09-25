@@ -371,13 +371,19 @@ class OrderRepository @Inject constructor(
     fun getAssignedReturns(riderId: String): Flow<List<ReturnRequest>> = callbackFlow {
         val listener = firestore.collection("returns")
             .whereEqualTo("riderId", riderId)
-            .whereIn("status", listOf(ReturnStatus.PICKUP_SCHEDULED.name, ReturnStatus.PICKED_UP.name))
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     close(error)
                     return@addSnapshotListener
                 }
-                trySend(snapshot?.toObjects(ReturnRequest::class.java) ?: emptyList())
+                val returnList = snapshot?.documents?.mapNotNull { doc ->
+                    runCatching {
+                        doc.toObject(ReturnRequest::class.java)?.copy(id = doc.id)
+                    }.onFailure { e ->
+                        Timber.e(e, "Error parsing return doc ${doc.id}")
+                    }.getOrNull()
+                } ?: emptyList()
+                trySend(returnList)
             }
         awaitClose { listener.remove() }
     }
@@ -394,21 +400,103 @@ class OrderRepository @Inject constructor(
         status: String,
         qcStatus: String,
         qcNote: String,
+        photoBitmap: Bitmap? = null,
         qcPhotos: List<String> = emptyList()
     ): Boolean {
         return try {
+            val photoUrls = qcPhotos.toMutableList()
+            if (photoBitmap != null) {
+                try {
+                    val baos = java.io.ByteArrayOutputStream()
+                    photoBitmap.compress(Bitmap.CompressFormat.JPEG, 80, baos)
+                    val data = baos.toByteArray()
+                    val storageRef = FirebaseStorage.getInstance().reference
+                        .child("returns/$returnId/qc_proof_${System.currentTimeMillis()}.jpg")
+                    storageRef.putBytes(data).await()
+                    val downloadUrl = storageRef.downloadUrl.await().toString()
+                    photoUrls.add(downloadUrl)
+                } catch (storageEx: Exception) {
+                    Timber.e(storageEx, "Failed to upload return QC photo for $returnId")
+                }
+            }
+
             firestore.collection("returns").document(returnId).update(
                 mapOf(
                     "status" to status,
                     "qcStatus" to qcStatus,
                     "qcNote" to qcNote,
-                    "qcPhotos" to qcPhotos,
+                    "qcPhotos" to photoUrls,
                     "qcCompletedAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
             true
         } catch (e: Exception) {
+            Timber.e(e, "completeReturnPickupQC failed for $returnId")
+            false
+        }
+    }
+
+    suspend fun depositReturnAtHub(returnId: String, warehouseId: String = ""): Boolean {
+        return try {
+            val data = mapOf(
+                "action" to "DEPOSIT_RETURN_TO_HUB",
+                "payload" to mapOf(
+                    "returnId" to returnId,
+                    "warehouseId" to warehouseId
+                )
+            )
+            val functions = com.google.firebase.functions.FirebaseFunctions.getInstance("asia-south1")
+            functions.getHttpsCallable("riderMutations").call(data).await()
+            true
+        } catch (e: Exception) {
+            Timber.e(e, "depositReturnAtHub failed for $returnId")
+            false
+        }
+    }
+
+    suspend fun rejectReturnAtDoorstep(
+        returnId: String,
+        reason: String,
+        notes: String,
+        photoBitmap: Bitmap?
+    ): Boolean {
+        return try {
+            val photoUrls = mutableListOf<String>()
+            if (photoBitmap != null) {
+                try {
+                    val baos = java.io.ByteArrayOutputStream()
+                    photoBitmap.compress(Bitmap.CompressFormat.JPEG, 80, baos)
+                    val data = baos.toByteArray()
+                    val storageRef = FirebaseStorage.getInstance().reference
+                        .child("returns/$returnId/qc_reject_${System.currentTimeMillis()}.jpg")
+                    storageRef.putBytes(data).await()
+                    val downloadUrl = storageRef.downloadUrl.await().toString()
+                    photoUrls.add(downloadUrl)
+                } catch (storageEx: Exception) {
+                    Timber.e(storageEx, "Failed to upload return QC rejection photo for $returnId")
+                }
+            }
+
+            if (photoUrls.isEmpty()) {
+                Timber.e("No photo uploaded for doorstep return rejection of $returnId")
+                return false
+            }
+
+            val data = mapOf(
+                "action" to "REJECT_RETURN_AT_DOORSTEP",
+                "payload" to mapOf(
+                    "returnId" to returnId,
+                    "reason" to reason,
+                    "notes" to notes,
+                    "photos" to photoUrls
+                )
+            )
+            val functions = com.google.firebase.functions.FirebaseFunctions.getInstance("asia-south1")
+            functions.getHttpsCallable("riderMutations").call(data).await()
+            true
+        } catch (e: Exception) {
+            Timber.e(e, "rejectReturnAtDoorstep failed for $returnId")
             false
         }
     }
@@ -621,12 +709,20 @@ class OrderRepository @Inject constructor(
                 val records = snapshot?.documents?.mapNotNull { doc ->
                     val id = doc.id
                     val rider = doc.getString("riderId") ?: ""
-                    val amount = doc.getDouble("amount") ?: 0.0
-                    val count = doc.getLong("ordersCount")?.toInt() ?: 0
+                    val amount = doc.getDouble("amount") ?: (doc.get("amount") as? Number)?.toDouble() ?: 0.0
                     @Suppress("UNCHECKED_CAST")
                     val orderIds = doc.get("orderIds") as? List<String> ?: emptyList()
+                    val count = doc.getLong("ordersCount")?.toInt()
+                        ?: (doc.get("orderCount") as? Number)?.toInt()
+                        ?: if (orderIds.isNotEmpty()) orderIds.size else 1
                     val status = doc.getString("status") ?: "DEPOSITED_AT_WAREHOUSE"
-                    val timestamp = doc.getTimestamp("depositedAt")?.toDate()?.time ?: System.currentTimeMillis()
+                    val timestamp = try {
+                        doc.getTimestamp("depositedAt")?.toDate()?.time
+                            ?: (doc.get("timestamp") as? Number)?.toLong()
+                            ?: System.currentTimeMillis()
+                    } catch (e: Exception) {
+                        (doc.get("timestamp") as? Number)?.toLong() ?: System.currentTimeMillis()
+                    }
                     com.company.krishivishaldelivery.data.model.CashDepositRecord(id, rider, amount, count, orderIds, status, timestamp)
                 }?.sortedByDescending { it.depositedAtMillis } ?: emptyList()
 
@@ -655,14 +751,22 @@ class OrderRepository @Inject constructor(
                 val recordId = depositLogRef.id
                 val orderIds = snapshot.documents.map { it.id }
                 val now = System.currentTimeMillis()
-                depositLogRef.set(mapOf(
+                
+                val batch = firestore.batch()
+                batch.set(depositLogRef, mapOf(
                     "riderId" to riderId,
                     "amount" to totalDeposited,
                     "ordersCount" to snapshot.size(),
                     "orderIds" to orderIds,
                     "status" to "DEPOSITED_AT_WAREHOUSE",
+                    "timestamp" to now,
                     "depositedAt" to FieldValue.serverTimestamp()
-                )).await()
+                ))
+                snapshot.documents.forEach { doc ->
+                    batch.update(doc.reference, "isCashDeposited", true)
+                }
+                batch.commit().await()
+
                 com.company.krishivishaldelivery.data.model.CashDepositRecord(
                     id = recordId,
                     riderId = riderId,

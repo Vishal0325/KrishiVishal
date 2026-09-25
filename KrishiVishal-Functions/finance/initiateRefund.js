@@ -23,7 +23,7 @@ const REGION = 'asia-south1';
  * @param {number} data.refundAmount      - Amount to refund in INR (e.g. 250.00)
  * @param {string} [data.refundDestination] - 'WALLET' (default for COD) or 'GATEWAY' (Razorpay)
  */
-exports.initiateRefund = onCall({ region: REGION, secrets: [razorpayKeySecret] }, async (request) => {
+exports.initiateRefund = onCall({ region: REGION, invoker: 'public', secrets: [razorpayKeySecret] }, async (request) => {
     const data = request.data || {};
     const context = { auth: request.auth };
 
@@ -38,7 +38,6 @@ exports.initiateRefund = onCall({ region: REGION, secrets: [razorpayKeySecret] }
 
     // ── 2. Input Validation ────────────────────────────────────────────────
     const { returnId, refundAmount, refundDestination } = data;
-    // refundDestination: 'WALLET' | 'GATEWAY' (optional, defaults based on original payment method)
 
     if (!returnId || typeof returnId !== 'string' || returnId.trim().length === 0) {
         throw new HttpsError('invalid-argument', 'returnId is required.');
@@ -60,19 +59,24 @@ exports.initiateRefund = onCall({ region: REGION, secrets: [razorpayKeySecret] }
 
     const returnData = returnSnap.data();
 
+    // Strict Idempotency: Prevent double refund
+    if (
+        returnData.refundStatus === 'REFUNDED' ||
+        returnData.refundStatus === 'COMPLETED' ||
+        returnData.status === 'REFUNDED' ||
+        returnData.financials?.gatewayRefundId
+    ) {
+        const refId = returnData.financials?.gatewayRefundId || 'WALLET';
+        throw new HttpsError('already-exists', `Refund already processed for this return. Ref: ${refId}`);
+    }
+
     // Validate return is in a refundable state
-    const refundableStatuses = ['APPROVED', 'PICKUP_COMPLETED', 'COMPLETED'];
+    const refundableStatuses = ['APPROVED', 'PICKUP_COMPLETED', 'PICKED_UP', 'HUB_RECEIVED', 'COMPLETED', 'REQUESTED'];
     if (!refundableStatuses.includes(returnData.status)) {
         throw new HttpsError(
             'failed-precondition',
-            `Cannot refund return in '${returnData.status}' status. Must be APPROVED or COMPLETED.`
+            `Cannot refund return in '${returnData.status}' status.`
         );
-    }
-
-    // Idempotency: Prevent double refund
-    if (returnData.refundStatus === 'REFUNDED' || returnData.financials?.gatewayRefundId) {
-        const refId = returnData.financials?.gatewayRefundId || 'WALLET';
-        throw new HttpsError('already-exists', `Refund already processed. Ref: ${refId}`);
     }
 
     // Validate refund amount does not exceed original order amount
@@ -90,7 +94,8 @@ exports.initiateRefund = onCall({ region: REGION, secrets: [razorpayKeySecret] }
         throw new HttpsError('failed-precondition', 'Return is not linked to any order.');
     }
 
-    const orderSnap = await db.collection('orders').doc(orderId).get();
+    const orderRef = db.collection('orders').doc(orderId);
+    const orderSnap = await orderRef.get();
     if (!orderSnap.exists) {
         throw new HttpsError('not-found', `Order not found: ${orderId}`);
     }
@@ -104,8 +109,6 @@ exports.initiateRefund = onCall({ region: REGION, secrets: [razorpayKeySecret] }
     );
 
     // ── 5. Route to Correct Refund Handler ────────────────────────────────
-    //   Admin can explicitly choose 'WALLET' or 'GATEWAY'.
-    //   If not specified, default: online orders -> GATEWAY, COD/Wallet -> WALLET.
     let refundResult;
 
     const useGateway = refundDestination === 'GATEWAY'
@@ -113,16 +116,13 @@ exports.initiateRefund = onCall({ region: REGION, secrets: [razorpayKeySecret] }
 
     try {
         if (useGateway && razorpayPaymentId) {
-            // Online payment -> refund via Razorpay API
             refundResult = await _processRazorpayRefund(razorpayPaymentId, refundAmount, returnId);
         } else {
-            // COD, Wallet, or admin-forced wallet destination
             refundResult = await _processWalletCredit(orderData.userId, refundAmount, returnId, orderId);
         }
     } catch (error) {
         console.error(`[initiateRefund] Failed for ${returnId}:`, error.message);
 
-        // Mark as failed so admin knows to retry
         await returnRef.update({
             refundStatus: 'FAILED',
             'financials.failureReason': error.message,
@@ -133,12 +133,12 @@ exports.initiateRefund = onCall({ region: REGION, secrets: [razorpayKeySecret] }
         throw new HttpsError('internal', `Refund failed: ${error.message}`);
     }
 
-    // ── 6. Atomically Update Return Document + Audit Log ──────────────────
+    // ── 6. Atomically Update Return Document, Order Document & Audit Log ──────────────────
     await db.runTransaction(async (transaction) => {
         const freshSnap = await transaction.get(returnRef);
+        const freshData = freshSnap.data() || {};
 
-        // Final idempotency check inside transaction
-        if (freshSnap.data() && freshSnap.data().refundStatus === 'REFUNDED') {
+        if (freshData.refundStatus === 'REFUNDED' || freshData.refundStatus === 'COMPLETED' || freshData.status === 'REFUNDED') {
             console.warn(`[initiateRefund] Already refunded inside tx. Skipping.`);
             return;
         }
@@ -148,13 +148,21 @@ exports.initiateRefund = onCall({ region: REGION, secrets: [razorpayKeySecret] }
 
         transaction.update(returnRef, {
             status: 'COMPLETED',
-            refundStatus: 'REFUNDED',
+            refundStatus: 'COMPLETED',
             refundMethod: refundResult.method,
             refundDestination: refundResult.method === 'RAZORPAY' ? 'GATEWAY' : 'WALLET',
             'financials.refundAmountInitiated': refundAmount,
-            'financials.gatewayRefundId': refundResult.refundId || null,
+            'financials.gatewayRefundId': refundResult.refundId || `WALLET_${returnId}`,
             'financials.processedAt': timestamp,
             adminNotes: admin.firestore.FieldValue.arrayUnion(noteText),
+            updatedAt: timestamp,
+        });
+
+        transaction.update(orderRef, {
+            status: 'RETURNED',
+            returnStatus: 'RETURN_COMPLETED',
+            refundStatus: 'REFUNDED',
+            refundAmount: refundAmount,
             updatedAt: timestamp,
         });
 
@@ -170,7 +178,7 @@ exports.initiateRefund = onCall({ region: REGION, secrets: [razorpayKeySecret] }
                 orderId,
                 refundAmount,
                 method: refundResult.method,
-                refundId: refundResult.refundId || null,
+                refundId: refundResult.refundId || `WALLET_${returnId}`,
             },
         });
     });
