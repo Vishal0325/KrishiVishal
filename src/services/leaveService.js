@@ -38,8 +38,8 @@ export async function getLeaveRequests(filters = {}) {
 export async function applyLeave(leaveData) {
   try {
     // [FIXED] Point #153: Moved leave application to Cloud Function for server-side duration calculation
-    const { getFunctions, httpsCallable } = await import("firebase/functions");
-    const functions = getFunctions();
+    const { httpsCallable } = await import("firebase/functions");
+    const { functions } = await import("../firebase/config");
     const applyLeaveFn = httpsCallable(functions, "applyLeave");
 
     const result = await applyLeaveFn(leaveData);

@@ -409,7 +409,7 @@ const PurchaseOrderDetail = () => {
               Delivery Destination Depot
             </p>
             <p className="text-xs font-bold text-gray-800 leading-relaxed">
-              {po.deliveryAddress || 'KrishiVishal Regional Hub, Agro Market Yard, Purnea, Bihar - 854301'}
+              {po.deliveryAddress || 'Regional Hub Delivery Location'}
             </p>
             {po.notes && (
               <div className="mt-3 pt-3 border-t border-gray-100">

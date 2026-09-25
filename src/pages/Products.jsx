@@ -20,6 +20,7 @@ import ImageUpload from "../components/common/ImageUpload";
 import { formatCurrency } from "../utils/formatters";
 import Papa from "papaparse";
 import { importProducts, downloadSampleProductTemplate } from "../services/bulkUpload";
+import { useWarehouse } from "../context/WarehouseContext";
 import { readWorksheetAsJson } from "../utils/excel";
 import {
   fetchAllProducts,
@@ -55,7 +56,9 @@ import {
   Package,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import BulkStagingTable from "../components/catalog/BulkStagingTable";
 import BulkVariantManager from "../components/inventory/BulkVariantManager";
+import ProductFormModal from "../components/catalog/ProductFormModal";
 
 const DEFAULT_CATEGORIES = [
   { id: "cat-seeds", name: "Seeds", hindiName: "बीज", subCategories: [{ id: "sc-paddy", name: "Paddy / Dhan" }, { id: "sc-wheat", name: "Wheat / Gehu" }, { id: "sc-maize", name: "Maize / Makka" }, { id: "sc-veg", name: "Vegetable Seeds" }] },
@@ -102,6 +105,8 @@ const DEFAULT_CROPS = [
 
 const Products = () => {
   const location = useLocation();
+  const { warehouses } = useWarehouse();
+  const [importWarehouseId, setImportWarehouseId] = useState("");
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [brands, setBrands] = useState(DEFAULT_BRANDS);
@@ -141,12 +146,14 @@ const Products = () => {
   const [showNewSubCategoryInput, setShowNewSubCategoryInput] = useState(false);
   const [csvFile, setCsvFile] = useState(null);
   const [bulkRows, setBulkRows] = useState([]);
+  const [showStaging, setShowStaging] = useState(false);
   const [bulkProcessing, setBulkProcessing] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [bulkSummary, setBulkSummary] = useState(null);
 
   // Form State
-  const validUnits = ["ml", "gm", "kg", "piece", "meter", "pack", "SL", "EC", "SC", "WP", "WG", "GR", "SP"];
+  const validUnits = ["ml", "L", "gm", "kg", "piece", "meter", "pack", "bag", "pouch"];
+  const validFormulationTypes = ["None", "SL", "EC", "SC", "WP", "WG", "GR", "SP", "FS", "CS", "WDG"];
   const seedClasses = [
     "Certified",
     "Foundation",
@@ -181,6 +188,7 @@ const Products = () => {
     hsnCode: "",
     batchNumber: "",
     chemicalComposition: "",
+    formulationType: "None",
     description: "",
     images: [],
     isActive: true,
@@ -260,6 +268,7 @@ const Products = () => {
       readWorksheetAsJson(f)
         .then((data) => {
           setBulkRows(data);
+          setShowStaging(true);
           toast.success(`Parsed ${data.length} rows from Excel`);
         })
         .catch((err) => {
@@ -272,6 +281,7 @@ const Products = () => {
         skipEmptyLines: true,
         complete: (results) => {
           setBulkRows(results.data);
+            setShowStaging(true);
           toast.success(`Parsed ${results.data.length} rows from CSV`);
         },
         error: (err) => {
@@ -281,13 +291,12 @@ const Products = () => {
     }
   };
 
-  const startBulkImport = async () => {
-    if (!bulkRows.length) return toast.error("Upload a CSV or Excel file first");
+  const startBulkImport = async (validRows) => {
+    if (!validRows || !validRows.length) return toast.error("No valid rows to import");
     setBulkProcessing(true);
     setBulkSummary(null);
     try {
-      // 1-Click Unified Importer: Automatically generates SKUs, saves Products, creates Batches & Ledger
-      const data = await importProducts(bulkRows);
+      const data = await importProducts(validRows, importWarehouseId);
       setBulkSummary(data);
       setBulkRows([]);
       setCsvFile(null);
@@ -416,6 +425,8 @@ const Products = () => {
 
       const data = {
         ...formData,
+        imageUrl: formData.images?.[0] || "",
+
         // if variants exist, derive summary fields for quick listing
         mrp: processedVariants.length
           ? Math.max(...processedVariants.map((v) => v.mrp))
@@ -493,6 +504,7 @@ const Products = () => {
               }
             : null,
         unit: formData.unit,
+        formulationType: formData.formulationType || "None",
         updatedAt: Timestamp.now(),
       };
 
@@ -515,8 +527,18 @@ const Products = () => {
            });
         }
 
+        const derivedSku = autoDeriveSkuFromProduct({
+          name: data.name,
+          brand: data.brand,
+          category: data.category,
+          subCategory: data.subCategory,
+          quantity: data.quantity,
+          unit: data.unit
+        });
+
         await setDoc(doc(db, "products", editingProduct.id), {
           ...publicData,
+          skuCode: editingProduct.skuCode || derivedSku,
           searchKeywords: keywords,
           updatedAt: Timestamp.now(),
           createdAt: editingProduct.createdAt || Timestamp.now()
@@ -553,8 +575,18 @@ const Products = () => {
            });
         }
 
+        const derivedSku = autoDeriveSkuFromProduct({
+          name: data.name,
+          brand: data.brand,
+          category: data.category,
+          subCategory: data.subCategory,
+          quantity: data.quantity,
+          unit: data.unit
+        });
+
         const docRef = await addDoc(collection(db, "products"), {
           ...publicData,
+          skuCode: derivedSku,
           searchKeywords: keywords,
           createdAt: Timestamp.now(),
           rating: Number(formData.rating) || 4.5,
@@ -745,6 +777,9 @@ const Products = () => {
         : "",
     }));
 
+    const derivedFormulation = product.formulationType ||
+      (validFormulationTypes.includes(product.unit) ? product.unit : "None");
+
     setFormData({
       ...initialFormState,
       ...product,
@@ -763,6 +798,7 @@ const Products = () => {
       isTaxInclusive: product.isTaxInclusive ?? true,
       costPrice: privateCost || "",
       chemicalComposition: product.chemicalComposition || "",
+      formulationType: derivedFormulation,
       unit: normalizedUnit,
       variants: processedVariants,
       seedMetadata: product.seedMetadata || initialFormState.seedMetadata,
@@ -1180,6 +1216,25 @@ const Products = () => {
               </div>
 
                 <div className="pt-6 space-y-4">
+                  {/* Target Warehouse Selector */}
+                  <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 space-y-1">
+                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block">
+                      Target Warehouse Hub / Inward Location (Optional)
+                    </label>
+                    <select
+                      value={importWarehouseId}
+                      onChange={(e) => setImportWarehouseId(e.target.value)}
+                      className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl font-bold text-xs text-gray-900 outline-none focus:border-primary cursor-pointer"
+                    >
+                      <option value="">Default Active Warehouse Hub</option>
+                      {warehouses.map((wh) => (
+                        <option key={wh.id} value={wh.id}>
+                          {wh.name || wh.id} ({wh.code || wh.id})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   {bulkRows.length > 0 && (
                     <div className="flex items-center space-x-2 bg-blue-50 p-4 rounded-2xl border border-blue-100 mb-4">
                       <input
@@ -1386,6 +1441,23 @@ const Products = () => {
       <DataTable columns={columns} data={filteredProducts} loading={loading} />
 
       {/* Bulk Variant Manager Modal */}
+      
+      {showStaging && bulkRows.length > 0 && (
+        <BulkStagingTable
+          initialRows={bulkRows}
+          isImporting={bulkProcessing}
+          onConfirmImport={async (validRows) => {
+            await startBulkImport(validRows);
+            setShowStaging(false);
+            setBulkRows([]);
+          }}
+          onCancel={() => {
+            setShowStaging(false);
+            setBulkRows([]);
+          }}
+        />
+      )}
+
       {variantManagerProduct && (
         <BulkVariantManager
           product={variantManagerProduct}
@@ -1394,1288 +1466,19 @@ const Products = () => {
       )}
 
       {/* Add/Edit Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-md p-6 animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl animate-in zoom-in duration-300 relative border border-white/20">
-            <div className="p-8 border-b border-gray-50 sticky top-0 bg-white/95 backdrop-blur z-10 flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="h-10 w-10 bg-green-50 rounded-xl flex items-center justify-center text-primary-dark">
-                  {editingProduct ? <Edit2 size={20} /> : <Plus size={24} />}
-                </div>
-                <div>
-                  <h2 className="text-xl font-black text-gray-900 tracking-tight">
-                    {editingProduct ? "Update Product" : "Create New Product"}
-                  </h2>
-                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                    Complete all required information
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={closeModal}
-                className="p-2 hover:bg-red-50 hover:text-red-500 rounded-full transition-all text-gray-300"
-              >
-                <X size={24} />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit} className="p-10 space-y-12">
-              {/* Image Section */}
-              <section className="space-y-6">
-                <div className="flex items-center space-x-2 text-primary-dark border-b border-gray-50 pb-2">
-                  <Plus size={16} />
-                  <h3 className="text-xs font-black uppercase tracking-widest">
-                    Product Imagery
-                  </h3>
-                </div>
-                <ImageUpload
-                  currentImages={formData.images}
-                  onUpload={(urls) =>
-                    setFormData({ ...formData, images: urls })
-                  }
-                />
-              </section>
-
-              {/* Basic Info */}
-              <section className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="md:col-span-2 space-y-6">
-                  <div className="flex items-center space-x-2 text-primary-dark border-b border-gray-50 pb-2">
-                    <Edit2 size={16} />
-                    <h3 className="text-xs font-black uppercase tracking-widest">
-                      Primary Details
-                    </h3>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="product-name" className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                    Product Name *
-                  </label>
-                  <input
-                    required
-                    id="product-name"
-                    value={formData.name}
-                    onChange={(e) =>
-                      setFormData({ ...formData, name: e.target.value })
-                    }
-                    className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                    placeholder="e.g., Organic NPK Fertilizer"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                    Brand Name *
-                  </label>
-                  <select
-                    required
-                    value={formData.brand}
-                    onChange={(e) =>
-                      setFormData({ ...formData, brand: e.target.value })
-                    }
-                    className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900 appearance-none cursor-pointer"
-                  >
-                    <option value="">Select Brand</option>
-                    {brands.map((b) => (
-                      <option key={b.id} value={b.name}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                    Category *
-                  </label>
-                  <select
-                    required
-                    value={formData.category}
-                    onChange={(e) => {
-                      const newCat = e.target.value;
-                      const tax = getCategoryTaxDefaults(newCat);
-                      setFormData({
-                        ...formData,
-                        category: newCat,
-                        subCategory: "",
-                        hsnCode: formData.hsnCode || tax.hsnCode,
-                        gstRate: Number(tax.gstRate)
-                      });
-                    }}
-                    className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900 appearance-none cursor-pointer"
-                  >
-                    <option value="">Select Category</option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.name}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* ─── LIVE AUTO-DERIVED SKU PREVIEW ─── */}
-                <div className="md:col-span-2 bg-gradient-to-r from-emerald-50 via-teal-50 to-green-50 border border-emerald-200/60 p-4 rounded-3xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
-                  <div className="flex items-center space-x-3">
-                    <div className="h-9 w-9 bg-emerald-700 text-white rounded-2xl flex items-center justify-center font-black text-xs shadow-md shadow-emerald-700/20">
-                      SKU
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="text-[10px] font-black text-emerald-800 uppercase tracking-widest">
-                          1-Click Standard Agri SKU
-                        </p>
-                        <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-[9px] font-black">
-                          AUTO-GENERATED
-                        </span>
-                      </div>
-                      <p className="font-mono text-sm font-black text-emerald-950 mt-0.5 tracking-tight">
-                        {autoDeriveSkuFromProduct(formData)}
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-mono font-bold text-emerald-700 bg-white/80 px-3 py-1.5 rounded-xl border border-emerald-100 shadow-sm">
-                    CC-III-VVV-GG-SSSUU-BBB
-                  </span>
-                </div>
-
-                {/* GST & Tax Compliance Section */}
-                <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-6 bg-blue-50/30 p-6 rounded-3xl border border-blue-100">
-                  <div className="space-y-2">
-                    <label htmlFor="hsn-code" className="text-[10px] font-black text-blue-400 uppercase tracking-widest ml-1">
-                      HSN Code *
-                    </label>
-                    <input
-                      required
-                      id="hsn-code"
-                      value={formData.hsnCode}
-                      onChange={(e) => setFormData({ ...formData, hsnCode: e.target.value })}
-                      className="w-full px-6 py-4 bg-white border border-blue-100 rounded-2xl focus:border-primary outline-none font-bold text-gray-900"
-                      placeholder="e.g., 3101"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest ml-1">
-                      GST Rate (%) *
-                    </label>
-                    <select
-                      required
-                      value={formData.gstRate}
-                      onChange={(e) => setFormData({ ...formData, gstRate: Number(e.target.value) })}
-                      className="w-full px-6 py-4 bg-white border border-blue-100 rounded-2xl focus:border-primary outline-none font-black text-gray-900"
-                    >
-                      <option value="0">0% (Exempt)</option>
-                      <option value="5">5%</option>
-                      <option value="12">12%</option>
-                      <option value="18">18%</option>
-                      <option value="28">28%</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest ml-1">
-                      Tax Treatment
-                    </label>
-                    <div
-                      onClick={() => setFormData({ ...formData, isTaxInclusive: !formData.isTaxInclusive })}
-                      className={`flex items-center justify-between px-6 py-4 rounded-2xl border cursor-pointer transition-all ${formData.isTaxInclusive ? 'bg-green-50 border-green-200' : 'bg-orange-50 border-orange-200'}`}
-                    >
-                      <span className="text-xs font-black uppercase tracking-tighter">
-                        {formData.isTaxInclusive ? 'Inclusive of Tax' : 'Exclusive of Tax'}
-                      </span>
-                      <div className={`h-2 w-2 rounded-full ${formData.isTaxInclusive ? 'bg-green-500' : 'bg-orange-500'}`} />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="md:col-span-2 space-y-4 bg-gray-50/50 p-6 rounded-3xl border border-gray-100">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                      Associated Crops Selection
-                    </label>
-                    <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-xl border border-gray-100 shadow-sm">
-                      <input
-                        type="checkbox"
-                        id="isAllCrops"
-                        checked={formData.isAllCrops}
-                        onChange={(e) => setFormData({ ...formData, isAllCrops: e.target.checked })}
-                        className="w-4 h-4 accent-primary rounded cursor-pointer"
-                      />
-                      <label htmlFor="isAllCrops" className="text-[10px] font-black text-gray-700 uppercase cursor-pointer">
-                        Available for ALL Crops (e.g. Allwin)
-                      </label>
-                    </div>
-                  </div>
-
-                  {!formData.isAllCrops && (
-                    <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                      {/* Selected Crops Chips */}
-                      <div className="flex flex-wrap gap-2">
-                        {formData.associatedCropIds && formData.associatedCropIds.map((id, index) => (
-                          <div key={id} className="flex items-center space-x-1 bg-primary/10 text-primary-dark px-3 py-1.5 rounded-xl border border-primary/20">
-                            <span className="text-[10px] font-black uppercase tracking-tight">
-                              {formData.associatedCropNames[index]}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newIds = [...formData.associatedCropIds];
-                                const newNames = [...formData.associatedCropNames];
-                                newIds.splice(index, 1);
-                                newNames.splice(index, 1);
-                                setFormData({
-                                  ...formData,
-                                  associatedCropIds: newIds,
-                                  associatedCropNames: newNames,
-                                  // Keep legacy fields updated with the first one for backwards compatibility
-                                  cropId: newIds[0] || "",
-                                  cropName: newNames[0] || ""
-                                });
-                              }}
-                              className="hover:text-red-500 transition-colors"
-                            >
-                              <X size={12} />
-                            </button>
-                          </div>
-                        ))}
-                        {(!formData.associatedCropIds || formData.associatedCropIds.length === 0) && (
-                          <span className="text-[10px] text-gray-400 font-bold italic py-1.5">No specific crops selected. Product will only show in general categories.</span>
-                        )}
-                      </div>
-
-                      {/* Dropdown to add crops */}
-                      <div className="relative">
-                        <select
-                          value=""
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (!val) return;
-                            const selectedCrop = crops.find(c => c.id === val);
-                            if (selectedCrop && !formData.associatedCropIds.includes(val)) {
-                              const newIds = [...(formData.associatedCropIds || []), val];
-                              const newNames = [...(formData.associatedCropNames || []), selectedCrop.name];
-                              setFormData({
-                                ...formData,
-                                associatedCropIds: newIds,
-                                associatedCropNames: newNames,
-                                // Update legacy fields
-                                cropId: newIds[0],
-                                cropName: newNames[0]
-                              });
-                            }
-                          }}
-                          className="w-full px-6 py-4 bg-white border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900 appearance-none cursor-pointer pr-12"
-                        >
-                          <option value="">+ Add Crop to Selection (e.g. Exponus - select 5 crops)</option>
-                          {crops.map((c) => (
-                            <option key={c.id} value={c.id} disabled={formData.associatedCropIds?.includes(c.id)}>
-                              {c.name} {formData.associatedCropIds?.includes(c.id) ? "✓" : ""}
-                            </option>
-                          ))}
-                        </select>
-                        <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                          <Plus size={18} />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  <p className="text-[10px] text-gray-400 font-medium italic mt-2 px-1">
-                    * {formData.isAllCrops ? "This product will show up for EVERY crop." : "Link specific crops so users find this product when browsing those crops."}
-                  </p>
-                </div>
-
-                {formData.category && (
-                  <div className="space-y-2 animate-in fade-in slide-in-from-top-2 md:col-span-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                        Sub-Category
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setShowNewSubCategoryInput(!showNewSubCategoryInput)}
-                        className="text-[10px] font-black text-primary uppercase tracking-widest hover:underline"
-                      >
-                        {showNewSubCategoryInput ? "✕ Cancel" : "+ Create New Sub-category"}
-                      </button>
-                    </div>
-
-                    {showNewSubCategoryInput ? (
-                      /* Inline Add Sub-category form */
-                      <div className="flex items-center gap-3 p-4 bg-green-50/50 border border-green-100 rounded-2xl animate-in slide-in-from-top-2">
-                        <input
-                          type="text"
-                          value={newSubCategoryName}
-                          onChange={(e) => setNewSubCategoryName(e.target.value)}
-                          placeholder="Enter new sub-category name..."
-                          className="flex-1 px-4 py-3 bg-white border border-gray-200 rounded-xl outline-none text-sm font-bold text-gray-900 focus:border-primary"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleCreateSubCategory}
-                          className="bg-primary text-white px-5 py-3 rounded-xl font-black text-xs uppercase tracking-wider hover:bg-primary-dark transition-colors shadow-sm"
-                        >
-                          Create
-                        </button>
-                      </div>
-                    ) : subCategories.length > 0 ? (
-                      /* Dropdown */
-                      <select
-                        value={formData.subCategory}
-                        onChange={(e) =>
-                          setFormData({ ...formData, subCategory: e.target.value })
-                        }
-                        className="w-full px-6 py-4 bg-green-50 border border-green-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900 appearance-none cursor-pointer"
-                      >
-                        <option value="">None / Select Sub-Category</option>
-                        {subCategories.map((sc) => (
-                          <option key={sc.id} value={sc.name}>
-                            {sc.name}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      /* Alert to add if none exists */
-                      <div className="p-4 bg-orange-50 border border-orange-100 rounded-2xl flex items-center justify-between text-orange-800">
-                        <span className="text-xs font-bold">No sub-categories created for this category.</span>
-                        <button
-                          type="button"
-                          onClick={() => setShowNewSubCategoryInput(true)}
-                          className="bg-orange-600 text-white px-4 py-2 rounded-xl font-black text-[10px] uppercase hover:bg-orange-700 transition-colors shadow-sm"
-                        >
-                          Create One Now
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Chemical Composition / Technical Content - Always visible for agri products */}
-                <div className="space-y-2 md:col-span-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                      Chemical Composition / Technical Formulation (रासायनिक संरचना / टेक्निकल फॉर्मूला)
-                    </label>
-                  </div>
-                  <input
-                    type="text"
-                    value={formData.chemicalComposition || ""}
-                    onChange={(e) =>
-                      setFormData({ ...formData, chemicalComposition: e.target.value })
-                    }
-                    className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900 focus:bg-white"
-                    placeholder="e.g., Chlorpyrifos 50% + Cypermethrin 5% EC / NPK 19:19:19 / Mancozeb 75% WP / Glyphosate 41% SL"
-                  />
-                  <p className="text-[10px] text-gray-400 font-medium ml-1">
-                    * यह टेक्निकल नाम कस्टमर / किसान ऐप में प्रोडक्ट कार्ड और डिटेल्स पेज पर साफ दिखता है।
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                    Unit Type
-                  </label>
-                  <select
-                    value={formData.unit}
-                    onChange={(e) =>
-                      setFormData({ ...formData, unit: e.target.value })
-                    }
-                    className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900 appearance-none cursor-pointer"
-                  >
-                    <option value="ml">ml</option>
-                    <option value="gm">gm</option>
-                    <option value="kg">kg</option>
-                    <option value="piece">piece</option>
-                    <option value="meter">meter</option>
-                    <option value="pack">pack</option>
-                    <option value="SL">SL (घुलनशील तरल / Soluble Liquid)</option>
-                    <option value="EC">EC (तेल आधारित तरल / Emulsifiable Concentrate)</option>
-                    <option value="SC">SC (गाढ़ा पेस्ट / Suspension Concentrate)</option>
-                    <option value="WP">WP (घुलनशील पाउडर / Wettable Powder)</option>
-                    <option value="WG">WG (घुलनशील दाने / Water Dispersible Granules)</option>
-                    <option value="GR">GR (मिट्टी में छिटकने वाले दाने / Granules)</option>
-                    <option value="SP">SP (पूरी तरह घुलने वाला पाउडर / Soluble Powder)</option>
-                  </select>
-                </div>
-              </section>
-
-              {/* ─── SUPPLY CHAIN & FULFILLMENT MODEL ─── */}
-              <section className="space-y-6 animate-in fade-in duration-300">
-                <div className="flex items-center space-x-2 text-primary-dark border-b border-gray-50 pb-2">
-                  <Package size={16} />
-                  <h3 className="text-xs font-black uppercase tracking-widest">
-                    Supply Chain {'&'} Fulfillment Model
-                  </h3>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {/* Fulfillment Type */}
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                      Fulfillment Model *
-                    </label>
-                    <select
-                      value={formData.fulfillmentType || "SELF_STOCK"}
-                      onChange={(e) =>
-                        setFormData({ ...formData, fulfillmentType: e.target.value })
-                      }
-                      className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900 appearance-none cursor-pointer"
-                    >
-                      <option value="SELF_STOCK">SELF_STOCK (Warehouse In-Stock)</option>
-                      <option value="ON_DEMAND">ON_DEMAND (Procured On-Order)</option>
-                    </select>
-                  </div>
-
-                  {/* Primary Supplier */}
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                      Primary Supplier
-                    </label>
-                    <select
-                      value={formData.primarySupplierId || ""}
-                      onChange={(e) =>
-                        setFormData({ ...formData, primarySupplierId: e.target.value })
-                      }
-                      className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900 appearance-none cursor-pointer"
-                    >
-                      <option value="">None / Select Supplier</option>
-                      {suppliers.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name} {s.leadTimeDays ? `(${s.leadTimeDays}d lead)` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Estimated Cost Price */}
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                      Est. Purchase Cost (₹)
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.estimatedCostPrice || ""}
-                      onChange={(e) =>
-                        setFormData({ ...formData, estimatedCostPrice: e.target.value })
-                      }
-                      className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                      placeholder="e.g. 350.00"
-                    />
-                  </div>
-                </div>
-              </section>
-
-              {/* Conditional Section: Single Variant vs Multiple Variants */}
-              {(!formData.variants || formData.variants.length === 0) ? (
-                /* Single Variant Fields */
-                <section className="space-y-8 animate-in fade-in duration-300">
-                  <div className="flex items-center justify-between border-b border-gray-50 pb-2">
-                    <div className="flex items-center space-x-2 text-primary-dark">
-                      <Tags size={16} />
-                      <h3 className="text-xs font-black uppercase tracking-widest">
-                        Inventory {'&'} Pricing (Single Variant)
-                      </h3>
-                    </div>
-                    <div className="flex space-x-2">
-                      {variantsBackup && (
-                        <button
-                          type="button"
-                          onClick={handleUndoVariantReset}
-                          className="bg-yellow-50 text-yellow-700 px-4 py-2 rounded-xl text-xs font-black uppercase hover:bg-yellow-100 transition-colors shadow-sm"
-                        >
-                          ↩ Undo Revert
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={handleAddVariant}
-                        className="bg-green-50 text-green-700 px-4 py-2 rounded-xl text-xs font-black uppercase hover:bg-green-100 transition-colors shadow-sm"
-                      >
-                        + Switch to Multiple Variants
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                        Weight / Size *
-                      </label>
-                      <input
-                        required
-                        type="text"
-                        value={formData.quantity}
-                        onChange={(e) =>
-                          setFormData({ ...formData, quantity: e.target.value })
-                        }
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., 500"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                        MRP (₹) *
-                      </label>
-                      <input
-                        required
-                        type="number"
-                        value={formData.mrp}
-                        onChange={(e) =>
-                          setFormData({ ...formData, mrp: e.target.value })
-                        }
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900"
-                        placeholder="0.00"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                        Selling Price (₹) *
-                      </label>
-                      <input
-                        required
-                        type="number"
-                        value={formData.price}
-                        onChange={(e) =>
-                          setFormData({ ...formData, price: e.target.value })
-                        }
-                        className="w-full px-6 py-4 bg-green-50 border border-green-100 rounded-2xl focus:ring-4 focus:ring-green-500/10 focus:border-primary outline-none transition-all font-black text-primary-dark shadow-inner"
-                        placeholder="0.00"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-orange-400 uppercase tracking-widest ml-1">
-                        Purchase Price (Cost) *
-                      </label>
-                      <input
-                        required
-                        type="number"
-                        value={formData.costPrice}
-                        onChange={(e) =>
-                          setFormData({ ...formData, costPrice: e.target.value })
-                        }
-                        className="w-full px-6 py-4 bg-orange-50 border border-orange-100 rounded-2xl focus:ring-4 focus:ring-orange-500/10 focus:border-orange-400 outline-none transition-all font-black text-orange-800 shadow-inner"
-                        placeholder="Secret Cost"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                        Available Stock *
-                      </label>
-                      <input
-                        required
-                        type="number"
-                        value={formData.stock}
-                        onChange={(e) =>
-                          setFormData({ ...formData, stock: e.target.value })
-                        }
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900"
-                        placeholder="e.g., 100"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                        Low Stock Reorder Level
-                      </label>
-                      <input
-                        type="number"
-                        value={formData.reorderLevel}
-                        onChange={(e) =>
-                          setFormData({ ...formData, reorderLevel: e.target.value })
-                        }
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., 10"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                        Batch Number
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.batchNumber}
-                        onChange={(e) =>
-                          setFormData({ ...formData, batchNumber: e.target.value })
-                        }
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., BATCH123"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                        MFG Date
-                      </label>
-                      <input
-                        type="date"
-                        value={formData.mfgDate}
-                        onChange={(e) =>
-                          setFormData({ ...formData, mfgDate: e.target.value })
-                        }
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                        Expiry Date
-                      </label>
-                      <input
-                        type="date"
-                        value={formData.expiryDate}
-                        onChange={(e) =>
-                          setFormData({ ...formData, expiryDate: e.target.value })
-                        }
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                      />
-                    </div>
-                  </div>
-
-                  {/* USP Display Card */}
-                  {formData.mrp && formData.quantity && (
-                    <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-100 rounded-2xl p-5 flex items-center justify-between shadow-inner animate-in fade-in duration-300">
-                      <div>
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Unit Selling Price (USP)</p>
-                        <p className="text-[10px] text-gray-400 font-bold mt-1">MRP ÷ Quantity</p>
-                      </div>
-                      <span className="text-2xl font-black text-primary-dark">₹{calculateUSP(formData.mrp, formData.quantity)} <span className="text-sm font-bold text-gray-400">/ {formData.unit}</span></span>
-                    </div>
-                  )}
-                </section>
-              ) : (
-                /* Multiple Variants Card Layout */
-                <section className="space-y-8 animate-in fade-in duration-300">
-                  <div className="flex items-center justify-between border-b border-gray-50 pb-2">
-                    <div className="flex items-center space-x-2 text-primary-dark">
-                      <Package2 size={16} />
-                      <h3 className="text-xs font-black uppercase tracking-widest">
-                        Product Variants ({formData.variants.length})
-                      </h3>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleResetToSingleVariant}
-                      className="bg-red-50 text-red-700 px-4 py-2 rounded-xl text-xs font-black uppercase hover:bg-red-100 transition-colors shadow-sm"
-                    >
-                      ✕ Switch to Single Variant
-                    </button>
-                  </div>
-
-                  <div className="space-y-6">
-                    {formData.variants.map((v, idx) => (
-                      <div
-                        key={idx}
-                        className="p-6 bg-gray-50 rounded-3xl border border-gray-100 relative space-y-6 shadow-sm"
-                      >
-                        <div className="flex items-center justify-between border-b border-gray-200/50 pb-2">
-                          <span className="text-xs font-black uppercase tracking-wider text-gray-500">
-                            Variant #{idx + 1}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveVariant(idx)}
-                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors flex items-center space-x-1"
-                          >
-                            <Trash2 size={16} />
-                            <span className="text-[10px] font-bold uppercase tracking-wider">Remove</span>
-                          </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-                          <div className="space-y-2">
-                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                              Weight / Size Label *
-                            </label>
-                            <input
-                              required
-                              value={v.label || ""}
-                              onChange={(e) => {
-                                const nv = [...formData.variants];
-                                nv[idx] = { ...nv[idx], label: e.target.value };
-                                setFormData({ ...formData, variants: nv });
-                              }}
-                              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl outline-none focus:border-primary text-sm font-bold text-gray-900"
-                              placeholder="e.g., 500gm, 1kg"
-                            />
-                          </div>
-
-
-                          <div className="space-y-2">
-                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                              MRP *
-                            </label>
-                            <input
-                              required
-                              type="number"
-                              value={v.mrp || ""}
-                              onChange={(e) => {
-                                const nv = [...formData.variants];
-                                nv[idx] = { ...nv[idx], mrp: e.target.value };
-                                setFormData({ ...formData, variants: nv });
-                              }}
-                              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl outline-none focus:border-primary text-sm font-bold text-gray-900"
-                              placeholder="0.00"
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                              Selling Price *
-                            </label>
-                            <input
-                              required
-                              type="number"
-                              value={v.price || ""}
-                              onChange={(e) => {
-                                const nv = [...formData.variants];
-                                nv[idx] = { ...nv[idx], price: e.target.value };
-                                setFormData({ ...formData, variants: nv });
-                              }}
-                              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl outline-none focus:border-primary text-sm font-bold text-gray-900"
-                              placeholder="0.00"
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <label className="text-[9px] font-black text-orange-400 uppercase tracking-widest ml-1">
-                              Purchase Cost *
-                            </label>
-                            <input
-                              required
-                              type="number"
-                              value={v.costPrice || ""}
-                              onChange={(e) => {
-                                const nv = [...formData.variants];
-                                nv[idx] = { ...nv[idx], costPrice: e.target.value };
-                                setFormData({ ...formData, variants: nv });
-                              }}
-                              className="w-full px-4 py-3 bg-orange-50 border border-orange-100 rounded-xl outline-none focus:border-orange-400 text-sm font-bold text-orange-900"
-                              placeholder="Secret"
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                              Stock *
-                            </label>
-                            <input
-                              required
-                              type="number"
-                              value={v.stock || ""}
-                              onChange={(e) => {
-                                const nv = [...formData.variants];
-                                nv[idx] = { ...nv[idx], stock: e.target.value };
-                                setFormData({ ...formData, variants: nv });
-                              }}
-                              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl outline-none focus:border-primary text-sm font-bold text-gray-900"
-                              placeholder="e.g., 50"
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                              Low Stock Level
-                            </label>
-                            <input
-                              type="number"
-                              value={v.reorderLevel || ""}
-                              onChange={(e) => {
-                                const nv = [...formData.variants];
-                                nv[idx] = { ...nv[idx], reorderLevel: e.target.value };
-                                setFormData({ ...formData, variants: nv });
-                              }}
-                              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl outline-none focus:border-primary text-sm font-bold text-gray-900"
-                              placeholder="e.g., 10"
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                              Batch Number
-                            </label>
-                            <input
-                              type="text"
-                              value={v.batchNumber || ""}
-                              onChange={(e) => {
-                                const nv = [...formData.variants];
-                                nv[idx] = { ...nv[idx], batchNumber: e.target.value };
-                                setFormData({ ...formData, variants: nv });
-                              }}
-                              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl outline-none focus:border-primary text-sm font-bold text-gray-900"
-                              placeholder="e.g., B123"
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                              MFG Date
-                            </label>
-                            <input
-                              type="date"
-                              value={v.mfgDate || ""}
-                              onChange={(e) => {
-                                const nv = [...formData.variants];
-                                nv[idx] = { ...nv[idx], mfgDate: e.target.value };
-                                setFormData({ ...formData, variants: nv });
-                              }}
-                              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl outline-none focus:border-primary text-sm font-bold text-gray-900"
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                              Expiry Date
-                            </label>
-                            <input
-                              type="date"
-                              value={v.expiryDate || ""}
-                              onChange={(e) => {
-                                const nv = [...formData.variants];
-                                nv[idx] = { ...nv[idx], expiryDate: e.target.value };
-                                setFormData({ ...formData, variants: nv });
-                              }}
-                              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl outline-none focus:border-primary text-sm font-bold text-gray-900"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div>
-                    <button
-                      type="button"
-                      onClick={handleAddVariant}
-                      className="bg-green-50 text-green-700 px-4 py-3 rounded-2xl font-black text-sm flex items-center hover:bg-green-100 transition-colors shadow-sm"
-                    >
-                      <Plus size={16} className="mr-2" /> Add More Variants
-                    </button>
-                  </div>
-                </section>
-              )}
-
-              {/* ─── SEED METADATA ─── */}
-              {formData.category === "Seeds" && (
-                <section className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
-                  <div className="flex items-center space-x-2 border-b border-green-100 pb-2">
-                    <Sprout size={16} className="text-green-700" />
-                    <h3 className="text-xs font-black uppercase tracking-widest text-green-800">🌾 Seed Metadata</h3>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Variety</label>
-                      <input
-                        type="text"
-                        value={formData.seedMetadata.variety}
-                        onChange={(e) => setFormData({ ...formData, seedMetadata: { ...formData.seedMetadata, variety: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., Hybrid, Open Pollinated"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Seed Class</label>
-                      <select
-                        value={formData.seedMetadata.seedClass}
-                        onChange={(e) => setFormData({ ...formData, seedMetadata: { ...formData.seedMetadata, seedClass: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900 appearance-none cursor-pointer"
-                      >
-                        {seedClasses.map(sc => <option key={sc} value={sc}>{sc}</option>)}
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Germination %</label>
-                      <input
-                        type="number"
-                        value={formData.seedMetadata.germination}
-                        onChange={(e) => setFormData({ ...formData, seedMetadata: { ...formData.seedMetadata, germination: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., 95"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Purity %</label>
-                      <input
-                        type="number"
-                        value={formData.seedMetadata.purity}
-                        onChange={(e) => setFormData({ ...formData, seedMetadata: { ...formData.seedMetadata, purity: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., 99"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Moisture %</label>
-                      <input
-                        type="number"
-                        value={formData.seedMetadata.moisture}
-                        onChange={(e) => setFormData({ ...formData, seedMetadata: { ...formData.seedMetadata, moisture: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., 12"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Lot Number</label>
-                      <input
-                        type="text"
-                        value={formData.seedMetadata.lotNumber}
-                        onChange={(e) => setFormData({ ...formData, seedMetadata: { ...formData.seedMetadata, lotNumber: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., LOT2024001"
-                      />
-                    </div>
-                    <div className="md:col-span-2 flex items-center justify-between bg-green-50 p-6 rounded-2xl border border-green-100 shadow-inner">
-                      <div className="flex items-center space-x-3">
-                        <div
-                          className={`h-6 w-11 rounded-full transition-all duration-300 relative cursor-pointer ${formData.seedMetadata.isTreated ? "bg-[#2e7d32]" : "bg-gray-300"}`}
-                          onClick={() => setFormData({ ...formData, seedMetadata: { ...formData.seedMetadata, isTreated: !formData.seedMetadata.isTreated } })}
-                        >
-                          <div className={`h-4 w-4 bg-white rounded-full absolute top-1 transition-all duration-300 ${formData.seedMetadata.isTreated ? "left-6" : "left-1"}`} />
-                        </div>
-                        <span className="text-sm font-black text-gray-700 uppercase tracking-widest">Seed is Treated (Chemical Treatment)</span>
-                      </div>
-                    </div>
-                    {formData.seedMetadata.isTreated && (
-                      <div className="md:col-span-2 space-y-2 animate-in fade-in slide-in-from-top-2">
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Treatment Chemical Name</label>
-                        <input
-                          type="text"
-                          value={formData.seedMetadata.chemicalName}
-                          onChange={(e) => setFormData({ ...formData, seedMetadata: { ...formData.seedMetadata, chemicalName: e.target.value } })}
-                          className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                          placeholder="e.g., Thiram, Captan"
-                        />
-                      </div>
-                    )}
-                  </div>
-                </section>
-              )}
-
-              {/* ─── AGRO METADATA ─── */}
-              {["Fungicide", "Insecticide", "Crop Nutrition"].includes(formData.category) && (
-                <section className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
-                  <div className="flex items-center space-x-2 border-b border-blue-100 pb-2">
-                    <Beaker size={16} className="text-blue-700" />
-                    <h3 className="text-xs font-black uppercase tracking-widest text-blue-800">🧪 Agrochemical Details</h3>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Technical Name</label>
-                      <input
-                        type="text"
-                        value={formData.agroMetadata.technicalName}
-                        onChange={(e) => setFormData({ ...formData, agroMetadata: { ...formData.agroMetadata, technicalName: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., Chlorpyrifos 50% EC"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Formulation</label>
-                      <input
-                        type="text"
-                        value={formData.agroMetadata.formulation}
-                        onChange={(e) => setFormData({ ...formData, agroMetadata: { ...formData.agroMetadata, formulation: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., EC, WP, SC, SL"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Dose Per Acre</label>
-                      <input
-                        type="text"
-                        value={formData.agroMetadata.dosePerAcre}
-                        onChange={(e) => setFormData({ ...formData, agroMetadata: { ...formData.agroMetadata, dosePerAcre: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., 400ml/acre"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Target Pests (comma separated)</label>
-                      <input
-                        type="text"
-                        value={formData.agroMetadata.targetPests}
-                        onChange={(e) => setFormData({ ...formData, agroMetadata: { ...formData.agroMetadata, targetPests: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., Aphids, Whitefly, Thrips"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Recommended Crops (comma separated)</label>
-                      <input
-                        type="text"
-                        value={formData.agroMetadata.recommendedCrops}
-                        onChange={(e) => setFormData({ ...formData, agroMetadata: { ...formData.agroMetadata, recommendedCrops: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., Cotton, Wheat, Rice"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Antidote</label>
-                      <input
-                        type="text"
-                        value={formData.agroMetadata.antidote}
-                        onChange={(e) => setFormData({ ...formData, agroMetadata: { ...formData.agroMetadata, antidote: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., Atropine Sulphate"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Toxicity Label</label>
-                      <select
-                        value={formData.agroMetadata.toxicityLabel}
-                        onChange={(e) => setFormData({ ...formData, agroMetadata: { ...formData.agroMetadata, toxicityLabel: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900 appearance-none cursor-pointer"
-                      >
-                        {toxicityLabels.map(t => (
-                          <option key={t.id} value={t.id}>{t.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    {/* Toxicity color preview */}
-                    <div className="flex items-center space-x-3 p-4 rounded-2xl border border-gray-100 bg-gray-50">
-                      <div
-                        className="h-10 w-10 rounded-full border-2 border-white shadow-md shrink-0"
-                        style={{ backgroundColor: toxicityLabels.find(t => t.id === formData.agroMetadata.toxicityLabel)?.color || "#008000" }}
-                      />
-                      <div>
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Selected Label Color</p>
-                        <p className="text-sm font-black text-gray-700">{toxicityLabels.find(t => t.id === formData.agroMetadata.toxicityLabel)?.label}</p>
-                      </div>
-                    </div>
-                    <div className="md:col-span-2 flex items-center justify-between bg-red-50 p-6 rounded-2xl border border-red-100 shadow-inner">
-                      <div className="flex items-center space-x-3">
-                        <div
-                          className={`h-6 w-11 rounded-full transition-all duration-300 relative cursor-pointer ${formData.agroMetadata.safetyWarning ? "bg-red-600" : "bg-gray-300"}`}
-                          onClick={() => setFormData({ ...formData, agroMetadata: { ...formData.agroMetadata, safetyWarning: !formData.agroMetadata.safetyWarning } })}
-                        >
-                          <div className={`h-4 w-4 bg-white rounded-full absolute top-1 transition-all duration-300 ${formData.agroMetadata.safetyWarning ? "left-6" : "left-1"}`} />
-                        </div>
-                        <span className="text-sm font-black text-gray-700 uppercase tracking-widest">⚠️ Safety Warning Required</span>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-              )}
-
-              {/* ─── HERBICIDE METADATA ─── */}
-              {formData.category === "Herbicide" && (
-                <section className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
-                  <div className="flex items-center space-x-2 border-b border-orange-100 pb-2">
-                    <AlertTriangle size={16} className="text-orange-700" />
-                    <h3 className="text-xs font-black uppercase tracking-widest text-orange-800">🌿 Herbicide Details</h3>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Selectivity</label>
-                      <select
-                        value={formData.herbicideMetadata.selectivity}
-                        onChange={(e) => setFormData({ ...formData, herbicideMetadata: { ...formData.herbicideMetadata, selectivity: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900 appearance-none cursor-pointer"
-                      >
-                        <option value="Selective">Selective</option>
-                        <option value="Non-Selective">Non-Selective</option>
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Application Timing</label>
-                      <select
-                        value={formData.herbicideMetadata.timing}
-                        onChange={(e) => setFormData({ ...formData, herbicideMetadata: { ...formData.herbicideMetadata, timing: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900 appearance-none cursor-pointer"
-                      >
-                        <option value="Pre-Emergent">Pre-Emergent</option>
-                        <option value="Post-Emergent">Post-Emergent</option>
-                        <option value="Both">Both (Pre {'&'} Post)</option>
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Technical Name</label>
-                      <input
-                        type="text"
-                        value={formData.herbicideMetadata.technicalName}
-                        onChange={(e) => setFormData({ ...formData, herbicideMetadata: { ...formData.herbicideMetadata, technicalName: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., Glyphosate 41% SL"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Dose Per Acre</label>
-                      <input
-                        type="text"
-                        value={formData.herbicideMetadata.dosePerAcre}
-                        onChange={(e) => setFormData({ ...formData, herbicideMetadata: { ...formData.herbicideMetadata, dosePerAcre: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., 1.5L/acre"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Target Weeds (comma separated)</label>
-                      <input
-                        type="text"
-                        value={formData.herbicideMetadata.targetWeeds}
-                        onChange={(e) => setFormData({ ...formData, herbicideMetadata: { ...formData.herbicideMetadata, targetWeeds: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., Grass, Broadleaf Weeds"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Recommended Crops (comma separated)</label>
-                      <input
-                        type="text"
-                        value={formData.herbicideMetadata.recommendedCrops}
-                        onChange={(e) => setFormData({ ...formData, herbicideMetadata: { ...formData.herbicideMetadata, recommendedCrops: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., Wheat, Corn, Soybean"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Water Volume</label>
-                      <input
-                        type="text"
-                        value={formData.herbicideMetadata.waterVolume}
-                        onChange={(e) => setFormData({ ...formData, herbicideMetadata: { ...formData.herbicideMetadata, waterVolume: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., 200L/acre"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Rain Fastness</label>
-                      <input
-                        type="text"
-                        value={formData.herbicideMetadata.rainFastness}
-                        onChange={(e) => setFormData({ ...formData, herbicideMetadata: { ...formData.herbicideMetadata, rainFastness: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-bold text-gray-900"
-                        placeholder="e.g., 1 hour after application"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Toxicity Label</label>
-                      <select
-                        value={formData.herbicideMetadata.toxicityLabel}
-                        onChange={(e) => setFormData({ ...formData, herbicideMetadata: { ...formData.herbicideMetadata, toxicityLabel: e.target.value } })}
-                        className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-black text-gray-900 appearance-none cursor-pointer"
-                      >
-                        {toxicityLabels.map(t => (
-                          <option key={t.id} value={t.id}>{t.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    {/* Toxicity color preview */}
-                    <div className="flex items-center space-x-3 p-4 rounded-2xl border border-gray-100 bg-gray-50">
-                      <div
-                        className="h-10 w-10 rounded-full border-2 border-white shadow-md shrink-0"
-                        style={{ backgroundColor: toxicityLabels.find(t => t.id === formData.herbicideMetadata.toxicityLabel)?.color || "#008000" }}
-                      />
-                      <div>
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Selected Label Color</p>
-                        <p className="text-sm font-black text-gray-700">{toxicityLabels.find(t => t.id === formData.herbicideMetadata.toxicityLabel)?.label}</p>
-                      </div>
-                    </div>
-                    <div className="md:col-span-2 flex items-center justify-between bg-orange-50 p-6 rounded-2xl border border-orange-100 shadow-inner">
-                      <div className="flex items-center space-x-3">
-                        <div
-                          className={`h-6 w-11 rounded-full transition-all duration-300 relative cursor-pointer ${formData.herbicideMetadata.avoidDrift ? "bg-orange-600" : "bg-gray-300"}`}
-                          onClick={() => setFormData({ ...formData, herbicideMetadata: { ...formData.herbicideMetadata, avoidDrift: !formData.herbicideMetadata.avoidDrift } })}
-                        >
-                          <div className={`h-4 w-4 bg-white rounded-full absolute top-1 transition-all duration-300 ${formData.herbicideMetadata.avoidDrift ? "left-6" : "left-1"}`} />
-                        </div>
-                        <span className="text-sm font-black text-gray-700 uppercase tracking-widest">⚠️ Avoid Drift Warning</span>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-              )}
-
-              {/* Description */}
-              <section className="space-y-6">
-                <div className="flex items-center space-x-2 text-primary-dark border-b border-gray-50 pb-2">
-                  <Plus size={16} />
-                  <h3 className="text-xs font-black uppercase tracking-widest">
-                    Description {'&'} Usage
-                  </h3>
-                </div>
-                <div className="space-y-2">
-                  <textarea
-                    rows="4"
-                    value={formData.description}
-                    onChange={(e) =>
-                      setFormData({ ...formData, description: e.target.value })
-                    }
-                    className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none transition-all font-medium text-gray-700 leading-relaxed"
-                    placeholder="Detailed product description..."
-                  />
-                </div>
-
-                {/* Rating Field */}
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Product Rating (0–5)</label>
-                  <div className="flex items-center gap-4">
-                    <input
-                      type="range"
-                      min="0"
-                      max="5"
-                      step="0.1"
-                      value={formData.rating || 4.5}
-                      onChange={(e) => setFormData({ ...formData, rating: parseFloat(e.target.value) })}
-                      className="flex-1 accent-primary h-2 rounded-full cursor-pointer"
-                    />
-                    <div className="bg-primary text-white px-4 py-2 rounded-xl font-black text-sm min-w-[60px] text-center">
-                      ⭐ {(formData.rating || 4.5).toFixed(1)}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between bg-gray-50 p-6 rounded-2xl border border-gray-100 shadow-inner">
-                  <div className="flex items-center space-x-3">
-                    <div
-                      className={`h-6 w-11 rounded-full transition-all duration-300 relative cursor-pointer ${formData.isActive ? "bg-[#2e7d32]" : "bg-gray-300"}`}
-                      onClick={() =>
-                        setFormData({
-                          ...formData,
-                          isActive: !formData.isActive,
-                        })
-                      }
-                    >
-                      <div
-                        className={`h-4 w-4 bg-white rounded-full absolute top-1 transition-all duration-300 ${formData.isActive ? "left-6" : "left-1"}`}
-                      />
-                    </div>
-                    <span className="text-sm font-black text-gray-700 uppercase tracking-widest">
-                      Show in App
-                    </span>
-                  </div>
-                </div>
-              </section>
-
-              {/* Actions */}
-              <div className="pt-10 flex gap-4 sticky bottom-0 bg-white/95 backdrop-blur py-4 border-t border-gray-50 z-20">
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  disabled={submitting}
-                  className="px-8 py-5 bg-gray-100 text-gray-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-gray-200 transition-all cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="flex-1 bg-primary text-white py-5 rounded-2xl font-black text-sm uppercase tracking-[0.2em] shadow-xl shadow-green-100 hover:bg-primary-dark transition-all active:scale-[0.98] flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  {submitting ? (
-                    <>
-                      <Loader2 className="animate-spin mr-2" size={18} />
-                      <span>{editingProduct ? "Saving Changes..." : "Publishing Product & Syncing SKUs..."}</span>
-                    </>
-                  ) : (
-                    <span>{editingProduct ? "Finalize Updates" : "Publish Product"}</span>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <ProductFormModal 
+        isOpen={isModalOpen}
+        onClose={closeModal}
+        formData={formData}
+        setFormData={setFormData}
+        categories={categories}
+        brands={brands}
+        crops={crops}
+        suppliers={suppliers}
+        onSubmit={handleSubmit}
+        isSubmitting={submitting}
+        editingProduct={editingProduct}
+      />
     </div>
   );
 };

@@ -11,8 +11,8 @@ export async function cancelOrderTransaction(orderId, userId, cancellationReason
   try {
     // [FIXED] Point #140 & #141: Moved order cancellation to a secure Cloud Function.
     // This ensures Role-based access control (RBAC) and atomic server-side processing.
-    const { getFunctions, httpsCallable } = await import('firebase/functions');
-    const functions = getFunctions();
+    const { httpsCallable } = await import('firebase/functions');
+    const { functions } = await import('../firebase/config');
     const cancelOrder = httpsCallable(functions, 'adminCancelOrder');
 
     const result = await cancelOrder({ orderId, reason: cancellationReason });

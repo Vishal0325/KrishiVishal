@@ -114,6 +114,8 @@ export const UNIT_NAME_TO_CODE = {
   bg: 'BG',
   bag: 'BG',
   bags: 'BG',
+  pouch: 'PK',
+  pouches: 'PK',
   sl: 'LT',
   ec: 'ML',
   sc: 'ML',

@@ -36,3 +36,27 @@ export const formatDateTime = (date) => {
     timeZone: 'Asia/Kolkata' // [FIXED] Point #104: Enforced IST timezone for all display dates
   });
 };
+
+export const formatAddress = (addr, fallback = 'Bihar') => {
+  if (!addr) return fallback;
+  if (typeof addr === 'string') return addr.trim() || fallback;
+  if (typeof addr === 'object') {
+    if (typeof addr.address === 'string' && addr.address.trim()) {
+      return addr.address.trim();
+    }
+    const parts = [
+      addr.line1,
+      addr.line2,
+      addr.landmark ? `Near ${addr.landmark}` : null,
+      addr.village,
+      addr.street,
+      addr.city || addr.district,
+      addr.state,
+      addr.pincode ? `PIN: ${addr.pincode}` : (addr.pin ? `PIN: ${addr.pin}` : null)
+    ].filter(Boolean).map(p => String(p).trim()).filter(Boolean);
+
+    return parts.length > 0 ? parts.join(', ') : fallback;
+  }
+  return String(addr) || fallback;
+};
+

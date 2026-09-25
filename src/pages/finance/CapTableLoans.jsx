@@ -19,6 +19,7 @@ import {
   Download
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { useAuth } from "../../hooks/useAuth";
 import PageHeader from "../../components/common/PageHeader";
 import MetricCard from "../../components/common/MetricCard";
 import StatusBadge from "../../components/common/StatusBadge";
@@ -44,6 +45,7 @@ import {
 import { exportToExcel, exportToPDF } from "../../utils/exportUtils";
 
 const CapTableLoans = () => {
+  const { role } = useAuth();
   const [activeTab, setActiveTab] = useState("captable");
   const [loading, setLoading] = useState(true);
 
@@ -122,8 +124,12 @@ const CapTableLoans = () => {
   const [simResult, setSimResult] = useState(null);
 
   useEffect(() => {
-    fetchAllData();
-  }, []);
+    if (role === "SuperAdmin") {
+      fetchAllData();
+    } else {
+      setLoading(false);
+    }
+  }, [role]);
 
   const fetchAllData = async () => {
     setLoading(true);
@@ -421,6 +427,16 @@ const CapTableLoans = () => {
       )
     }
   ];
+
+  if (role !== "SuperAdmin") {
+    return (
+      <div className="p-12 text-center bg-white rounded-2xl border border-gray-100 shadow-sm max-w-xl mx-auto my-8">
+        <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+        <h2 className="text-lg font-bold text-gray-900">Restricted Access</h2>
+        <p className="text-sm text-gray-500 mt-1">Company Cap Table, Equity Distribution, and Director Debt records are restricted strictly to SuperAdmin.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-12 animate-in fade-in duration-300">

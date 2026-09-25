@@ -31,6 +31,11 @@ const Settings = React.lazy(() => import("./pages/Settings"));
 const DeliverySlots = React.lazy(() => import("./pages/DeliverySlots"));
 const Notifications = React.lazy(() => import("./pages/Notifications"));
 
+// Service Marketplace
+const ServicesConfig = React.lazy(() => import("./pages/ServicesConfig"));
+const ServiceBookings = React.lazy(() => import("./pages/ServiceBookings"));
+const PartnerSettlements = React.lazy(() => import("./pages/PartnerSettlements"));
+
 // Deep Details Pages (Direct views)
 const ProductDetail = React.lazy(() => import("./pages/ProductDetail"));
 const PurchaseOrderDetail = React.lazy(() => import("./pages/PurchaseOrderDetail"));
@@ -166,6 +171,11 @@ function App() {
             <Route path="/notifications" element={<RequireRole allowedRoles={catalogRoles}><Notifications /></RequireRole>} />
             <Route path="/profile" element={<Profile />} />
 
+            {/* Service Marketplace */}
+            <Route path="/services-config" element={<RequireRole allowedRoles={["SuperAdmin", "HubManager", "OrderManager", "Viewer"]}><ServicesConfig /></RequireRole>} />
+            <Route path="/service-bookings" element={<RequireRole allowedRoles={["SuperAdmin", "HubManager", "OrderManager", "Viewer"]}><ServiceBookings /></RequireRole>} />
+            <Route path="/partner-settlements" element={<RequireRole allowedRoles={["SuperAdmin", "HubManager", "FinanceAdmin", "Viewer"]}><PartnerSettlements /></RequireRole>} />
+
             {/* Direct Detail Pages */}
             <Route path="/product/:productId" element={<RequireRole allowedRoles={catalogRoles}><ProductDetail /></RequireRole>} />
             <Route path="/purchase-order/:id" element={<RequireRole allowedRoles={opsRoles}><PurchaseOrderDetail /></RequireRole>} />
@@ -230,6 +240,7 @@ function App() {
             <Route path="/attendance" element={<Navigate to="/fleet?tab=attendance" replace />} />
             <Route path="/sos" element={<Navigate to="/fleet?tab=sos" replace />} />
             <Route path="/payouts" element={<Navigate to="/fleet?tab=payouts" replace />} />
+            <Route path="/withdrawals" element={<Navigate to="/fleet?tab=withdrawals" replace />} />
             <Route path="/reconciliation" element={<Navigate to="/fleet?tab=recon" replace />} />
             <Route path="/settlement" element={<Navigate to="/fleet?tab=recon" replace />} />
             <Route path="/delivery-rules" element={<Navigate to="/fleet?tab=fleet" replace />} />

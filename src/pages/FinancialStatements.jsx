@@ -47,8 +47,21 @@ const FinancialStatements = () => {
       setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    const unsubLedger = onSnapshot(collection(db, 'supplier_ledger'), (snap) => {
+    const unsubSupplierLedger = onSnapshot(collection(db, 'supplier_ledger'), (snap) => {
       setLedgerEntries(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    const unsubLedger = onSnapshot(collection(db, 'ledger'), (snap) => {
+      const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setLedgerEntries(prev => {
+        const combined = [...prev];
+        items.forEach(item => {
+          if (item.type === 'DEBIT' && !combined.some(c => c.id === item.id)) {
+            combined.push({ id: item.id, debit: Number(item.amount || 0), ...item });
+          }
+        });
+        return combined;
+      });
     });
 
     const unsubGRN = onSnapshot(collection(db, 'goods_receipts'), (snap) => {
@@ -58,6 +71,7 @@ const FinancialStatements = () => {
     return () => {
       unsubProducts();
       unsubOrders();
+      unsubSupplierLedger();
       unsubLedger();
       unsubGRN();
     };
@@ -71,15 +85,15 @@ const FinancialStatements = () => {
     return sum + (qty * cost);
   }, 0);
 
-  const cashInflow = orders.filter(o => o.status === 'DELIVERED').reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-  const cashOutflowToSuppliers = ledgerEntries.reduce((sum, e) => sum + (e.debit || 0), 0);
+  const cashInflow = orders.filter(o => o.status === 'DELIVERED' || o.paymentStatus === 'PAID').reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
+  const cashOutflowToSuppliers = ledgerEntries.reduce((sum, e) => sum + Number(e.debit || e.amount || 0), 0);
   const cashBalance = Math.max(0, cashInflow - cashOutflowToSuppliers);
 
-  const accountsReceivable = orders.filter(o => ['OUT_FOR_DELIVERY', 'RIDER_ASSIGNED'].includes(o.status)).reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+  const accountsReceivable = orders.filter(o => ['PLACED', 'CONFIRMED', 'OUT_FOR_DELIVERY', 'RIDER_ASSIGNED'].includes(o.status)).reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
   const totalCurrentAssets = inventoryAssetValue + cashBalance + accountsReceivable;
 
   // Liabilities
-  const totalBilledBySuppliers = goodsReceipts.reduce((sum, g) => sum + (g.totalGRNAmount || 0), 0);
+  const totalBilledBySuppliers = goodsReceipts.reduce((sum, g) => sum + Number(g.totalGRNAmount || g.totalAmount || 0), 0);
   const accountsPayable = Math.max(0, totalBilledBySuppliers - cashOutflowToSuppliers);
   const gstPayableEstimated = Math.max(0, (cashInflow * 0.05) - (totalBilledBySuppliers * 0.05));
   const totalLiabilities = accountsPayable + gstPayableEstimated;

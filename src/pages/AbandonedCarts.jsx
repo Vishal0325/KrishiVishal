@@ -295,97 +295,124 @@ export default function AbandonedCarts() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 font-medium">
-              {filteredCarts.map((cart) => (
-                <tr key={cart.id} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="px-6 py-4">
-                    <p className="font-black text-gray-900 text-sm">{cart.customerName}</p>
-                    <p className="text-gray-500 font-mono text-xs mt-0.5">{cart.phone}</p>
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <p className="font-bold text-gray-800">{cart.village}</p>
-                    <span className="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] font-bold mt-1">
-                      PIN: {cart.pincode}
-                    </span>
-                  </td>
-
-                  <td className="px-6 py-4 max-w-xs">
-                    <div className="space-y-1">
-                      {(cart.items || []).map((item, idx) => (
-                        <div key={idx} className="flex items-center justify-between text-xs">
-                          <span className="text-gray-700 font-semibold truncate pr-2">
-                            • {item.name}
-                          </span>
-                          <span className="text-gray-500 font-mono shrink-0">
-                            x{item.quantity}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <p className="font-black text-sm text-gray-900">
-                      {formatCurrency(cart.cartValue)}
-                    </p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">
-                      {cart.remindersSent > 0 ? `${cart.remindersSent} बार भेजा गया` : 'फॉलोअप बाकी'}
-                    </p>
-                  </td>
-
-                  <td className="px-6 py-4">
-                    {cart.status === "RECOVERED" ? (
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full font-black text-[10px]">
-                        <CheckCircle2 size={12} /> RECOVERED
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-800 rounded-full font-black text-[10px]">
-                        <Clock size={12} /> PENDING
-                      </span>
-                    )}
-                  </td>
-
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end space-x-2">
-                      {/* WhatsApp Button */}
-                      <button
-                        onClick={() => handleSendWhatsApp(cart)}
-                        className="flex items-center space-x-1.5 bg-[#25D366] text-white px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-[#1ebd5a] active:scale-95 transition-all"
-                        title="Send 10% Discount WhatsApp to Farmer"
-                      >
-                        <MessageSquare size={14} />
-                        <span>WhatsApp Offer</span>
-                      </button>
-
-                      {/* Phone Call */}
-                      <a
-                        href={`tel:${cart.phone}`}
-                        className="p-2 bg-gray-100 text-gray-600 rounded-xl hover:bg-primary/10 hover:text-primary transition-all active:scale-95"
-                        title="Call Farmer"
-                      >
-                        <Phone size={14} />
-                      </a>
-
-                      {/* Mark Recovered */}
-                      {cart.status !== "RECOVERED" && (
-                        <button
-                          onClick={() => handleMarkRecovered(cart.id)}
-                          className="p-2 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 transition-all active:scale-95"
-                          title="Mark as Converted/Recovered"
-                        >
-                          <CheckCircle2 size={14} />
-                        </button>
-                      )}
+              {loading ? (
+                <tr>
+                  <td colSpan="6" className="px-6 py-16 text-center">
+                    <div className="flex flex-col items-center justify-center space-y-4">
+                      <RefreshCw className="animate-spin text-emerald-600" size={32} />
+                      <p className="text-gray-500 font-bold tracking-wide">कार्ट्स का डेटा लोड हो रहा है...</p>
                     </div>
                   </td>
                 </tr>
-              ))}
+              ) : filteredCarts.length === 0 ? (
+                <tr>
+                  <td colSpan="6" className="px-6 py-20 text-center">
+                    <div className="flex flex-col items-center justify-center space-y-4">
+                      <div className="p-5 bg-gray-50 rounded-full">
+                        <ShoppingCart className="text-gray-300" size={48} />
+                      </div>
+                      <h3 className="text-gray-900 font-black text-xl">कोई कार्ट नहीं मिला</h3>
+                      <p className="text-gray-500 max-w-sm mx-auto font-medium leading-relaxed">
+                        {searchTerm 
+                          ? "आपकी सर्च से मेल खाने वाला कोई कार्ट नहीं मिला। कृपया कुछ और सर्च करें।"
+                          : "बहुत बढ़िया! अभी सिस्टम में कोई भी पेंडिंग अबैंडंड कार्ट नहीं है।"}
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredCarts.map((cart) => (
+                  <tr key={cart.id} className="hover:bg-gray-50/50 transition-colors">
+                    <td className="px-6 py-4">
+                      <p className="font-black text-gray-900 text-sm">{cart.customerName}</p>
+                      <p className="text-gray-500 font-mono text-xs mt-0.5">{cart.phone}</p>
+                    </td>
+
+                    <td className="px-6 py-4">
+                      <p className="font-bold text-gray-800">{cart.village}</p>
+                      <span className="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] font-bold mt-1">
+                        PIN: {cart.pincode}
+                      </span>
+                    </td>
+
+                    <td className="px-6 py-4 max-w-xs">
+                      <div className="space-y-1">
+                        {(cart.items || []).map((item, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-xs">
+                            <span className="text-gray-700 font-semibold truncate pr-2">
+                              • {item.name}
+                            </span>
+                            <span className="text-gray-500 font-mono shrink-0">
+                              x{item.quantity}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+
+                    <td className="px-6 py-4">
+                      <p className="font-black text-sm text-gray-900">
+                        {formatCurrency(cart.cartValue)}
+                      </p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        {cart.remindersSent > 0 ? `${cart.remindersSent} बार भेजा गया` : 'फॉलोअप बाकी'}
+                      </p>
+                    </td>
+
+                    <td className="px-6 py-4">
+                      {cart.status === "RECOVERED" ? (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full font-black text-[10px]">
+                          <CheckCircle2 size={12} /> RECOVERED
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-800 rounded-full font-black text-[10px]">
+                          <Clock size={12} /> PENDING
+                        </span>
+                      )}
+                    </td>
+
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end space-x-2">
+                        {/* WhatsApp Button */}
+                        <button
+                          onClick={() => handleSendWhatsApp(cart)}
+                          className="flex items-center space-x-1.5 bg-[#25D366] text-white px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-[#1ebd5a] active:scale-95 transition-all"
+                          title="Send 10% Discount WhatsApp to Farmer"
+                        >
+                          <MessageSquare size={14} />
+                          <span>WhatsApp Offer</span>
+                        </button>
+
+                        {/* Phone Call */}
+                        <a
+                          href={`tel:${cart.phone}`}
+                          className="p-2 bg-gray-100 text-gray-600 rounded-xl hover:bg-primary/10 hover:text-primary transition-all active:scale-95"
+                          title="Call Farmer"
+                        >
+                          <Phone size={14} />
+                        </a>
+
+                        {/* Mark Recovered */}
+                        {cart.status !== "RECOVERED" && (
+                          <button
+                            onClick={() => handleMarkRecovered(cart.id)}
+                            className="p-2 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 transition-all active:scale-95"
+                            title="Mark as Converted/Recovered"
+                          >
+                            <CheckCircle2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
 
         {/* Load More Button */}
-        {hasMore && (
+        {hasMore && !loading && filteredCarts.length > 0 && (
           <div className="p-6 border-t border-gray-100 flex justify-center">
             <button
               onClick={fetchMore}

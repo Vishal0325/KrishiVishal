@@ -85,31 +85,28 @@ const CashRecon = () => {
     return () => unsubWh();
   }, []);
 
-  // 2. Fetch Summaries (Riders + Orders calculation)
-  const fetchSummaries = async () => {
-    setLoading(true);
-    try {
-      const ridersSnap = await getDocs(collection(db, 'riders'));
-      const ordersSnap = await getDocs(query(collection(db, 'orders'), where('riderId', '!=', '')));
+  // 2. Real-time Listeners for Riders, Orders, Cash Deposits and Bank Deposits
+  useEffect(() => {
+    let currentRiders = [];
+    let currentOrders = [];
 
-      const allOrders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-      const ridersData = ridersSnap.docs.map(riderDoc => {
+    const computeRidersSummary = () => {
+      const ridersData = currentRiders.map(riderDoc => {
         const riderId = riderDoc.id;
-        const rider = riderDoc.data();
+        const rider = riderDoc;
         
-        const riderOrders = allOrders.filter(o => o.riderId === riderId);
+        const riderOrders = currentOrders.filter(o => o.riderId === riderId);
         const deliveredOrders = riderOrders.filter(o => o.status === 'DELIVERED');
         const activeOrdersCount = riderOrders.filter(o => ['ASSIGNED', 'OUT_FOR_DELIVERY'].includes(o.status)).length;
         
-        const codDeliveredOrders = deliveredOrders.filter(o => o.isCOD === true);
-        const totalCollected = codDeliveredOrders.reduce((sum, o) => sum + (o.codAmount || o.totalAmount || 0), 0);
+        const codDeliveredOrders = deliveredOrders.filter(o => o.isCOD === true || o.paymentMethod === 'COD');
+        const totalCollected = codDeliveredOrders.reduce((sum, o) => sum + (Number(o.codAmount) || Number(o.totalAmount) || 0), 0);
         
         const settledOrders = codDeliveredOrders.filter(o => o.verifiedByAdmin === true || o.isCashDeposited === true || o.isSettledByAdmin === true);
-        const totalSettled = settledOrders.reduce((sum, o) => sum + (o.codAmount || o.totalAmount || 0), 0);
+        const totalSettled = settledOrders.reduce((sum, o) => sum + (Number(o.codAmount) || Number(o.totalAmount) || 0), 0);
         
         const pendingOrders = codDeliveredOrders.filter(o => !o.verifiedByAdmin && !o.isCashDeposited && !o.isSettledByAdmin);
-        const pendingCash = pendingOrders.reduce((sum, o) => sum + (o.codAmount || o.totalAmount || 0), 0);
+        const pendingCash = pendingOrders.reduce((sum, o) => sum + (Number(o.codAmount) || Number(o.totalAmount) || 0), 0);
         const pendingOrderIds = pendingOrders.map(o => o.id);
 
         return {
@@ -127,33 +124,44 @@ const CashRecon = () => {
       });
 
       setRiders(ridersData);
-    } catch (err) {
-      console.error("Error fetching summaries:", err);
-      toast.error("Failed to load cash summaries");
-    } finally {
       setLoading(false);
-    }
-  };
+    };
 
-  useEffect(() => {
+    // Listen to riders collection
+    const unsubRiders = onSnapshot(collection(db, 'riders'), (snapshot) => {
+      currentRiders = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      computeRidersSummary();
+    }, (err) => console.warn("Riders error:", err));
+
+    // Listen to orders collection
+    const unsubOrders = onSnapshot(collection(db, 'orders'), (snapshot) => {
+      currentOrders = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      computeRidersSummary();
+    }, (err) => console.warn("Orders error:", err));
+
     // Listen to cash deposits / handover receipts
     const qDeposits = query(collection(db, 'cash_deposits'), orderBy('timestamp', 'desc'));
     const unsubDeposits = onSnapshot(qDeposits, (snapshot) => {
       setDeposits(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    }, (err) => console.warn("cash_deposits error:", err));
 
     // Listen to hub bank deposits (Step 2)
     const qBank = query(collection(db, 'hub_bank_deposits'), orderBy('timestamp', 'desc'));
     const unsubBank = onSnapshot(qBank, (snapshot) => {
       setBankDeposits(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    }, (err) => console.warn("hub_bank_deposits error:", err));
 
-    fetchSummaries();
     return () => {
+      unsubRiders();
+      unsubOrders();
       unsubDeposits();
       unsubBank();
     };
   }, []);
+
+  const fetchSummaries = () => {
+    // Realtime listeners are active
+  };
 
   const getWarehouseInfo = (warehouseId) => {
     if (!warehouseId) return { name: 'Unassigned Hub', code: 'GENERAL' };
@@ -834,9 +842,9 @@ const CashRecon = () => {
 
       {/* MODAL 1: Denomination Handover Counter Modal */}
       {settleModalRider && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] max-w-xl w-full p-6 lg:p-8 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center pb-4 border-b border-gray-100">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-[2rem] max-w-xl w-full p-4 sm:p-5 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200 max-h-[95vh] overflow-y-auto">
+            <div className="flex justify-between items-center pb-3 border-b border-gray-100">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-green-50 flex items-center justify-center text-primary font-bold">
                   <Banknote size={20} />
@@ -851,7 +859,7 @@ const CashRecon = () => {
               </button>
             </div>
 
-            <div className="py-5 space-y-4">
+            <div className="py-4 space-y-3">
               {/* Due vs Counted Bar */}
               <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-2xl border border-gray-200/60">
                 <div>
@@ -910,20 +918,20 @@ const CashRecon = () => {
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+            <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
               <button
                 onClick={() => setSettleModalRider(null)}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100 transition-colors"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmHandover}
                 disabled={processingId !== null}
-                className="px-6 py-2.5 bg-[#0B4D31] text-white rounded-xl text-xs font-black shadow-md shadow-green-900/10 hover:bg-[#146c43] transition-all flex items-center gap-2"
+                className="px-5 py-2 bg-[#0B4D31] text-white rounded-xl text-xs font-black shadow-md shadow-green-900/10 hover:bg-[#146c43] transition-all flex items-center gap-2"
               >
                 <CheckCircle2 size={16} />
-                {processingId ? 'Recording Handover...' : 'Generate Handover Voucher'}
+                {processingId ? 'Processing...' : 'Generate Voucher'}
               </button>
             </div>
           </div>
@@ -932,9 +940,9 @@ const CashRecon = () => {
 
       {/* MODAL 2: Record Bank Deposit Challan (Step 2) */}
       {isBankModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] max-w-lg w-full p-6 lg:p-8 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center pb-4 border-b border-gray-100">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-[2rem] max-w-lg w-full p-4 sm:p-5 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200 max-h-[95vh] overflow-y-auto">
+            <div className="flex justify-between items-center pb-3 border-b border-gray-100">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-700 font-bold">
                   <Building size={20} />
@@ -949,7 +957,7 @@ const CashRecon = () => {
               </button>
             </div>
 
-            <form onSubmit={handleBankDepositSubmit} className="py-5 space-y-4">
+            <form onSubmit={handleBankDepositSubmit} className="py-4 space-y-3">
               <div>
                 <label className="text-xs font-bold text-gray-700 mb-1 block">Origin Hub / Depot *</label>
                 <select
@@ -1027,18 +1035,18 @@ const CashRecon = () => {
                 />
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+              <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={() => setIsBankModalOpen(false)}
-                  className="px-5 py-2.5 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100"
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submittingBank}
-                  className="px-6 py-2.5 bg-[#0B4D31] text-white rounded-xl text-xs font-black shadow-md shadow-green-900/10 hover:bg-[#146c43]"
+                  className="px-5 py-2 bg-[#0B4D31] text-white rounded-xl text-xs font-black shadow-md shadow-green-900/10 hover:bg-[#146c43]"
                 >
                   {submittingBank ? 'Submitting...' : 'Submit Challan to Finance'}
                 </button>
@@ -1050,9 +1058,9 @@ const CashRecon = () => {
 
       {/* MODAL 3: Printable Digital Handover Receipt */}
       {receiptData && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] max-w-lg w-full p-6 lg:p-8 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center pb-4 border-b border-gray-100">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-[2rem] max-w-lg w-full p-4 sm:p-5 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200 max-h-[95vh] overflow-y-auto">
+            <div className="flex justify-between items-center pb-3 border-b border-gray-100">
               <span className="text-xs font-black text-gray-400 uppercase tracking-wider">Official Cash Handover Receipt</span>
               <button onClick={() => setReceiptData(null)} className="p-2 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-100">
                 <X size={18} />
@@ -1123,16 +1131,16 @@ const CashRecon = () => {
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+            <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
               <button
                 onClick={() => setReceiptData(null)}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100"
               >
                 Close
               </button>
               <button
                 onClick={() => window.print()}
-                className="px-6 py-2.5 bg-primary text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-sm hover:bg-primary-dark"
+                className="px-5 py-2 bg-primary text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-sm hover:bg-primary-dark"
               >
                 <Printer size={15} />
                 Print Voucher

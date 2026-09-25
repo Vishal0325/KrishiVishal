@@ -93,7 +93,7 @@ const ExpiryMonitor = () => {
           stock: Number(p.stock) || 0,
           price: Number(p.price) || 0,
           costPrice: Number(p.costPrice) || Number(p.price) * 0.8,
-          warehouseId: p.warehouseId || 'WH-PURNEA-MAIN',
+          warehouseId: p.warehouseId || 'MAIN_HUB',
           isQuarantined: !!p.isQuarantined,
           quarantineReason: p.quarantineReason || null,
           ...health
@@ -119,7 +119,7 @@ const ExpiryMonitor = () => {
               stock: Number(v.stock) || 0,
               price: Number(v.price) || Number(p.price) || 0,
               costPrice: Number(v.costPrice) || (Number(v.price) || 0) * 0.8,
-              warehouseId: v.warehouseId || p.warehouseId || 'WH-PURNEA-MAIN',
+              warehouseId: v.warehouseId || p.warehouseId || 'MAIN_HUB',
               isQuarantined: !!v.isQuarantined,
               quarantineReason: v.quarantineReason || null,
               ...vHealth

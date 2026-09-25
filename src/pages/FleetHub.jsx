@@ -22,6 +22,7 @@ const SOSAlerts = React.lazy(() => import("./SOSAlerts"));
 const RiderPayouts = React.lazy(() => import("./RiderPayouts"));
 const CashRecon = React.lazy(() => import("./CashRecon"));
 const RiderDocuments = React.lazy(() => import("./hr/RiderDocuments"));
+const RiderWithdrawals = React.lazy(() => import("./RiderWithdrawals"));
 
 export default function FleetHub() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -39,6 +40,7 @@ export default function FleetHub() {
     { id: "attendance", label: "Shift Attendance", icon: CalendarCheck },
     { id: "sos", label: "SOS Alerts", icon: AlertOctagon },
     { id: "payouts", label: "Rider Payouts", icon: Banknote },
+    { id: "withdrawals", label: "Withdrawal Requests", icon: Banknote },
     { id: "recon", label: "COD Reconciliation", icon: Banknote },
     { id: "compliance", label: "KYC & Compliance Docs", icon: FileCheck2 },
   ];
@@ -82,6 +84,7 @@ export default function FleetHub() {
           {activeTab === "attendance" && <Attendance />}
           {activeTab === "sos" && <SOSAlerts />}
           {activeTab === "payouts" && <RiderPayouts />}
+          {activeTab === "withdrawals" && <RiderWithdrawals />}
           {activeTab === "recon" && <CashRecon />}
           {activeTab === "compliance" && <RiderDocuments />}
         </div>

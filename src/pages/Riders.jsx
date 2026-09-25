@@ -55,6 +55,7 @@ const Riders = () => {
   const [whitelistPhone, setWhitelistPhone] = useState("");
   const [whitelistName, setWhitelistName] = useState("");
   const [whitelistHub, setWhitelistHub] = useState("");
+  const [whitelistRole, setWhitelistRole] = useState("rider");
   const [whitelisting, setWhitelisting] = useState(false);
 
   useEffect(() => {
@@ -125,10 +126,20 @@ const Riders = () => {
     }
     setWhitelisting(true);
     try {
-      await whitelistRiderPhone(formattedPhone, whitelistName, whitelistHub);
-      toast.success("Rider whitelisted and assigned to Hub!");
+      await whitelistRiderPhone(
+        formattedPhone,
+        whitelistName,
+        whitelistRole === "service_man" ? null : whitelistHub,
+        whitelistRole
+      );
+      toast.success(
+        whitelistRole === "service_man"
+          ? "Service Man whitelisted successfully!"
+          : "Rider whitelisted and assigned to Hub!"
+      );
       setWhitelistPhone("");
       setWhitelistName("");
+      setWhitelistRole("rider");
     } catch (error) {
       console.error("Whitelisting failed error:", error);
       toast.error("Whitelisting failed: " + error.message);
@@ -211,6 +222,8 @@ const Riders = () => {
     }
   };
 
+
+
   const filteredRiders = ridersList.filter((s) => {
     const matchesHub = selectedHub === "ALL" || s.warehouseId === selectedHub || s.assignedWarehouse === selectedHub;
     const matchesSearch =
@@ -264,8 +277,41 @@ const Riders = () => {
       )
     },
     {
+      header: "Role",
+      render: (s) => {
+        const role = (s.partnerRole || s.role || "rider").toLowerCase();
+        if (role === "service_man") {
+          return (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200">
+              🛠️ Service
+            </span>
+          );
+        }
+        if (role === "both") {
+          return (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+              🔄 Both
+            </span>
+          );
+        }
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200">
+            🚚 Rider
+          </span>
+        );
+      }
+    },
+    {
       header: "Assigned Hub",
       render: (s) => {
+        const role = (s.partnerRole || s.role || "").toLowerCase();
+        if (role === "service_man") {
+          return (
+            <span className="inline-flex items-center px-2 py-1 rounded-lg text-[11px] font-medium text-gray-400 bg-gray-50 border border-gray-100">
+              N/A (Field Partner)
+            </span>
+          );
+        }
         const wh = getWarehouseInfo(s.warehouseId || s.assignedWarehouse);
         return (
           <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 border border-blue-100">
@@ -274,6 +320,23 @@ const Riders = () => {
           </span>
         );
       }
+    },
+
+    {
+      header: "Multi-Skills",
+      render: (s) => (
+        <div className="flex flex-wrap gap-1 max-w-[160px]">
+          {s.serviceSkills && s.serviceSkills.length > 0 ? (
+            s.serviceSkills.map((sk, idx) => (
+              <span key={idx} className="bg-purple-50 text-purple-700 text-[10px] px-1.5 py-0.5 rounded font-bold border border-purple-100">
+                {sk.replace('_', ' ')}
+              </span>
+            ))
+          ) : (
+            <span className="text-[10px] text-gray-400 font-medium">Delivery Only</span>
+          )}
+        </div>
+      )
     },
     {
       header: "Live Activity",
@@ -289,6 +352,7 @@ const Riders = () => {
         </div>
       )
     },
+
     {
       header: "KYC Status",
       render: (s) => {
@@ -368,8 +432,40 @@ const Riders = () => {
       )
     },
     {
+      header: "भूमिका (Role)",
+      render: (w) => {
+        const role = (w.role || "rider").toLowerCase();
+        if (role === "service_man") {
+          return (
+            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200">
+              🛠️ Service Man
+            </span>
+          );
+        }
+        if (role === "both") {
+          return (
+            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+              🔄 Rider & Service
+            </span>
+          );
+        }
+        return (
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200">
+            🚚 Delivery Rider
+          </span>
+        );
+      }
+    },
+    {
       header: "Assigned Hub",
       render: (w) => {
+        if ((w.role || "").toLowerCase() === "service_man") {
+          return (
+            <span className="inline-flex items-center px-2 py-1 rounded-lg text-[11px] font-medium text-gray-400 bg-gray-50 border border-gray-100">
+              N/A (Field Partner)
+            </span>
+          );
+        }
         const wh = getWarehouseInfo(w.warehouseId);
         return (
           <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 border border-blue-100">
@@ -543,19 +639,33 @@ const Riders = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">असाइन हब / वेयरहाउस</label>
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">पार्टनर की भूमिका (Assign Role)</label>
                   <select
-                    value={whitelistHub}
-                    onChange={(e) => setWhitelistHub(e.target.value)}
+                    value={whitelistRole}
+                    onChange={(e) => setWhitelistRole(e.target.value)}
                     className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold text-gray-800 outline-none"
                   >
-                    {warehouses.map(wh => (
-                      <option key={wh.id} value={wh.id}>
-                        📍 {wh.name} ({wh.code || wh.id})
-                      </option>
-                    ))}
+                    <option value="rider">🚚 डिलीवरी राइडर (Delivery Rider)</option>
+                    <option value="service_man">🛠️ सर्विस मैन / ड्रोन पायलट (Service Man)</option>
+                    <option value="both">🔄 दोनों (Delivery + Service)</option>
                   </select>
                 </div>
+                {whitelistRole !== "service_man" && (
+                  <div>
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">असाइन हब / वेयरहाउस</label>
+                    <select
+                      value={whitelistHub}
+                      onChange={(e) => setWhitelistHub(e.target.value)}
+                      className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold text-gray-800 outline-none"
+                    >
+                      {warehouses.map(wh => (
+                        <option key={wh.id} value={wh.id}>
+                          📍 {wh.name} ({wh.code || wh.id})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <button
                   type="submit"
                   disabled={whitelisting}

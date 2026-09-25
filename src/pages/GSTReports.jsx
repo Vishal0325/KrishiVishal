@@ -62,22 +62,34 @@ const GSTReports = () => {
     return () => unsubs.forEach(unsub => unsub());
   }, []);
 
-  // Filter by selected month
+  // Filter by selected month or All Months
   const filterByMonth = (dateObj) => {
-    if (!dateObj) return true;
-    const d = dateObj.toDate ? dateObj.toDate() : new Date(dateObj);
+    if (!dateObj || selectedMonth === 'ALL') return true;
+    let d = null;
+    if (dateObj?.toDate) {
+      d = dateObj.toDate();
+    } else if (typeof dateObj === 'number') {
+      d = new Date(dateObj);
+    } else if (typeof dateObj === 'string') {
+      d = new Date(dateObj);
+    } else if (dateObj instanceof Date) {
+      d = dateObj;
+    }
+    if (!d || isNaN(d.getTime())) return true;
     const monthStr = d.toISOString().slice(0, 7);
     return monthStr === selectedMonth;
   };
 
-  const monthOrders = orders.filter(o => o.status !== 'CANCELLED' && filterByMonth(o.createdAt));
-  const monthGRNs = goodsReceipts.filter(g => filterByMonth(g.createdAt));
+  const monthOrders = orders.filter((o) => o.status !== 'CANCELLED' && filterByMonth(o.createdAt));
+  const monthGRNs = goodsReceipts.filter((g) => filterByMonth(g.createdAt || g.receivedAt));
 
   // Product HSN & GST lookup
   const getProductInfo = (productId) => {
-    const p = products.find(prod => prod.id === productId);
+    const p = products.find(
+      (prod) => prod.id === productId || prod.skuCode === productId || prod.skuId === productId
+    );
     return {
-      hsnCode: p?.hsnCode || '3105', // Default 3105 for Fertilizers/Agro
+      hsnCode: p?.hsnCode || '3105', // Standard 3105 for Agricultural Inputs
       gstRate: Number(p?.gstRate || 18)
     };
   };
@@ -90,17 +102,27 @@ const GSTReports = () => {
 
   const hsnSummaryMap = {};
 
-  monthOrders.forEach(order => {
-    // [FIXED] Point #63: Robust interstate check using GST state codes and normalized names
+  monthOrders.forEach((order) => {
+    // Robust interstate check
     const stateRaw = (order.address?.state || 'Bihar').toString().toLowerCase().trim();
     const isInterstate = !['bihar', 'br', '10'].includes(stateRaw);
-    
-    (order.items || []).forEach(item => {
-      const { hsnCode, gstRate } = getProductInfo(item.productId);
-      const lineTotal = (Number(item.price) || 0) * (Number(item.quantity) || 1);
-      
-      // Calculate Tax Component from inclusive or exclusive price
-      const taxable = lineTotal / (1 + (gstRate / 100));
+
+    const items = order.items && order.items.length > 0 ? order.items : [
+      {
+        productId: 'DIRECT',
+        productName: 'Agricultural Produce / Direct Order',
+        price: Number(order.totalAmount || 0),
+        quantity: 1
+      }
+    ];
+
+    items.forEach((item) => {
+      const { hsnCode, gstRate: defaultGst } = getProductInfo(item.productId);
+      const gstRate = Number(item.gstRate || defaultGst || 18);
+      const lineTotal = (Number(item.price) || Number(order.totalAmount) || 0) * (Number(item.quantity) || 1);
+
+      // Calculate Tax Component
+      const taxable = lineTotal / (1 + gstRate / 100);
       const taxAmount = lineTotal - taxable;
 
       totalTaxableSales += taxable;
@@ -120,10 +142,11 @@ const GSTReports = () => {
       }
 
       // Aggregate into HSN Summary
-      if (!hsnSummaryMap[hsnCode]) {
-        hsnSummaryMap[hsnCode] = {
-          hsnCode,
-          description: item.productName || 'Agro Goods',
+      const codeKey = item.hsnCode || hsnCode;
+      if (!hsnSummaryMap[codeKey]) {
+        hsnSummaryMap[codeKey] = {
+          hsnCode: codeKey,
+          description: item.productName || item.name || 'Agro Goods',
           totalQuantity: 0,
           totalValue: 0,
           taxableValue: 0,
@@ -133,12 +156,12 @@ const GSTReports = () => {
           igst: 0
         };
       }
-      hsnSummaryMap[hsnCode].totalQuantity += Number(item.quantity || 1);
-      hsnSummaryMap[hsnCode].totalValue += lineTotal;
-      hsnSummaryMap[hsnCode].taxableValue += taxable;
-      hsnSummaryMap[hsnCode].cgst += lineCGST;
-      hsnSummaryMap[hsnCode].sgst += lineSGST;
-      hsnSummaryMap[hsnCode].igst += lineIGST;
+      hsnSummaryMap[codeKey].totalQuantity += Number(item.quantity || 1);
+      hsnSummaryMap[codeKey].totalValue += lineTotal;
+      hsnSummaryMap[codeKey].taxableValue += taxable;
+      hsnSummaryMap[codeKey].cgst += lineCGST;
+      hsnSummaryMap[codeKey].sgst += lineSGST;
+      hsnSummaryMap[codeKey].igst += lineIGST;
     });
   });
 
@@ -298,19 +321,32 @@ const GSTReports = () => {
         </div>
 
         {/* Month Selector & JSON Export */}
-        <div className="flex items-center gap-3">
-          <input
-            type="month"
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-900 outline-none focus:border-[#1b5e20] shadow-sm"
-          />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center bg-white p-1 rounded-xl border border-gray-200 shadow-sm">
+            <button
+              onClick={() => setSelectedMonth('ALL')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                selectedMonth === 'ALL'
+                  ? 'bg-[#1b5e20] text-white shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              All Records
+            </button>
+            <input
+              type="month"
+              value={selectedMonth === 'ALL' ? '' : selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value || 'ALL')}
+              className="px-3 py-1.5 text-xs font-bold text-gray-900 outline-none bg-transparent"
+              title="Filter by specific Month"
+            />
+          </div>
 
           <button
             onClick={handleExportGSTR1JSON}
-            className="bg-[#1b5e20] text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider shadow-md shadow-green-100 hover:bg-[#2e7d32] transition-all flex items-center gap-2"
+            className="bg-[#1b5e20] text-white px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider shadow-sm hover:bg-[#2e7d32] transition-all flex items-center gap-2 cursor-pointer"
           >
-            <Download size={15} />
+            <Download size={14} />
             Export GSTR-1 JSON
           </button>
         </div>

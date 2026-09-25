@@ -5,8 +5,8 @@ import { addAuditLog } from "./logger";
 // [FIXED] Point #93: Moved ID generation to server-side Cloud Function
 export async function generateWorkforceId(type = 'EMP') {
   try {
-    const { getFunctions, httpsCallable } = await import("firebase/functions");
-    const functions = getFunctions();
+    const { httpsCallable } = await import("firebase/functions");
+    const { functions } = await import("../firebase/config");
     const generateId = httpsCallable(functions, "generateWorkforceId");
     const result = await generateId({ type });
     return result.data.workforceId;

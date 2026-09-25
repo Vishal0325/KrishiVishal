@@ -132,8 +132,9 @@ const SupportTickets = () => {
 
     setIsSearchingCustomer(true);
     try {
-      const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const searchFn = httpsCallable(getFunctions(), 'searchUsers');
+      const { httpsCallable } = await import('firebase/functions');
+      const { functions } = await import('../firebase/config');
+      const searchFn = httpsCallable(functions, 'searchUsers');
       const res = await searchFn({ query: val, type: 'CUSTOMER' });
       setCustomers(res.data.users || []);
     } catch (err) {

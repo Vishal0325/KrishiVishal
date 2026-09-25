@@ -1,4 +1,12 @@
-import { collection, Timestamp, query, where, getDocs, doc, updateDoc, setDoc, getDoc } from "firebase/firestore";
+import re
+
+with open('src/services/bulkUpload.js', 'r', encoding='utf-8') as f:
+    content = f.read()
+
+# We will completely replace the importProducts and downloadSampleProductTemplate functions.
+# Let's just create a new file content but preserving imports at top.
+
+imports = """import { collection, Timestamp, query, where, getDocs, doc, updateDoc, setDoc, getDoc } from "firebase/firestore";
 import { db } from "../firebase/config";
 import { autoDeriveSkuFromProduct, getCategoryTaxDefaults } from "../utils/skuGenerator";
 import { callUpsertSku, callReceiveGrn } from "./inventory";
@@ -175,8 +183,6 @@ export async function importProducts(validatedRows, targetWarehouseId) {
           chemicalComposition: primaryRow.technicalName || "",
           description: existing?.description || `${primaryRow.name} by ${primaryRow.brand} in ${primaryRow.category}.`,
           images: existing?.images || [],
-          imageUrl: existing?.imageUrl || (existing?.images?.[0] || ""),
-
           isActive: true,
           updatedAt: Timestamp.now(),
         };
@@ -249,3 +255,7 @@ export async function importProducts(validatedRows, targetWarehouseId) {
 
   return results;
 }
+"""
+
+with open('src/services/bulkUpload.js', 'w', encoding='utf-8') as f:
+    f.write(imports)

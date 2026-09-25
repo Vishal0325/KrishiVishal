@@ -1,10 +1,6 @@
-import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFunctions, httpsCallable } from "firebase/functions";
+import { httpsCallable } from "firebase/functions";
 import { doc, setDoc, updateDoc, collection, getDocs, query, where, serverTimestamp } from "firebase/firestore";
-import { db, firebaseConfig, auth } from "../firebase/config";
-
-const functions = getFunctions(initializeApp(firebaseConfig));
+import { db, functions, auth } from "../firebase/config";
 
 /**
  * Creates a new staff member account and saves their role/details in Firestore.

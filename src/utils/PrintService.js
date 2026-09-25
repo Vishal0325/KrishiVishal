@@ -73,9 +73,17 @@ export const printThermalShippingLabel = async (order, parcelInfo = {}) => {
   const parcelWeight = parcelInfo.weightKg || order?.totalWeightKg || '3.5';
   const sealNumber = parcelInfo.sealNumber || order?.sealNumber || `SEAL-${order?.id?.slice(-6)?.toUpperCase() || '8921'}`;
   const trackingNumber = parcelInfo.parcelId || `AWB-${order?.id?.slice(-8)?.toUpperCase() || '1001'}-${parcelIndex}`;
-  const hubCode = order?.hubCode || order?.fulfillmentWarehouseId || 'HUB-PURNEA-01';
-  const pincode = order?.address?.pincode || order?.shippingAddress?.pincode || '854301';
-  const zoneCode = `ZONE-${pincode.slice(-3)}`;
+  const hubCode = order?.hubCode || order?.fulfillmentWarehouseId || order?.warehouseId || 'MAIN-HUB';
+  let pincode = '';
+  if (order?.address?.pincode) {
+    pincode = order.address.pincode;
+  } else if (order?.shippingAddress?.pincode) {
+    pincode = order.shippingAddress.pincode;
+  } else if (typeof order?.address === 'string') {
+    const match = order.address.match(/\b\d{6}\b/);
+    if (match) pincode = match[0];
+  }
+  const zoneCode = pincode ? `ZONE-${pincode.slice(-3)}` : 'ZONE-N/A';
 
   // Detect Agri Hazards (e.g. Liquid pesticides, Heavy bags)
   const items = parcelInfo.items || order?.items || [];
@@ -87,7 +95,7 @@ export const printThermalShippingLabel = async (order, parcelInfo = {}) => {
   const barcodeDataUrl = generateBarcodeDataUrl(trackingNumber, { height: 48, width: 2 });
   let qrCodeDataUrl = '';
   try {
-    const qrPayload = JSON.stringify({
+    const qrPayload = parcelInfo.qrData || order?.qrPayload || JSON.stringify({
       awb: trackingNumber,
       orderId: order?.id,
       parcel: `${parcelIndex}/${totalParcels}`,
@@ -326,7 +334,7 @@ export const printThermalShippingLabel = async (order, parcelInfo = {}) => {
             </div>
             <div class="meta-cell">
               PINCODE
-              <strong>${sanitize(pincode)}</strong>
+              <strong>${pincode || 'N/A'}</strong>
             </div>
           </div>
 
@@ -399,6 +407,7 @@ export const printInvoice = (order) => {
       </td>
       <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">${sanitize(item?.variantLabel || '-')}</td>
       <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">${sanitize(item?.hsnCode || 'N/A')}</td>
+      <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">${item?.gstRate || 0}%</td>
       <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">${item?.quantity || 1}</td>
       <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(item?.price || 0)}</td>
       <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency((item?.price || 0) * (item?.quantity || 1))}</td>
@@ -417,9 +426,10 @@ export const printInvoice = (order) => {
           .billing-info { display: flex; justify-content: space-between; margin-top: 30px; }
           table { width: 100%; border-collapse: collapse; margin-top: 30px; }
           th { background: #f9f9f9; padding: 12px; text-align: left; border-bottom: 2px solid #eee; font-size: 13px; text-transform: uppercase; }
-          .totals { margin-top: 30px; text-align: right; }
-          .total-row { font-size: 20px; font-weight: bold; color: #1b5e20; }
-          .footer { margin-top: 100px; text-align: center; font-size: 12px; color: #999; border-top: 1px solid #eee; padding-top: 20px; }
+          .totals-box { margin-top: 30px; float: right; width: 350px; background: #f8f9fa; padding: 20px; border-radius: 8px; }
+          .total-row-item { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px; }
+          .grand-total-row { border-top: 2px solid #ddd; padding-top: 10px; margin-top: 10px; font-size: 18px; font-weight: bold; color: #1b5e20; }
+          .footer { margin-top: 80px; text-align: center; font-size: 12px; color: #999; clear: both; border-top: 1px solid #eee; padding-top: 20px; }
         </style>
       </head>
       <body>
@@ -456,6 +466,7 @@ export const printInvoice = (order) => {
               <th style="width: 35%;">Item Description</th>
               <th style="text-align: center;">Size/Variant</th>
               <th style="text-align: center;">HSN Code</th>
+              <th style="text-align: center;">GST %</th>
               <th style="text-align: center;">Qty</th>
               <th style="text-align: right;">Price</th>
               <th style="text-align: right;">Total</th>
@@ -466,14 +477,29 @@ export const printInvoice = (order) => {
           </tbody>
         </table>
 
-        <div class="totals">
-          <p>Subtotal (MRP): ${formatCurrency(order?.subtotal || order?.totalAmount || 0)}</p>
-          ${order?.totalDiscount > 0 ? `<p style="color: #1b5e20;">Discount: -${formatCurrency(order.totalDiscount)}</p>` : ''}
-          <p>Taxable Value: ${formatCurrency(order?.taxableTotal || order?.totalAmount || 0)}</p>
-          <p>GST (Bihar): +${formatCurrency(order?.totalTax || 0)}</p>
-          <p>Delivery Charges: ${order?.deliveryCharges > 0 ? formatCurrency(order.deliveryCharges) : '<span style="color: #1b5e20;">FREE</span>'}</p>
-          ${order?.platformFee > 0 ? `<p style="font-size: 11px; color: #999;">Platform Fee: ${formatCurrency(order.platformFee)}</p>` : ''}
-          <div class="total-row">Grand Total: ${formatCurrency(order?.totalAmount || 0)}</div>
+        <div class="totals-box">
+          <div class="total-row-item">
+            <span>Subtotal (MRP):</span>
+            <span>${formatCurrency(order?.subtotal || order?.totalAmount || 0)}</span>
+          </div>
+          ${order?.totalDiscount > 0 ? `
+          <div class="total-row-item" style="color: #1b5e20;">
+            <span>Discount:</span>
+            <span>-${formatCurrency(order.totalDiscount)}</span>
+          </div>` : ''}
+          <div class="total-row-item">
+            <span>Delivery Charges:</span>
+            <span>${order?.deliveryCharges > 0 ? formatCurrency(order.deliveryCharges) : '<span style="color: #1b5e20;">FREE</span>'}</span>
+          </div>
+          ${order?.platformFee > 0 ? `
+          <div class="total-row-item" style="font-size: 11px; color: #999;">
+            <span>Platform Fee:</span>
+            <span>${formatCurrency(order.platformFee)}</span>
+          </div>` : ''}
+          <div class="total-row-item grand-total-row">
+            <span>Grand Total:</span>
+            <span>${formatCurrency(order?.totalAmount || 0)}</span>
+          </div>
         </div>
 
         <div class="footer">
@@ -516,7 +542,7 @@ export const printB2BEInvoice = async (order) => {
     const price = Number(item?.price) || 0;
     const total = qty * price;
     const hsn = item?.hsnCode || '3105';
-    const gstRate = item?.taxRate || 18;
+    const gstRate = item?.gstRate || 18;
     const taxable = Math.round(total / (1 + (gstRate / 100)));
     const gstAmt = total - taxable;
     const cgst = Math.round(gstAmt / 2);
@@ -559,7 +585,7 @@ export const printB2BEInvoice = async (order) => {
             <div>
               <div class="company-title">KRISHI VISHAL PRIVATE LIMITED</div>
               <div>Corporate Agri Logistics & Supply Chain Network</div>
-              <div>Central Depot, Agro Market Yard, Purnea, Bihar - 854301</div>
+              <div>${sanitize(order?.warehouseAddress || 'Central Agro Depot, Bihar')}</div>
               <div><strong>GSTIN:</strong> 10AAACK9821M1Z5 | State: 10 (Bihar)</div>
             </div>
             <div style="text-align: right;">
@@ -580,12 +606,12 @@ export const printB2BEInvoice = async (order) => {
               <strong>DETAILS OF BUYER / BILLED TO:</strong><br/>
               <strong>Name:</strong> ${sanitize(buyerName)}<br/>
               <strong>GSTIN:</strong> ${sanitize(buyerGstin)}<br/>
-              <strong>Address:</strong> ${sanitize(order?.shippingAddress?.address || order?.address?.village || 'Purnea, Bihar')}<br/>
+              <strong>Address:</strong> ${sanitize(order?.shippingAddress?.address || order?.address?.village || order?.address || '')}<br/>
               <strong>State Code:</strong> 10 (Bihar) | <strong>Phone:</strong> ${sanitize(order?.userPhone || order?.phone || 'N/A')}
             </div>
             <div class="party-card">
               <strong>DISPATCH & PAYMENT DETAILS:</strong><br/>
-              <strong>Dispatch From Hub:</strong> Purnea Central Depot<br/>
+              <strong>Dispatch From Hub:</strong> ${sanitize(order?.warehouseName || order?.warehouseId || 'Central Hub')}<br/>
               <strong>Transport Mode:</strong> Road Fleet<br/>
               <strong>Payment Terms:</strong> ${sanitize(order?.paymentMethod || 'Prepaid')}<br/>
               <strong>Place of Supply:</strong> Bihar (10)

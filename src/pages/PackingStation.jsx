@@ -119,7 +119,7 @@ const PackingStation = () => {
     setCheckedItems(initialChecklist);
 
     // FEFO batch recommendations
-    const warehouseId = order.fulfillmentWarehouseId || 'WH-PURNEA-01';
+    const warehouseId = order.fulfillmentWarehouseId || order.warehouseId || (warehouses && warehouses[0]?.id) || 'MAIN-HUB';
     for (const it of itemsList) {
       const skuId = it.productId || it.skuId || it.id;
       if (!skuId) continue;
@@ -255,7 +255,7 @@ const PackingStation = () => {
       totalAmount: order.totalAmount || 0,
       items: order.items || [],
       qrData: order.qrPayload || JSON.stringify(payloadObj),
-      hubCode: 'HUB-PURNEA-01'
+      hubCode: order.hubCode || order.fulfillmentWarehouseId || order.warehouseId || (warehouses && warehouses[0]?.code) || 'MAIN-HUB'
     });
     setIsLabelModalOpen(true);
   };
@@ -379,7 +379,13 @@ const PackingStation = () => {
                         <p className="font-bold text-sm text-gray-900 mt-1">{order.userName || 'Customer'}</p>
                         <p className="text-[11px] text-gray-400">
                           {order.userPhone || 'No Phone'}
-                          {order.fulfillmentWarehouseId && <span className="ml-2 text-blue-600 font-bold bg-blue-50 px-1 rounded">{warehouses.find(w=>w.id===order.fulfillmentWarehouseId)?.code || order.fulfillmentWarehouseId}</span>}
+                          {(order.fulfillmentWarehouseId || order.warehouseId) && (
+                            <span className="ml-2 text-blue-600 font-bold bg-blue-50 px-1 rounded">
+                              {warehouses.find(w => w.id === (order.fulfillmentWarehouseId || order.warehouseId))?.code || 
+                               warehouses.find(w => w.id === (order.fulfillmentWarehouseId || order.warehouseId))?.name || 
+                               order.fulfillmentWarehouseId || order.warehouseId}
+                            </span>
+                          )}
                         </p>
                       </div>
 
@@ -436,7 +442,7 @@ const PackingStation = () => {
                   <h2 className="text-xl font-black text-gray-900 mt-1">{selectedOrder.userName || 'Customer'}</h2>
                   <p className="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5">
                     <MapPin size={12} className="text-gray-400 shrink-0" />
-                    {selectedOrder.address?.street || selectedOrder.address?.addressLine || 'Purnea, Bihar'}
+                    {selectedOrder.address?.street || selectedOrder.address?.addressLine || selectedOrder.address || 'Delivery Location'}
                   </p>
                 </div>
 
@@ -565,39 +571,40 @@ const PackingStation = () => {
 
       {/* SHIPPING LABEL MODAL & PRINT VIEW */}
       {isLabelModalOpen && shippingLabelData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/70 backdrop-blur-md p-4 animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl animate-in zoom-in duration-300 relative border border-white/20 overflow-hidden print:shadow-none print:border-none print:w-full print:max-w-none print:p-0">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/70 backdrop-blur-md p-2 sm:p-4 animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-md max-h-[92vh] flex flex-col rounded-3xl shadow-2xl animate-in zoom-in duration-300 relative border border-white/20 overflow-hidden print:shadow-none print:border-none print:w-full print:max-w-none print:p-0 print:max-h-none print:flex-none">
             
-            {/* Modal Actions Bar (Hidden on Print) */}
-            <div className="p-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between print:hidden">
+            {/* Modal Actions Bar (Sticky & Fixed at top, Hidden on Print) */}
+            <div className="p-3 sm:p-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between shrink-0 print:hidden">
               <span className="text-xs font-black text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
                 <Printer size={15} className="text-[#1b5e20]" />
-                Thermal 4x6 / A4 Shipping Label
+                Thermal 4x6 Label
               </span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={handlePrintLabel}
-                  className="px-4 py-2 bg-[#1b5e20] text-white text-xs font-black uppercase rounded-xl hover:bg-[#2e7d32] shadow-sm flex items-center gap-1.5"
+                  className="px-4 py-2 bg-[#1b5e20] text-white text-xs font-black uppercase rounded-xl hover:bg-[#2e7d32] shadow-sm flex items-center gap-1.5 active:scale-95 transition-all"
                 >
-                  <Printer size={14} /> Print 4×6 Thermal
+                  <Printer size={14} /> Print 4×6 Label
                 </button>
                 <button
                   onClick={() => setIsLabelModalOpen(false)}
-                  className="p-2 hover:bg-gray-200 rounded-full text-gray-400"
+                  className="p-2 hover:bg-gray-200 rounded-full text-gray-500 transition-colors"
+                  title="Close Modal"
                 >
                   <X size={18} />
                 </button>
               </div>
             </div>
 
-            {/* Thermal 4x6 Label Sheet */}
-            <div className="p-6 space-y-4 font-sans border-2 border-black m-4 rounded-xl print:m-0 print:border-black print:rounded-none">
+            {/* Scrollable Thermal 4x6 Label Sheet */}
+            <div className="overflow-y-auto p-4 sm:p-5 space-y-3 font-sans border-2 border-black m-3 rounded-xl print:m-0 print:border-black print:rounded-none print:overflow-visible">
               
               {/* Header */}
-              <div className="border-b-2 border-black pb-3 flex justify-between items-center">
+              <div className="border-b-2 border-black pb-2 flex justify-between items-center">
                 <div>
-                  <h1 className="text-xl font-black tracking-tighter uppercase text-black">KRISHIVISHAL EXPRESS</h1>
-                  <p className="text-[10px] font-bold text-gray-700 tracking-widest">AGRICULTURE LOGISTICS NETWORK</p>
+                  <h1 className="text-lg font-black tracking-tighter uppercase text-black">KRISHIVISHAL EXPRESS</h1>
+                  <p className="text-[9px] font-bold text-gray-700 tracking-widest">AGRICULTURE LOGISTICS NETWORK</p>
                 </div>
                 <div className="text-right font-mono">
                   <span className="text-xs font-black bg-black text-white px-2 py-0.5 rounded uppercase">
@@ -608,25 +615,25 @@ const PackingStation = () => {
               </div>
 
               {/* QR Code & Payment Details Grid */}
-              <div className="grid grid-cols-2 gap-3 border-b-2 border-black pb-4 items-center">
+              <div className="grid grid-cols-2 gap-3 border-b-2 border-black pb-3 items-center">
                 {/* High Density Scannable QR Code */}
                 <div className="flex flex-col items-center justify-center p-1 bg-white border border-gray-300 rounded-lg">
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(shippingLabelData.qrData)}`}
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(shippingLabelData.qrData)}`}
                     alt="Package Secure QR"
-                    className="w-36 h-36 object-contain"
+                    className="w-24 h-24 sm:w-28 sm:h-28 object-contain"
                   />
-                  <span className="text-[8px] font-mono text-gray-500 mt-1 tracking-tight">SCAN ON PICKUP &amp; POD</span>
+                  <span className="text-[8px] font-mono text-gray-500 mt-0.5 tracking-tight">SCAN ON PICKUP &amp; POD</span>
                 </div>
 
                 {/* Payment Badge */}
-                <div className="space-y-2">
-                  <div className="border-2 border-black p-2.5 rounded-lg text-center">
-                    <p className="text-[9px] font-black uppercase text-gray-600">Payment Type</p>
-                    <p className="text-base font-black uppercase text-black">
+                <div className="space-y-1.5">
+                  <div className="border-2 border-black p-2 rounded-lg text-center">
+                    <p className="text-[8px] font-black uppercase text-gray-600">Payment Type</p>
+                    <p className="text-sm font-black uppercase text-black">
                       {shippingLabelData.paymentMethod === 'ONLINE' ? 'PREPAID' : 'CASH ON DELIVERY'}
                     </p>
-                    <p className="text-lg font-black font-mono text-black">
+                    <p className="text-base font-black font-mono text-black">
                       {formatCurrency(shippingLabelData.totalAmount)}
                     </p>
                   </div>
@@ -637,23 +644,23 @@ const PackingStation = () => {
               </div>
 
               {/* Recipient / Delivery Address */}
-              <div className="border-b-2 border-black pb-3 space-y-1">
-                <p className="text-[9px] font-black uppercase tracking-widest text-gray-500">Deliver To:</p>
-                <h3 className="font-black text-base text-black uppercase">{shippingLabelData.customerName}</h3>
+              <div className="border-b-2 border-black pb-2 space-y-0.5">
+                <p className="text-[8px] font-black uppercase tracking-widest text-gray-500">Deliver To:</p>
+                <h3 className="font-black text-sm text-black uppercase">{shippingLabelData.customerName}</h3>
                 <p className="text-xs font-bold text-black leading-tight">
                   {shippingLabelData.address?.street || shippingLabelData.address?.addressLine || 'Central Delivery Point'}
                 </p>
                 <p className="text-xs font-medium text-black">
-                  {shippingLabelData.address?.district || 'Purnea'}, {shippingLabelData.address?.state || 'Bihar'} - {shippingLabelData.address?.pincode || '854301'}
+                  {[shippingLabelData.address?.district, shippingLabelData.address?.state].filter(Boolean).join(', ')} {shippingLabelData.address?.pincode ? `- ${shippingLabelData.address.pincode}` : ''}
                 </p>
-                <p className="text-xs font-mono font-bold text-black pt-1">
+                <p className="text-xs font-mono font-bold text-black pt-0.5">
                   Contact: {shippingLabelData.customerPhone}
                 </p>
               </div>
 
               {/* Package Items Manifest */}
-              <div className="space-y-1">
-                <p className="text-[9px] font-black uppercase tracking-widest text-gray-500">Package Contents:</p>
+              <div className="space-y-0.5">
+                <p className="text-[8px] font-black uppercase tracking-widest text-gray-500">Package Contents:</p>
                 <div className="text-[10px] space-y-0.5">
                   {(shippingLabelData.items || []).map((item, idx) => (
                     <div key={idx} className="flex justify-between font-bold text-black">
@@ -665,7 +672,7 @@ const PackingStation = () => {
               </div>
 
               {/* Footer */}
-              <div className="pt-2 border-t border-gray-300 text-center text-[8px] text-gray-500 uppercase tracking-widest">
+              <div className="pt-1.5 border-t border-gray-300 text-center text-[8px] text-gray-500 uppercase tracking-widest">
                 Safe Handling Verified • KrishiVishal Security Sealed
               </div>
             </div>

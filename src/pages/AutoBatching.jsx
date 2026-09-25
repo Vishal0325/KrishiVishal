@@ -24,6 +24,7 @@ import {
   Phone,
   Clock
 } from 'lucide-react';
+import { formatAddress } from '../utils/formatters';
 import toast from 'react-hot-toast';
 
 const AutoBatching = () => {
@@ -95,7 +96,7 @@ const AutoBatching = () => {
       const shipping = order.shippingAddress || order.address || {};
       const pincode = shipping.pincode || shipping.postalCode || '854301';
       const panchayat = shipping.panchayat || shipping.village || shipping.city || shipping.area || 'Central District';
-      const hubId = order.warehouseId || 'WH-PURNEA-CENTRAL';
+      const hubId = order.warehouseId || order.fulfillmentWarehouseId || 'MAIN_HUB';
       
       const clusterKey = `${pincode}__${panchayat.trim().toLowerCase()}`;
 
@@ -319,7 +320,7 @@ const AutoBatching = () => {
                     <div key={o.id} className="text-[11px] text-gray-700 font-medium truncate flex items-center gap-1">
                       <span className="text-gray-400">•</span>
                       <span className="font-bold">{o.customerName || 'Farmer'}:</span>
-                      <span className="text-gray-500 truncate">{o.shippingAddress?.address || o.address || 'Village Address'}</span>
+                      <span className="text-gray-500 truncate">{formatAddress(o.shippingAddress || o.address, 'Village Address')}</span>
                     </div>
                   ))}
                   {cl.orders.length > 3 && (
@@ -470,7 +471,7 @@ const AutoBatching = () => {
                       <td className="p-2.5 text-gray-400">{idx + 1}</td>
                       <td className="p-2.5 font-mono font-bold">#{ord.orderNumber || ord.id.slice(0,6)}</td>
                       <td className="p-2.5 font-bold">{ord.customerName || ord.userPhone || 'Farmer'}</td>
-                      <td className="p-2.5 text-gray-600">{ord.shippingAddress?.address || ord.address || 'Village Address'}</td>
+                      <td className="p-2.5 text-gray-600">{formatAddress(ord.shippingAddress || ord.address, 'Village Address')}</td>
                       <td className="p-2.5 text-right font-mono font-black text-gray-900">
                         ₹{(ord.isCOD ? (ord.codAmount || ord.totalAmount) : 0).toLocaleString('en-IN')}
                       </td>

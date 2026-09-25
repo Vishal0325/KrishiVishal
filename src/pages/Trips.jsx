@@ -16,14 +16,23 @@ const extractLocationParts = (address) => {
     return { pincode: '', village: '', district: '', street: '', raw: 'No Address' };
   }
 
-  // Object address (Firestore schema v2)
+  // Object address (Firestore schema v2 / mobile schema)
   if (typeof address === 'object') {
     return {
-      pincode: (address.pincode || '').trim(),
-      village: (address.village || '').trim(),
-      district: (address.district || '').trim(),
-      street: (address.street || '').trim(),
-      raw: [address.street, address.village, address.district, address.state, address.pincode].filter(Boolean).join(', '),
+      pincode: (address.pincode || address.pin || '').toString().trim(),
+      village: (address.village || address.line1 || '').toString().trim(),
+      district: (address.district || address.city || '').toString().trim(),
+      street: (address.street || address.line2 || address.landmark || '').toString().trim(),
+      raw: [
+        address.line1,
+        address.line2,
+        address.landmark ? `Near ${address.landmark}` : null,
+        address.street,
+        address.village,
+        address.city || address.district,
+        address.state,
+        address.pincode ? `PIN: ${address.pincode}` : (address.pin ? `PIN: ${address.pin}` : null)
+      ].filter(Boolean).map(p => String(p).trim()).filter(Boolean).join(', ') || 'No Address',
     };
   }
 
@@ -119,7 +128,7 @@ const Trips = () => {
           trip.stops.push({
             orderId: doc.id,
             order: { id: doc.id, ...order },
-            address: locationParts.raw || order.address?.address || order.address || 'No Address',
+            address: locationParts.raw || (typeof order.address === 'string' ? order.address : 'No Address'),
             status: order.status,
             customerName: order.address?.name || order.userName || 'Customer',
             _location: locationParts,

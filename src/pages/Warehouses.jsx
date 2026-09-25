@@ -137,7 +137,7 @@ export default function Warehouses() {
     <div className="space-y-8 pb-10 animate-in fade-in duration-300">
       <PageHeader
         title="Multi-Warehouse & Regional Hubs ERP"
-        subtitle="Manage Purnea, Katihar, Araria regional depots, dark stores, and inter-hub stock allocations."
+        subtitle="Manage regional depots, dark stores, and inter-hub stock allocations."
         actions={
           <button
             onClick={() => {

@@ -10,6 +10,7 @@ import {
   Coins 
 } from "lucide-react";
 import PageHeader from "../components/common/PageHeader";
+import { useAuth } from "../hooks/useAuth";
 
 // Lazy sub-components
 const Finance = React.lazy(() => import("./Finance"));
@@ -28,13 +29,10 @@ const DataImportHub = React.lazy(() => import("./finance/DataImportHub"));
 
 export default function FinanceHubPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get("tab") || "overview";
+  const { role } = useAuth();
+  const isSuperAdmin = role === "SuperAdmin";
 
-  const setTab = (tabId) => {
-    setSearchParams({ tab: tabId });
-  };
-
-  const tabs = [
+  const allTabs = [
     { id: "overview", label: "Finance Hub", icon: Landmark },
     { id: "data-import", label: "Data & Tally Importer", icon: Landmark },
     { id: "tally-sync", label: "Tally ERP Export", icon: FileSpreadsheet },
@@ -46,9 +44,16 @@ export default function FinanceHubPage() {
     { id: "expense-vendors", label: "Expense Vendors", icon: Scale },
     { id: "gst", label: "GST & Tax Reports", icon: FileSpreadsheet },
     { id: "statements", label: "P&L Statements", icon: PieChart },
-    { id: "cap-table", label: "Cap Table & Loans", icon: Scale },
+    ...(isSuperAdmin ? [{ id: "cap-table", label: "Cap Table & Loans", icon: Scale }] : []),
     { id: "unit-economics", label: "Unit Economics", icon: Coins },
   ];
+
+  const rawTab = (searchParams.get("tab") || "").trim();
+  const activeTab = allTabs.some((t) => t.id === rawTab) ? rawTab : "overview";
+
+  const setTab = (tabId) => {
+    setSearchParams({ tab: tabId });
+  };
 
   return (
     <div className="space-y-6 pb-10 animate-in fade-in duration-300">
@@ -59,7 +64,7 @@ export default function FinanceHubPage() {
 
       {/* Tabs */}
       <div className="bg-white p-1.5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-1 overflow-x-auto custom-scrollbar">
-        {tabs.map((tab) => {
+        {allTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
@@ -93,7 +98,7 @@ export default function FinanceHubPage() {
           {activeTab === "expense-vendors" && <ExpenseVendors />}
           {activeTab === "gst" && <GSTReports />}
           {activeTab === "statements" && <FinancialStatements />}
-          {activeTab === "cap-table" && <CapTableLoans />}
+          {activeTab === "cap-table" && (isSuperAdmin ? <CapTableLoans /> : <div className="p-12 text-center text-gray-500 font-bold bg-white rounded-2xl border border-gray-100">Access Restricted to SuperAdmin only.</div>)}
           {activeTab === "unit-economics" && <UnitEconomics />}
         </div>
       </React.Suspense>

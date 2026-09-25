@@ -47,7 +47,7 @@ export default function SupplyChainHub() {
     <div className="space-y-6 pb-10 animate-in fade-in duration-300">
       <PageHeader
         title="Supply Chain, Warehouses & Procurement Hub"
-        subtitle="Manage Purnea, Katihar, and Araria central depots, purchase orders, goods receipt notes, stock transfers, and supplier accounting."
+        subtitle="Manage regional depots, purchase orders, goods receipt notes, stock transfers, and supplier accounting."
       />
 
       {/* Tabs */}

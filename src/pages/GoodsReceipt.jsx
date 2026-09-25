@@ -14,6 +14,7 @@ import {
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { useAuth } from '../hooks/useAuth';
+import { useWarehouse } from '../context/WarehouseContext';
 import DataTable from '../components/common/DataTable';
 import PageHeader from '../components/common/PageHeader';
 import { addAuditLog } from '../services/logger';
@@ -42,6 +43,7 @@ import toast from 'react-hot-toast';
 
 const GoodsReceipt = () => {
   const { user } = useAuth();
+  const { warehouses } = useWarehouse();
   const [grnList, setGrnList] = useState([]);
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -55,7 +57,7 @@ const GoodsReceipt = () => {
   const [invoiceFile, setInvoiceFile] = useState(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [receiptItems, setReceiptItems] = useState([]);
-  const [warehouseLocation, setWarehouseLocation] = useState('WH_PURNEA_CENTRAL_A1');
+  const [warehouseLocation, setWarehouseLocation] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -582,12 +584,19 @@ const GoodsReceipt = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-gray-500 uppercase">Warehouse Hub / Location</label>
-                    <input
-                      type="text"
+                    <select
+                      required
                       value={warehouseLocation}
                       onChange={(e) => setWarehouseLocation(e.target.value)}
-                      className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl font-bold text-sm text-gray-900 outline-none focus:border-[#1b5e20]"
-                    />
+                      className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl font-bold text-sm text-gray-900 outline-none focus:border-[#1b5e20] appearance-none cursor-pointer"
+                    >
+                      <option value="">Select Warehouse Hub</option>
+                      {warehouses.map((wh) => (
+                        <option key={wh.id} value={wh.id}>
+                          {wh.name || wh.id}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-gray-500 uppercase">Receipt Notes</label>

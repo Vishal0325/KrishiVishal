@@ -75,6 +75,17 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
       roles: ["SuperAdmin", "HRAdmin", "HRExecutive", "DepartmentManager"]
     },
     { 
+      icon: <Sprout size={18} />, 
+      label: "Service Marketplace", 
+      id: "services",
+      roles: ["SuperAdmin", "OrderManager", "HubManager", "FinanceAdmin", "Viewer"],
+      subItems: [
+        { label: "Live Bookings", path: "/service-bookings" },
+        { label: "Partner Settlements", path: "/partner-settlements" },
+        { label: "Service Catalog Config", path: "/services-config" }
+      ]
+    },
+    { 
       icon: <Settings size={18} />, 
       label: "Administration", 
       id: "administration",

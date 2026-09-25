@@ -20,7 +20,7 @@ import DataTable from '../components/common/DataTable';
 import PageHeader from '../components/common/PageHeader';
 import MetricCard from '../components/common/MetricCard';
 import { addAuditLog } from '../services/logger';
-import { formatCurrency, formatDate, formatDateTime } from '../utils/formatters';
+import { formatCurrency, formatDate, formatDateTime, formatAddress } from '../utils/formatters';
 import { exportToExcel, exportToCSV } from '../utils/exportUtils';
 import {
   Users,
@@ -208,9 +208,7 @@ const Customers = () => {
 
       let q = query(
         collection(db, 'users'),
-        where('isAdmin', '==', false), // Filter out admins on server
-        orderBy('createdAt', 'desc'),
-        limit(PAGE_SIZE)
+        limit(PAGE_SIZE + 20)
       );
 
       if (isLoadMore && lastVisible) {
@@ -218,7 +216,9 @@ const Customers = () => {
       }
 
       const snapshot = await getDocs(q);
-      const newCustomers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const newCustomers = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(user => user.isAdmin !== true);
 
       if (isLoadMore) {
         setCustomers(prev => [...prev, ...newCustomers]);
@@ -251,8 +251,9 @@ const Customers = () => {
 
     setLoading(true);
     try {
-      const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const searchFn = httpsCallable(getFunctions(), 'searchUsers');
+      const { httpsCallable } = await import('firebase/functions');
+      const { functions } = await import('../firebase/config');
+      const searchFn = httpsCallable(functions, 'searchUsers');
       const res = await searchFn({ query: val, type: 'CUSTOMER' });
       setCustomers(res.data.users || []);
       setHasMore(false); // Disable pagination during search results
@@ -1232,7 +1233,7 @@ const Customers = () => {
                         </span>
                       </div>
                       <p className="text-xs font-bold text-gray-900 mt-1">
-                        {selectedCustomer.address || `${selectedCustomer.district || 'Purnea'}, ${selectedCustomer.state || 'Bihar'}`}
+                        {formatAddress(selectedCustomer.address, [selectedCustomer.district, selectedCustomer.state].filter(Boolean).join(', '))}
                       </p>
                       <p className="text-[10px] text-gray-500 font-mono">
                         District: {selectedCustomer.district || 'Bihar'} • State: {selectedCustomer.state || 'Bihar'}
@@ -1327,9 +1328,9 @@ const Customers = () => {
                     return toast.error('Enter a valid amount');
                   setWalletAdjusting(true);
                   try {
-                    const { getFunctions, httpsCallable } = await import('firebase/functions');
-                    const fns = getFunctions();
-                    const adjustFn = httpsCallable(fns, 'adminAdjustWallet');
+                    const { httpsCallable } = await import('firebase/functions');
+                    const { functions } = await import('../firebase/config');
+                    const adjustFn = httpsCallable(functions, 'adminAdjustWallet');
                     await adjustFn({
                       userId: selectedCustomer.id,
                       amount: Number(walletAdjustForm.amount),

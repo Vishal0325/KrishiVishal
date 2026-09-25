@@ -24,6 +24,7 @@ import {
   Layers,
   Sparkles
 } from 'lucide-react';
+import { formatAddress } from '../utils/formatters';
 import toast from 'react-hot-toast';
 
 const RTOManagement = () => {
@@ -208,7 +209,7 @@ const RTOManagement = () => {
         <div className="flex flex-col text-xs">
           <span className="font-bold text-gray-900">{o.customerName || o.userName || 'Farmer'}</span>
           <span className="text-[10px] text-gray-500 font-mono">{o.customerPhone || o.userPhone || 'N/A'}</span>
-          <span className="text-[10px] text-gray-400 truncate max-w-xs">{o.shippingAddress?.address || o.address || 'Village Address'}</span>
+          <span className="text-[10px] text-gray-400 truncate max-w-xs">{formatAddress(o.shippingAddress || o.address, 'Village Address')}</span>
         </div>
       )
     },
