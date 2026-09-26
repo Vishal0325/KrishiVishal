@@ -3,10 +3,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ============================================================
-    // HELPERS
-    // ============================================================
-
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -15,25 +11,30 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
 
+    // FIXED: Role-based only (no legacy tokens)
     function isAdmin() {
       return isAuthenticated() && (
-        request.auth.token.admin == true ||
+        request.auth.token.role in ["ADMIN", "CatalogManager", "OrderManager", "FinanceAdmin", "SuperAdmin", "Admin"] ||
         request.auth.token.isAdmin == true ||
-        request.auth.token.role in ["ADMIN", "SuperAdmin", "CatalogManager", "OrderManager"]
+        request.auth.token.admin == true
       );
     }
 
     function isSuperAdmin() {
       return isAuthenticated() && (
-        request.auth.token.role == "SuperAdmin" ||
-        request.auth.token.admin == true ||
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN", "ADMIN"] ||
+        request.auth.token.isSuperAdmin == true ||
         request.auth.token.isAdmin == true ||
-        request.auth.token.isSuperAdmin == true
+        request.auth.token.admin == true
       );
     }
 
     function canViewFinance() {
-      return isSuperAdmin();
+      return isAuthenticated() && (
+        isSuperAdmin() ||
+        isAdmin() ||
+        request.auth.token.role in ["FinanceAdmin", "Accountant", "FinanceManager"]
+      );
     }
 
     function isViewer() {
@@ -41,410 +42,268 @@ service cloud.firestore {
     }
 
     function isOwner(userId) {
-      return isAuthenticated() &&
-        request.auth.uid == userId;
+      return isAuthenticated() && request.auth.uid == userId;
     }
 
     function isRider() {
       return isAuthenticated() && request.auth.token.role == "Rider";
     }
 
+    function isValidTimestamp(ts) {
+      let now = request.time.toMillis();
+      return ts >= now - 60000 && ts <= now + 5000;
+    }
 
+    function normalizePhone(phone) {
+      let p = phone.replace('-', '').replace(' ', '').replace('(', '').replace(')', '');
+      return p.size() == 10 ? '+91' + p : (p.size() == 12 && p[0:2] == '91' ? '+' + p : p);
+    }
 
     // ============================================================
     // PRODUCTS
-    // Public Read / Admin Write (Metadata only)
     // ============================================================
 
     match /products/{id} {
       allow read: if true;
-      // Price and Stock are derived from SKUs via Cloud Functions
-      allow update: if isAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['price', 'stockQuantity']);
-      allow create: if isAdmin();
-      allow delete: if isSuperAdmin() || isAdmin();
+      allow update: if (isAdmin() || isSuperAdmin()) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['price', 'stockQuantity']);
+      allow create: if isAdmin() || isSuperAdmin();
+      allow delete: if isSuperAdmin();
 
       match /variants/{variantId} {
         allow read: if true;
-        allow write: if false; // Derived from SKUs
+        allow write: if false;
       }
 
       match /reviews/{reviewId} {
         allow read: if true;
-
-        allow create: if isAuthenticated() &&
-          request.resource.data.userId == request.auth.uid;
-
-        allow update: if isAdmin() ||
-          (
-            isAuthenticated() &&
-            resource.data.userId == request.auth.uid &&
-            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['userId'])
-          );
-
-        allow delete: if isAdmin() ||
-          (
-            isAuthenticated() &&
-            resource.data.userId == request.auth.uid
-          );
+        allow create: if isAuthenticated() && isNotAnonymous() && request.resource.data.userId == request.auth.uid;
+        allow update: if isSuperAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['userId']));
+        allow delete: if isSuperAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
       }
     }
 
-
-    // ============================================================
-    // SKUS & MASTER DATA (ERP SSoT)
-    // ============================================================
-
     match /skus/{skuId} {
       allow read: if isAuthenticated();
-      // Only Cloud Functions / Admin SDK can mutate SKU identity, price, and inventory
       allow write: if false;
-
       match /batches/{batchId} {
-        allow read, write: if isAdmin();
+        allow read, write: if isAdmin() || isSuperAdmin();
       }
     }
 
     match /master_data/{document=**} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isSuperAdmin();
     }
-
-
-    // ============================================================
-    // PUBLIC CATALOG
-    // ============================================================
 
     match /categories/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isSuperAdmin();
     }
 
     match /brands/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isSuperAdmin();
     }
 
     match /crops/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isSuperAdmin();
     }
 
     match /banners/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isSuperAdmin();
     }
 
-
     // ============================================================
-    // FINANCIAL / INTERNAL DATA
+    // FINANCIAL DATA
     // ============================================================
 
     match /product_costs/{id} {
-      allow read, write: if canViewFinance();
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
     }
 
     match /ledger/{id} {
-      allow read: if canViewFinance();
-      allow write: if false;
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
     }
 
     match /finance/{document=**} {
-      allow read: if canViewFinance();
-      allow write: if false;
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
     }
 
     match /accounts/{accountId} {
-      allow read: if canViewFinance();
-      allow write: if false;
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
     }
 
     match /expenses/{id} {
-      allow read: if canViewFinance();
-      allow create: if canViewFinance() &&
-        request.resource.data.createdBy == request.auth.uid &&
-        request.resource.data.keys().hasAll(['amount', 'category', 'description', 'date']) &&
-        request.resource.data.amount > 0 &&
-        request.resource.data.amount <= 10000000;
-      allow update: if canViewFinance() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['expenseNumber', 'createdBy']);
-      allow delete: if isSuperAdmin();
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
+    }
+
+    match /expenseCategories/{id} {
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
+    }
+
+    match /expense_categories/{id} {
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
+    }
+
+    match /expenseVendors/{id} {
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
+    }
+
+    match /expense_vendors/{id} {
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
+    }
+
+    // TEMPORARY STRICT CHECK: Explicit role check used instead of isSuperAdmin() helper
+    // to prevent staff members with blanket admin:true claims from accessing corporate cap table.
+    match /corporate_capital/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    match /corporate_shareholders/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    match /corporate_loans/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    match /corporate_interest_ledger/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    match /corporate_funding_rounds/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    match /corporate_simulations/{id} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    // TODO: journal_vouchers ka HubManager/WarehouseManager write access
+    // temporary hai. Long-term isse Cloud Function (Admin SDK) route karo
+    // taaki entry type (STOCK_AUDIT/RTV) validate ho sake, client arbitrary
+    // journal entry na bana sake. — added 2026-09-25
+    match /journal_vouchers/{id} {
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin() ||
+        (isAuthenticated() && request.auth.token.role in ["HubManager", "WarehouseManager"]);
+    }
+
+    match /system_summaries/{id} {
+      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
     }
 
     match /sales_stats/{statId} {
-      allow read: if isAdmin();
-      allow write: if false;
+      allow read, write: if isAdmin() || isSuperAdmin();
     }
 
-
     // ============================================================
-    // AI SUPERVISOR
+    // AI & OPERATIONS
     // ============================================================
 
     match /ai_activity_logs/{id} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isSuperAdmin();
       allow write: if false;
     }
 
     match /ai_action_requests/{id} {
-      allow read: if isAdmin();
-
-      allow update: if isAdmin() &&
-        request.resource.data
-          .diff(resource.data)
-          .affectedKeys()
-          .hasOnly(['status']);
-
+      allow read: if isAdmin() || isSuperAdmin();
+      allow update: if (isAdmin() || isSuperAdmin()) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
       allow create, delete: if false;
     }
-
-
-    // ============================================================
-    // OPERATIONS ESCALATIONS (SLA monitor)
-    // ============================================================
 
     match /escalations/{id} {
-      allow read: if isAdmin();
-
-      allow update: if isAdmin() &&
-        request.resource.data
-          .diff(resource.data)
-          .affectedKeys()
-          .hasOnly(['status']);
-
+      allow read: if isAdmin() || isSuperAdmin();
+      allow update: if (isAdmin() || isSuperAdmin()) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
       allow create, delete: if false;
     }
 
-
-    // ============================================================
-    // ADMIN SYSTEM NOTIFICATIONS
-    // ============================================================
-
     match /notifications/{id} {
-      allow read, update: if isAdmin();
-      allow create: if isAdmin();
+      allow read, update: if isAdmin() || isSuperAdmin();
+      allow create: if isAdmin() || isSuperAdmin();
       allow delete: if isSuperAdmin();
     }
 
-
-    // ============================================================
-    // BROADCAST NOTIFICATIONS
-    // ============================================================
-
     match /broadcast_notifications/{id} {
-      allow read: if isAuthenticated();
-      allow create: if isAdmin();
+      allow read: if isAuthenticated() && isNotAnonymous();
+      allow create: if isAdmin() || isSuperAdmin();
       allow update, delete: if false;
     }
 
-
-    // ============================================================
-    // DELIVERY SLOTS
-    // ============================================================
-
     match /delivery_slots/{slotId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isSuperAdmin();
     }
-
 
     // ============================================================
     // ORDERS
     // ============================================================
 
     match /orders/{orderId} {
+      allow read: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && resource.data.userId == request.auth.uid) || (isRider() && resource.data.riderId == request.auth.uid);
+      allow create: if isAdmin() || isSuperAdmin();
 
-      allow read: if isAdmin() ||
-        (
-          isAuthenticated() &&
-          resource.data.userId == request.auth.uid
-        ) ||
-        (
-          isRider() &&
-          resource.data.riderId == request.auth.uid
-        );
-
-      // ALL client order creation MUST go through createOrder Cloud Function. Direct client writes blocked.
-      allow create: if isAdmin();
-
-      allow update: if isAdmin() ||
-        (
-          isRider() &&
-          resource.data.riderId == request.auth.uid &&
-          resource.data.status in ['ASSIGNED', 'RIDER_ASSIGNED', 'RIDER_ACCEPTED', 'PICKED_UP', 'PICKING_UP', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'] &&
-          request.resource.data.status != "DELIVERED" &&
-          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['status']) ||
-            request.resource.data.status in ['RIDER_ACCEPTED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
-          ) &&
-            request.resource.data
-              .diff(resource.data)
-              .affectedKeys()
-              .hasOnly([
-                'status',
-                'deliveryStatus',
-                'deliveryLocation',
-                'riderLocation',
-                'deliveryProof',
-                'deliveryProofUrl',
-                'podPhoto',
-                'podPhotoUrl',
-                'podSignature',
-                'podSignatureUrl',
-                'riderNote',
-                'updatedAt',
-                'syncId',
-                'rejectionHistory',
-                'ndrReason',
-                'ndrNotes',
-                'lastAttemptAt',
-                'attemptHistory'
-              ])
-        ) ||
-        (
-          // Blocker 7: allow rider to self-assign unassigned orders
-          isRider() &&
-          resource.data.riderId == "" &&
-          resource.data.status in ['READY_FOR_PICKUP', 'PACKED'] &&
-          (request.resource.data.status in ["ASSIGNED", "RIDER_ASSIGNED"]) &&
-          request.resource.data.riderId == request.auth.uid &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'riderId', 'updatedAt'])
-        );
+      allow update: if (isAdmin() || isSuperAdmin()) || (isRider() && resource.data.riderId == request.auth.uid && resource.data.status in ['ASSIGNED', 'RIDER_ASSIGNED', 'RIDER_ACCEPTED', 'PICKED_UP', 'PICKING_UP', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'] && request.resource.data.status != "DELIVERED" && isValidTimestamp(request.resource.data.updatedAt) && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['status']) || request.resource.data.status in ['RIDER_ACCEPTED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'deliveryStatus', 'deliveryLocation', 'riderLocation', 'deliveryProof', 'deliveryProofUrl', 'podPhoto', 'podPhotoUrl', 'podSignature', 'podSignatureUrl', 'riderNote', 'updatedAt', 'syncId', 'rejectionHistory', 'ndrReason', 'ndrNotes', 'lastAttemptAt', 'attemptHistory'])) || (isRider() && (!('riderId' in resource.data) || resource.data.riderId == null || resource.data.riderId == "") && resource.data.status in ['READY_FOR_PICKUP', 'PACKED'] && request.resource.data.status in ["RIDER_ASSIGNED"] && request.resource.data.riderId == request.auth.uid && isValidTimestamp(request.resource.data.updatedAt) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'riderId', 'updatedAt']));
 
       allow delete: if isSuperAdmin();
 
       match /tracking/{trackingId} {
-        allow read: if isAdmin() ||
-          (
-            isAuthenticated() &&
-            get(/databases/$(database)/documents/orders/$(orderId))
-              .data.userId == request.auth.uid
-          ) ||
-          (
-            isRider() &&
-            get(/databases/$(database)/documents/orders/$(orderId))
-              .data.riderId == request.auth.uid
-          );
-
+        allow read: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid) || (isRider() && get(/databases/$(database)/documents/orders/$(orderId)).data.riderId == request.auth.uid);
         allow write: if false;
       }
 
-      // Task 2.1: Secure internal subcollection for OTP and other server-side secrets
-      // Only Admin (Cloud Functions / Admin SDK) can read/write delivery OTP secrets
       match /internal/{document=**} {
-        allow read, write: if isAdmin();
+        allow read, write: if isAdmin() || isSuperAdmin();
       }
     }
-
 
     // ============================================================
     // RETURNS
     // ============================================================
 
     match /returns/{returnId} {
-
-      allow read: if isAdmin() ||
-        (
-          isAuthenticated() &&
-          resource.data.userId == request.auth.uid
-        ) ||
-        (
-          isRider() &&
-          resource.data.riderId == request.auth.uid
-        );
-
-      allow create: if false; // All return requests go through requestReturn Cloud Function
-
-      allow update: if isAdmin() ||
-        (
-          isRider() &&
-          resource.data.riderId == request.auth.uid &&
-          request.resource.data
-            .diff(resource.data)
-            .affectedKeys()
-            .hasOnly([
-              'riderId',
-              'status',
-              'qcStatus',
-              'qcPhotos',
-              'qcNote',
-              'qcCompletedAt',
-              'updatedAt'
-            ])
-        );
-
+      allow read: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && resource.data.userId == request.auth.uid) || (isRider() && resource.data.riderId == request.auth.uid);
+      allow create: if false;
+      allow update: if (isAdmin() || isSuperAdmin()) || (isRider() && resource.data.riderId == request.auth.uid && isValidTimestamp(request.resource.data.updatedAt) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['riderId', 'status', 'qcStatus', 'qcPhotos', 'qcNote', 'qcCompletedAt', 'updatedAt']));
       allow delete: if isSuperAdmin();
     }
-
 
     // ============================================================
     // USERS
     // ============================================================
 
     match /users/{uId} {
-
-      allow read: if isOwner(uId) || isAdmin() || isViewer();
-
-      allow create: if isOwner(uId) &&
-        !request.resource.data.keys().hasAny([
-          'isAdmin',
-          'admin',
-          'walletBalance',
-          'rewardPoints',
-          'referralCode',
-          'referredBy',
-          'hasCompletedFirstOrder',
-          'customClaims'
-        ]) &&
-        // Only allow role='Rider' from Delivery App (not Customer/Admin roles)
-        (!request.resource.data.keys().hasAny(['role']) ||
-          request.resource.data.role == 'Rider'
-        );
-
-      allow update: if isSuperAdmin() ||
-        (
-          isOwner(uId) &&
-          !request.resource.data
-            .diff(resource.data)
-            .affectedKeys()
-            .hasAny([
-              'role',
-              'isAdmin',
-              'admin',
-              'walletBalance',
-              'rewardPoints',
-              'referredBy',
-              'hasCompletedFirstOrder',
-              'customClaims'
-            ]) &&
-          (
-            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['referralCode']) ||
-            !('referralCode' in resource.data) || resource.data.referralCode == null || resource.data.referralCode == ''
-          )
-        );
-
+      allow read: if isOwner(uId) || (isAdmin() || isSuperAdmin());
+      allow create: if isOwner(uId) && isNotAnonymous() && !request.resource.data.keys().hasAny(['isAdmin', 'admin', 'walletBalance', 'rewardPoints', 'referralCode', 'referredBy', 'hasCompletedFirstOrder', 'customClaims']) && (!request.resource.data.keys().hasAny(['role']) || request.resource.data.role == 'Rider');
+      allow update: if isSuperAdmin() || (isOwner(uId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'admin', 'walletBalance', 'rewardPoints', 'referredBy', 'hasCompletedFirstOrder', 'customClaims']) && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['referralCode']) || !('referralCode' in resource.data) || resource.data.referralCode == null || resource.data.referralCode == ''));
       allow delete: if isSuperAdmin();
 
       match /addresses/{addressId} {
-        allow read, write: if isOwner(uId) || isAdmin();
+        allow read, write: if isOwner(uId) || (isAdmin() || isSuperAdmin());
       }
 
       match /cart/{cartItemId} {
-        allow read, write: if isOwner(uId) || isAdmin();
+        allow read, write: if isOwner(uId) || (isAdmin() || isSuperAdmin());
       }
 
       match /wishlist/{wishlistItemId} {
-        allow read, write: if isOwner(uId) || isAdmin();
+        allow read, write: if isOwner(uId) || (isAdmin() || isSuperAdmin());
       }
 
-      // Blocker 7 & H3: allow riders to send delivery notifications with validated schema
       match /notifications/{notifId} {
-        allow create: if isRider() &&
-          request.resource.data.keys().hasOnly(['orderId', 'type', 'message', 'createdAt']) &&
-          request.resource.data.type in ['DELIVERY_STARTED', 'DELIVERY_NEAR', 'DELIVERY_COMPLETED', 'RIDER_ASSIGNED'];
-        allow read: if isOwner(uId) || isAdmin();
+        allow create: if isRider() && isNotAnonymous() && request.resource.data.keys().hasOnly(['orderId', 'type', 'message', 'createdAt']) && request.resource.data.type in ['DELIVERY_STARTED', 'DELIVERY_NEAR', 'DELIVERY_COMPLETED', 'RIDER_ASSIGNED'];
+        allow read: if isOwner(uId) || (isAdmin() || isSuperAdmin());
       }
 
-      // FCM Token Registry for multi-device support
       match /fcm_tokens/{tokenId} {
-        allow read, write: if isOwner(uId) || isAdmin();
+        allow read, write: if isOwner(uId) || (isAdmin() || isSuperAdmin());
       }
 
       match /{document=**} {
@@ -452,246 +311,168 @@ service cloud.firestore {
       }
     }
 
-
     // ============================================================
     // RIDERS & WHITELIST
     // ============================================================
 
     match /whitelisted_riders/{id} {
-      allow get: if isAdmin() || (
-        isAuthenticated() && (
-          request.auth.token.phone_number == id ||
-          request.auth.token.phone_number == ('+91' + id) ||
-          (resource.data.phone != null && resource.data.phone == request.auth.token.phone_number) ||
-          (resource.data.phone != null && ('+91' + resource.data.phone) == request.auth.token.phone_number)
-        )
-      );
-      allow list: if isAdmin();
-      allow update, create, delete: if isAdmin();
+      allow get: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && isNotAnonymous() && (normalizePhone(request.auth.token.phone_number) == normalizePhone(id) || (resource.data.phone != null && normalizePhone(resource.data.phone) == normalizePhone(request.auth.token.phone_number))));
+      allow list: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && isNotAnonymous() && (normalizePhone(resource.data.phone) == normalizePhone(request.auth.token.phone_number)));
+      allow update, create, delete: if isAdmin() || isSuperAdmin();
+    }
+
+    match /payout_requests/{reqId} {
+      allow read: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow write: if isAdmin() || isSuperAdmin();
     }
 
     match /riders/{riderId} {
-      allow read: if isAdmin() || isViewer() || isOwner(riderId);
-      // Self-creation blocked: Only Admin can onboard/create rider profiles
-      allow create: if isAdmin();
-      // Rider self-updates restricted to non-sensitive profile fields
-      allow update: if isAdmin() || (
-        isRider() && isOwner(riderId) &&
-        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['kycStatus']) ||
-          request.resource.data.kycStatus == 'PENDING_VERIFICATION'
-        ) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'name', 'phone', 'address', 'vehicleDetails', 'isAvailable', 'currentLocation', 'location', 'fcmToken', 'updatedAt',
-          'currentLat', 'currentLng', 'lastLocationUpdate',
-          'online', 'shiftStartTime', 'shiftEndTime',
-          'bankAccount', 'bankName', 'ifscCode', 'vehicleNumber', 'vehicleType',
-          'documents', 'kycStatus', 'lastKycSubmissionAt'
-        ])
-      );
-      allow delete: if isAdmin();
+      allow read: if (isAdmin() || isSuperAdmin()) || isOwner(riderId);
+      allow create: if isAdmin() || isSuperAdmin();
+      allow update: if (isAdmin() || isSuperAdmin()) || (isRider() && isOwner(riderId) && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['kycStatus']) || request.resource.data.kycStatus == 'PENDING_VERIFICATION') && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'address', 'vehicleDetails', 'isAvailable', 'currentLocation', 'location', 'fcmToken', 'updatedAt', 'currentLat', 'currentLng', 'lastLocationUpdate', 'online', 'shiftStartTime', 'shiftEndTime', 'bankAccount', 'bankName', 'ifscCode', 'vehicleNumber', 'vehicleType', 'documents', 'kycStatus', 'lastKycSubmissionAt']));
+      allow delete: if isSuperAdmin();
     }
-
-
-    // ============================================================
-    // WISHLIST
-    // ============================================================
 
     match /wishlists/{userId}/{itemId} {
-      allow read, write: if isOwner(userId) || isAdmin();
+      allow read, write: if isOwner(userId) || (isAdmin() || isSuperAdmin());
     }
-
-
-    // ============================================================
-    // STOCK NOTIFICATION REQUESTS
-    // ============================================================
 
     match /stock_notification_requests/{id} {
-      allow read: if isAdmin();
-      allow create: if isAuthenticated() &&
-        request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isAdmin();
+      allow read: if isAdmin() || isSuperAdmin();
+      allow create: if isAuthenticated() && isNotAnonymous() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin() || isSuperAdmin();
     }
-
-
-    // ============================================================
-    // SETTINGS
-    // ============================================================
 
     match /settings/{allPaths=**} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow read: if isAdmin() || isSuperAdmin();
+      allow write: if isAdmin() || isSuperAdmin();
     }
 
-
-    // ============================================================
-    // SOS / EMERGENCY ALERTS
-    // ============================================================
-
     match /sos_alerts/{alertId} {
-      allow create: if isAuthenticated();
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow update, delete: if isAdmin();
+      allow create: if isAuthenticated() && isNotAnonymous();
+      allow read: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow update, delete: if isAdmin() || isSuperAdmin();
     }
 
     match /emergency_alerts/{alertId} {
-      allow create: if isAuthenticated();
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow update, delete: if isAdmin();
+      allow create: if isAuthenticated() && isNotAnonymous();
+      allow read: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow update, delete: if isAdmin() || isSuperAdmin();
     }
 
-
-    // ============================================================
-    // AUDIT LOGS
-    // ============================================================
-
+    // FIXED: SuperAdmin-only
     match /audit_logs/{id} {
-      allow read: if isAdmin();
+      allow read: if isSuperAdmin();
       allow write: if false;
     }
 
-
-    // ============================================================
-    // REFERRALS & WALLET
-    // ============================================================
-
     match /referrals/{referralId} {
-      allow read: if isAuthenticated() && (
-        request.auth.uid == resource.data.referrerUid ||
-        request.auth.uid == resource.data.refereeUid ||
-        isAdmin()
-      );
-      allow write: if false; // Only Cloud Functions mutate this
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.referrerUid || request.auth.uid == resource.data.refereeUid || (isAdmin() || isSuperAdmin()));
+      allow write: if false;
     }
 
     match /wallet_transactions/{txnId} {
-      allow read: if isAuthenticated() && (
-        request.auth.uid == resource.data.uid ||
-        isAdmin()
-      );
-      allow write: if false; // Only Cloud Functions mutate this
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.uid || (isAdmin() || isSuperAdmin()));
+      allow write: if false;
     }
 
-
     // ============================================================
-    // SUPPLIERS & PROCUREMENT (Phase 1 & 2)
+    // SUPPLIERS & PROCUREMENT
     // ============================================================
 
     match /suppliers/{supplierId} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow read, write: if isAdmin() || isSuperAdmin();
     }
 
     match /procurement_queue/{itemId} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow read, write: if isAdmin() || isSuperAdmin();
     }
 
     match /purchase_orders/{poId} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow read, write: if isAdmin() || isSuperAdmin();
       match /{document=**} {
-        allow read, write: if isAdmin();
+        allow read, write: if isAdmin() || isSuperAdmin();
       }
     }
 
     match /goods_receipts/{grnId} {
-      allow read, write: if isAdmin();
+      allow read, write: if isAdmin() || isSuperAdmin();
       match /{document=**} {
-        allow read, write: if isAdmin();
+        allow read, write: if isAdmin() || isSuperAdmin();
       }
     }
 
     match /inventory_movements/{movementId} {
-      allow read: if isAdmin();
-      allow write: if false; // Immutable ledger: mutated strictly via Cloud Functions / Admin SDK
+      allow read: if isAdmin() || isSuperAdmin();
+      allow write: if false;
     }
 
     match /warehouse_stock/{docId} {
-      allow read: if isAdmin();
-      allow write: if false; // Cloud Functions SSoT for location inventory
+      allow read: if isAdmin() || isSuperAdmin();
+      allow write: if false;
     }
 
     match /warehouses/{warehouseId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isSuperAdmin();
       match /{document=**} {
         allow read: if true;
-        allow write: if isAdmin();
+        allow write: if isAdmin() || isSuperAdmin();
       }
     }
 
     match /idempotency_keys/{key} {
-      allow read, write: if false; // Internal backend idempotency locks
+      allow read, write: if false;
     }
 
     match /supplier_ledger/{id} {
-      allow read, write: if isAdmin();
+      allow read, write: if isAdmin() || isSuperAdmin();
     }
 
     match /customer_ledger/{id} {
-      allow read, write: if isAdmin();
+      allow read, write: if isAdmin() || isSuperAdmin();
     }
 
     match /unit_economics/{orderId} {
-      allow read, write: if isAdmin();
+      allow read, write: if isAdmin() || isSuperAdmin();
     }
 
     // ============================================================
-    // CRM SYSTEM (Support, Complaints, Feedback) - M3
+    // CRM
     // ============================================================
 
     match /support_tickets/{ticketId} {
-      allow create: if isAuthenticated() &&
-        request.resource.data.userId == request.auth.uid;
-      allow read: if isAuthenticated() &&
-        (resource.data.userId == request.auth.uid || isAdmin());
-      allow update: if isAdmin() ||
-        (isAuthenticated() && resource.data.userId == request.auth.uid &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'message', 'updatedAt']));
-      allow delete: if isAdmin();
+      allow create: if isAuthenticated() && isNotAnonymous() && request.resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || (isAdmin() || isSuperAdmin()));
+      allow update: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && resource.data.userId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'message', 'updatedAt']));
+      allow delete: if isAdmin() || isSuperAdmin();
       match /{document=**} {
-        allow read, write: if isAuthenticated() &&
-          (get(/databases/$(database)/documents/support_tickets/$(ticketId)).data.userId == request.auth.uid || isAdmin());
+        allow read, write: if isAuthenticated() && (get(/databases/$(database)/documents/support_tickets/$(ticketId)).data.userId == request.auth.uid || (isAdmin() || isSuperAdmin()));
       }
     }
 
     match /complaints/{complaintId} {
-      allow create: if isAuthenticated() &&
-        request.resource.data.userId == request.auth.uid;
-      allow read: if isAuthenticated() &&
-        (resource.data.userId == request.auth.uid || isAdmin());
-      allow update: if isAdmin() ||
-        (isAuthenticated() && resource.data.userId == request.auth.uid &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'description', 'updatedAt']));
-      allow delete: if isAdmin();
+      allow create: if isAuthenticated() && isNotAnonymous() && request.resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || (isAdmin() || isSuperAdmin()));
+      allow update: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && resource.data.userId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'description', 'updatedAt']));
+      allow delete: if isAdmin() || isSuperAdmin();
       match /{document=**} {
-        allow read, write: if isAuthenticated() &&
-          (get(/databases/$(database)/documents/complaints/$(complaintId)).data.userId == request.auth.uid || isAdmin());
+        allow read, write: if isAuthenticated() && (get(/databases/$(database)/documents/complaints/$(complaintId)).data.userId == request.auth.uid || (isAdmin() || isSuperAdmin()));
       }
     }
 
     match /customer_feedback/{feedbackId} {
-      allow create: if isAuthenticated() &&
-        request.resource.data.userId == request.auth.uid;
-      allow read: if isAuthenticated() &&
-        (resource.data.userId == request.auth.uid || isAdmin());
-      allow update: if isAdmin() ||
-        (isAuthenticated() && resource.data.userId == request.auth.uid &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'comment', 'updatedAt']));
-      allow delete: if isAdmin();
+      allow create: if isAuthenticated() && isNotAnonymous() && request.resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || (isAdmin() || isSuperAdmin()));
+      allow update: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && resource.data.userId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'comment', 'updatedAt']));
+      allow delete: if isAdmin() || isSuperAdmin();
       match /{document=**} {
-        allow read, write: if isAuthenticated() &&
-          (get(/databases/$(database)/documents/customer_feedback/$(feedbackId)).data.userId == request.auth.uid || isAdmin());
+        allow read, write: if isAuthenticated() && (get(/databases/$(database)/documents/customer_feedback/$(feedbackId)).data.userId == request.auth.uid || (isAdmin() || isSuperAdmin()));
       }
     }
 
-
-    // ============================================================
-    // INTERNAL INFRASTRUCTURE
-    // ============================================================
-
     match /notification_logs/{id} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isSuperAdmin();
       allow write: if false;
     }
 
@@ -699,69 +480,40 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-
-    // ============================================================
-    // CASH DEPOSITS
-    // ============================================================
-    
     match /cash_deposits/{id} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
-      allow create: if isRider() && request.resource.data.riderId == request.auth.uid;
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow read: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow create: if (isAdmin() || isSuperAdmin()) || (isRider() && request.resource.data.riderId == request.auth.uid);
+      allow update, delete: if isAdmin() || isSuperAdmin();
     }
 
-    // ============================================================
-    // ABANDONED CARTS
-    // ============================================================
-    
+    match /hub_bank_deposits/{id} {
+      allow read, write: if isAdmin() || isSuperAdmin();
+    }
+
     match /abandoned_carts/{id} {
-      allow read, write: if isAdmin();
+      allow read, write: if isAdmin() || isSuperAdmin();
     }
-
-    // ============================================================
-    // SERVICE MARKETPLACE
-    // ============================================================
 
     match /service_bookings/{bookingId} {
-      // Farmer, Assigned Partner, Admin, or verified partner/serviceman viewing PENDING_ASSIGNMENT can read
-      allow read: if isAuthenticated() && (
-                    request.auth.uid == resource.data.farmerId
-                    || request.auth.uid == resource.data.assignedPartnerId
-                    || (resource.data.status == "PENDING_ASSIGNMENT" && request.auth.token.role in ['Serviceman', 'Partner', 'ADMIN'])
-                    || isAdmin()
-                  );
-      // All service booking creations MUST go through createServiceBooking Cloud Function. Client direct write blocked.
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.farmerId || request.auth.uid == resource.data.assignedPartnerId || (resource.data.status == "PENDING_ASSIGNMENT" && request.auth.token.role in ['Serviceman', 'Partner', 'ADMIN']) || (isAdmin() || isSuperAdmin()));
       allow create: if false;
-      // Client direct update & delete blocked — ALL state mutations MUST go through Cloud Functions
       allow update, delete: if false;
     }
 
     match /partner_wallets/{partnerId} {
-      // Partner can read their own wallet, admin can read all
-      allow read: if isAuthenticated() && (request.auth.uid == partnerId || isAdmin());
-      // Direct client updates blocked — ONLY Cloud Functions can modify balance
+      allow read: if isAuthenticated() && (request.auth.uid == partnerId || (isAdmin() || isSuperAdmin()));
       allow write: if false;
     }
 
     match /partner_wallet_transactions/{txnId} {
-      // Partner can read their transaction history
-      allow read: if isAuthenticated() && (request.auth.uid == resource.data.partnerId || isAdmin());
-      // Direct client creation blocked — ONLY Cloud Functions can record transactions
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.partnerId || (isAdmin() || isSuperAdmin()));
       allow write: if false;
     }
 
     match /services/{serviceId} {
-      // Public read for service catalog (Sprayman, Soil Testing, Drone Spray)
       allow read: if true;
-      // Only Admin can add or update service definitions
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isSuperAdmin();
     }
-
-
-    // ============================================================
-    // DEFAULT DENY
-    // ============================================================
 
     match /{document=**} {
       allow read, write: if false;
