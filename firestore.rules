@@ -19,15 +19,13 @@ service cloud.firestore {
       return isAuthenticated() && (
         request.auth.token.admin == true ||
         request.auth.token.isAdmin == true ||
-        request.auth.token.role in ["ADMIN", "SuperAdmin", "CatalogManager", "OrderManager"]
+        request.auth.token.role in ["ADMIN", "SuperAdmin", "SUPER_ADMIN", "CatalogManager", "OrderManager", "FinanceAdmin", "Admin"]
       );
     }
 
     function isSuperAdmin() {
       return isAuthenticated() && (
-        request.auth.token.role == "SuperAdmin" ||
-        request.auth.token.admin == true ||
-        request.auth.token.isAdmin == true ||
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"] ||
         request.auth.token.isSuperAdmin == true
       );
     }
@@ -65,7 +63,7 @@ service cloud.firestore {
       // Price and Stock are derived from SKUs via Cloud Functions
       allow update: if isAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['price', 'stockQuantity']);
       allow create: if isAdmin();
-      allow delete: if isSuperAdmin() || isAdmin();
+      allow delete: if isSuperAdmin();
 
       match /variants/{variantId} {
         allow read: if true;
@@ -235,8 +233,8 @@ service cloud.firestore {
     // taaki entry type (STOCK_AUDIT/RTV) validate ho sake, client arbitrary
     // journal entry na bana sake. — added 2026-09-25
     match /journal_vouchers/{id} {
-      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin() ||
-        (isAuthenticated() && request.auth.token.role in ["HubManager", "WarehouseManager"]);
+      allow read: if canViewFinance() || isAdmin() || isSuperAdmin();
+      allow write: if canViewFinance() || isSuperAdmin();
     }
 
     match /expenses/{id} {
@@ -469,19 +467,17 @@ service cloud.firestore {
 
       allow create: if isOwner(uId) &&
         !request.resource.data.keys().hasAny([
+          'role',
           'isAdmin',
           'admin',
+          'isSuperAdmin',
           'walletBalance',
           'rewardPoints',
           'referralCode',
           'referredBy',
           'hasCompletedFirstOrder',
           'customClaims'
-        ]) &&
-        // Only allow role='Rider' from Delivery App (not Customer/Admin roles)
-        (!request.resource.data.keys().hasAny(['role']) ||
-          request.resource.data.role == 'Rider'
-        );
+        ]);
 
       allow update: if isSuperAdmin() ||
         (
@@ -493,6 +489,7 @@ service cloud.firestore {
               'role',
               'isAdmin',
               'admin',
+              'isSuperAdmin',
               'walletBalance',
               'rewardPoints',
               'referredBy',
@@ -680,7 +677,7 @@ service cloud.firestore {
     // ============================================================
 
     match /audit_logs/{id} {
-      allow read: if isAdmin();
+      allow read: if isSuperAdmin();
       allow write: if false;
     }
 
