@@ -9,7 +9,6 @@ const {
     DEFAULT_WAREHOUSE_ID
 } = require("../inventory/inventoryEngine");
 const { validateAndReserveSlot } = require("./deliverySlots");
-const { resolveOptimalWarehouse } = require("./orderRouter");
 const Razorpay = require("razorpay");
 const { razorpayKeySecret, qrHmacSecret, razorpayKeyId, getSecretVal } = require("../core/secrets");
 
@@ -317,13 +316,38 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             const freeDeliveryAbove = Number(settingsData.freeDeliveryAbove) || 0;
             const netCartValue = subtotal - totalDiscount;
             const deliveryCharge = (freeDeliveryAbove > 0 && netCartValue >= freeDeliveryAbove) ? 0 : configuredDeliveryCharge;
-            // 2b. Multi-Hub Inventory-Aware Nearest Hub Routing Decision
-            const routingDecision = resolveOptimalWarehouse({
-                whList,
-                cartItems,
-                fetchedProducts,
-                address: structuredAddress
-            });
+            // 2b. Multi-Hub Routing Logic (Pincode -> Primary -> Unassigned)
+            let routingDecision = {
+                fulfillmentWarehouseId: "UNASSIGNED",
+                warehouseName: "Unassigned Hub (Needs Manual Routing)",
+                routingStatus: "NEEDS_MANUAL_ROUTING"
+            };
+
+            const customerPincode = structuredAddress?.pincode;
+            let selectedHub = null;
+            let finalRoutingStatus = "NEEDS_MANUAL_ROUTING";
+
+            if (whList && whList.length > 0) {
+                // 1. PINCODE_MATCH
+                selectedHub = whList.find(w => w.pincodes && Array.isArray(w.pincodes) && w.pincodes.includes(customerPincode));
+                if (selectedHub) {
+                    finalRoutingStatus = "PINCODE_MATCH";
+                } else {
+                    // 2. PRIMARY_HUB fallback
+                    selectedHub = whList.find(w => w.isPrimary === true);
+                    if (selectedHub) {
+                        finalRoutingStatus = "PRIMARY_HUB";
+                    }
+                }
+
+                if (selectedHub) {
+                    routingDecision = {
+                        fulfillmentWarehouseId: selectedHub.id,
+                        warehouseName: selectedHub.name || selectedHub.id,
+                        routingStatus: finalRoutingStatus
+                    };
+                }
+            }
 
             const assignedWarehouseId = routingDecision.fulfillmentWarehouseId;
             const assignedWarehouseName = routingDecision.warehouseName;
