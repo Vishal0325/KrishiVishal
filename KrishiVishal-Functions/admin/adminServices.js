@@ -122,7 +122,7 @@ exports.searchUsers = onCall({ region: REGION, cors: true }, async (request) => 
 /**
  * createStaffMember: Admin creates internal staff with custom claims
  */
-exports.createStaffMember = onCall({ region: ['asia-south1', 'us-central1'], cors: true }, async (request) => {
+exports.createStaffMember = onCall({ region: REGION, cors: true }, async (request) => {
     const isAuthorized = await isAdminRequest(request);
     if (!isAuthorized) {
         throw new HttpsError('permission-denied', 'Only admins can create staff members.');
