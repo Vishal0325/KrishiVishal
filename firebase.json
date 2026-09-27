@@ -1,4 +1,4 @@
-﻿{
+{
     "hosting":  {
                     "site":  "krishivishal-a9ed7",
                     "public":  "dist",
@@ -43,9 +43,12 @@
                                      }
                                  ]
                 },
+    "firestore": {
+        "rules": "firestore.rules"
+    },
     "storage":  {
-                    "rules":  "storage.rules"
-                },
+        "rules":  "storage.rules"
+    },
     "functions":  {
                       "source":  "functions",
                       "ignore":  [

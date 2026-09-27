@@ -36,23 +36,41 @@ exports.createStaffMember = functions.https.onCall(async (data, context) => {
       displayName: name,
     });
 
-    // 3. Set Custom Claims immediately
-    // [FIXED] Point #154: Consistent claim name 'isAdmin' and 'admin'
-    await admin.auth().setCustomUserClaims(userRecord.uid, {
-      role: role,
-      isAdmin: true,
-      admin: true,
-      isActive: true
-    });
+    // 3. Role-to-Claims Matrix (Zero Blanket Admin Claims)
+    const adminRoles = ['SuperAdmin', 'Admin'];
+    const isFullAdmin = adminRoles.includes(role);
+    const isSuper = role === 'SuperAdmin';
 
-    // 4. Save to Firestore
+    const customClaims = {
+      role: role,
+      isAdmin: isFullAdmin,       // TRUE sirf SuperAdmin / Admin ke liye
+      admin: isFullAdmin,         // Legacy backward-compatibility
+      isStaff: true,              // Portal entry gatekeeper
+      isActive: true,
+    };
+
+    if (isSuper) {
+      customClaims.isSuperAdmin = true;
+      customClaims.hubAccess = 'ALL';
+    } else if (['FinanceAdmin', 'DepartmentManager', 'Viewer'].includes(role)) {
+      customClaims.hubAccess = data.hubAccess || 'ALL';
+    } else if (data.hubId) {
+      customClaims.hubId = data.hubId;
+    }
+
+    await admin.auth().setCustomUserClaims(userRecord.uid, customClaims);
+
+    // 4. Save to Firestore with matching least-privilege schema
     await admin.firestore().collection('users').doc(userRecord.uid).set({
       uid: userRecord.uid,
       email: email,
       name: name,
       role: role,
-      isAdmin: true,
+      isAdmin: isFullAdmin,       // Firestore doc matches Auth claim
+      isStaff: true,
       isActive: true,
+      hubAccess: customClaims.hubAccess || null,
+      hubId: customClaims.hubId || null,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
