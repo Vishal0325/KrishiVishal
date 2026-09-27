@@ -17,16 +17,16 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() && (
-        request.auth.token.admin == true ||
-        request.auth.token.isAdmin == true ||
-        request.auth.token.role in ["ADMIN", "SuperAdmin", "SUPER_ADMIN", "CatalogManager", "OrderManager", "FinanceAdmin", "Admin"]
+        (('admin' in request.auth.token) && request.auth.token.admin == true) ||
+        (('isAdmin' in request.auth.token) && request.auth.token.isAdmin == true) ||
+        (('role' in request.auth.token) && request.auth.token.role in ["ADMIN", "SuperAdmin", "SUPER_ADMIN", "CatalogManager", "OrderManager", "FinanceAdmin", "Admin"])
       );
     }
 
     function isSuperAdmin() {
       return isAuthenticated() && (
-        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"] ||
-        request.auth.token.isSuperAdmin == true
+        (('role' in request.auth.token) && request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"]) ||
+        (('isSuperAdmin' in request.auth.token) && request.auth.token.isSuperAdmin == true)
       );
     }
 
@@ -34,12 +34,20 @@ service cloud.firestore {
       return isAuthenticated() && (
         isSuperAdmin() ||
         isAdmin() ||
-        request.auth.token.role in ["FinanceAdmin", "Accountant", "FinanceManager"]
+        (('role' in request.auth.token) && request.auth.token.role in ["FinanceAdmin", "Accountant", "FinanceManager"])
       );
     }
 
     function isViewer() {
-      return isAuthenticated() && request.auth.token.role == "Viewer";
+      return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role == "Viewer";
+    }
+
+    function isHubManager() {
+      return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role in ["HubManager", "WarehouseManager"];
+    }
+
+    function isDepartmentManager() {
+      return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role in ["DepartmentManager", "HRAdmin"];
     }
 
     function isOwner(userId) {
@@ -48,16 +56,7 @@ service cloud.firestore {
     }
 
     function isRider() {
-      return isAuthenticated() && (request.auth.token.role == "Rider" || request.auth.token.role == "RIDER" || request.auth.token.isRider == true);
-    }
-
-    function hasHubAccess(hub) {
-      return isAuthenticated() && (
-        request.auth.token.hubAccess == 'ALL' ||
-        isSuperAdmin() ||
-        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN", "FinanceAdmin", "OperationsAdmin", "CatalogManager", "HRAdmin", "DepartmentManager", "Viewer"] ||
-        (request.auth.token.hubId != null && hub != null && request.auth.token.hubId == hub)
-      );
+      return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role == "Rider";
     }
 
 
@@ -111,7 +110,8 @@ service cloud.firestore {
       allow write: if false;
 
       match /batches/{batchId} {
-        allow read, write: if isAdmin();
+        allow read: if isAdmin() || isViewer() || isHubManager();
+        allow write: if isAdmin();
       }
     }
 
@@ -189,52 +189,52 @@ service cloud.firestore {
     // to prevent staff members with blanket admin:true claims from accessing corporate cap table.
     match /corporate_capital/{id} {
       allow read, write: if isAuthenticated() &&
-        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+        ('role' in request.auth.token) && request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
     }
 
     match /capital_structure/{id} {
       allow read, write: if isAuthenticated() &&
-        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+        ('role' in request.auth.token) && request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
     }
 
     match /corporate_shareholders/{id} {
       allow read, write: if isAuthenticated() &&
-        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+        ('role' in request.auth.token) && request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
     }
 
     match /shareholders/{id} {
       allow read, write: if isAuthenticated() &&
-        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+        ('role' in request.auth.token) && request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
     }
 
     match /corporate_loans/{id} {
       allow read, write: if isAuthenticated() &&
-        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+        ('role' in request.auth.token) && request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
     }
 
     match /corporate_interest_ledger/{id} {
       allow read, write: if isAuthenticated() &&
-        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+        ('role' in request.auth.token) && request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
     }
 
     match /interest_ledger/{id} {
       allow read, write: if isAuthenticated() &&
-        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+        ('role' in request.auth.token) && request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
     }
 
     match /corporate_funding_rounds/{id} {
       allow read, write: if isAuthenticated() &&
-        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+        ('role' in request.auth.token) && request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
     }
 
     match /funding_rounds/{id} {
       allow read, write: if isAuthenticated() &&
-        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+        ('role' in request.auth.token) && request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
     }
 
     match /corporate_simulations/{id} {
       allow read, write: if isAuthenticated() &&
-        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+        ('role' in request.auth.token) && request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
     }
 
     // TODO: journal_vouchers ka HubManager/WarehouseManager write access
@@ -243,7 +243,7 @@ service cloud.firestore {
     // journal entry na bana sake. — added 2026-09-25
     match /journal_vouchers/{id} {
       allow read: if canViewFinance() || isAdmin() || isSuperAdmin();
-      allow write: if canViewFinance() || isSuperAdmin();
+      allow write: if canViewFinance() || isAdmin() || isSuperAdmin() || (('role' in request.auth.token) && request.auth.token.role in ["HubManager", "WarehouseManager"]);
     }
 
     match /expenses/{id} {
@@ -258,7 +258,8 @@ service cloud.firestore {
     }
 
     match /sales_stats/{statId} {
-      allow read, write: if isAdmin() || isSuperAdmin();
+      allow read: if isAdmin() || isSuperAdmin() || isViewer();
+      allow write: if isAdmin() || isSuperAdmin();
     }
 
 
@@ -339,12 +340,7 @@ service cloud.firestore {
 
     match /orders/{orderId} {
 
-      allow read: if (
-        isAdmin() && (
-          hasHubAccess(resource.data.fulfillmentWarehouseId) ||
-          hasHubAccess(resource.data.warehouseId)
-        )
-      ) ||
+      allow read: if isAdmin() || isViewer() || isHubManager() ||
         (
           isAuthenticated() &&
           resource.data.userId == request.auth.uid
@@ -426,7 +422,8 @@ service cloud.firestore {
       // Task 2.1: Secure internal subcollection for OTP and other server-side secrets
       // Only Admin (Cloud Functions / Admin SDK) can read/write delivery OTP secrets
       match /internal/{document=**} {
-        allow read, write: if isAdmin();
+        allow read: if isAdmin() || isViewer();
+        allow write: if isAdmin();
       }
     }
 
@@ -437,7 +434,7 @@ service cloud.firestore {
 
     match /returns/{returnId} {
 
-      allow read: if isAdmin() ||
+      allow read: if isAdmin() || isViewer() || isHubManager() ||
         (
           isAuthenticated() &&
           resource.data.userId == request.auth.uid
@@ -556,20 +553,20 @@ service cloud.firestore {
     // ============================================================
 
     match /whitelisted_riders/{id} {
-      allow get: if isAdmin() || (
-        isAuthenticated() && (
+      allow get: if isAdmin() || isViewer() || isHubManager() || (
+        isAuthenticated() && ('phone_number' in request.auth.token) && (
           request.auth.token.phone_number == id ||
           request.auth.token.phone_number == ('+91' + id) ||
           (resource.data.phone != null && resource.data.phone == request.auth.token.phone_number) ||
           (resource.data.phone != null && ('+91' + resource.data.phone) == request.auth.token.phone_number)
         )
       );
-      allow list: if isAdmin();
+      allow list: if isAdmin() || isViewer() || isHubManager();
       allow update, create, delete: if isAdmin();
     }
 
     match /payout_requests/{reqId} {
-      allow read: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow read: if (isAdmin() || isSuperAdmin() || isViewer() || canViewFinance() || isHubManager()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
       allow write: if isAdmin() || isSuperAdmin();
     }
 
@@ -600,11 +597,13 @@ service cloud.firestore {
     // ============================================================
 
     match /employees/{id} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin();
     }
 
     match /employee_documents/{id} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin();
     }
 
 
@@ -649,23 +648,28 @@ service cloud.firestore {
     }
 
     match /system_summaries/{allPaths=**} {
-      allow read, write: if canViewFinance() || isAdmin() || isSuperAdmin();
+      allow read: if canViewFinance() || isAdmin() || isSuperAdmin() || isViewer();
+      allow write: if canViewFinance() || isAdmin() || isSuperAdmin();
     }
 
     match /stock_transfers/{id} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin();
     }
 
     match /stock_movements/{id} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin();
     }
 
     match /payout_logs/{id} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || isViewer() || canViewFinance();
+      allow write: if isAdmin();
     }
 
     match /rider_performance/{id} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin();
     }
 
 
@@ -723,37 +727,40 @@ service cloud.firestore {
     // ============================================================
 
     match /suppliers/{supplierId} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isViewer();
       allow write: if isAdmin();
     }
 
     match /procurement_queue/{itemId} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isViewer();
       allow write: if isAdmin();
     }
 
     match /purchase_orders/{poId} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isViewer();
       allow write: if isAdmin();
       match /{document=**} {
-        allow read, write: if isAdmin();
+        allow read: if isAdmin() || isViewer();
+        allow write: if isAdmin();
       }
     }
 
     match /goods_receipts/{grnId} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin();
       match /{document=**} {
-        allow read, write: if isAdmin();
+        allow read: if isAdmin() || isViewer() || isHubManager();
+        allow write: if isAdmin();
       }
     }
 
     match /inventory_movements/{movementId} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isViewer() || isHubManager();
       allow write: if false; // Immutable ledger: mutated strictly via Cloud Functions / Admin SDK
     }
 
     match /warehouse_stock/{docId} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isViewer() || isHubManager();
       allow write: if false; // Cloud Functions SSoT for location inventory
     }
 
@@ -771,15 +778,18 @@ service cloud.firestore {
     }
 
     match /supplier_ledger/{id} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || canViewFinance() || isViewer();
+      allow write: if isAdmin();
     }
 
     match /customer_ledger/{id} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || canViewFinance() || isViewer();
+      allow write: if isAdmin();
     }
 
     match /unit_economics/{orderId} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || canViewFinance() || isViewer();
+      allow write: if isAdmin();
     }
 
     // ============================================================
@@ -790,14 +800,14 @@ service cloud.firestore {
       allow create: if isAuthenticated() &&
         request.resource.data.userId == request.auth.uid;
       allow read: if isAuthenticated() &&
-        (resource.data.userId == request.auth.uid || isAdmin());
+        (resource.data.userId == request.auth.uid || isAdmin() || isViewer());
       allow update: if isAdmin() ||
         (isAuthenticated() && resource.data.userId == request.auth.uid &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'message', 'updatedAt']));
       allow delete: if isAdmin();
       match /{document=**} {
         allow read, write: if isAuthenticated() &&
-          (get(/databases/$(database)/documents/support_tickets/$(ticketId)).data.userId == request.auth.uid || isAdmin());
+          (get(/databases/$(database)/documents/support_tickets/$(ticketId)).data.userId == request.auth.uid || isAdmin() || isViewer());
       }
     }
 
@@ -805,14 +815,14 @@ service cloud.firestore {
       allow create: if isAuthenticated() &&
         request.resource.data.userId == request.auth.uid;
       allow read: if isAuthenticated() &&
-        (resource.data.userId == request.auth.uid || isAdmin());
+        (resource.data.userId == request.auth.uid || isAdmin() || isViewer());
       allow update: if isAdmin() ||
         (isAuthenticated() && resource.data.userId == request.auth.uid &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'description', 'updatedAt']));
       allow delete: if isAdmin();
       match /{document=**} {
         allow read, write: if isAuthenticated() &&
-          (get(/databases/$(database)/documents/complaints/$(complaintId)).data.userId == request.auth.uid || isAdmin());
+          (get(/databases/$(database)/documents/complaints/$(complaintId)).data.userId == request.auth.uid || isAdmin() || isViewer());
       }
     }
 
@@ -820,14 +830,14 @@ service cloud.firestore {
       allow create: if isAuthenticated() &&
         request.resource.data.userId == request.auth.uid;
       allow read: if isAuthenticated() &&
-        (resource.data.userId == request.auth.uid || isAdmin());
+        (resource.data.userId == request.auth.uid || isAdmin() || isViewer());
       allow update: if isAdmin() ||
         (isAuthenticated() && resource.data.userId == request.auth.uid &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'comment', 'updatedAt']));
       allow delete: if isAdmin();
       match /{document=**} {
         allow read, write: if isAuthenticated() &&
-          (get(/databases/$(database)/documents/customer_feedback/$(feedbackId)).data.userId == request.auth.uid || isAdmin());
+          (get(/databases/$(database)/documents/customer_feedback/$(feedbackId)).data.userId == request.auth.uid || isAdmin() || isViewer());
       }
     }
 
@@ -837,7 +847,7 @@ service cloud.firestore {
     // ============================================================
 
     match /notification_logs/{id} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isViewer();
       allow write: if false;
     }
 
@@ -851,13 +861,14 @@ service cloud.firestore {
     // ============================================================
     
     match /cash_deposits/{id} {
-      allow read: if (isAdmin() || isSuperAdmin()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow read: if (isAdmin() || isSuperAdmin() || isViewer() || isHubManager() || canViewFinance()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
       allow create: if (isAdmin() || isSuperAdmin()) || (isRider() && request.resource.data.riderId == request.auth.uid);
       allow update, delete: if isAdmin() || isSuperAdmin();
     }
 
     match /hub_bank_deposits/{id} {
-      allow read, write: if isAdmin() || isSuperAdmin();
+      allow read: if isAdmin() || isSuperAdmin() || isViewer() || isHubManager() || canViewFinance();
+      allow write: if isAdmin() || isSuperAdmin();
     }
 
     // ============================================================
@@ -865,7 +876,8 @@ service cloud.firestore {
     // ============================================================
     
     match /abandoned_carts/{id} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || isViewer();
+      allow write: if isAdmin();
     }
 
     // ============================================================
@@ -875,10 +887,11 @@ service cloud.firestore {
     match /service_bookings/{bookingId} {
       // Farmer, Assigned Partner, Admin, or verified partner/serviceman viewing PENDING_ASSIGNMENT can read
       allow read: if isAuthenticated() && (
-                    request.auth.uid == resource.data.farmerId
-                    || request.auth.uid == resource.data.assignedPartnerId
-                    || (resource.data.status == "PENDING_ASSIGNMENT" && request.auth.token.role in ['Serviceman', 'Partner', 'ADMIN'])
-                    || isAdmin()
+                    isAdmin()
+                    || isViewer()
+                    || (('farmerId' in resource.data) && request.auth.uid == resource.data.farmerId)
+                    || (('assignedPartnerId' in resource.data) && request.auth.uid == resource.data.assignedPartnerId)
+                    || (('status' in resource.data) && resource.data.status == "PENDING_ASSIGNMENT" && ('role' in request.auth.token) && request.auth.token.role in ['Serviceman', 'Partner', 'ADMIN'])
                   );
       // All service booking creations MUST go through createServiceBooking Cloud Function. Client direct write blocked.
       allow create: if false;
@@ -888,14 +901,14 @@ service cloud.firestore {
 
     match /partner_wallets/{partnerId} {
       // Partner can read their own wallet, admin can read all
-      allow read: if isAuthenticated() && (request.auth.uid == partnerId || isAdmin());
+      allow read: if isAuthenticated() && (request.auth.uid == partnerId || isAdmin() || isViewer());
       // Direct client updates blocked — ONLY Cloud Functions can modify balance
       allow write: if false;
     }
 
     match /partner_wallet_transactions/{txnId} {
       // Partner can read their transaction history
-      allow read: if isAuthenticated() && (request.auth.uid == resource.data.partnerId || isAdmin());
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.partnerId || isAdmin() || isViewer());
       // Direct client creation blocked — ONLY Cloud Functions can record transactions
       allow write: if false;
     }

@@ -122,7 +122,7 @@ exports.searchUsers = onCall({ region: REGION, cors: true }, async (request) => 
 /**
  * createStaffMember: Admin creates internal staff with custom claims
  */
-exports.createStaffMember = onCall({ region: REGION, cors: true }, async (request) => {
+exports.createStaffMember = onCall({ region: ['asia-south1', 'us-central1'], cors: true }, async (request) => {
     const isAuthorized = await isAdminRequest(request);
     if (!isAuthorized) {
         throw new HttpsError('permission-denied', 'Only admins can create staff members.');
@@ -140,21 +140,40 @@ exports.createStaffMember = onCall({ region: REGION, cors: true }, async (reques
             displayName: name,
         });
 
-        await admin.auth().setCustomUserClaims(userRecord.uid, {
+        // Role-to-Claims Matrix (Zero Blanket Admin Claims)
+        const adminRoles = ['SuperAdmin', 'Admin'];
+        const isFullAdmin = adminRoles.includes(role);
+        const isSuper = role === 'SuperAdmin';
+
+        const customClaims = {
             role: role,
-            isAdmin: true,
-            admin: true,
-            isActive: true
-        });
+            isAdmin: isFullAdmin,       // TRUE sirf SuperAdmin / Admin ke liye
+            admin: isFullAdmin,         // Legacy backward-compatibility
+            isStaff: true,              // Portal entry gatekeeper
+            isActive: true,
+        };
+
+        if (isSuper) {
+            customClaims.isSuperAdmin = true;
+            customClaims.hubAccess = 'ALL';
+        } else if (['FinanceAdmin', 'DepartmentManager', 'Viewer'].includes(role)) {
+            customClaims.hubAccess = request.data.hubAccess || 'ALL';
+        } else if (request.data.hubId) {
+            customClaims.hubId = request.data.hubId;
+        }
+
+        await admin.auth().setCustomUserClaims(userRecord.uid, customClaims);
 
         await db.collection('users').doc(userRecord.uid).set({
             uid: userRecord.uid,
             email: email,
             name: name,
             role: role,
-            isAdmin: true,
-            admin: true,
+            isAdmin: isFullAdmin,       // Firestore doc matches Auth claim
+            isStaff: true,
             isActive: true,
+            hubAccess: customClaims.hubAccess || null,
+            hubId: customClaims.hubId || null,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });

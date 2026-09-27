@@ -999,6 +999,175 @@ async function runEmulatorRulesTests() {
         }
     });
 
+    // ============================================================
+    // 13. ROLE-RESTRICTION & READ-REGRESSION VERIFICATION SUITE
+    // ============================================================
+    await env.withSecurityRulesDisabled(async (context) => {
+        const db = context.firestore();
+        const docsToSeed = [
+            { col: 'skus/sku_test/batches', id: 'batch_test', data: { stock: 100 } },
+            { col: 'orders', id: 'order_test_v13', data: { userId: 'user_v13', status: 'CONFIRMED', totalAmount: 1000 } },
+            { col: 'orders/order_test_v13/internal', id: 'note_1', data: { note: 'Internal info' } },
+            { col: 'returns', id: 'ret_test_v13', data: { userId: 'user_v13', status: 'PENDING', reason: 'Defective' } },
+            { col: 'whitelisted_riders', id: 'rider_test_v13', data: { name: 'Test Whitelist' } },
+            { col: 'payout_requests', id: 'payout_test_v13', data: { amount: 500 } },
+            { col: 'employees', id: 'emp_test_v13', data: { name: 'Staff A', role: 'Staff' } },
+            { col: 'employee_documents', id: 'doc_test_v13', data: { type: 'Aadhaar' } },
+            { col: 'system_summaries', id: 'summary_v13', data: { revenue: 50000 } },
+            { col: 'stock_transfers', id: 'transfer_v13', data: { fromHub: 'REG-1', toHub: 'REG-2' } },
+            { col: 'stock_movements', id: 'movement_v13', data: { qty: 50 } },
+            { col: 'payout_logs', id: 'payout_log_v13', data: { txId: 'TX1' } },
+            { col: 'rider_performance', id: 'perf_v13', data: { rating: 4.8 } },
+            { col: 'suppliers', id: 'sup_test_v13', data: { name: 'Supplier Bihar' } },
+            { col: 'procurement_queue', id: 'item_test_v13', data: { item: 'Urea' } },
+            { col: 'purchase_orders', id: 'po_test_v13', data: { poNumber: 'PO-001' } },
+            { col: 'goods_receipts', id: 'grn_test_v13', data: { grnNumber: 'GRN-001' } },
+            { col: 'inventory_movements', id: 'inv_mov_v13', data: { movementType: 'IN' } },
+            { col: 'warehouse_stock', id: 'wh_stock_v13', data: { availableStock: 250 } },
+            { col: 'supplier_ledger', id: 'sup_led_v13', data: { balance: 12000 } },
+            { col: 'customer_ledger', id: 'cust_led_v13', data: { balance: 400 } },
+            { col: 'unit_economics', id: 'ord_ue_v13', data: { grossMargin: 120 } },
+            { col: 'support_tickets', id: 'ticket_test_v13', data: { subject: 'Help' } },
+            { col: 'complaints', id: 'complaint_test_v13', data: { issue: 'Delay' } },
+            { col: 'customer_feedback', id: 'feedback_test_v13', data: { rating: 5 } },
+            { col: 'notification_logs', id: 'notif_log_v13', data: { sentAt: '2026-09-27' } },
+            { col: 'cash_deposits', id: 'cd_test_v13', data: { amount: 1500 } },
+            { col: 'hub_bank_deposits', id: 'hbd_test_v13', data: { amount: 15000 } },
+            { col: 'abandoned_carts', id: 'cart_test_v13', data: { itemsCount: 2 } },
+            { col: 'service_bookings', id: 'booking_test_v13', data: { farmerId: 'farmer_1', assignedPartnerId: 'partner_1', status: 'CONFIRMED', serviceName: 'Soil Test' } },
+            { col: 'partner_wallets', id: 'partner_test_v13', data: { balance: 2500 } },
+            { col: 'partner_wallet_transactions', id: 'txn_test_v13', data: { partnerId: 'partner_test_v13', amount: 500 } }
+        ];
+
+        for (const doc of docsToSeed) {
+            await db.collection(doc.col).doc(doc.id).set(doc.data);
+        }
+    });
+
+    const pureViewer = env.authenticatedContext('pure_viewer_user', {
+        role: 'Viewer',
+        hubAccess: 'ALL',
+        isAdmin: false,
+        admin: false,
+        isStaff: true
+    });
+
+    const pureDeptManager = env.authenticatedContext('pure_dept_mgr_user', {
+        role: 'DepartmentManager',
+        hubAccess: 'ALL',
+        isAdmin: false,
+        admin: false,
+        isStaff: true
+    });
+
+    const pureHubManager = env.authenticatedContext('pure_hub_mgr_user', {
+        role: 'HubManager',
+        hubId: 'REG-KHA-003',
+        isAdmin: false,
+        admin: false,
+        isStaff: true
+    });
+
+    // 13.1: Viewer CAN read operational & Step 1 fixed collections
+    await testRule("13.1 Viewer CAN read all Step 1 operational collections", async (env) => {
+        const readTargets = [
+            { col: 'skus/sku_test/batches', id: 'batch_test' },
+            { col: 'orders', id: 'order_test_v13' },
+            { col: 'orders/order_test_v13/internal', id: 'note_1' },
+            { col: 'returns', id: 'ret_test_v13' },
+            { col: 'whitelisted_riders', id: 'rider_test_v13' },
+            { col: 'payout_requests', id: 'payout_test_v13' },
+            { col: 'employees', id: 'emp_test_v13' },
+            { col: 'employee_documents', id: 'doc_test_v13' },
+            { col: 'system_summaries', id: 'summary_v13' },
+            { col: 'stock_transfers', id: 'transfer_v13' },
+            { col: 'stock_movements', id: 'movement_v13' },
+            { col: 'payout_logs', id: 'payout_log_v13' },
+            { col: 'rider_performance', id: 'perf_v13' },
+            { col: 'suppliers', id: 'sup_test_v13' },
+            { col: 'procurement_queue', id: 'item_test_v13' },
+            { col: 'purchase_orders', id: 'po_test_v13' },
+            { col: 'goods_receipts', id: 'grn_test_v13' },
+            { col: 'inventory_movements', id: 'inv_mov_v13' },
+            { col: 'warehouse_stock', id: 'wh_stock_v13' },
+            { col: 'supplier_ledger', id: 'sup_led_v13' },
+            { col: 'customer_ledger', id: 'cust_led_v13' },
+            { col: 'unit_economics', id: 'ord_ue_v13' },
+            { col: 'support_tickets', id: 'ticket_test_v13' },
+            { col: 'complaints', id: 'complaint_test_v13' },
+            { col: 'customer_feedback', id: 'feedback_test_v13' },
+            { col: 'notification_logs', id: 'notif_log_v13' },
+            { col: 'cash_deposits', id: 'cd_test_v13' },
+            { col: 'hub_bank_deposits', id: 'hbd_test_v13' },
+            { col: 'abandoned_carts', id: 'cart_test_v13' },
+            { col: 'service_bookings', id: 'booking_test_v13' },
+            { col: 'partner_wallets', id: 'partner_test_v13' },
+            { col: 'partner_wallet_transactions', id: 'txn_test_v13' }
+        ];
+
+        for (const target of readTargets) {
+            await assertSucceeds(pureViewer.firestore().collection(target.col).doc(target.id).get());
+        }
+    });
+
+    // 13.2: Viewer is BLOCKED from writing to operational and sensitive collections
+    await testRule("13.2 Viewer is BLOCKED from writing to Products, Categories, Delivery Slots, and Settings", async (env) => {
+        await assertFails(pureViewer.firestore().collection('products').doc('prod_hack').set({
+            name: 'Hacked Product',
+            price: 10
+        }));
+        await assertFails(pureViewer.firestore().collection('categories').doc('cat_hack').set({
+            name: 'Hacked Category'
+        }));
+        await assertFails(pureViewer.firestore().collection('delivery_slots').doc('slot_hack').set({
+            capacity: 999
+        }));
+        await assertFails(pureViewer.firestore().collection('settings').doc('config').set({
+            maintenance: true
+        }));
+    });
+
+    // 13.3: Viewer is BLOCKED from modifying Orders, Returns, or Riders
+    await testRule("13.3 Viewer is BLOCKED from updating Orders, approving Returns, or modifying Riders", async (env) => {
+        await assertFails(pureViewer.firestore().collection('orders').doc('order_test_v13').update({
+            status: 'DELIVERED'
+        }));
+        await assertFails(pureViewer.firestore().collection('returns').doc('ret_test_v13').update({
+            status: 'APPROVED'
+        }));
+        await assertFails(pureViewer.firestore().collection('riders').doc('rider_hack').set({
+            name: 'Fake Rider',
+            phone: '+919999999999'
+        }));
+    });
+
+    // 13.4: DepartmentManager permissions & restrictions
+    await testRule("13.4 DepartmentManager CAN read HR docs but is BLOCKED from Settings, Warehouses, and Ledgers", async (env) => {
+        // Can read HR docs
+        await assertSucceeds(pureDeptManager.firestore().collection('employees').doc('emp_test_v13').get());
+        await assertSucceeds(pureDeptManager.firestore().collection('employee_documents').doc('doc_test_v13').get());
+
+        // Blocked from settings
+        await assertFails(pureDeptManager.firestore().collection('settings').doc('fees').set({ deliveryFee: 0 }));
+        // Blocked from warehouses write
+        await assertFails(pureDeptManager.firestore().collection('warehouses').doc('wh_hack').set({ name: 'Unauthorized WH' }));
+        // Blocked from supplier ledger write
+        await assertFails(pureDeptManager.firestore().collection('supplier_ledger').doc('led_hack').set({ amount: 50000 }));
+    });
+
+    // 13.5: HubManager permissions & restrictions
+    await testRule("13.5 HubManager CAN read inventory/movements but is BLOCKED from corporate data and settings", async (env) => {
+        await assertSucceeds(pureHubManager.firestore().collection('stock_transfers').doc('transfer_v13').get());
+        await assertSucceeds(pureHubManager.firestore().collection('warehouse_stock').doc('wh_stock_v13').get());
+        await assertSucceeds(pureHubManager.firestore().collection('goods_receipts').doc('grn_test_v13').get());
+
+        // Blocked from corporate collections
+        await assertFails(pureHubManager.firestore().collection('corporate_capital').doc('test_doc_1').get());
+        // Blocked from settings write
+        await assertFails(pureHubManager.firestore().collection('settings').doc('sys_cfg').set({ bad: true }));
+    });
+
+
     await env.cleanup();
 
     console.log(`\n==========================================`);
