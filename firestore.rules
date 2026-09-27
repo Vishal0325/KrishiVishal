@@ -48,7 +48,16 @@ service cloud.firestore {
     }
 
     function isRider() {
-      return isAuthenticated() && request.auth.token.role == "Rider";
+      return isAuthenticated() && (request.auth.token.role == "Rider" || request.auth.token.role == "RIDER" || request.auth.token.isRider == true);
+    }
+
+    function hasHubAccess(hub) {
+      return isAuthenticated() && (
+        request.auth.token.hubAccess == 'ALL' ||
+        isSuperAdmin() ||
+        request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN", "FinanceAdmin", "OperationsAdmin", "CatalogManager", "HRAdmin", "DepartmentManager", "Viewer"] ||
+        (request.auth.token.hubId != null && hub != null && request.auth.token.hubId == hub)
+      );
     }
 
 
@@ -330,7 +339,12 @@ service cloud.firestore {
 
     match /orders/{orderId} {
 
-      allow read: if isAdmin() ||
+      allow read: if (
+        isAdmin() && (
+          hasHubAccess(resource.data.fulfillmentWarehouseId) ||
+          hasHubAccess(resource.data.warehouseId)
+        )
+      ) ||
         (
           isAuthenticated() &&
           resource.data.userId == request.auth.uid

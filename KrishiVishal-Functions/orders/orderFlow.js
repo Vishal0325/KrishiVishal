@@ -9,6 +9,7 @@ const {
     DEFAULT_WAREHOUSE_ID
 } = require("../inventory/inventoryEngine");
 const { validateAndReserveSlot } = require("./deliverySlots");
+const { resolveOptimalWarehouse } = require("./orderRouter");
 const Razorpay = require("razorpay");
 const { razorpayKeySecret, qrHmacSecret, razorpayKeyId, getSecretVal } = require("../core/secrets");
 
@@ -138,19 +139,9 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
 
             // 1b. Read active warehouses for dynamic routing
             const warehousesSnap = await transaction.get(db.collection("warehouses"));
-            let assignedWarehouseId = null;
-            let assignedWarehouseName = "Main Hub";
-
-            if (!warehousesSnap.empty) {
-                const whList = warehousesSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(w => w.isActive !== false);
-                if (whList.length > 0) {
-                    const matchedByPincode = whList.find(w => Array.isArray(w.pincodes) && w.pincodes.includes(cleanPincode));
-                    const primary = whList.find(w => w.isPrimary === true);
-                    const selected = matchedByPincode || primary || whList[0];
-                    assignedWarehouseId = selected.id;
-                    assignedWarehouseName = selected.name || selected.id;
-                }
-            }
+            const whList = (!warehousesSnap.empty)
+                ? warehousesSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(w => w.isActive !== false)
+                : [];
 
             // 2. Read delivery slot (if provided)
             let slotDoc = null;
@@ -326,8 +317,21 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             const freeDeliveryAbove = Number(settingsData.freeDeliveryAbove) || 0;
             const netCartValue = subtotal - totalDiscount;
             const deliveryCharge = (freeDeliveryAbove > 0 && netCartValue >= freeDeliveryAbove) ? 0 : configuredDeliveryCharge;
+            // 2b. Multi-Hub Inventory-Aware Nearest Hub Routing Decision
+            const routingDecision = resolveOptimalWarehouse({
+                whList,
+                cartItems,
+                fetchedProducts,
+                address: structuredAddress
+            });
+
+            const assignedWarehouseId = routingDecision.fulfillmentWarehouseId;
+            const assignedWarehouseName = routingDecision.warehouseName;
+
             const totalAmount = netCartValue + totalExtraTax + deliveryCharge;
-            const initialStatus = hasOnDemandItems ? "PROCUREMENT_PENDING" : "PLACED";
+            const initialStatus = hasOnDemandItems
+                ? "PROCUREMENT_PENDING"
+                : (routingDecision.routingStatus === "FLAGGED_FOR_TRANSFER" ? "FLAGGED_FOR_TRANSFER" : "PLACED");
 
             if (paymentMethod === 'WALLET') {
                 const userWalletBalance = Number(userSnap.data()?.walletBalance) || 0;
@@ -358,6 +362,12 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 fulfillmentWarehouseId: assignedWarehouseId,
                 warehouseName: assignedWarehouseName,
                 hubCode: assignedWarehouseId,
+                stockStatus: routingDecision.stockStatus || "FULL",
+                routingStatus: routingDecision.routingStatus || "OPTIMAL_ASSIGNED",
+                serviceableRadiusExceeded: Boolean(routingDecision.serviceableRadiusExceeded),
+                distanceKm: routingDecision.distanceKm != null ? routingDecision.distanceKm : null,
+                missingItems: routingDecision.missingItems || [],
+                routingReason: routingDecision.routingReason || "",
                 customerOTP: otp,
                 deliveryOtp: otp,
                 items,
