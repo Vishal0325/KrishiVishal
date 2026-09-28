@@ -11,7 +11,7 @@ import {
   updateDoc,
   runTransaction
 } from "firebase/firestore";
-import { db, auth } from "../firebase/config";
+import { db, auth, legacyFunctions } from "../firebase/config";
 import { addAuditLog } from "./logger";
 
 // ==========================================
@@ -38,9 +38,9 @@ export async function getLeaveRequests(filters = {}) {
 export async function applyLeave(leaveData) {
   try {
     // [FIXED] Point #153: Moved leave application to Cloud Function for server-side duration calculation
-    const { getFunctions, httpsCallable } = await import("firebase/functions");
-    const functions = getFunctions();
-    const applyLeaveFn = httpsCallable(functions, "applyLeave");
+    const { httpsCallable } = await import("firebase/functions");
+    // temporary, applyLeave abhi us-central1 me hai, migrate hone tak
+    const applyLeaveFn = httpsCallable(legacyFunctions, "applyLeave");
 
     const result = await applyLeaveFn(leaveData);
     return result.data.leaveId;

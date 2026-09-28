@@ -10,7 +10,7 @@ import {
   orderBy,
   where
 } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { db, functions } from '../firebase/config';
 import { useAuth } from '../hooks/useAuth';
 import DataTable from '../components/common/DataTable';
 import { addAuditLog } from '../services/logger';
@@ -132,8 +132,8 @@ const SupportTickets = () => {
 
     setIsSearchingCustomer(true);
     try {
-      const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const searchFn = httpsCallable(getFunctions(), 'searchUsers');
+      const { httpsCallable } = await import('firebase/functions');
+      const searchFn = httpsCallable(functions, 'searchUsers');
       const res = await searchFn({ query: val, type: 'CUSTOMER' });
       setCustomers(res.data.users || []);
     } catch (err) {

@@ -7,8 +7,8 @@ import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { RefreshCcw, Search, Filter, Eye, X, CheckCircle2, Ban, Truck, ShieldAlert, MapPin, User, Package, AlertTriangle, Inbox } from 'lucide-react';
 import StatusBadge from '../components/common/StatusBadge';
 import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import { db } from '../firebase/config';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '../firebase/config';
 import toast from 'react-hot-toast';
 
 const getDistance = (lat1, lon1, lat2, lon2) => {
@@ -72,7 +72,6 @@ const Returns = () => {
     }
     setIsRefunding(true);
     try {
-      const functions = getFunctions();
       const initiateRefund = httpsCallable(functions, 'initiateRefund');
       await initiateRefund({
         returnId: selectedReturn.id,

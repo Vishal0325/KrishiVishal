@@ -14,7 +14,7 @@ import {
   where,
   startAfter
 } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { db, functions } from '../firebase/config';
 import { useAuth } from '../hooks/useAuth';
 import DataTable from '../components/common/DataTable';
 import PageHeader from '../components/common/PageHeader';
@@ -251,8 +251,8 @@ const Customers = () => {
 
     setLoading(true);
     try {
-      const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const searchFn = httpsCallable(getFunctions(), 'searchUsers');
+      const { httpsCallable } = await import('firebase/functions');
+      const searchFn = httpsCallable(functions, 'searchUsers');
       const res = await searchFn({ query: val, type: 'CUSTOMER' });
       setCustomers(res.data.users || []);
       setHasMore(false); // Disable pagination during search results
@@ -1327,9 +1327,8 @@ const Customers = () => {
                     return toast.error('Enter a valid amount');
                   setWalletAdjusting(true);
                   try {
-                    const { getFunctions, httpsCallable } = await import('firebase/functions');
-                    const fns = getFunctions();
-                    const adjustFn = httpsCallable(fns, 'adminAdjustWallet');
+                    const { httpsCallable } = await import('firebase/functions');
+                    const adjustFn = httpsCallable(functions, 'adminAdjustWallet');
                     await adjustFn({
                       userId: selectedCustomer.id,
                       amount: Number(walletAdjustForm.amount),

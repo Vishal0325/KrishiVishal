@@ -51,4 +51,6 @@ export const db = initializeFirestore(app, {
 
 export const storage = getStorage(app);
 export const functions = getFunctions(app, 'asia-south1');
+// temporary, applyLeave abhi us-central1 me hai, migrate hone tak
+export const legacyFunctions = getFunctions(app, 'us-central1');
 export default app;
