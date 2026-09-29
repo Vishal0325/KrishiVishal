@@ -4,6 +4,49 @@ const { db, admin } = require("../core/admin");
 const REGION = 'asia-south1';
 
 /**
+ * Helper to match an item to a variant in product.variants array.
+ */
+function findVariantIndex(variants, item) {
+    if (!Array.isArray(variants) || variants.length === 0) return -1;
+    
+    const variantId = item.variantId || item.variant_id || (item.variant && item.variant.id);
+    const skuCode = item.skuCode;
+    const label = item.variantLabel || (item.variant && item.variant.label) || item.packSize || item.size;
+
+    // 1. Match by variant id
+    if (variantId) {
+        const idx = variants.findIndex(v => v && v.id && String(v.id) === String(variantId));
+        if (idx !== -1) return idx;
+    }
+
+    // 2. Match by skuCode
+    if (skuCode) {
+        const idx = variants.findIndex(v => v && v.skuCode && String(v.skuCode).toLowerCase() === String(skuCode).toLowerCase());
+        if (idx !== -1) return idx;
+    }
+
+    // 3. Match by label / size / name / id
+    if (label) {
+        const cleanLabel = String(label).trim().toLowerCase();
+        const idx = variants.findIndex(v => {
+            if (!v) return false;
+            return (v.label && String(v.label).trim().toLowerCase() === cleanLabel) ||
+                   (v.size && String(v.size).trim().toLowerCase() === cleanLabel) ||
+                   (v.name && String(v.name).trim().toLowerCase() === cleanLabel) ||
+                   (v.id && String(v.id).trim().toLowerCase() === cleanLabel);
+        });
+        if (idx !== -1) return idx;
+    }
+
+    // 4. Single variant fallback if variant requested
+    if (variants.length === 1 && (variantId || label)) {
+        return 0;
+    }
+
+    return -1;
+}
+
+/**
  * Triggered when an order status is updated.
  */
 exports.onOrderStatusUpdate = onDocumentUpdated({ document: "orders/{orderId}", region: REGION }, async (event) => {
@@ -122,6 +165,146 @@ exports.onOrderStatusUpdate = onDocumentUpdated({ document: "orders/{orderId}", 
         console.error("Error processing referral logic on order update:", e);
     }
     // --- REFERRAL LOGIC END ---
+
+    // --- STOCK RESTORATION ON CANCELLATION START ---
+    try {
+        if (newData.status === 'CANCELLED' && oldData.status !== 'CANCELLED') {
+            // Idempotency guard: Prevent double stock restoration
+            if (oldData.stockRestored === true || newData.stockRestored === true) {
+                console.log(`[Stock Restoration] Order ${context.params.orderId} stock already restored or marked. Skipping.`);
+            } else {
+                const items = newData.items || [];
+                if (items.length > 0) {
+                    await db.runTransaction(async (transaction) => {
+                        const orderRef = db.collection("orders").doc(context.params.orderId);
+                        const orderSnap = await transaction.get(orderRef);
+                        
+                        if (!orderSnap.exists) return;
+                        const currentOrderData = orderSnap.data();
+                        
+                        // Check flag inside transaction to guarantee idempotency across concurrent invocations
+                        if (currentOrderData.stockRestored === true) {
+                            console.log(`[Stock Restoration] Order ${context.params.orderId} stockRestored already true inside transaction. Skipping.`);
+                            return;
+                        }
+
+                        // PHASE 1: READS
+                        const skuStockUpdates = [];
+                        const productDocMap = new Map(); // productId -> { ref, data, modified }
+
+                        for (const item of items) {
+                            if (item.fulfillmentType === 'ON_DEMAND') {
+                                continue;
+                            }
+
+                            const qty = Number(item.quantity) || 0;
+                            if (qty <= 0) continue;
+
+                            const productId = item.productId || item.id;
+                            const skuCode = item.skuCode && item.skuCode.trim().length > 0 ? item.skuCode.trim() : null;
+
+                            let isSku = false;
+                            if (skuCode && skuCode !== productId) {
+                                const skuRef = db.collection("skus").doc(skuCode);
+                                const skuSnap = await transaction.get(skuRef);
+                                if (skuSnap.exists) {
+                                    isSku = true;
+                                    skuStockUpdates.push({
+                                        ref: skuRef,
+                                        quantity: qty
+                                    });
+                                }
+                            }
+
+                            if (!isSku && productId) {
+                                if (!productDocMap.has(productId)) {
+                                    const prodRef = db.collection("products").doc(productId);
+                                    const prodSnap = await transaction.get(prodRef);
+                                    if (prodSnap.exists) {
+                                        productDocMap.set(productId, {
+                                            ref: prodRef,
+                                            data: prodSnap.data() || {},
+                                            modified: false
+                                        });
+                                    }
+                                }
+                            }
+                        }
+
+                        // IN-MEMORY RESTORATION CALCULATIONS
+                        for (const item of items) {
+                            if (item.fulfillmentType === 'ON_DEMAND') continue;
+                            const qty = Number(item.quantity) || 0;
+                            if (qty <= 0) continue;
+
+                            const productId = item.productId || item.id;
+                            if (productId && productDocMap.has(productId)) {
+                                const pCached = productDocMap.get(productId);
+                                const productData = pCached.data;
+
+                                if (Array.isArray(productData.variants) && productData.variants.length > 0) {
+                                    const vIdx = findVariantIndex(productData.variants, item);
+                                    if (vIdx !== -1) {
+                                        const curStock = Number(productData.variants[vIdx].stock) || 0;
+                                        productData.variants[vIdx].stock = curStock + qty;
+                                        if (typeof productData.stock === 'number') {
+                                            productData.stock = Number(productData.stock) + qty;
+                                        }
+                                        pCached.modified = true;
+                                    } else if (typeof productData.stock === 'number') {
+                                        productData.stock = Number(productData.stock) + qty;
+                                        pCached.modified = true;
+                                    }
+                                } else if (typeof productData.stock === 'number') {
+                                    productData.stock = Number(productData.stock) + qty;
+                                    pCached.modified = true;
+                                }
+                            }
+                        }
+
+                        // PHASE 2: WRITES
+                        for (const update of skuStockUpdates) {
+                            transaction.update(update.ref, {
+                                "inventory.availableStock": admin.firestore.FieldValue.increment(update.quantity),
+                                "inventory.committedStock": admin.firestore.FieldValue.increment(-update.quantity),
+                                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                            });
+                        }
+
+                        for (const [pId, pCached] of productDocMap.entries()) {
+                            if (pCached.modified) {
+                                const pUpdates = {
+                                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                                };
+                                if (Array.isArray(pCached.data.variants)) {
+                                    pUpdates.variants = pCached.data.variants;
+                                }
+                                if (typeof pCached.data.stock === 'number') {
+                                    pUpdates.stock = pCached.data.stock;
+                                }
+                                transaction.update(pCached.ref, pUpdates);
+                            }
+                        }
+
+                        transaction.update(orderRef, {
+                            stockRestored: true,
+                            stockRestoredAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    });
+                    console.log(`[Stock Restoration] Successfully restored stock (including variants) for CANCELLED order ${context.params.orderId}`);
+                } else {
+                    // No items to restore, but mark flag
+                    await db.collection("orders").doc(context.params.orderId).update({
+                        stockRestored: true,
+                        stockRestoredAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            }
+        }
+    } catch (e) {
+        console.error(`Error restoring stock for order ${context.params.orderId}:`, e);
+    }
+    // --- STOCK RESTORATION ON CANCELLATION END ---
 
     try {
         const userDoc = await db.collection("users").doc(userId).get();

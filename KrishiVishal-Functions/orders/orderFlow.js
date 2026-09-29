@@ -47,6 +47,49 @@ async function createRazorpayOrder(orderId, totalAmountINR) {
 }
 
 /**
+ * Helper to match an item to a variant in product.variants array.
+ */
+function findVariantIndex(variants, item) {
+    if (!Array.isArray(variants) || variants.length === 0) return -1;
+    
+    const variantId = item.variantId || item.variant_id || (item.variant && item.variant.id);
+    const skuCode = item.skuCode;
+    const label = item.variantLabel || (item.variant && item.variant.label) || item.packSize || item.size;
+
+    // 1. Match by variant id
+    if (variantId) {
+        const idx = variants.findIndex(v => v && v.id && String(v.id) === String(variantId));
+        if (idx !== -1) return idx;
+    }
+
+    // 2. Match by skuCode
+    if (skuCode) {
+        const idx = variants.findIndex(v => v && v.skuCode && String(v.skuCode).toLowerCase() === String(skuCode).toLowerCase());
+        if (idx !== -1) return idx;
+    }
+
+    // 3. Match by label / size / name / id
+    if (label) {
+        const cleanLabel = String(label).trim().toLowerCase();
+        const idx = variants.findIndex(v => {
+            if (!v) return false;
+            return (v.label && String(v.label).trim().toLowerCase() === cleanLabel) ||
+                   (v.size && String(v.size).trim().toLowerCase() === cleanLabel) ||
+                   (v.name && String(v.name).trim().toLowerCase() === cleanLabel) ||
+                   (v.id && String(v.id).trim().toLowerCase() === cleanLabel);
+        });
+        if (idx !== -1) return idx;
+    }
+
+    // 4. Single variant fallback if variant requested
+    if (variants.length === 1 && (variantId || label)) {
+        return 0;
+    }
+
+    return -1;
+}
+
+/**
  * createOrder: Full logic with FEFO inventory reservation, input validation, and transactional safety.
  */
 exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, async (request) => {
@@ -152,19 +195,30 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
 
             // 3. Read all product and SKU documents for cart items
             const fetchedProducts = [];
+            const productDocMap = new Map();
+
             for (const item of cartItems) {
                 const productId = item.productId || item.skuCode || item.id;
                 if (!productId) {
                     throw new HttpsError('invalid-argument', 'Missing productId for cart item.');
                 }
 
-                const productRef = db.collection("products").doc(productId);
-                const productSnap = await transaction.get(productRef);
-                if (!productSnap.exists) {
-                    throw new Error(`Product not found: ${productId}`);
+                let productRef, productData;
+                if (productDocMap.has(productId)) {
+                    const cached = productDocMap.get(productId);
+                    productRef = cached.ref;
+                    productData = cached.data;
+                } else {
+                    productRef = db.collection("products").doc(productId);
+                    const productSnap = await transaction.get(productRef);
+                    if (!productSnap.exists) {
+                        throw new Error(`Product not found: ${productId}`);
+                    }
+                    productData = productSnap.data() || {};
+                    productDocMap.set(productId, { ref: productRef, data: productData, modified: false });
                 }
 
-                const skuCode = (item.skuCode && item.skuCode.trim().length > 0) ? item.skuCode : (productSnap.data()?.skuCode || productId);
+                const skuCode = (item.skuCode && item.skuCode.trim().length > 0) ? item.skuCode : (productData.skuCode || productId);
                 let skuData = null;
                 let skuRef = null;
                 if (skuCode && skuCode !== productId) {
@@ -179,7 +233,7 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                     item,
                     productId,
                     productRef,
-                    product: productSnap.data() || {},
+                    product: productData,
                     skuCode,
                     skuRef,
                     skuData
@@ -219,17 +273,35 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             // Process items and stock updates
             const items = [];
             const onDemandQueueEntries = [];
-            const stockUpdates = [];
+            const skuStockUpdates = [];
             let hasOnDemandItems = false;
 
             for (const fp of fetchedProducts) {
                 const { item, productId, productRef, product, skuCode, skuRef, skuData } = fp;
 
+                let matchingVariant = null;
+                if (Array.isArray(product.variants) && product.variants.length > 0) {
+                    const vIdx = findVariantIndex(product.variants, item);
+                    if (vIdx !== -1) {
+                        matchingVariant = product.variants[vIdx];
+                    }
+                }
+
                 const itemPrice = Number(
+                    matchingVariant?.price ||
+                    matchingVariant?.discountedPrice ||
+                    matchingVariant?.basePrice ||
                     skuData?.pricing?.consumerPrice ||
                     (product.discountedPrice > 0 ? product.discountedPrice : (product.price || product.basePrice || 0))
                 );
-                const itemMrp = Number(skuData?.pricing?.mrp || product.mrp || product.price || itemPrice);
+                const itemMrp = Number(
+                    matchingVariant?.mrp ||
+                    matchingVariant?.price ||
+                    skuData?.pricing?.mrp ||
+                    product.mrp ||
+                    product.price ||
+                    itemPrice
+                );
                 const fulfillmentType = product.fulfillmentType || 'SELF_STOCK';
 
                 if (fulfillmentType === 'ON_DEMAND') {
@@ -255,20 +327,39 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                         if (avail < item.quantity) {
                             throw new Error(`Insufficient stock for ${skuData.name || skuCode}. Available: ${avail}, Requested: ${item.quantity}`);
                         }
-                        stockUpdates.push({
+                        skuStockUpdates.push({
                             type: 'SKU',
                             ref: skuRef,
                             quantity: item.quantity
                         });
+                    } else if (Array.isArray(product.variants) && product.variants.length > 0) {
+                        const vIdx = findVariantIndex(product.variants, item);
+                        if (vIdx !== -1) {
+                            const vStock = Number(product.variants[vIdx].stock) || 0;
+                            if (vStock < item.quantity) {
+                                throw new Error(`Insufficient stock for ${product.name || productId} (${product.variants[vIdx].label || product.variants[vIdx].id || 'variant'}). Available: ${vStock}, Requested: ${item.quantity}`);
+                            }
+                            product.variants[vIdx].stock = vStock - item.quantity;
+                            if (typeof product.stock === 'number') {
+                                product.stock = Math.max(0, product.stock - item.quantity);
+                            }
+                            const cached = productDocMap.get(productId);
+                            if (cached) cached.modified = true;
+                        } else if (product.stock !== undefined && typeof product.stock === 'number') {
+                            if (product.stock < item.quantity) {
+                                throw new Error(`Insufficient stock for ${product.name || productId}. Available: ${product.stock}, Requested: ${item.quantity}`);
+                            }
+                            product.stock = product.stock - item.quantity;
+                            const cached = productDocMap.get(productId);
+                            if (cached) cached.modified = true;
+                        }
                     } else if (product.stock !== undefined && typeof product.stock === 'number') {
                         if (product.stock < item.quantity) {
                             throw new Error(`Insufficient stock for ${product.name || productId}. Available: ${product.stock}, Requested: ${item.quantity}`);
                         }
-                        stockUpdates.push({
-                            type: 'PRODUCT',
-                            ref: productRef,
-                            quantity: item.quantity
-                        });
+                        product.stock = product.stock - item.quantity;
+                        const cached = productDocMap.get(productId);
+                        if (cached) cached.modified = true;
                     }
                 }
 
@@ -423,18 +514,28 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             }
 
             // 2. Decrement inventory stock
-            for (const su of stockUpdates) {
+            for (const su of skuStockUpdates) {
                 if (su.type === 'SKU') {
                     transaction.update(su.ref, {
                         "inventory.availableStock": admin.firestore.FieldValue.increment(-su.quantity),
                         "inventory.committedStock": admin.firestore.FieldValue.increment(su.quantity),
                         updatedAt: admin.firestore.FieldValue.serverTimestamp()
                     });
-                } else if (su.type === 'PRODUCT') {
-                    transaction.update(su.ref, {
-                        stock: admin.firestore.FieldValue.increment(-su.quantity),
+                }
+            }
+
+            for (const [pId, pCached] of productDocMap.entries()) {
+                if (pCached.modified) {
+                    const pUpdates = {
                         updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
+                    };
+                    if (Array.isArray(pCached.data.variants)) {
+                        pUpdates.variants = pCached.data.variants;
+                    }
+                    if (typeof pCached.data.stock === 'number') {
+                        pUpdates.stock = pCached.data.stock;
+                    }
+                    transaction.update(pCached.ref, pUpdates);
                 }
             }
 
