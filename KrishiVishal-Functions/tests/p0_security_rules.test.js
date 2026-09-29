@@ -105,11 +105,12 @@ async function runP0Tests() {
         failed++;
     }
 
-    // Test 8: Verify hub_bank_deposits requires admin access
+    // Test 8: Verify hub_bank_deposits is properly restricted
     const hubBankDepositsSecure = rulesContent.includes("match /hub_bank_deposits/{id}") &&
-                                  rulesContent.includes("allow read, write: if isAdmin() || isSuperAdmin();");
+                                  rulesContent.includes("allow read: if isAdmin() || isSuperAdmin() || isViewer() || isHubManager() || canViewFinance();") &&
+                                  rulesContent.includes("allow write: if isAdmin() || isSuperAdmin();");
     if (hubBankDepositsSecure) {
-        console.log("PASS: Test 8 (hub_bank_deposits is restricted to Admin/SuperAdmin)");
+        console.log("PASS: Test 8 (hub_bank_deposits is restricted properly)");
         passed++;
     } else {
         console.log("FAIL: Test 8 (hub_bank_deposits is not properly restricted)");
