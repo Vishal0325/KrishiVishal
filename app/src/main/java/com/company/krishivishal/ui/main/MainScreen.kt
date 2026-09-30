@@ -43,6 +43,7 @@ import com.company.krishivishal.ui.crop.CropScreen
 import com.company.krishivishal.ui.product.BrandScreen
 import com.company.krishivishal.ui.product.AllProductsScreen
 import com.company.krishivishal.ui.home.HomeScreen
+import com.company.krishivishal.ui.compare.CompareScreen
 import com.company.krishivishal.ui.product.*
 import com.company.krishivishal.ui.search.GlobalSearchScreen
 import com.company.krishivishal.ui.settings.SettingsScreen
@@ -406,7 +407,14 @@ fun MainScreen(
                     productId = productId,
                     onBack = { navController.popBackStack() },
                     onBuyNow = { navController.navigate(Screen.Checkout.createRoute(CheckoutSource.BUY_NOW.name)) },
-                    onCartClick = { navController.navigate(Screen.Cart.route) }
+                    onCartClick = { navController.navigate(Screen.Cart.route) },
+                    onCompareClick = { navController.navigate(Screen.Compare.route) }
+                )
+            }
+
+            composable(Screen.Compare.route) {
+                CompareScreen(
+                    onBack = { navController.popBackStack() }
                 )
             }
 

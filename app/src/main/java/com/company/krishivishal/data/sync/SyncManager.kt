@@ -138,52 +138,75 @@ class SyncManager @Inject constructor(
 
     /**
      * Sync all pending operations
+     * Returns true if all pending operations succeeded with no failures, false otherwise
      */
-    internal suspend fun syncPendingOperations() {
+    internal suspend fun syncPendingOperations(): Boolean {
         if (syncResilienceManager.shouldDelaySync()) {
             Timber.d("Sync delayed by circuit breaker (failures: ${syncResilienceManager.getFailureCount()})")
-            return
+            return false
         }
 
-        try {
+        return try {
             val pendingOps = syncOperationDao.getPendingOperations().firstOrNull() ?: emptyList()
             
             if (pendingOps.isEmpty()) {
                 Timber.d("No pending operations to sync")
-                return
+                return true
             }
 
             Timber.d("Syncing ${pendingOps.size} pending operations")
 
+            var hasFailures = false
             for (operation in pendingOps) {
-                syncOperation(operation)
+                val success = syncOperation(operation)
+                if (!success) {
+                    hasFailures = true
+                }
             }
+
+            val failedCount = syncOperationDao.getFailedOperationCount()
+            if (failedCount > 0) {
+                Timber.e("ALERT: Dead-letter queue contains $failedCount failed operations! Data not silently discarded.")
+                hasFailures = true
+            }
+
+            !hasFailures
         } catch (e: Exception) {
             Timber.e(e, "Failed to sync pending operations")
+            false
         }
     }
 
     /**
      * Sync a single operation with retry logic
      */
-    private suspend fun syncOperation(operation: SyncOperation) {
+    private suspend fun syncOperation(operation: SyncOperation): Boolean {
         try {
             if (operation.attemptCount >= MAX_RETRY_ATTEMPTS) {
-                Timber.w("Max retry attempts reached for operation: ${operation.id}")
-                return
+                Timber.w("Max retry attempts reached for operation: ${operation.id}. Moving to dead-letter queue.")
+                syncOperationDao.markAsFailed(operation.id, "MAX_RETRIES_EXCEEDED")
+                return false
             }
 
             val result = executeRemoteOperation(operation)
 
-            if (result) {
+            return if (result) {
                 syncOperationDao.markAsSynced(operation.id)
                 Timber.d("Operation synced successfully: ${operation.id}")
+                true
             } else {
-                retryOperation(operation)
+                val current = syncOperationDao.getOperationById(operation.id)
+                if (current?.status == "FAILED") {
+                    Timber.w("Operation ${operation.id} in dead-letter queue (FAILED), skipping retry")
+                } else {
+                    retryOperation(operation)
+                }
+                false
             }
         } catch (e: Exception) {
             Timber.e(e, "Error syncing operation: ${operation.id}")
             retryOperation(operation)
+            return false
         }
     }
 
@@ -282,12 +305,22 @@ class SyncManager @Inject constructor(
         } catch (e: FirebaseFirestoreException) {
             Timber.e(e, "Firestore error: ${e.code}")
             // Permanent failures shouldn't retry (Permission Denied, Not Found)
-            if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED || 
-                e.code == FirebaseFirestoreException.Code.NOT_FOUND) {
-                syncOperationDao.markAsSynced(operation.id) // Skip from queue
-                return true
+            // Log to dead-letter storage and do NOT mark as synced
+            when (e.code) {
+                FirebaseFirestoreException.Code.PERMISSION_DENIED -> {
+                    Timber.e("ALERT: Permanent failure (PERMISSION_DENIED) for operation ${operation.id}. Moved to dead-letter storage.")
+                    syncOperationDao.markAsFailed(operation.id, "PERMISSION_DENIED")
+                    return false
+                }
+                FirebaseFirestoreException.Code.NOT_FOUND -> {
+                    Timber.e("ALERT: Permanent failure (NOT_FOUND) for operation ${operation.id}. Moved to dead-letter storage.")
+                    syncOperationDao.markAsFailed(operation.id, "NOT_FOUND")
+                    return false
+                }
+                else -> {
+                    return false
+                }
             }
-            false
         } catch (e: Exception) {
             Timber.e(e, "Error executing remote operation")
             false

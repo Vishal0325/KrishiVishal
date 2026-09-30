@@ -133,6 +133,10 @@ class CartViewModel @Inject constructor(
         }
     }
 
+    fun addToCart(product: com.company.krishivishal.core.model.Product) {
+        addProductToCart(product)
+    }
+
     fun toggleSelection(itemId: String, isSelected: Boolean) {
         viewModelScope.launch {
             cartRepository.updateSelection(itemId, isSelected).collect()

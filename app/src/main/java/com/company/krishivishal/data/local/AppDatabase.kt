@@ -30,7 +30,7 @@ import com.company.krishivishal.core.model.*
         Warehouse::class,
         InventoryMovement::class
     ],
-    version = 58,
+    version = 59,
     exportSchema = true
 )
 @TypeConverters(AppConverters::class)

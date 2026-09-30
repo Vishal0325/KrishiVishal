@@ -20,5 +20,7 @@ data class SyncOperation(
     val createdAt: Long = System.currentTimeMillis(),
     val attemptCount: Int = 0,
     val lastAttemptAt: Long? = null,
-    val isSynced: Boolean = false
+    val isSynced: Boolean = false,
+    val status: String = "PENDING", // PENDING, SYNCED, FAILED
+    val errorMessage: String? = null
 )

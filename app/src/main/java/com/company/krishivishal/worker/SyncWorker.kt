@@ -19,8 +19,13 @@ class SyncWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         return try {
             Timber.d("SyncWorker starting...")
-            syncManager.syncPendingOperations()
-            Result.success()
+            val success = syncManager.syncPendingOperations()
+            if (!success) {
+                Timber.e("SyncWorker encountered failures or dead-letter items exist")
+                Result.failure()
+            } else {
+                Result.success()
+            }
         } catch (e: com.google.firebase.firestore.FirebaseFirestoreException) {
             // Handle permanent failures (like permission denied)
             if (e.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {

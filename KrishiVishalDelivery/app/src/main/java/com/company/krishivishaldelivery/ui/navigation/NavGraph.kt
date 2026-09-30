@@ -186,7 +186,10 @@ fun AppNavGraph(
             val viewModel: RiderOrderViewModel = hiltViewModel()
             RiderDeliveryScreen(
                 orderId = orderId,
-                viewModel = viewModel
+                viewModel = viewModel,
+                onNavigateToPod = { id ->
+                    navController.navigate("pod/$id")
+                }
             )
         }
 

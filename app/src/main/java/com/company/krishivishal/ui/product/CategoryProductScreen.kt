@@ -21,6 +21,8 @@ import com.company.krishivishal.ui.theme.PrimaryGreen
 import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.ShareUtils
 import com.company.krishivishal.ui.home.components.HomeProductItem
+import com.company.krishivishal.ui.cart.CartViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,10 +31,13 @@ fun CategoryProductScreen(
     subCategoryName: String? = null,
     onBack: () -> Unit,
     onProductClick: (Product) -> Unit,
-    viewModel: ProductViewModel = hiltViewModel()
+    viewModel: ProductViewModel = hiltViewModel(),
+    cartViewModel: CartViewModel = hiltViewModel()
 ) {
     val productsResource by viewModel.categoryProducts.collectAsState()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(categoryName, subCategoryName) {
         if (subCategoryName != null) {
@@ -43,6 +48,7 @@ fun CategoryProductScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(subCategoryName ?: categoryName, fontWeight = FontWeight.Bold) },
@@ -81,8 +87,20 @@ fun CategoryProductScreen(
                                     product = product,
                                     isWishlisted = false, // Simplified
                                     onClick = { onProductClick(product) },
-                                    onAddToCart = { /* Add to cart */ },
-                                    onBuyNow = { /* Buy now */ },
+                                    onAddToCart = {
+                                        cartViewModel.addToCart(product)
+                                        scope.launch {
+                                            snackbarHostState.currentSnackbarData?.dismiss()
+                                            snackbarHostState.showSnackbar("Added ${product.name} to cart")
+                                        }
+                                    },
+                                    onBuyNow = {
+                                        cartViewModel.addToCart(product)
+                                        scope.launch {
+                                            snackbarHostState.currentSnackbarData?.dismiss()
+                                            snackbarHostState.showSnackbar("Added ${product.name} to cart")
+                                        }
+                                    },
                                     onWishlistToggle = { /* Toggle */ },
                                     onShare = { ShareUtils.shareProduct(context, product) }
                                 )

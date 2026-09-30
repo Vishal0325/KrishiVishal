@@ -14,7 +14,8 @@ import com.company.krishivishaldelivery.service.RiderLocationService
 @Composable
 fun RiderDeliveryScreen(
     orderId: String,
-    viewModel: RiderOrderViewModel
+    viewModel: RiderOrderViewModel,
+    onNavigateToPod: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -38,13 +39,13 @@ fun RiderDeliveryScreen(
 
         Button(
             onClick = { 
-                viewModel.updateOrderStatus(orderId, "DELIVERED")
                 stopLocationService(context)
+                onNavigateToPod(orderId)
             },
             modifier = Modifier.fillMaxWidth().height(56.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
         ) {
-            Text("Mark as Delivered")
+            Text("Complete Delivery (Proof of Delivery)")
         }
     }
 }

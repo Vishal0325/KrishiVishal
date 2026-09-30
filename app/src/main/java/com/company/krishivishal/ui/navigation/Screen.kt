@@ -39,6 +39,7 @@ sealed class Screen(val route: String) {
     }
     object Cart : Screen("cart")
     object Wishlist : Screen("wishlist")
+    object Compare : Screen("compare")
     object Address : Screen("address")
     object Support : Screen("support")
     object Settings : Screen("settings")

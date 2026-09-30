@@ -19,10 +19,10 @@ interface SyncOperationDao {
     @Delete
     suspend fun delete(operation: SyncOperation)
 
-    @Query("SELECT * FROM sync_operations WHERE isSynced = 0 ORDER BY createdAt ASC")
+    @Query("SELECT * FROM sync_operations WHERE isSynced = 0 AND (status IS NULL OR status != 'FAILED') ORDER BY createdAt ASC")
     fun getPendingOperations(): Flow<List<SyncOperation>>
 
-    @Query("SELECT * FROM sync_operations WHERE userId = :userId AND isSynced = 0 ORDER BY createdAt ASC")
+    @Query("SELECT * FROM sync_operations WHERE userId = :userId AND isSynced = 0 AND (status IS NULL OR status != 'FAILED') ORDER BY createdAt ASC")
     fun getPendingOperationsByUser(userId: String): Flow<List<SyncOperation>>
 
     @Query("SELECT * FROM sync_operations WHERE id = :operationId")
@@ -34,9 +34,18 @@ interface SyncOperationDao {
     @Query("UPDATE sync_operations SET attemptCount = attemptCount + 1, lastAttemptAt = :timestamp WHERE id = :operationId")
     suspend fun incrementRetryCount(operationId: String, timestamp: Long)
 
-    @Query("UPDATE sync_operations SET isSynced = 1 WHERE id = :operationId")
+    @Query("UPDATE sync_operations SET isSynced = 1, status = 'SYNCED' WHERE id = :operationId")
     suspend fun markAsSynced(operationId: String)
 
-    @Query("SELECT COUNT(*) FROM sync_operations WHERE isSynced = 0")
+    @Query("UPDATE sync_operations SET status = 'FAILED', errorMessage = :error WHERE id = :operationId")
+    suspend fun markAsFailed(operationId: String, error: String)
+
+    @Query("SELECT COUNT(*) FROM sync_operations WHERE isSynced = 0 AND (status IS NULL OR status != 'FAILED')")
     fun getPendingOperationCount(): Flow<Int>
+
+    @Query("SELECT * FROM sync_operations WHERE status = 'FAILED'")
+    fun getFailedOperations(): Flow<List<SyncOperation>>
+
+    @Query("SELECT COUNT(*) FROM sync_operations WHERE status = 'FAILED'")
+    suspend fun getFailedOperationCount(): Int
 }

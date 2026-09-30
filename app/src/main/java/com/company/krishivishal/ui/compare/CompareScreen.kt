@@ -21,16 +21,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.company.krishivishal.core.model.Product
 import com.company.krishivishal.ui.theme.PrimaryGreen
+import com.company.krishivishal.viewmodel.CompareViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CompareScreen(
-    products: List<Product>,
     onBack: () -> Unit,
-    onRemoveProduct: (String) -> Unit
+    products: List<Product>? = null,
+    onRemoveProduct: ((String) -> Unit)? = null,
+    viewModel: CompareViewModel = hiltViewModel()
 ) {
+    val comparedProducts by viewModel.comparedProducts.collectAsState()
+    val displayProducts = products ?: comparedProducts
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -43,8 +49,13 @@ fun CompareScreen(
             )
         }
     ) { padding ->
-        if (products.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        if (displayProducts.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
                 Text("No products selected for comparison")
             }
         } else {
@@ -57,8 +68,17 @@ fun CompareScreen(
                 // Table Header (Products)
                 Row(modifier = Modifier.padding(16.dp)) {
                     Spacer(modifier = Modifier.width(120.dp))
-                    products.forEach { product ->
-                        CompareProductHeader(product, onRemove = { onRemoveProduct(product.id) })
+                    displayProducts.forEach { product ->
+                        CompareProductHeader(
+                            product = product,
+                            onRemove = {
+                                if (onRemoveProduct != null) {
+                                    onRemoveProduct(product.id)
+                                } else {
+                                    viewModel.removeProduct(product.id)
+                                }
+                            }
+                        )
                         Spacer(modifier = Modifier.width(16.dp))
                     }
                 }
@@ -67,12 +87,12 @@ fun CompareScreen(
 
                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
                     item {
-                        CompareRow("Brand", products.map { it.brand })
-                        CompareRow("Technical", products.map { it.composition })
-                        CompareRow("Category", products.map { it.category })
-                        CompareRow("Price", products.map { "₹${it.basePrice.toInt()}" })
-                        CompareRow("Stock", products.map { if (it.stockQuantity > 0) "In Stock" else "Out of Stock" })
-                        CompareRow("Weight", products.map { it.weight + " " + it.unit })
+                        CompareRow("Brand", displayProducts.map { it.brand })
+                        CompareRow("Technical", displayProducts.map { it.composition })
+                        CompareRow("Category", displayProducts.map { it.category })
+                        CompareRow("Price", displayProducts.map { "₹${it.basePrice.toInt()}" })
+                        CompareRow("Stock", displayProducts.map { if (it.stockQuantity > 0) "In Stock" else "Out of Stock" })
+                        CompareRow("Weight", displayProducts.map { it.weight + " " + it.unit })
                     }
                 }
             }

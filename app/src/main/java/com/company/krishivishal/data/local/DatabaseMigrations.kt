@@ -477,6 +477,17 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * Migration from 58 to 59
+     * Adds status and errorMessage columns to sync_operations table for dead-letter queue support.
+     */
+    val MIGRATION_58_59 = object : Migration(58, 59) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE sync_operations ADD COLUMN status TEXT NOT NULL DEFAULT 'PENDING'")
+            db.execSQL("ALTER TABLE sync_operations ADD COLUMN errorMessage TEXT")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_33_34,
         MIGRATION_34_35,
@@ -494,7 +505,8 @@ object DatabaseMigrations {
         MIGRATION_53_54,
         MIGRATION_54_55,
         MIGRATION_55_56,
-        MIGRATION_56_57
+        MIGRATION_56_57,
+        MIGRATION_58_59
     )
 }
 

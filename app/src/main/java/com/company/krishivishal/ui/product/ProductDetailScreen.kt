@@ -54,8 +54,10 @@ fun ProductDetailScreen(
     onBack: () -> Unit,
     onBuyNow: () -> Unit = {},
     onCartClick: () -> Unit = {},
+    onCompareClick: () -> Unit = {},
     viewModel: ProductDetailViewModel = hiltViewModel(),
-    supportViewModel: SupportViewModel = hiltViewModel()
+    supportViewModel: SupportViewModel = hiltViewModel(),
+    compareViewModel: com.company.krishivishal.viewmodel.CompareViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val supportConfig by supportViewModel.config.collectAsState()
@@ -128,7 +130,10 @@ fun ProductDetailScreen(
                     }
                     IconButton(onClick = onCartClick) { Icon(Icons.Outlined.ShoppingCart, contentDescription = "Cart") }
                     if (uiState.appConfig?.ff_product_compare == true) {
-                        IconButton(onClick = { viewModel.addToCompare() }) { 
+                        IconButton(onClick = { 
+                            viewModel.addToCompare() 
+                            uiState.product?.let { compareViewModel.addProduct(it) }
+                        }) { 
                             Icon(Icons.Default.CompareArrows, contentDescription = "Compare", tint = PrimaryGreen) 
                         }
                     }
@@ -157,7 +162,10 @@ fun ProductDetailScreen(
         floatingActionButton = {
             if (uiState.compareList.isNotEmpty() && uiState.appConfig?.ff_product_compare == true) {
                 FloatingActionButton(
-                    onClick = { /* Navigate to CompareScreen with uiState.compareList */ },
+                    onClick = {
+                        uiState.compareList.forEach { compareViewModel.addProduct(it) }
+                        onCompareClick()
+                    },
                     containerColor = PrimaryGreen,
                     contentColor = Color.White
                 ) {
