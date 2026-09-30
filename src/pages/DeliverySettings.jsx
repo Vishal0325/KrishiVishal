@@ -24,9 +24,9 @@ export default function DeliverySettings() {
 
   // Settings State
   const [rules, setRules] = useState({
-    warehouseName: "पूर्णिया सेंट्रल वेयरहाउस डिपो (Purnea Central Depot)",
-    warehouseLat: 25.7711,
-    warehouseLng: 87.4753,
+    warehouseName: "समस्तीपुर सेंट्रल वेयरहाउस डिपो (Samastipur Central Depot)",
+    warehouseLat: 25.8633,
+    warehouseLng: 85.7810,
     maxDeliveryRadiusKm: 50,
     freeDeliveryOrderThreshold: 999, // Orders above this get free delivery regardless of distance
     heavyBagSurcharge: 20, // ₹ per 50kg bag

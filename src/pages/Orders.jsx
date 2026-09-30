@@ -158,7 +158,11 @@ const Orders = () => {
     return orders.filter(o => {
       const matchStatus = statusFilter === 'All' || o.status === statusFilter;
       const matchPayment = paymentFilter === 'All' || (o.paymentMethod || 'COD') === paymentFilter;
-      const matchHub = hubFilter === 'All' || o.fulfillmentWarehouseId === hubFilter;
+      const matchHub = hubFilter === 'All'
+        ? true
+        : (hubFilter === 'UNASSIGNED_OR_FLAGGED'
+            ? (!o.fulfillmentWarehouseId || !OFFICIAL_HUB_IDS.includes(o.fulfillmentWarehouseId) || o.stockStatus === 'PARTIAL' || o.routingStatus === 'FLAGGED_FOR_TRANSFER')
+            : (o.fulfillmentWarehouseId === hubFilter || o.warehouseId === hubFilter));
       const search = searchTerm.toLowerCase();
       const matchSearch = !search ||
         o.id.toLowerCase().includes(search) ||
@@ -306,6 +310,14 @@ const Orders = () => {
     { label: 'Cancelled', value: 'CANCELLED', count: orders.filter(o => o.status === 'CANCELLED').length },
   ];
 
+  const OFFICIAL_HUB_IDS = ['HUB-SAM-001', 'REG-KHA-003', 'REG-RAH-002', 'REG-TAJ-004'];
+  const flaggedOrUnassignedOrders = useMemo(() => {
+    return orders.filter(o => {
+      const whId = o.fulfillmentWarehouseId || o.warehouseId;
+      return !whId || !OFFICIAL_HUB_IDS.includes(whId) || o.stockStatus === 'PARTIAL' || o.routingStatus === 'FLAGGED_FOR_TRANSFER';
+    });
+  }, [orders]);
+
   return (
     <div className="space-y-6 pb-10 animate-in fade-in duration-300">
       <PageHeader
@@ -330,6 +342,31 @@ const Orders = () => {
           </div>
         }
       />
+
+      {/* SuperAdmin Multi-Hub Routing Alert Banner */}
+      {flaggedOrUnassignedOrders.length > 0 && (
+        <div className="flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm">
+          <div className="flex items-center space-x-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700 font-bold">
+              ⚠️
+            </div>
+            <div>
+              <h4 className="text-xs font-black text-amber-900 uppercase tracking-wider">
+                Multi-Hub Routing Alert ({flaggedOrUnassignedOrders.length} {flaggedOrUnassignedOrders.length === 1 ? 'Order' : 'Orders'} Require Attention)
+              </h4>
+              <p className="text-xs text-amber-700 font-medium">
+                Orders with unassigned hubs, legacy warehouse tags, or partial stock flagged for inter-hub transfer.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setHubFilter('UNASSIGNED_OR_FLAGGED')}
+            className="text-xs font-black bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-xl transition-all shadow-sm"
+          >
+            Review Flagged Orders
+          </button>
+        </div>
+      )}
 
       {/* Filter Tabs */}
       <div className="flex bg-white p-1.5 rounded-2xl border border-gray-100 shadow-sm overflow-x-auto custom-scrollbar">

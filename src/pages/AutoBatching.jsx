@@ -95,7 +95,7 @@ const AutoBatching = () => {
       const shipping = order.shippingAddress || order.address || {};
       const pincode = shipping.pincode || shipping.postalCode || '854301';
       const panchayat = shipping.panchayat || shipping.village || shipping.city || shipping.area || 'Central District';
-      const hubId = order.warehouseId || 'WH-PURNEA-CENTRAL';
+      const hubId = order.fulfillmentWarehouseId || order.warehouseId || 'UNASSIGNED';
       
       const clusterKey = `${pincode}__${panchayat.trim().toLowerCase()}`;
 

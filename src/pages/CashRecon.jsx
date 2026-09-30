@@ -156,7 +156,7 @@ const CashRecon = () => {
   }, []);
 
   const getWarehouseInfo = (warehouseId) => {
-    if (!warehouseId) return { name: 'Unassigned Hub', code: 'GENERAL' };
+    if (!warehouseId || warehouseId === 'ALL') return { name: 'Unassigned Hub', code: 'UNASSIGNED' };
     const wh = warehouses.find(w => w.id === warehouseId || w.code === warehouseId);
     return wh ? { name: wh.name, code: wh.code || wh.id } : { name: warehouseId, code: warehouseId };
   };
@@ -231,7 +231,7 @@ const CashRecon = () => {
         riderId: rider.id,
         riderName: rider.name,
         riderPhone: rider.phone,
-        warehouseId: rider.warehouseId || (selectedHub !== 'ALL' ? selectedHub : 'GENERAL'),
+        warehouseId: rider.warehouseId || (selectedHub !== 'ALL' ? selectedHub : 'UNASSIGNED'),
         hubName: whInfo.name,
         hubCode: whInfo.code,
         amount: totalCountedCash,

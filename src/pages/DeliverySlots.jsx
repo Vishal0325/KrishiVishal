@@ -42,7 +42,7 @@ export default function DeliverySlots() {
     date: new Date().toISOString().split("T")[0],
     startTime: "09:00",
     endTime: "13:00",
-    hubId: "HUB_PATNA_MAIN",
+    hubId: "HUB-SAM-001",
     maxCapacity: 30,
     isActive: true
   });
@@ -190,9 +190,10 @@ export default function DeliverySlots() {
               className="bg-transparent text-xs font-bold text-gray-700 outline-none cursor-pointer"
             >
               <option value="ALL">All Hubs</option>
-              <option value="HUB_PATNA_MAIN">Patna Central Hub</option>
-              <option value="HUB_PURNEA_MAIN">Purnea Depot Hub</option>
-              <option value="HUB_GAYA_MAIN">Gaya Rural Hub</option>
+              <option value="HUB-SAM-001">Samastipur Central Hub (HUB-SAM-001)</option>
+              <option value="REG-KHA-003">Khanpur Regional Hub (REG-KHA-003)</option>
+              <option value="REG-RAH-002">Rahthuli Regional Hub (REG-RAH-002)</option>
+              <option value="REG-TAJ-004">Tajpur Regional Hub (REG-TAJ-004)</option>
             </select>
           </div>
 
@@ -356,9 +357,10 @@ export default function DeliverySlots() {
                   onChange={(e) => setFormData({ ...formData, hubId: e.target.value })}
                   className="w-full p-2.5 border border-gray-200 rounded-xl font-bold text-gray-800"
                 >
-                  <option value="HUB_PATNA_MAIN">Patna Central Hub</option>
-                  <option value="HUB_PURNEA_MAIN">Purnea Depot Hub</option>
-                  <option value="HUB_GAYA_MAIN">Gaya Rural Hub</option>
+                  <option value="HUB-SAM-001">Samastipur Central Hub (HUB-SAM-001)</option>
+                  <option value="REG-KHA-003">Khanpur Regional Hub (REG-KHA-003)</option>
+                  <option value="REG-RAH-002">Rahthuli Regional Hub (REG-RAH-002)</option>
+                  <option value="REG-TAJ-004">Tajpur Regional Hub (REG-TAJ-004)</option>
                 </select>
               </div>
 

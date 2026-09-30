@@ -250,14 +250,14 @@ export default function DeadStockLiquidation() {
     setActionProcessing(true);
     try {
       const challanNumber = `KV-TRF-${Date.now().toString().slice(-6)}`;
-      const sourceHubName = selectedProduct.warehouseId ? (warehouses.find(w => w.id === selectedProduct.warehouseId)?.name || selectedProduct.warehouseId) : "Purnea Central Hub";
+      const sourceHubName = selectedProduct.warehouseId ? (warehouses.find(w => w.id === selectedProduct.warehouseId)?.name || selectedProduct.warehouseId) : "Samastipur Central Hub";
       const targetHubName = warehouses.find(w => w.id === targetHubId)?.name || targetHubId;
 
       await addDoc(collection(db, "interHubTransfers"), {
         challanNumber,
         sourceHub: sourceHubName,
         destinationHub: targetHubName,
-        sourceHubId: selectedProduct.warehouseId || "CENTRAL",
+        sourceHubId: selectedProduct.warehouseId || "HUB-SAM-001",
         destinationHubId: targetHubId,
         items: [
           {

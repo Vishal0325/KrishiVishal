@@ -2,23 +2,16 @@ import React, { useState, useEffect } from 'react';
 import {
   collection,
   onSnapshot,
-  doc,
-  setDoc,
-  updateDoc,
-  addDoc,
-  increment,
-  Timestamp,
   query,
   orderBy
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../firebase/config';
+import { httpsCallable } from 'firebase/functions';
+import { db, storage, functions } from '../firebase/config';
 import { useAuth } from '../hooks/useAuth';
 import DataTable from '../components/common/DataTable';
 import PageHeader from '../components/common/PageHeader';
-import { addAuditLog } from '../services/logger';
 import { formatCurrency } from '../utils/formatters';
-import { callReceiveGrn } from '../services/inventory';
 import {
   Truck,
   Plus,
@@ -152,167 +145,47 @@ const GoodsReceipt = () => {
         invoiceUrl = await handleFileUpload(invoiceFile);
       }
 
-      const grnRef = doc(collection(db, 'goods_receipts'));
-      const grnNumber = `GRN-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${grnRef.id.slice(0, 5).toUpperCase()}`;
+      const items = itemsWithQty.map(item => ({
+        productId: item.productId,
+        productName: item.productName || 'Product',
+        skuCode: item.skuCode || item.productId,
+        quantity: Number(item.receivedQuantity),
+        receivedQuantity: Number(item.receivedQuantity),
+        orderedQuantity: Number(item.orderedQuantity) || 0,
+        actualUnitCost: Number(item.actualUnitCost) || 0,
+        unitCost: Number(item.actualUnitCost) || 0,
+        batchNumber: item.batchNumber,
+        mfgDate: item.mfgDate,
+        expiryDate: item.expiryDate,
+        rackBin: item.rackBin,
+        queueItemId: item.queueItemId || null,
+        orderId: item.orderId || null
+      }));
 
-      let totalGRNAmount = 0;
-      let totalReceivedUnits = 0;
-
-      const processedItems = itemsWithQty.map(item => {
-        const qty = Number(item.receivedQuantity);
-        const unitCost = Number(item.actualUnitCost) || 0;
-        const lineTotal = qty * unitCost;
-        totalGRNAmount += lineTotal;
-        totalReceivedUnits += qty;
-
-        return {
-          ...item,
-          receivedQuantity: qty,
-          actualUnitCost: unitCost,
-          lineTotal
-        };
-      });
-
-      const grnData = {
-        id: grnRef.id,
-        grnNumber,
-        poId: selectedPO.id,
-        poNumber: selectedPO.poNumber,
+      const receiveGrn = httpsCallable(functions, 'receiveGrn');
+      const result = await receiveGrn({
+        warehouseId: warehouseLocation,
+        items,
         supplierId: selectedPO.supplierId,
-        supplierName: selectedPO.supplierName,
-        supplierGstin: selectedPO.supplierGstin || '',
-        invoiceNumber,
-        invoiceDate,
-        invoiceUrl,
-        warehouseLocation,
-        notes,
-        items: processedItems,
-        totalReceivedUnits,
-        totalGRNAmount,
-        recordedBy: user?.uid || 'ADMIN',
-        recordedByEmail: user?.email || 'admin@krishivishal.com',
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now()
-      };
-
-      // 1. Save GRN Document
-      await setDoc(grnRef, grnData);
-
-      // 2. Update Product Stocks via Cloud Function with Resilient Fallback
-      for (const item of processedItems) {
-        try {
-          await callReceiveGrn({
-            skuCode: item.skuCode || item.productId,
-            batchNumber: item.batchNumber,
-            mfgDate: item.mfgDate,
-            expiryDate: item.expiryDate,
-            quantity: item.receivedQuantity,
-            warehouseId: warehouseLocation,
-            binLocation: item.rackBin || "",
-            supplierId: selectedPO.supplierId || "",
-            purchaseOrderId: selectedPO.id || "",
-            grnId: grnNumber,
-            landingCost: item.actualUnitCost || 0,
-            idempotencyKey: `GRN:${grnNumber}:${item.skuCode || item.productId}:${item.batchNumber}`
-          });
-        } catch (cfErr) {
-          console.warn('Cloud Function receiveGrn not active, running direct Firestore update:', cfErr);
-          // Direct Product Stock Increment
-          if (item.productId) {
-            try {
-              await updateDoc(doc(db, 'products', item.productId), {
-                stock: increment(item.receivedQuantity),
-                updatedAt: Timestamp.now()
-              });
-            } catch (pe) {
-              console.warn('Product stock update warning:', pe);
-            }
-          }
-        }
-
-        // Log to stock_movements ledger
-        try {
-          await addDoc(collection(db, 'stock_movements'), {
-            productId: item.productId,
-            productName: item.productName || 'Agri Product',
-            skuCode: item.skuCode || item.productId,
-            type: 'INWARD_GRN',
-            change: item.receivedQuantity,
-            unitCost: item.actualUnitCost || 0,
-            batchNumber: item.batchNumber,
-            mfgDate: item.mfgDate,
-            expiryDate: item.expiryDate,
-            grnNumber,
-            poNumber: selectedPO.poNumber,
-            warehouseId: warehouseLocation,
-            note: `GRN Inward receipt ${grnNumber} from ${selectedPO.supplierName}`,
-            createdAt: Timestamp.now()
-          });
-        } catch (sme) {
-          console.warn('Stock movement log error:', sme);
-        }
-
-        // If this item was tied to an on-demand procurement item, update queue
-        if (item.queueItemId) {
-          try {
-            await updateDoc(doc(db, 'procurement_queue', item.queueItemId), {
-              status: 'RECEIVED',
-              grnId: grnRef.id,
-              grnNumber,
-              receivedAt: Timestamp.now(),
-              updatedAt: Timestamp.now()
-            });
-          } catch (e) {
-            console.warn('Queue item update silent error:', e);
-          }
-        }
-      }
-
-      // 3. Update Purchase Order Items & Status
-      const updatedPOItems = (selectedPO.items || []).map(poItem => {
-        const receivedEntry = processedItems.find(p => p.productId === poItem.productId);
-        const newReceivedTotal = (poItem.receivedQuantity || 0) + (receivedEntry ? receivedEntry.receivedQuantity : 0);
-        return {
-          ...poItem,
-          receivedQuantity: newReceivedTotal
-        };
-      });
-
-      const allItemsFullyReceived = updatedPOItems.every(item => (item.receivedQuantity || 0) >= (item.quantity || 0));
-      const newPOStatus = allItemsFullyReceived ? 'COMPLETED' : 'PARTIALLY_RECEIVED';
-
-      await updateDoc(doc(db, 'purchase_orders', selectedPO.id), {
-        items: updatedPOItems,
-        status: newPOStatus,
-        statusHistory: [
-          ...(selectedPO.statusHistory || []),
-          {
-            status: newPOStatus,
-            timestamp: new Date().toISOString(),
-            note: `Goods receipt recorded: ${grnNumber} (${totalReceivedUnits} units received)`
-          }
-        ],
-        updatedAt: Timestamp.now()
-      });
-
-      // 4. Audit Log
-      await addAuditLog('CREATE_GRN', 'GoodsReceipt', grnRef.id, {
-        grnNumber,
         poNumber: selectedPO.poNumber,
-        supplierName: selectedPO.supplierName,
-        totalUnits: totalReceivedUnits,
-        totalAmount: totalGRNAmount
+        invoiceNumber,
+        receivedDate: invoiceDate,
+        notes,
+        invoiceUrl,
+        poId: selectedPO.id
       });
 
+      const grnNumber = result.data?.grnNumber || result.data?.grnId || `GRN-${selectedPO.poNumber}`;
       toast.success(`GRN ${grnNumber} generated! Stock updated.`);
       setIsCreateModalOpen(false);
       setSelectedPO(null);
       setInvoiceFile(null);
       setInvoiceNumber('');
+      setNotes('');
       setReceiptItems([]);
     } catch (error) {
       console.error('GRN Submission failed:', error);
-      toast.error('Failed to create GRN: ' + error.message);
+      toast.error('Failed to create GRN: ' + (error.message || 'Unknown error'));
     } finally {
       setSubmitting(false);
     }

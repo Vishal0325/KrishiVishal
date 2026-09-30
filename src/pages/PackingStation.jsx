@@ -119,7 +119,10 @@ const PackingStation = () => {
     setCheckedItems(initialChecklist);
 
     // FEFO batch recommendations
-    const warehouseId = order.fulfillmentWarehouseId || 'WH-PURNEA-01';
+    const warehouseId = order.fulfillmentWarehouseId || order.warehouseId || null;
+    if (!warehouseId) {
+      console.warn("PackingStation: Order is missing fulfillmentWarehouseId/warehouseId", order.id);
+    }
     for (const it of itemsList) {
       const skuId = it.productId || it.skuId || it.id;
       if (!skuId) continue;
