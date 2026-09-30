@@ -95,6 +95,8 @@ exports.runAbandonedCartScan = abandonedCarts.runAbandonedCartScan;
 // --- ADMIN & AI ---
 exports.aiSupervisor = adminTools.aiSupervisor;
 exports.processAiAction = adminTools.processAiAction;
+exports.approveAiAction = adminTools.approveAiAction;
+exports.rejectAiAction = adminTools.rejectAiAction;
 exports.monitorOrderSLA = sla.monitorOrderSLA;
 
 // --- COMPLIANCE (GSP) ---

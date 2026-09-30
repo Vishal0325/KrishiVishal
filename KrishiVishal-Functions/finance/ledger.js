@@ -9,11 +9,57 @@ const REGION = 'asia-south1';
  * recordExpensePayment: Admin only function to track expenses.
  */
 exports.recordExpensePayment = onCall({ region: REGION }, async (request) => {
+    const data = request.data || {};
     const context = { auth: request.auth };
     if (!(await isAdminRequest(context))) {
         throw new HttpsError('permission-denied', 'Admin only.');
     }
-    return { success: true };
+
+    const amount = Number(data.amount);
+    if (!amount || isNaN(amount) || amount <= 0) {
+        throw new HttpsError('invalid-argument', 'Valid positive expense amount is required.');
+    }
+    if (!data.category || typeof data.category !== 'string') {
+        throw new HttpsError('invalid-argument', 'Expense category is required.');
+    }
+
+    const expenseId = data.expenseId || `EXP_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const paymentMode = (data.paymentMode || 'CASH').toUpperCase();
+    const isBank = ['BANK', 'BANK_ACCOUNT', 'ONLINE', 'UPI', 'NEFT', 'RTGS', 'RAZORPAY'].includes(paymentMode);
+    const assetAccount = isBank ? 'BANK_ACCOUNT' : 'CASH_IN_HAND';
+
+    await db.collection('expenses').doc(expenseId).set({
+        expenseId,
+        amount: amount,
+        category: data.category,
+        description: data.description || '',
+        paidAt: admin.firestore.FieldValue.serverTimestamp(),
+        paidBy: context.auth ? context.auth.uid : 'SYSTEM',
+        paymentMode: data.paymentMode || 'CASH'
+    });
+
+    // Post double-entry ledger records
+    await postLedgerEntry({
+        account: 'EXPENSE',
+        type: 'DEBIT',
+        amount: amount,
+        referenceId: expenseId,
+        referenceType: 'EXPENSE',
+        idempotencyKey: `EXP_DR_${expenseId}`,
+        description: `Expense: ${data.category}${data.description ? ` - ${data.description}` : ''}`
+    });
+
+    await postLedgerEntry({
+        account: assetAccount,
+        type: 'CREDIT',
+        amount: amount,
+        referenceId: expenseId,
+        referenceType: 'EXPENSE',
+        idempotencyKey: `EXP_CR_${expenseId}`,
+        description: `Expense payout (${data.paymentMode || 'CASH'}): ${data.category}`
+    });
+
+    return { success: true, expenseId };
 });
 
 /**
@@ -28,51 +74,99 @@ exports.deleteExpenseAttachment = onCall({ region: REGION }, async (request) => 
 });
 
 /**
- * Helper to post a double-entry ledger record within a transaction.
+ * Helper to post a double-entry ledger record within a transaction or standalone.
  * Follows standard accounting principles:
  * - Assets/Expenses: DEBIT increases, CREDIT decreases.
  * - Liabilities/Equity/Revenue: CREDIT increases, DEBIT decreases.
  */
-function postLedgerEntry(transaction, entry) {
-    const ledgerRef = db.collection("ledger").doc();
-    const timestamp = admin.firestore.FieldValue.serverTimestamp();
+async function postLedgerEntry(transactionOrEntry, maybeEntry) {
+    let transaction = null;
+    let entry = null;
+
+    if (maybeEntry) {
+        transaction = transactionOrEntry;
+        entry = maybeEntry;
+    } else {
+        entry = transactionOrEntry;
+    }
+
+    if (!entry || typeof entry !== 'object') {
+        throw new Error('Invalid Ledger Entry');
+    }
+
+    const ASSET_ACCOUNTS = ['CASH_IN_HAND', 'BANK_ACCOUNT', 'INVENTORY_VALUE', 'INVENTORY_ASSET'];
+    const EXPENSE_ACCOUNTS = ['COGS', 'EXPENSE'];
+    const LIABILITY_REVENUE_ACCOUNTS = ['WALLET_BALANCE', 'GST_PAYABLE', 'SALES', 'ACCOUNTS_PAYABLE'];
 
     // Define valid accounts to prevent arbitrary collection updates
     const VALID_ACCOUNTS = [
-        'CASH_IN_HAND', 'BANK_ACCOUNT', 'WALLET_BALANCE',
-        'GST_PAYABLE', 'SALES', 'ACCOUNTS_PAYABLE', 'INVENTORY_VALUE'
+        ...ASSET_ACCOUNTS,
+        ...EXPENSE_ACCOUNTS,
+        ...LIABILITY_REVENUE_ACCOUNTS
     ];
     if (!VALID_ACCOUNTS.includes(entry.account)) {
         throw new Error(`Invalid Ledger Account: ${entry.account}`);
     }
 
-    const ASSET_ACCOUNTS = ['CASH_IN_HAND', 'BANK_ACCOUNT', 'INVENTORY_VALUE'];
-    const liabilityAccounts = ['WALLET_BALANCE', 'GST_PAYABLE', 'SALES', 'ACCOUNTS_PAYABLE']; // Sales is Revenue, GST is Liability
-
-    const isAsset = ASSET_ACCOUNTS.includes(entry.account);
+    const isAssetOrExpense = ASSET_ACCOUNTS.includes(entry.account) || EXPENSE_ACCOUNTS.includes(entry.account);
 
     // Calculate increment amount based on account type
-    // Asset: Debit (+), Credit (-)
-    // Others: Credit (+), Debit (-)
+    // Asset / Expense: Debit (+), Credit (-)
+    // Liabilities / Revenue / Equity: Credit (+), Debit (-)
     let increment = 0;
-    if (isAsset) {
+    if (isAssetOrExpense) {
         increment = (entry.type === 'DEBIT' ? entry.amount : -entry.amount);
     } else {
         increment = (entry.type === 'CREDIT' ? entry.amount : -entry.amount);
     }
 
-    transaction.set(ledgerRef, {
+    const timestamp = admin.firestore.FieldValue.serverTimestamp();
+    const ledgerData = {
         ...entry,
         timestamp: timestamp,
         createdAt: timestamp,
-    });
+    };
 
-    const accountRef = db.collection("accounts").doc(entry.account);
-    transaction.set(accountRef, {
-        balance: admin.firestore.FieldValue.increment(increment),
-        lastUpdated: timestamp,
-    }, { merge: true });
+    if (transaction) {
+        const ledgerRef = entry.idempotencyKey
+            ? db.collection("ledger").doc(entry.idempotencyKey)
+            : db.collection("ledger").doc();
+
+        transaction.set(ledgerRef, ledgerData);
+
+        const accountRef = db.collection("accounts").doc(entry.account);
+        transaction.set(accountRef, {
+            balance: admin.firestore.FieldValue.increment(increment),
+            lastUpdated: timestamp,
+        }, { merge: true });
+        return;
+    }
+
+    // Standalone transactional execution with idempotency guard
+    await db.runTransaction(async (t) => {
+        const ledgerRef = entry.idempotencyKey
+            ? db.collection("ledger").doc(entry.idempotencyKey)
+            : db.collection("ledger").doc();
+
+        if (entry.idempotencyKey) {
+            const snap = await t.get(ledgerRef);
+            if (snap.exists) {
+                console.log(`Ledger entry ${entry.idempotencyKey} already exists. Skipping.`);
+                return;
+            }
+        }
+
+        t.set(ledgerRef, ledgerData);
+
+        const accountRef = db.collection("accounts").doc(entry.account);
+        t.set(accountRef, {
+            balance: admin.firestore.FieldValue.increment(increment),
+            lastUpdated: timestamp,
+        }, { merge: true });
+    });
 }
+
+exports.postLedgerEntry = postLedgerEntry;
 
 /**
  * Triggered when an order's PAYMENT status changes to 'PAID'.
@@ -88,6 +182,7 @@ exports.onOrderPaidLedger = onDocumentUpdated({ document: "orders/{orderId}", re
 
     if (newData.paymentStatus === 'PAID' && oldData.paymentStatus !== 'PAID') {
         try {
+            let alreadyProcessed = false;
             await db.runTransaction(async (transaction) => {
                 // 1. Check for duplicate ledger entries (READ)
                 const existingEntries = await transaction.get(
@@ -99,6 +194,7 @@ exports.onOrderPaidLedger = onDocumentUpdated({ document: "orders/{orderId}", re
 
                 if (!existingEntries.empty) {
                     console.log(`Ledger entry already exists for Order: ${orderId}. Skipping.`);
+                    alreadyProcessed = true;
                     return;
                 }
 
@@ -166,6 +262,57 @@ exports.onOrderPaidLedger = onDocumentUpdated({ document: "orders/{orderId}", re
                     }, { merge: true });
                 }
             });
+
+            if (alreadyProcessed) {
+                return null;
+            }
+
+            // 4. COGS & Inventory Asset Relief Ledger Posting
+            const items = newData.items || [];
+            for (const item of items) {
+                if (!item || !item.productId) continue;
+
+                let costPrice = item.costPrice;
+                if (!costPrice) {
+                    const prodDoc = await db.collection('products').doc(item.productId).get();
+                    costPrice = item.costPrice || prodDoc.data()?.costPrice || prodDoc.data()?.purchasePrice || 0;
+                }
+                costPrice = Number(costPrice) || 0;
+
+                if (costPrice > 0) {
+                    const quantity = Number(item.quantity) || 1;
+                    const itemCOGS = Number((costPrice * quantity).toFixed(2));
+                    const variantId = item.variantId || 'base';
+                    const cogsKey = `COGS_${orderId}_${item.productId}_${variantId}`;
+
+                    await postLedgerEntry({
+                        account: 'COGS',
+                        type: 'DEBIT',
+                        amount: itemCOGS,
+                        referenceId: orderId,
+                        referenceType: 'ORDER',
+                        idempotencyKey: cogsKey,
+                        description: `COGS: ${item.productName || item.productId} x${quantity}`
+                    });
+
+                    await postLedgerEntry({
+                        account: 'INVENTORY_ASSET',
+                        type: 'CREDIT',
+                        amount: itemCOGS,
+                        referenceId: orderId,
+                        referenceType: 'ORDER',
+                        idempotencyKey: `INV_RELIEF_${orderId}_${item.productId}_${variantId}`,
+                        description: `Inventory relief: ${item.productName || item.productId}`
+                    });
+                } else {
+                    await db.collection('cogs_alerts').add({
+                        orderId,
+                        productId: item.productId,
+                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                        message: 'Missing costPrice for product in paid order'
+                    });
+                }
+            }
         } catch (error) {
             console.error("CRITICAL: Financial transaction failed for order:", orderId, error);
             throw error; // Trigger Cloud Function retry

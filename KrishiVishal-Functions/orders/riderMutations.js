@@ -20,25 +20,49 @@ exports.riderMutations = onCall({ region: REGION, invoker: 'public' }, async (re
     const { action, payload } = data;
 
     if (action === 'SYNC_POD') {
-        const { orderId, updates } = payload;
+        const { orderId, updates = {} } = payload || {};
+        if (!orderId) throw new HttpsError('invalid-argument', 'orderId is required');
+
         const orderRef = db.collection('orders').doc(orderId);
-        const snap = await orderRef.get();
-        if (!snap.exists) throw new HttpsError('not-found', 'Order not found');
-        if (snap.data().riderId !== context.auth.uid) throw new HttpsError('permission-denied', 'Not your order');
+        const orderDoc = await orderRef.get();
+        if (!orderDoc.exists) throw new HttpsError('not-found', 'Order not found');
+
+        const orderData = orderDoc.data();
+        if (orderData.riderId !== context.auth.uid) throw new HttpsError('permission-denied', 'Not your order');
 
         // Only allow updating specific POD fields
         const safeUpdates = {};
         if (updates.status === 'DELIVERED') {
+            if (orderData.status !== 'OUT_FOR_DELIVERY') {
+                throw new HttpsError('failed-precondition', 'Order must be OUT_FOR_DELIVERY to complete delivery');
+            }
+
+            const expectedOtp = orderData.otpCode || orderData.deliveryOtp;
+            const suppliedOtp = updates.deliveryOtp || updates.otp || payload?.deliveryOtp || payload?.otp || data?.deliveryOtp || data?.otp;
+            if (!expectedOtp || !suppliedOtp || String(expectedOtp).trim() !== String(suppliedOtp).trim()) {
+                throw new HttpsError('invalid-argument', 'Invalid or missing delivery OTP');
+            }
+
             safeUpdates.status = 'DELIVERED';
             safeUpdates.deliveredAt = admin.firestore.FieldValue.serverTimestamp();
-            if (updates.podPhotoUrl) safeUpdates.podPhotoUrl = updates.podPhotoUrl;
-            if (updates.podSignatureUrl) safeUpdates.podSignatureUrl = updates.podSignatureUrl;
+            safeUpdates.syncedAt = admin.firestore.FieldValue.serverTimestamp();
+            const photo = updates.photoUrl || updates.podPhotoUrl;
+            if (photo) {
+                safeUpdates.photoUrl = photo;
+                safeUpdates.podPhotoUrl = photo;
+            }
+            const signature = updates.signatureUrl || updates.podSignatureUrl;
+            if (signature) {
+                safeUpdates.signatureUrl = signature;
+                safeUpdates.podSignatureUrl = signature;
+            }
             if (updates.collectedCash !== undefined) safeUpdates.collectedCash = updates.collectedCash;
             if (updates.paymentStatus) safeUpdates.paymentStatus = updates.paymentStatus;
         } else if (updates.status === 'DELIVERY_FAILED' || updates.status === 'RTO_INITIATED' || updates.status === 'REATTEMPT_SCHEDULED') {
             safeUpdates.status = updates.status;
             safeUpdates.failureReason = updates.failureReason;
             safeUpdates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+            safeUpdates.syncedAt = admin.firestore.FieldValue.serverTimestamp();
             if (updates.failurePhotoUrl) safeUpdates.failurePhotoUrl = updates.failurePhotoUrl;
             if (updates.ndrReason) safeUpdates.ndrReason = updates.ndrReason;
             if (updates.ndrNotes) safeUpdates.ndrNotes = updates.ndrNotes;
@@ -54,7 +78,9 @@ exports.riderMutations = onCall({ region: REGION, invoker: 'public' }, async (re
             safeUpdates.lastAttemptAt = admin.firestore.FieldValue.serverTimestamp();
         }
         
-        await orderRef.update(safeUpdates);
+        if (Object.keys(safeUpdates).length > 0) {
+            await orderRef.update(safeUpdates);
+        }
         return { success: true };
 
     } else if (action === 'REJECT_ORDER') {
@@ -79,16 +105,43 @@ exports.riderMutations = onCall({ region: REGION, invoker: 'public' }, async (re
         return { success: true };
 
     } else if (action === 'DEPOSIT_CASH') {
-        const { amount, ordersCount } = payload;
-        const depositRef = db.collection('cash_deposits').doc();
-        await depositRef.set({
-            riderId: context.auth.uid,
-            amount,
-            ordersCount,
-            status: 'PENDING_VERIFICATION',
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        const riderId = context.auth.uid;
+        const todayStr = new Date().toISOString().split('T')[0];
+        const shift = payload?.shiftId || payload?.shift || data?.shiftId || data?.shift || 'DEFAULT';
+        const amount = payload?.amount !== undefined ? payload.amount : (data?.amount !== undefined ? data.amount : 0);
+        const ordersCount = payload?.ordersCount !== undefined ? payload.ordersCount : (data?.ordersCount !== undefined ? data.ordersCount : 0);
+        const orderIds = payload?.orderIds || data?.orderIds || [];
+        const depositId = `DEPOSIT_${riderId}_${todayStr}_${shift}`;
+        const depositRef = db.collection("cash_deposits").doc(depositId);
+
+        const result = await db.runTransaction(async (transaction) => {
+            const depositDoc = await transaction.get(depositRef);
+            if (depositDoc.exists) {
+                const depositData = depositDoc.data();
+                if (depositData.status === 'COMPLETED') {
+                    return { success: true, depositId, status: 'ALREADY_COMPLETED' };
+                }
+            }
+
+            const depositData = {
+                depositId,
+                riderId,
+                amount: Number(amount) || 0,
+                ordersCount: Number(ordersCount) || 0,
+                orderIds,
+                shift,
+                date: todayStr,
+                status: 'COMPLETED',
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            };
+
+            transaction.set(depositRef, depositData, { merge: true });
+            return { success: true, depositId, status: 'COMPLETED' };
         });
-        return { success: true, depositId: depositRef.id };
+
+        return result;
     } else if (action === 'UPDATE_RIDER_LOCATION') {
         const { orderId, lat, lng } = payload;
         if (orderId) {

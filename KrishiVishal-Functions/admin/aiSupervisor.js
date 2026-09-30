@@ -156,3 +156,88 @@ exports.processAiAction = onDocumentUpdated({ document: "ai_action_requests/{req
     }
     return null;
 });
+
+/**
+ * Approve AI Action
+ */
+exports.approveAiAction = onCall({ region: REGION }, async (request) => {
+    const context = { auth: request.auth };
+    if (!context.auth) {
+        throw new HttpsError('unauthenticated', 'Authentication required');
+    }
+
+    const token = context.auth.token || {};
+    const isAuthorized = token.admin === true || 
+                         token.role === 'ADMIN' || 
+                         token.role === 'SuperAdmin';
+    if (!isAuthorized) {
+        throw new HttpsError('permission-denied', 'Admin role required to approve/reject AI actions');
+    }
+
+    const data = request.data || {};
+    const actionId = data.actionId || data.requestId;
+    if (!actionId) {
+        throw new HttpsError('invalid-argument', 'RequestId or actionId is required');
+    }
+
+    await db.collection("ai_action_requests").doc(actionId).update({
+        status: "APPROVED",
+        approvedBy: context.auth.token?.email || context.auth.uid || "Admin",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await db.collection("audit_logs").add({
+        actionId,
+        decision: 'APPROVED',
+        reviewedBy: context.auth.uid,
+        reviewerRole: token.role || 'ADMIN',
+        reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+        notes: data.notes || ''
+    });
+
+    return { success: true };
+});
+
+/**
+ * Reject AI Action
+ */
+exports.rejectAiAction = onCall({ region: REGION }, async (request) => {
+    const context = { auth: request.auth };
+    if (!context.auth) {
+        throw new HttpsError('unauthenticated', 'Authentication required');
+    }
+
+    const token = context.auth.token || {};
+    const isAuthorized = token.admin === true || 
+                         token.role === 'ADMIN' || 
+                         token.role === 'SuperAdmin';
+    if (!isAuthorized) {
+        throw new HttpsError('permission-denied', 'Admin role required to approve/reject AI actions');
+    }
+
+    const data = request.data || {};
+    const actionId = data.actionId || data.requestId;
+    if (!actionId) {
+        throw new HttpsError('invalid-argument', 'RequestId or actionId is required');
+    }
+
+    const reason = data.reason || data.notes || "Rejected by Admin";
+
+    await db.collection("ai_action_requests").doc(actionId).update({
+        status: "REJECTED",
+        reason: reason,
+        rejectedBy: context.auth.token?.email || context.auth.uid || "Admin",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await db.collection("audit_logs").add({
+        actionId,
+        decision: 'REJECTED',
+        reviewedBy: context.auth.uid,
+        reviewerRole: token.role || 'ADMIN',
+        reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+        notes: data.notes || reason || ''
+    });
+
+    return { success: true };
+});
