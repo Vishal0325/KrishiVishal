@@ -157,9 +157,7 @@ fun AppNavGraph(
                 orderId = orderId,
                 onNavigateBack = { navController.popBackStack() },
                 onSuccess = {
-                    navController.navigate("dashboard") {
-                        popUpTo("dashboard") { inclusive = true }
-                    }
+                    navController.popBackStack("dashboard", inclusive = false)
                 }
             )
         }
@@ -256,9 +254,7 @@ fun AppNavGraph(
                 jobStatus = jobStatus,
                 viewModel = dashboardViewModel,
                 onNavigateHome = {
-                    navController.navigate("dashboard") {
-                        popUpTo("dashboard") { inclusive = true }
-                    }
+                    navController.popBackStack("dashboard", inclusive = false)
                 }
             )
         }
