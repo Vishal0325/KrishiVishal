@@ -74,6 +74,67 @@ exports.deleteExpenseAttachment = onCall({ region: REGION }, async (request) => 
 });
 
 /**
+ * recordBankPayout: Admin only function to record bank payouts / gateway settlements.
+ */
+exports.recordBankPayout = onCall({ region: REGION }, async (request) => {
+    const data = request.data || {};
+    const context = { auth: request.auth };
+    if (!(await isAdminRequest(context))) {
+        throw new HttpsError('permission-denied', 'Admin role required.');
+    }
+
+    const { payoutId, grossAmount, netAmount, fees, taxOnFees } = data;
+    const gross = Number(grossAmount);
+    const net = Number(netAmount);
+    const fee = Number(fees || 0);
+    const tax = Number(taxOnFees || 0);
+    const totalFees = Number((fee + tax).toFixed(2));
+
+    if (!gross || isNaN(gross) || gross <= 0) {
+        throw new HttpsError('invalid-argument', 'Valid grossAmount is required.');
+    }
+
+    const refId = payoutId || `PO_${Date.now()}`;
+
+    // 1. Debit BANK_ACCOUNT (Actual net money received)
+    await postLedgerEntry({
+        account: 'BANK_ACCOUNT',
+        type: 'DEBIT',
+        amount: net || gross,
+        referenceId: refId,
+        referenceType: 'BANK_PAYOUT',
+        idempotencyKey: `PAYOUT_BANK_${refId}`,
+        description: `Bank Payout Received [${refId}]`
+    });
+
+    // 2. Debit EXPENSE for payment gateway fees
+    if (totalFees > 0) {
+        await postLedgerEntry({
+            account: 'EXPENSE',
+            type: 'DEBIT',
+            amount: totalFees,
+            referenceId: refId,
+            referenceType: 'GATEWAY_FEES',
+            idempotencyKey: `PAYOUT_FEES_${refId}`,
+            description: `Gateway Fees for Payout [${refId}]`
+        });
+    }
+
+    // 3. Credit CASH_IN_HAND / SALES clearing
+    await postLedgerEntry({
+        account: 'SALES',
+        type: 'CREDIT',
+        amount: gross,
+        referenceId: refId,
+        referenceType: 'PAYOUT_RECONCILED',
+        idempotencyKey: `PAYOUT_GROSS_${refId}`,
+        description: `Gateway Payout Cleared [${refId}]`
+    });
+
+    return { success: true, message: `Payout [${refId}] reconciled successfully.`, payoutId: refId };
+});
+
+/**
  * Helper to post a double-entry ledger record within a transaction or standalone.
  * Follows standard accounting principles:
  * - Assets/Expenses: DEBIT increases, CREDIT decreases.

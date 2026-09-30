@@ -65,6 +65,7 @@ exports.adminAdjustWallet = walletTopUp.adminAdjustWallet;
 exports.getWalletHistory = walletTopUp.getWalletHistory;
 exports.recordExpensePayment = ledger.recordExpensePayment;
 exports.deleteExpenseAttachment = ledger.deleteExpenseAttachment;
+exports.recordBankPayout = ledger.recordBankPayout;
 exports.onGoodsReceiptCreated = ledger.onGoodsReceiptCreated;
 exports.onCashDepositVerified = ledger.onCashDepositVerified;
 
