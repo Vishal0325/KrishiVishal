@@ -306,43 +306,7 @@ exports.onOrderStatusUpdate = onDocumentUpdated({ document: "orders/{orderId}", 
     }
     // --- STOCK RESTORATION ON CANCELLATION END ---
 
-    try {
-        const userDoc = await db.collection("users").doc(userId).get();
-        const fcmToken = userDoc.data()?.fcmToken;
-
-        if (!fcmToken) {
-            console.log(`No FCM token for user: ${userId}`);
-            return null;
-        }
-
-        const statusLabel = newData.status.replace(/_/g, " ");
-        const message = {
-            notification: {
-                title: `Order Update: ${statusLabel}`,
-                body: `Aapka order #${context.params.orderId.substring(0, 8)} ab ${statusLabel} hai.`,
-            },
-            data: {
-                orderId: context.params.orderId,
-                status: newData.status,
-                click_action: "FLUTTER_NOTIFICATION_CLICK",
-            },
-            token: fcmToken,
-            android: {
-                priority: "high",
-                notification: {
-                    channel_id: "order_updates",
-                    color: "#2E7D32",
-                },
-            },
-        };
-
-        await admin.messaging().send(message);
-        console.log(`Notification sent for order ${context.params.orderId} to user ${userId}`);
-        return null;
-    } catch (error) {
-        console.error("Error sending order status notification:", error);
-        return null;
-    }
+    return null;
 });
 
 /**
