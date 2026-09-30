@@ -561,7 +561,13 @@ service cloud.firestore {
           (resource.data.phone != null && ('+91' + resource.data.phone) == request.auth.token.phone_number)
         )
       );
-      allow list: if isAdmin() || isViewer() || isHubManager();
+      allow list: if isAdmin() || isViewer() || isHubManager() || (
+        isAuthenticated() && ('phone_number' in request.auth.token) && (
+          resource.data.phone == request.auth.token.phone_number ||
+          ('+91' + resource.data.phone) == request.auth.token.phone_number ||
+          resource.data.phone == request.auth.token.phone_number.replace('^\\+91', '')
+        )
+      );
       allow update, create, delete: if isAdmin();
     }
 
