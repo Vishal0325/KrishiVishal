@@ -603,7 +603,7 @@ class OrderRepository @Inject constructor(
                 Timber.w(e, "Online OTP verification failed, trying local OTP fallback")
                 val cleanOtp = otp.trim()
                 val cachedOtp = localOrder.customerOTP.trim()
-                val isOfflineMatch = cachedOtp.isNotBlank() && (cleanOtp == cachedOtp || (cachedOtp.length >= 4 && cleanOtp.endsWith(cachedOtp.takeLast(4))))
+                val isOfflineMatch = cachedOtp.isNotBlank() && (cleanOtp == cachedOtp)
                 
                 if (!isOfflineMatch) {
                     return Resource.Error("Invalid delivery PIN/OTP. Please check with customer.")
