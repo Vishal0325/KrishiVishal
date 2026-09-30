@@ -430,15 +430,20 @@ class ProductDetailViewModel @Inject constructor(
     fun requestStockNotification() {
         val product = _uiState.value.product ?: return
         val selectedVariant = _uiState.value.selectedVariant
+        val firebaseUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+
+        if (firebaseUser == null || firebaseUser.isAnonymous) {
+            _uiState.update { it.copy(showLoginPrompt = true) }
+            return
+        }
 
         viewModelScope.launch {
-            val currentUser = _user.value ?: getCurrentUserUseCase().firstOrNull()
-            val userId = currentUser?.id ?: Constants.GUEST_USER_ID
+            val userId = firebaseUser.uid
 
             _uiState.update { it.copy(isNotifyMeLoading = true) }
 
             val fcmToken = try {
-                FirebaseMessaging.getInstance().token.await()
+                com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()
             } catch (e: Exception) {
                 ""
             }
@@ -455,7 +460,7 @@ class ProductDetailViewModel @Inject constructor(
                         _uiState.update { it.copy(isNotifyMeLoading = false, notifyMeSuccess = true, cartMessageRes = R.string.notify_success_msg) }
                     }
                     is Resource.Error -> {
-                        _uiState.update { it.copy(isNotifyMeLoading = false, error = resource.message) }
+                        _uiState.update { it.copy(isNotifyMeLoading = false, cartMessage = resource.message ?: "Failed to request notification") }
                     }
                     else -> {}
                 }

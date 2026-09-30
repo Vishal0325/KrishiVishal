@@ -45,6 +45,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.tasks.await
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
@@ -119,6 +120,23 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                         if (BuildConfig.VERSION_CODE < config.minAppVersion) {
                             showUpdateDialog = true
                         }
+                    }
+                }
+            }
+
+            LaunchedEffect(Unit) {
+                val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                if (user != null && !user.isAnonymous) {
+                    try {
+                        val token = com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()
+                        if (token.isNotBlank()) {
+                            com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                                .collection("users").document(user.uid)
+                                .set(mapOf("fcmToken" to token), com.google.firebase.firestore.SetOptions.merge())
+                            Timber.d("FCM token synced to Firestore for user ${user.uid}")
+                        }
+                    } catch (e: Exception) {
+                        Timber.e(e, "Failed to sync FCM token on launch")
                     }
                 }
             }

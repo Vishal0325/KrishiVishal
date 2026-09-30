@@ -628,9 +628,9 @@ service cloud.firestore {
 
     match /stock_notification_requests/{id} {
       allow read: if isAdmin();
-      allow create: if isAuthenticated() &&
+      allow create, update: if isAuthenticated() &&
         request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isAdmin();
+      allow delete: if isAdmin();
     }
 
 
