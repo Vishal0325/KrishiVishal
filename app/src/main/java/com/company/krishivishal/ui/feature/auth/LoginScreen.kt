@@ -80,11 +80,14 @@ fun LoginScreen(
             }
         })
         
-        // Registering the receiver to listen for the SMS Retriever broadcast
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(smsReceiver, filter, com.google.android.gms.auth.api.phone.SmsRetriever.SEND_PERMISSION, null, android.content.Context.RECEIVER_EXPORTED)
-        } else {
-            context.registerReceiver(smsReceiver, filter, com.google.android.gms.auth.api.phone.SmsRetriever.SEND_PERMISSION, null)
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(smsReceiver, filter, com.google.android.gms.auth.api.phone.SmsRetriever.SEND_PERMISSION, null, android.content.Context.RECEIVER_EXPORTED)
+            } else {
+                context.registerReceiver(smsReceiver, filter, com.google.android.gms.auth.api.phone.SmsRetriever.SEND_PERMISSION, null)
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to register SMS receiver")
         }
         
         onDispose {
