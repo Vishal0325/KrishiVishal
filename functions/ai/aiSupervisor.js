@@ -87,15 +87,32 @@ exports.approveAiAction = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("unauthenticated", "Authentication required");
   }
 
-  const { requestId } = data;
-  if (!requestId) {
-    throw new functions.https.HttpsError("invalid-argument", "RequestId is required");
+  const token = context.auth.token || {};
+  const isAuthorized = token.admin === true || 
+                       token.role === 'ADMIN' || 
+                       token.role === 'SuperAdmin';
+  if (!isAuthorized) {
+    throw new functions.https.HttpsError('permission-denied', 'Admin role required to approve/reject AI actions');
   }
 
-  await db.collection("ai_action_requests").doc(requestId).update({
+  const actionId = data?.actionId || data?.requestId;
+  if (!actionId) {
+    throw new functions.https.HttpsError("invalid-argument", "RequestId or actionId is required");
+  }
+
+  await db.collection("ai_action_requests").doc(actionId).update({
     status: "APPROVED",
     approvedBy: context.auth.token.email || "Admin",
     updatedAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  await db.collection("audit_logs").add({
+    actionId,
+    decision: 'APPROVED',
+    reviewedBy: context.auth.uid,
+    reviewerRole: token.role || 'ADMIN',
+    reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+    notes: data?.notes || ''
   });
 
   return { success: true };
@@ -109,16 +126,35 @@ exports.rejectAiAction = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("unauthenticated", "Authentication required");
   }
 
-  const { requestId, reason } = data;
-  if (!requestId) {
-    throw new functions.https.HttpsError("invalid-argument", "RequestId is required");
+  const token = context.auth.token || {};
+  const isAuthorized = token.admin === true || 
+                       token.role === 'ADMIN' || 
+                       token.role === 'SuperAdmin';
+  if (!isAuthorized) {
+    throw new functions.https.HttpsError('permission-denied', 'Admin role required to approve/reject AI actions');
   }
 
-  await db.collection("ai_action_requests").doc(requestId).update({
+  const actionId = data?.actionId || data?.requestId;
+  if (!actionId) {
+    throw new functions.https.HttpsError("invalid-argument", "RequestId or actionId is required");
+  }
+
+  const reason = data?.reason || data?.notes || "Rejected by Admin";
+
+  await db.collection("ai_action_requests").doc(actionId).update({
     status: "REJECTED",
-    reason: reason || "Rejected by Admin",
+    reason: reason,
     rejectedBy: context.auth.token.email || "Admin",
     updatedAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  await db.collection("audit_logs").add({
+    actionId,
+    decision: 'REJECTED',
+    reviewedBy: context.auth.uid,
+    reviewerRole: token.role || 'ADMIN',
+    reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+    notes: data?.notes || reason || ''
   });
 
   return { success: true };
