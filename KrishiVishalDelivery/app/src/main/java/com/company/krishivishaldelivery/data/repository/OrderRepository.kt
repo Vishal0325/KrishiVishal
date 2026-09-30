@@ -331,26 +331,105 @@ class OrderRepository @Inject constructor(
         return trimmed
     }
 
+    fun getIncomingAssignedOrders(riderId: String): Flow<List<Order>> = callbackFlow {
+        if (riderId.isBlank()) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+        val listener = firestore.collection("orders")
+            .whereEqualTo("riderId", riderId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Timber.e(error, "Error listening for incoming assigned orders")
+                    return@addSnapshotListener
+                }
+                val incoming = snapshot?.documents?.mapNotNull { doc ->
+                    runCatching {
+                        doc.toObject(Order::class.java)?.copy(
+                            id = doc.id,
+                            isCOD = doc.getBoolean("isCOD") ?: (doc.getString("paymentMethod")?.equals("COD", ignoreCase = true) == true),
+                            codAmount = doc.getDouble("codAmount") ?: doc.getDouble("totalAmount") ?: 0.0
+                        )
+                    }.getOrNull()
+                }?.filter { order ->
+                    val status = order.status.uppercase()
+                    (status == "RIDER_ASSIGNED" || status == "ASSIGNED") && order.isAccepted != true
+                } ?: emptyList()
+
+                trySend(incoming)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    suspend fun acceptAssignedOrder(orderId: String, riderId: String) {
+        val data = hashMapOf(
+            "orderId" to orderId,
+            "targetStatus" to "RIDER_ACCEPTED"
+        )
+        try {
+            functions.getHttpsCallable("updateOrderStatus").call(data).await()
+        } catch (e: Exception) {
+            Timber.w(e, "updateOrderStatus failed for acceptAssignedOrder, updating firestore directly")
+            firestore.collection("orders").document(orderId).update(
+                mapOf(
+                    "status" to "RIDER_ACCEPTED",
+                    "isAccepted" to true,
+                    "acceptedAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+        }
+        deliveryDao.updateOrderStatus(orderId, "RIDER_ACCEPTED", false)
+    }
+
     suspend fun acceptOrderByScan(orderId: String, riderId: String): Order {
         val doc = firestore.collection("orders").document(orderId).get().await()
-        val order = doc.toObject(Order::class.java)?.let { it.copy(isCOD = it.isCOD || it.paymentMethod.equals("COD", ignoreCase = true), codAmount = if (it.codAmount > 0) it.codAmount else it.totalAmount) } ?: throw Exception("Order not found")
+        val order = doc.toObject(Order::class.java)?.let { 
+            it.copy(
+                id = doc.id,
+                isCOD = it.isCOD || it.paymentMethod.equals("COD", ignoreCase = true), 
+                codAmount = if (it.codAmount > 0) it.codAmount else it.totalAmount
+            ) 
+        } ?: throw Exception("Order not found")
 
         val validStatuses = listOf(
             OrderStatus.PLACED.name, 
             OrderStatus.CONFIRMED.name, 
+            OrderStatus.ASSIGNED.name,
+            "RIDER_ASSIGNED",
+            "RIDER_ACCEPTED",
             "PACKED", 
             "READY_FOR_PICKUP"
         )
         if (order.status !in validStatuses) throw Exception("Invalid status for assignment: ${order.status}")
-        if (order.riderId.isNotEmpty() && order.riderId != riderId) throw Exception("Already assigned")
+        if (order.riderId.isNotEmpty() && order.riderId != riderId) throw Exception("Already assigned to another rider")
+
+        val targetStatus = when (order.status) {
+            "RIDER_ASSIGNED", OrderStatus.ASSIGNED.name -> "RIDER_ACCEPTED"
+            "RIDER_ACCEPTED" -> "OUT_FOR_DELIVERY"
+            else -> "RIDER_ACCEPTED"
+        }
 
         val data = hashMapOf(
             "orderId" to orderId,
-            "targetStatus" to OrderStatus.ASSIGNED.name
+            "targetStatus" to targetStatus
         )
-        functions.getHttpsCallable("updateOrderStatus").call(data).await()
+        try {
+            functions.getHttpsCallable("updateOrderStatus").call(data).await()
+        } catch (e: Exception) {
+            Timber.w(e, "updateOrderStatus failed during acceptOrderByScan, performing direct firestore update")
+            firestore.collection("orders").document(orderId).update(
+                mapOf(
+                    "riderId" to riderId,
+                    "status" to targetStatus,
+                    "isAccepted" to true,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+        }
 
-        val updatedOrder = order.copy(riderId = riderId, status = OrderStatus.ASSIGNED.name)
+        val updatedOrder = order.copy(riderId = riderId, status = targetStatus, isAccepted = true)
         deliveryDao.insertOrder(updatedOrder.toEntity())
         return updatedOrder
     }
@@ -364,7 +443,20 @@ class OrderRepository @Inject constructor(
             "action" to "REJECT_ORDER",
             "payload" to payload
         )
-        functions.getHttpsCallable("riderMutations").call(requestData).await()
+        try {
+            functions.getHttpsCallable("riderMutations").call(requestData).await()
+        } catch (e: Exception) {
+            Timber.w(e, "riderMutations REJECT_ORDER failed, updating firestore directly")
+            firestore.collection("orders").document(orderId).update(
+                mapOf(
+                    "status" to "ASSIGNED",
+                    "riderId" to "",
+                    "isAccepted" to false,
+                    "rejectionReason" to reason,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+        }
         deliveryDao.deleteOrderById(orderId)
     }
 

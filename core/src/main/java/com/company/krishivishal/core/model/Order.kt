@@ -219,7 +219,11 @@ data class Order(
 
     @ColumnInfo(name = "refundAmount", defaultValue = "0.0")
     @SerializedName("refundAmount")
-    val refundAmount: Double = 0.0
+    val refundAmount: Double = 0.0,
+
+    @ColumnInfo(name = "isAccepted", defaultValue = "0")
+    @SerializedName("isAccepted")
+    val isAccepted: Boolean = false
 ) : Parcelable {
     @get:Exclude
     val orderStatus: OrderStatus 

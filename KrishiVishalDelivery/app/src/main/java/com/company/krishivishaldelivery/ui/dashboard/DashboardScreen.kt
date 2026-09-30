@@ -117,6 +117,28 @@ fun DashboardScreen(
         }
     }
 
+    val incomingOrderAlert by viewModel.incomingOrderAlert.collectAsState()
+
+    if (incomingOrderAlert != null) {
+        val order = incomingOrderAlert!!
+        com.company.krishivishaldelivery.ui.partner.IncomingJobAlertScreen(
+            titleTag = "⚡ INCOMING ORDER ASSIGNMENT",
+            serviceName = "Order #${order.id.takeLast(6)}",
+            customerName = order.userName.ifBlank { "Customer" },
+            farmLocationText = order.address.ifBlank { "Delivery Location" },
+            farmArea = "${order.items.sumOf { it.quantity }} items",
+            estimatedEarnings = if (order.isCOD) (if (order.codAmount > 0) order.codAmount else order.totalAmount) else order.totalAmount,
+            itemsCountText = if (order.isCOD) "COD Payment" else "Prepaid Online",
+            isCod = order.isCOD,
+            onAccept = {
+                viewModel.acceptIncomingOrder(order.id)
+            },
+            onDecline = {
+                viewModel.declineIncomingOrder(order.id)
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             Column {

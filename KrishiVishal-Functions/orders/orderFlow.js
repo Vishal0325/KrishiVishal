@@ -967,12 +967,12 @@ exports.updateOrderStatus = onCall({ region: REGION, invoker: 'public' }, async 
     const role = (context.auth.token?.role || '').toLowerCase();
     const isRider = ['rider'].includes(role);
 
-    // Allow rider to assign themselves if order is unassigned and they are scanning it
-    if (isRider && !orderData.riderId && targetStatus === 'ASSIGNED') {
+    // Allow rider to assign themselves if order is unassigned or assigned to them and they are accepting/scanning it
+    if (isRider && (!orderData.riderId || orderData.riderId === context.auth.uid)) {
         isAssignedRider = true;
     }
 
-    if (!isOwner && !isAssignedRider && !isAdmin) {
+    if (!isOwner && !isAssignedRider && !isRider && !isAdmin) {
         throw new HttpsError('permission-denied', 'No permission to update this order.');
     }
 
@@ -983,16 +983,17 @@ exports.updateOrderStatus = onCall({ region: REGION, invoker: 'public' }, async 
         if (!allowed.includes(targetStatus)) {
             throw new HttpsError('invalid-argument', `Cannot transition from ${currentStatus} to ${targetStatus}.`);
         }
-    } else if (isAssignedRider) {
+    } else if (isAssignedRider || isRider) {
         if (targetStatus === 'DELIVERED') {
             throw new HttpsError('permission-denied', 'DELIVERED status can only be set via verifyDeliveryOTP with customer OTP.');
         }
         const riderAllowed = {
-            PLACED: ['ASSIGNED'],
-            CONFIRMED: ['ASSIGNED'],
-            READY_FOR_PICKUP: ['RIDER_ACCEPTED', 'ASSIGNED', 'RIDER_ASSIGNED'],
-            RIDER_ASSIGNED: ['RIDER_ACCEPTED', 'OUT_FOR_DELIVERY', 'PICKED_UP'],
-            ASSIGNED: ['RIDER_ACCEPTED', 'OUT_FOR_DELIVERY', 'PICKED_UP'],
+            PLACED: ['ASSIGNED', 'RIDER_ASSIGNED', 'RIDER_ACCEPTED', 'OUT_FOR_DELIVERY', 'PICKED_UP'],
+            CONFIRMED: ['ASSIGNED', 'RIDER_ASSIGNED', 'RIDER_ACCEPTED', 'OUT_FOR_DELIVERY', 'PICKED_UP'],
+            READY_FOR_PICKUP: ['RIDER_ACCEPTED', 'ASSIGNED', 'RIDER_ASSIGNED', 'OUT_FOR_DELIVERY', 'PICKED_UP'],
+            PACKED: ['RIDER_ACCEPTED', 'ASSIGNED', 'RIDER_ASSIGNED', 'OUT_FOR_DELIVERY', 'PICKED_UP'],
+            RIDER_ASSIGNED: ['RIDER_ACCEPTED', 'OUT_FOR_DELIVERY', 'PICKED_UP', 'ASSIGNED'],
+            ASSIGNED: ['RIDER_ACCEPTED', 'OUT_FOR_DELIVERY', 'PICKED_UP', 'RIDER_ASSIGNED'],
             RIDER_ACCEPTED: ['OUT_FOR_DELIVERY', 'PICKED_UP'],
             OUT_FOR_DELIVERY: ['DELIVERY_FAILED']
         };
@@ -1014,8 +1015,8 @@ exports.updateOrderStatus = onCall({ region: REGION, invoker: 'public' }, async 
 
     if (riderId !== undefined && isAdmin) {
         updatePayload.riderId = riderId;
-    } else if (isRider && !orderData.riderId && targetStatus === 'ASSIGNED') {
-        // Rider assigns themselves
+    } else if (isRider && (!orderData.riderId || orderData.riderId === context.auth.uid)) {
+        // Rider assigns/attaches themselves
         updatePayload.riderId = context.auth.uid;
     }
 

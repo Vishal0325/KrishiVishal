@@ -21,10 +21,14 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun IncomingJobAlertScreen(
+    titleTag: String = "⚡ INCOMING AGRI-SERVICE JOB",
     serviceName: String,
+    customerName: String = "",
     farmLocationText: String = "Village Farm Plot #4",
     farmArea: String = "5 Acres",
     estimatedEarnings: Double = 750.0,
+    itemsCountText: String = "",
+    isCod: Boolean = false,
     onAccept: () -> Unit,
     onDecline: () -> Unit
 ) {
@@ -94,7 +98,7 @@ fun IncomingJobAlertScreen(
                 modifier = Modifier.padding(top = 16.dp)
             ) {
                 Text(
-                    text = "⚡ INCOMING AGRI-SERVICE JOB",
+                    text = titleTag,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -142,7 +146,7 @@ fun IncomingJobAlertScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text("Service Required", style = MaterialTheme.typography.labelMedium)
+                            Text(if (customerName.isNotBlank()) "Customer: $customerName" else "Job Required", style = MaterialTheme.typography.labelMedium)
                             Text(
                                 text = serviceName,
                                 style = MaterialTheme.typography.titleLarge,
@@ -161,9 +165,9 @@ fun IncomingJobAlertScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text("Farm Location & Area", style = MaterialTheme.typography.labelMedium)
+                            Text("Delivery Address & Details", style = MaterialTheme.typography.labelMedium)
                             Text(
-                                text = "$farmLocationText ($farmArea)",
+                                text = if (farmArea.isNotBlank()) "$farmLocationText ($farmArea)" else farmLocationText,
                                 style = MaterialTheme.typography.bodyLarge
                             )
                         }
@@ -179,12 +183,12 @@ fun IncomingJobAlertScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text("Estimated Partner Earnings", style = MaterialTheme.typography.labelMedium)
+                            Text(if (isCod) "Cash to Collect (COD)" else "Order Value / Earnings", style = MaterialTheme.typography.labelMedium)
                             Text(
-                                text = "₹${estimatedEarnings.toInt()} (Net after commission)",
+                                text = "₹${estimatedEarnings.toInt()} ${if (itemsCountText.isNotBlank()) "($itemsCountText)" else ""}",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
+                                color = if (isCod) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                             )
                         }
                     }

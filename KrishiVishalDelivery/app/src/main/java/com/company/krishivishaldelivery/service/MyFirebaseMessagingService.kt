@@ -59,16 +59,17 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         Log.d("FCM_MSG", "From: ${remoteMessage.from}")
         Log.d("FCM_DATA", "Data payload: ${remoteMessage.data}")
 
-        val action = remoteMessage.data["action"]
+        val action = remoteMessage.data["action"] ?: ""
+        val type = remoteMessage.data["type"] ?: ""
+        val title = remoteMessage.notification?.title ?: remoteMessage.data["title"] ?: ""
 
-        if (action == "NEW_JOB") {
-            // New Job Alert with Full-Screen Intent!
+        if (action == "NEW_JOB" || action == "ORDER_ASSIGNED" || type == "ORDER_ASSIGNMENT" || title.contains("assigned", ignoreCase = true)) {
+            // New Job / Order Alert with Full-Screen Intent!
             showJobAlertNotification(remoteMessage.data)
         } else {
             // Normal Notification
-            val title = remoteMessage.notification?.title ?: remoteMessage.data["title"] ?: "KrishiVishal Delivery"
             val message = remoteMessage.notification?.body ?: remoteMessage.data["message"] ?: "New Update"
-            showNotification(title, message)
+            showNotification(if (title.isNotBlank()) title else "KrishiVishal Delivery", message)
         }
     }
 

@@ -86,6 +86,38 @@ class DashboardViewModel @Inject constructor(
 
     val isSyncing = MutableStateFlow(false)
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val incomingOrderAlert: StateFlow<Order?> = _riderProfile.flatMapLatest { res ->
+        val riderId = (res as? Resource.Success)?.data?.id ?: auth.currentUser?.uid ?: ""
+        if (riderId.isNotEmpty()) {
+            orderRepository.getIncomingAssignedOrders(riderId)
+        } else flowOf(emptyList())
+    }.map { list ->
+        list.firstOrNull()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun acceptIncomingOrder(orderId: String) {
+        viewModelScope.launch {
+            try {
+                orderRepository.acceptAssignedOrder(orderId, currentRiderId)
+                syncData(currentRiderId)
+            } catch (e: Exception) {
+                timber.log.Timber.e(e, "Failed to accept incoming order $orderId")
+            }
+        }
+    }
+
+    fun declineIncomingOrder(orderId: String) {
+        viewModelScope.launch {
+            try {
+                orderRepository.rejectOrder(orderId, currentRiderId, "Rider declined incoming order alert")
+                syncData(currentRiderId)
+            } catch (e: Exception) {
+                timber.log.Timber.e(e, "Failed to decline incoming order $orderId")
+            }
+        }
+    }
+
 
     // COD Vault Limit State
     val codCashInHand: StateFlow<Double> = orders.map { res ->
