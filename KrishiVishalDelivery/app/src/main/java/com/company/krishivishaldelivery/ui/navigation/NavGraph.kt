@@ -43,7 +43,7 @@ fun AppNavGraph(
         composable("login") {
             LoginScreen(onLoginSuccess = {
                 navController.navigate("dashboard") {
-                    popUpTo("login") { inclusive = true }
+                    popUpTo(navController.graph.id) { inclusive = true }
                 }
             })
         }
