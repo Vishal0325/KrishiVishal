@@ -20,11 +20,14 @@ import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
+import com.company.krishivishal.core.model.Product
+
 interface CartRepository {
     fun getCart(userId: String): Flow<Resource<List<CartItem>>>
     fun getCartWithProducts(userId: String): Flow<Resource<List<CartWithProduct>>>
     fun getCartCount(userId: String): Flow<Int>
     fun addToCart(cartItem: CartItem): Flow<Resource<Unit>>
+    fun addToCart(product: Product, quantity: Int = 1, variantId: String? = null): Flow<Resource<Unit>>
     fun updateCartItem(cartItem: CartItem): Flow<Resource<Unit>>
     fun removeFromCart(cartItem: CartItem): Flow<Resource<Unit>>
     fun clearCart(userId: String): Flow<Resource<Unit>>
@@ -87,6 +90,20 @@ class CartRepositoryImpl @Inject constructor(
                 "timestamp" to System.currentTimeMillis()
             )
         )
+    }
+
+    override fun addToCart(product: Product, quantity: Int, variantId: String?): Flow<Resource<Unit>> {
+        val currentUserId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            ?: com.company.krishivishal.core.util.Constants.GUEST_USER_ID
+        val cartItem = CartItem(
+            id = java.util.UUID.randomUUID().toString(),
+            userId = currentUserId,
+            productId = product.id,
+            variantId = variantId,
+            quantity = quantity,
+            skuCode = product.variants.find { it.id == variantId }?.skuCode ?: product.hsnCode
+        )
+        return addToCart(cartItem)
     }
 
     override fun updateCartItem(cartItem: CartItem): Flow<Resource<Unit>> = safeCall(ioDispatcher) {

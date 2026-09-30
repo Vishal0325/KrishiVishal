@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 59,
-    "identityHash": "1be5820a6e47bc506e08e8d45c3e7d58",
+    "identityHash": "297114635a50fe1b5ed4fdd566e33d22",
     "entities": [
       {
         "tableName": "users",
@@ -913,7 +913,7 @@
       },
       {
         "tableName": "orders",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `items` TEXT NOT NULL, `totalAmount` REAL NOT NULL, `paymentMethod` TEXT NOT NULL, `paymentStatus` TEXT NOT NULL, `razorpayPaymentId` TEXT, `address` TEXT NOT NULL, `landmark` TEXT NOT NULL DEFAULT '', `status` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `expectedDelivery` INTEGER NOT NULL, `riderId` TEXT NOT NULL, `isCOD` INTEGER NOT NULL, `codAmount` REAL NOT NULL, `isSettledByAdmin` INTEGER NOT NULL, `targetLat` REAL NOT NULL, `targetLng` REAL NOT NULL, `customerOTP` TEXT NOT NULL, `userName` TEXT NOT NULL, `userPhone` TEXT NOT NULL, `collectedCash` REAL NOT NULL, `isCashDeposited` INTEGER NOT NULL, `totalTax` REAL NOT NULL, `taxableTotal` REAL NOT NULL, `cgst` REAL NOT NULL, `sgst` REAL NOT NULL, `igst` REAL NOT NULL, `subtotal` REAL NOT NULL, `totalDiscount` REAL NOT NULL, `deliveryCharges` REAL NOT NULL, `platformFee` REAL NOT NULL, `handlingCharge` REAL NOT NULL, `packagingFee` REAL NOT NULL, `returnStatus` TEXT NOT NULL DEFAULT '', `returnId` TEXT NOT NULL DEFAULT '', `refundStatus` TEXT NOT NULL DEFAULT '', `refundAmount` REAL NOT NULL DEFAULT 0.0, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `items` TEXT NOT NULL, `totalAmount` REAL NOT NULL, `paymentMethod` TEXT NOT NULL, `paymentStatus` TEXT NOT NULL, `razorpayPaymentId` TEXT, `address` TEXT NOT NULL, `landmark` TEXT NOT NULL DEFAULT '', `status` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `expectedDelivery` INTEGER NOT NULL, `riderId` TEXT NOT NULL, `isCOD` INTEGER NOT NULL, `codAmount` REAL NOT NULL, `isSettledByAdmin` INTEGER NOT NULL, `targetLat` REAL NOT NULL, `targetLng` REAL NOT NULL, `customerOTP` TEXT NOT NULL, `userName` TEXT NOT NULL, `userPhone` TEXT NOT NULL, `collectedCash` REAL NOT NULL, `isCashDeposited` INTEGER NOT NULL, `totalTax` REAL NOT NULL, `taxableTotal` REAL NOT NULL, `cgst` REAL NOT NULL, `sgst` REAL NOT NULL, `igst` REAL NOT NULL, `subtotal` REAL NOT NULL, `totalDiscount` REAL NOT NULL, `deliveryCharges` REAL NOT NULL, `platformFee` REAL NOT NULL, `handlingCharge` REAL NOT NULL, `packagingFee` REAL NOT NULL, `returnStatus` TEXT NOT NULL DEFAULT '', `returnId` TEXT NOT NULL DEFAULT '', `refundStatus` TEXT NOT NULL DEFAULT '', `refundAmount` REAL NOT NULL DEFAULT 0.0, `isAccepted` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -1147,6 +1147,13 @@
             "affinity": "REAL",
             "notNull": true,
             "defaultValue": "0.0"
+          },
+          {
+            "fieldPath": "isAccepted",
+            "columnName": "isAccepted",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
           }
         ],
         "primaryKey": {
@@ -2475,7 +2482,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '1be5820a6e47bc506e08e8d45c3e7d58')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '297114635a50fe1b5ed4fdd566e33d22')"
     ]
   }
 }

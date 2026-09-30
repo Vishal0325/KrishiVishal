@@ -370,7 +370,8 @@ fun MainScreen(
                 OrderScreen(
                     onBack = { navController.popBackStack() },
                     onTrackClick = { orderId -> navController.navigate(Screen.Tracking.createRoute(orderId)) },
-                    onViewBillClick = { order -> navController.navigate(Screen.OrderBill.createRoute(order.id)) }
+                    onViewBillClick = { order -> navController.navigate(Screen.OrderBill.createRoute(order.id)) },
+                    onNavigateToCart = { navController.navigate(Screen.Cart.route) }
                 )
             }
 

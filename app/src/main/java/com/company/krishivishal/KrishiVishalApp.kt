@@ -120,7 +120,34 @@ class KrishiVishalApp : Application(), ImageLoaderFactory, Configuration.Provide
             }
         }
 
+        createNotificationChannels()
         Timber.d("KrishiVishalApp initialized")
+    }
+
+    private fun createNotificationChannels() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val notificationManager = getSystemService(android.app.NotificationManager::class.java)
+            if (notificationManager != null) {
+                val orderUpdatesChannel = android.app.NotificationChannel(
+                    "order_updates",
+                    "Order Updates",
+                    android.app.NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Notifications for order status changes"
+                    enableVibration(true)
+                }
+
+                val stockAlertsChannel = android.app.NotificationChannel(
+                    "stock_alerts",
+                    "Stock Alerts",
+                    android.app.NotificationManager.IMPORTANCE_DEFAULT
+                ).apply {
+                    description = "Alerts for product stock availability"
+                }
+
+                notificationManager.createNotificationChannels(listOf(orderUpdatesChannel, stockAlertsChannel))
+            }
+        }
     }
 
     private fun setupTimber() {

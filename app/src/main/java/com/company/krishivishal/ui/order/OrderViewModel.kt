@@ -17,6 +17,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import com.company.krishivishal.data.repository.ProductRepository
+import com.company.krishivishal.data.repository.CartRepository
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -27,6 +29,8 @@ class OrderViewModel @Inject constructor(
     private val getCurrentUserUseCase: GetCurrentUserUseCase,
     private val returnRepository: ReturnRepository,
     private val orderRepository: OrderRepository,
+    private val productRepository: ProductRepository,
+    private val cartRepository: CartRepository,
     private val analyticsTracker: AnalyticsTracker,
     private val firestore: com.google.firebase.firestore.FirebaseFirestore
 ) : ViewModel() {
@@ -210,6 +214,72 @@ class OrderViewModel @Inject constructor(
     fun clearReturnState() {
         _uiState.update { it.copy(returnRequestResource = null) }
     }
+
+    private val _reorderState = MutableStateFlow<ReorderState>(ReorderState.Idle)
+    val reorderState: StateFlow<ReorderState> = _reorderState.asStateFlow()
+
+    fun resetReorderState() {
+        _reorderState.value = ReorderState.Idle
+    }
+
+    fun reorder(order: Order) {
+        viewModelScope.launch {
+            _reorderState.value = ReorderState.Loading
+            try {
+                var addedCount = 0
+                var skippedCount = 0
+
+                for (item in order.items) {
+                    if (item.productId.isBlank()) {
+                        skippedCount++
+                        continue
+                    }
+                    val product = productRepository.getProduct(item.productId)
+                    if (product == null || !product.isActive) {
+                        skippedCount++
+                        continue
+                    }
+
+                    val availableStock = if (item.variantId.isNullOrBlank()) {
+                        product.stockQuantity
+                    } else {
+                        val variant = product.variants.find { it.id == item.variantId }
+                        if (variant != null) {
+                            if (variant.availableStock > 0) variant.availableStock else variant.stock
+                        } else {
+                            product.stockQuantity
+                        }
+                    }
+
+                    if (availableStock > 0) {
+                        val quantityToAdd = if (item.quantity > 0) item.quantity else 1
+                        val result = cartRepository.addToCart(product, quantityToAdd, item.variantId)
+                            .firstOrNull { it !is Resource.Loading }
+
+                        if (result is Resource.Success) {
+                            addedCount++
+                        } else {
+                            skippedCount++
+                        }
+                    } else {
+                        skippedCount++
+                    }
+                }
+
+                _reorderState.value = ReorderState.Success(addedCount = addedCount, skippedCount = skippedCount)
+            } catch (e: Exception) {
+                Timber.e(e, "Reorder failed")
+                _reorderState.value = ReorderState.Error(e.message ?: "Failed to reorder items")
+            }
+        }
+    }
+}
+
+sealed class ReorderState {
+    object Idle : ReorderState()
+    object Loading : ReorderState()
+    data class Success(val addedCount: Int, val skippedCount: Int) : ReorderState()
+    data class Error(val message: String) : ReorderState()
 }
 
 data class OrderHistoryUiState(

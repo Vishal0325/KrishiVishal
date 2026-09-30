@@ -27,6 +27,7 @@ import com.company.krishivishal.ui.theme.PrimaryGreen
 import com.company.krishivishal.utils.LocaleManager
 import com.company.krishivishal.utils.DeepLinkManager
 import com.company.krishivishal.utils.DeepLinkDestination
+import com.company.krishivishal.utils.NotificationHelper
 import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.data.repository.ConfigRepository
 import com.company.krishivishal.crashlytics.CrashlyticsErrorReporter
@@ -199,6 +200,22 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     }
 
     private fun handleIntent(intent: Intent?) {
+        val notifType = intent?.getStringExtra(NotificationHelper.EXTRA_NOTIFICATION_TYPE)
+        val notifTargetId = intent?.getStringExtra(NotificationHelper.EXTRA_TARGET_ID)
+        if (!notifTargetId.isNullOrBlank()) {
+            if (notifType == "STOCK_AVAILABLE" || notifType == "PRODUCT") {
+                deepLinkProductId = notifTargetId
+                deepLinkOrderId = null
+                deepLinkTrigger++
+                return
+            } else if (notifType == "ORDER") {
+                deepLinkOrderId = notifTargetId
+                deepLinkProductId = null
+                deepLinkTrigger++
+                return
+            }
+        }
+
         if (intent?.action != Intent.ACTION_VIEW) {
             return
         }

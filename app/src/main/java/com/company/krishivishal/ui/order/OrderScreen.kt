@@ -64,16 +64,19 @@ fun OrderScreen(
     onBack: () -> Unit,
     onTrackClick: (String) -> Unit,
     onViewBillClick: (Order) -> Unit,
+    onNavigateToCart: () -> Unit = {},
     viewModel: OrderViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val appConfig by viewModel.appConfig.collectAsState()
+    val reorderState by viewModel.reorderState.collectAsState()
     val cancelState = uiState.cancelOrderResource
     var selectedOrderId by remember { mutableStateOf<String?>(null) }
     var orderToCancel by remember { mutableStateOf<Order?>(null) }
     var orderToReturn by remember { mutableStateOf<Order?>(null) }
     var itemToReview by remember { mutableStateOf<Pair<Order, OrderItem>?>(null) }
     var selectedTab by remember { mutableStateOf(OrderFilterTab.ALL) }
+    var reorderTargetOrderId by remember { mutableStateOf<String?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -87,6 +90,33 @@ fun OrderScreen(
             is Resource.Error -> {
                 snackbarHostState.showSnackbar("Error: ${cancelState.message}")
                 viewModel.clearCancelState()
+            }
+            else -> {}
+        }
+    }
+
+    LaunchedEffect(reorderState) {
+        when (val state = reorderState) {
+            is ReorderState.Success -> {
+                val message = buildString {
+                    if (state.addedCount > 0) {
+                        append("${state.addedCount} item${if (state.addedCount > 1) "s" else ""} added to cart.")
+                    } else {
+                        append("No items added to cart.")
+                    }
+                    if (state.skippedCount > 0) {
+                        append(" ${state.skippedCount} out-of-stock/unavailable item${if (state.skippedCount > 1) "s" else ""} skipped.")
+                    }
+                }
+                snackbarHostState.showSnackbar(message)
+                viewModel.resetReorderState()
+                if (state.addedCount > 0) {
+                    onNavigateToCart()
+                }
+            }
+            is ReorderState.Error -> {
+                snackbarHostState.showSnackbar("Reorder failed: ${state.message}")
+                viewModel.resetReorderState()
             }
             else -> {}
         }
@@ -221,11 +251,17 @@ fun OrderScreen(
                                 isExpanded = selectedOrderId == order.id,
                                 appConfig = appConfig,
                                 viewModel = viewModel,
+                                reorderState = reorderState,
+                                reorderTargetOrderId = reorderTargetOrderId,
                                 onExpandClick = {
                                     selectedOrderId = if (selectedOrderId == order.id) null else order.id
                                 },
                                 onCancelClick = { orderToCancel = it },
                                 onReturnClick = { orderToReturn = it },
+                                onReorderClick = { orderToReorder ->
+                                    reorderTargetOrderId = orderToReorder.id
+                                    viewModel.reorder(orderToReorder)
+                                },
                                 onTrackClick = { onTrackClick(order.id) },
                                 onViewBillClick = { onViewBillClick(order) },
                                 onWriteReviewClick = { item -> itemToReview = Pair(order, item) }
@@ -297,11 +333,14 @@ fun ReferenceOrderItemCard(
     isExpanded: Boolean,
     appConfig: AppConfig,
     viewModel: OrderViewModel,
+    reorderState: ReorderState,
+    reorderTargetOrderId: String?,
     onExpandClick: () -> Unit,
     onCancelClick: (Order) -> Unit,
     onReturnClick: (Order) -> Unit,
+    onReorderClick: (Order) -> Unit,
     onTrackClick: () -> Unit,
-    onViewBillClick: () -> Unit,
+    onViewBillClick: (Order) -> Unit,
     onWriteReviewClick: (OrderItem) -> Unit
 ) {
     val context = LocalContext.current
@@ -642,7 +681,7 @@ fun ReferenceOrderItemCard(
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
-                            onClick = onViewBillClick,
+                            onClick = { onViewBillClick(order) },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                             shape = RoundedCornerShape(8.dp)
@@ -756,6 +795,27 @@ fun ReferenceOrderItemCard(
                         }
 
                         Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = { onReorderClick(order) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            enabled = reorderState !is ReorderState.Loading,
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            if (reorderState is ReorderState.Loading && reorderTargetOrderId == order.id) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Adding to Cart...", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            } else {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Buy Again", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
                         OutlinedButton(
                             onClick = { onReturnClick(order) },
                             modifier = Modifier

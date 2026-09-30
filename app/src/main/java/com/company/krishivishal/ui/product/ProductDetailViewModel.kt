@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import java.util.UUID
+import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.tasks.await
 
 @HiltViewModel
 class ProductDetailViewModel @Inject constructor(
@@ -421,15 +423,33 @@ class ProductDetailViewModel @Inject constructor(
         }
     }
 
+    fun notifyMe() {
+        requestStockNotification()
+    }
+
     fun requestStockNotification() {
         val product = _uiState.value.product ?: return
+        val selectedVariant = _uiState.value.selectedVariant
 
         viewModelScope.launch {
             val currentUser = _user.value ?: getCurrentUserUseCase().firstOrNull()
             val userId = currentUser?.id ?: Constants.GUEST_USER_ID
 
             _uiState.update { it.copy(isNotifyMeLoading = true) }
-            productRepository.requestStockNotification(product.id, userId).collect { resource ->
+
+            val fcmToken = try {
+                FirebaseMessaging.getInstance().token.await()
+            } catch (e: Exception) {
+                ""
+            }
+
+            productRepository.requestStockNotification(
+                productId = product.id,
+                userId = userId,
+                variantId = selectedVariant?.id,
+                productName = product.name,
+                fcmToken = fcmToken
+            ).collect { resource ->
                 when (resource) {
                     is Resource.Success -> {
                         _uiState.update { it.copy(isNotifyMeLoading = false, notifyMeSuccess = true, cartMessageRes = R.string.notify_success_msg) }

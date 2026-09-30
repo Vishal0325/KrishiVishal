@@ -1,4 +1,5 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const crypto = require("crypto");
 const { db, admin } = require("../core/admin");
 const { checkFeatureFlag, addToOutbox, isAdminRequest } = require("../core/utils");
@@ -1166,4 +1167,100 @@ exports.verifyScannedQR = onCall({ region: REGION, secrets: [qrHmacSecret], invo
         order: orderData
     };
 });
+
+const STATUS_TEMPLATES = {
+    CONFIRMED: "✅ Order Confirmed!",
+    PACKED: "📦 Order Packed!",
+    OUT_FOR_DELIVERY: "🚴 Out for Delivery!",
+    DELIVERED: "🎉 Order Delivered!",
+    CANCELLED: "❌ Order Cancelled",
+    RETURN_APPROVED: "↩️ Return Approved"
+};
+
+/**
+ * Triggered on order status update to dispatch FCM notifications & store in-app notifications.
+ */
+exports.onOrderStatusChange = onDocumentUpdated({ document: "orders/{orderId}", region: REGION }, async (event) => {
+    const change = event.data;
+    if (!change) return null;
+
+    const beforeData = change.before ? change.before.data() : null;
+    const afterData = change.after ? change.after.data() : null;
+
+    if (!beforeData || !afterData || beforeData.status === afterData.status) {
+        return null;
+    }
+
+    const orderId = event.params.orderId;
+    const newStatus = afterData.status;
+    const userId = afterData.userId || afterData.customerId;
+
+    if (!userId) {
+        console.error(`[onOrderStatusChange] Missing userId for order: ${orderId}`);
+        return null;
+    }
+
+    const title = STATUS_TEMPLATES[newStatus] || `Order Update: ${newStatus.replace(/_/g, " ")}`;
+    const body = `Your order #${orderId.substring(0, 8)} status is now ${newStatus.replace(/_/g, " ")}.`;
+
+    // 1. Write to users/{userId}/notifications collection for in-app notification center
+    try {
+        await db.collection("users").doc(userId).collection("notifications").add({
+            title: title,
+            body: body,
+            type: 'ORDER_STATUS_UPDATE',
+            orderId: orderId,
+            status: newStatus,
+            isRead: false,
+            read: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+        console.log(`[onOrderStatusChange] In-app notification stored for user ${userId}, order ${orderId}`);
+    } catch (err) {
+        console.error(`[onOrderStatusChange] Error storing in-app notification for user ${userId}:`, err);
+    }
+
+    // 2. Fetch customer's fcmToken from users/{userId}
+    try {
+        const userDoc = await db.collection("users").doc(userId).get();
+        if (!userDoc.exists) {
+            console.log(`[onOrderStatusChange] User document not found: ${userId}`);
+            return null;
+        }
+
+        const fcmToken = userDoc.data()?.fcmToken;
+        if (!fcmToken) {
+            console.log(`[onOrderStatusChange] No fcmToken registered for user: ${userId}`);
+            return null;
+        }
+
+        const message = {
+            token: fcmToken,
+            notification: {
+                title: title,
+                body: body
+            },
+            data: {
+                type: 'ORDER_STATUS_UPDATE',
+                orderId: orderId,
+                status: newStatus
+            },
+            android: {
+                priority: 'high',
+                notification: {
+                    channelId: 'order_updates'
+                }
+            }
+        };
+
+        await admin.messaging().send(message);
+        console.log(`[onOrderStatusChange] FCM notification sent successfully to user ${userId} for order ${orderId} (${newStatus})`);
+    } catch (err) {
+        console.error(`[onOrderStatusChange] Error sending FCM notification to user ${userId}:`, err);
+    }
+
+    return null;
+});
+
 

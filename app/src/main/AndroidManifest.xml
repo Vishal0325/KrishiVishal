@@ -71,6 +71,14 @@
         </activity>
 
         <service
+            android:name="com.company.krishivishal.service.KrishiVishalFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <service
             android:name="com.company.krishivishal.service.KrishiMartFirebaseService"
             android:exported="false">
             <intent-filter>

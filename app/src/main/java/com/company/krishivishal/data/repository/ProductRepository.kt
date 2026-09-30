@@ -23,6 +23,7 @@ import androidx.paging.PagingData
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import com.company.krishivishal.data.paging.ProductPagingSource
+import timber.log.Timber
 import com.google.firebase.functions.FirebaseFunctions
 import com.company.krishivishal.core.model.RecommendationResult
 import com.company.krishivishal.data.mapper.toProduct
@@ -34,13 +35,20 @@ interface ProductRepository {
     fun getProductsByBrand(brand: String): Flow<Resource<List<Product>>>
     fun getProductsByCrop(cropId: String, cropName: String): Flow<Resource<List<Product>>>
     fun getProductDetails(productId: String): Flow<Resource<Product?>>
+    suspend fun getProduct(productId: String): Product?
     fun getVariantsByProductId(productId: String): Flow<Resource<List<Variant>>>
     suspend fun saveProduct(product: Product): Flow<Resource<Unit>>
     suspend fun deleteProduct(productId: String): Flow<Resource<Unit>>
     suspend fun seedProducts()
     fun addReview(review: Review): Flow<Resource<Unit>>
     fun getReviews(productId: String): Flow<Resource<List<Review>>>
-    fun requestStockNotification(productId: String, userId: String): Flow<Resource<Unit>>
+    fun requestStockNotification(
+        productId: String,
+        userId: String,
+        variantId: String? = null,
+        productName: String = "",
+        fcmToken: String = ""
+    ): Flow<Resource<Unit>>
     fun getRecommendations(productId: String): Flow<Resource<RecommendationResult>>
 }
 
@@ -200,6 +208,36 @@ class ProductRepositoryImpl @Inject constructor(
         dispatcher = ioDispatcher
     )
 
+    override suspend fun getProduct(productId: String): Product? = kotlinx.coroutines.withContext(ioDispatcher) {
+        try {
+            val doc = firestore.collection("products").document(productId).get().await()
+            val product = doc.toProduct()
+            if (product != null) {
+                val variantsSnapshot = firestore.collection("products").document(productId)
+                    .collection("variants").get().await()
+                if (!variantsSnapshot.isEmpty) {
+                    val remoteVariants = variantsSnapshot.documents.mapNotNull {
+                        it.toObject(Variant::class.java)?.apply {
+                            id = it.id
+                            if (this.productId.isEmpty()) this.productId = productId
+                        }
+                    }
+                    product.variants = remoteVariants
+                }
+                saveProductsToLocal(listOf(product))
+                return@withContext product
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to fetch product $productId from Firestore, fallback to local DB")
+        }
+        val localProduct = productDao.getProductById(productId)
+        if (localProduct != null) {
+            val variants = productDao.getVariantsByProductIdOnce(productId)
+            localProduct.apply { this.variants = variants }
+        }
+        localProduct
+    }
+
     override fun getVariantsByProductId(productId: String): Flow<Resource<List<Variant>>> = networkBoundResource(
         query = { productDao.getVariantsByProductId(productId).map { it } },
         fetch = {
@@ -315,14 +353,32 @@ class ProductRepositoryImpl @Inject constructor(
             .toObjects(Review::class.java)
     }
 
-    override fun requestStockNotification(productId: String, userId: String): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
-        val request = mapOf(
-            "productId" to productId,
+    override fun requestStockNotification(
+        productId: String,
+        userId: String,
+        variantId: String?,
+        productName: String,
+        fcmToken: String
+    ): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
+        var token = fcmToken
+        if (token.isBlank()) {
+            token = try {
+                com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()
+            } catch (e: Exception) {
+                ""
+            }
+        }
+        val request = hashMapOf(
             "userId" to userId,
-            "timestamp" to com.google.firebase.Timestamp.now(),
-            "status" to "PENDING"
+            "productId" to productId,
+            "variantId" to (variantId ?: ""),
+            "productName" to productName,
+            "fcmToken" to token,
+            "createdAt" to com.google.firebase.Timestamp.now(),
+            "fulfilled" to false
         )
-        firestore.collection("stock_notification_requests").add(request).await()
+        val docId = "${productId}_${userId}"
+        firestore.collection("stock_notification_requests").document(docId).set(request, com.google.firebase.firestore.SetOptions.merge()).await()
     }
 
     override fun getRecommendations(productId: String): Flow<Resource<RecommendationResult>> = kotlinx.coroutines.flow.flow {

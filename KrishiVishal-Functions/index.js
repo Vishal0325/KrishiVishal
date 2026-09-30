@@ -36,6 +36,7 @@ const cropAdvisory = require('./messaging/cropAdvisory');
 
 // --- ORDERS ---
 exports.createOrder = orders.createOrder;
+exports.onOrderStatusChange = orders.onOrderStatusChange;
 exports.getAvailableSlots = deliverySlots.getAvailableSlots;
 exports.deleteDeliverySlot = deliverySlots.deleteDeliverySlot;
 exports.requestReturn = orders.requestReturn;

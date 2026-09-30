@@ -30,6 +30,7 @@ class NotificationHelper @Inject constructor(
         const val CHANNEL_ORDERS = "krishi_orders_channel"
         const val CHANNEL_OFFERS = "krishi_offers_channel"
         const val CHANNEL_GENERAL = "krishi_general_channel"
+        const val CHANNEL_STOCK_ALERTS = "stock_alerts"
 
         const val EXTRA_NOTIFICATION_TYPE = "extra_notification_type"
         const val EXTRA_TARGET_ID = "extra_target_id"
@@ -67,7 +68,16 @@ class NotificationHelper @Inject constructor(
                 description = "General announcements and alerts"
             }
 
-            notificationManager.createNotificationChannels(listOf(ordersChannel, offersChannel, generalChannel))
+            val stockAlertsChannel = NotificationChannel(
+                CHANNEL_STOCK_ALERTS,
+                "स्टॉक अलर्ट (Stock Alerts)",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Alerts when requested products are back in stock"
+                enableVibration(true)
+            }
+
+            notificationManager.createNotificationChannels(listOf(ordersChannel, offersChannel, generalChannel, stockAlertsChannel))
         }
     }
 
@@ -105,6 +115,7 @@ class NotificationHelper @Inject constructor(
         notificationId: Int = (System.currentTimeMillis() % 100000).toInt()
     ) {
         val channelId = when (type.uppercase()) {
+            "STOCK_AVAILABLE", "STOCK_ALERT" -> CHANNEL_STOCK_ALERTS
             "ORDER", "ORDER_PLACED", "ORDER_CONFIRMED", "SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED", "RETURN_UPDATE" -> CHANNEL_ORDERS
             "OFFER", "PROMOTION", "DISCOUNT", "SEASONAL_PICK" -> CHANNEL_OFFERS
             else -> CHANNEL_GENERAL

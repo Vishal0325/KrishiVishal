@@ -13,16 +13,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
-class KrishiMartFirebaseService : FirebaseMessagingService() {
-
-    @Inject
-    lateinit var repository: NotificationRepository
-
-    @Inject
-    lateinit var notificationHelper: NotificationHelper
-
-    @Inject
-    lateinit var auth: FirebaseAuth
+class KrishiMartFirebaseService : KrishiVishalFirebaseMessagingService() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -39,30 +30,34 @@ class KrishiMartFirebaseService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
         
-        val title = message.notification?.title ?: message.data["title"]
+        val type = message.data["type"] ?: "GENERAL"
+        val productId = message.data["productId"]
+        val targetId = message.data["targetId"] ?: message.data["orderId"] ?: productId
+        val title = message.notification?.title ?: message.data["title"] ?: if (type == "STOCK_AVAILABLE") "✅ Stock Available!" else null
         val body = message.notification?.body ?: message.data["body"]
         val imageUrl = message.notification?.imageUrl?.toString()
             ?: message.data["imageUrl"]
             ?: message.data["image"]
             ?: message.data["bannerUrl"]
-        val type = message.data["type"] ?: "GENERAL"
-        val targetId = message.data["targetId"] ?: message.data["orderId"] ?: message.data["productId"]
         val data = message.data["data"]
 
-        if (title != null || body != null) {
+        if (title != null || body != null || type == "STOCK_AVAILABLE") {
+            val notificationTitle = title ?: "Stock Available!"
+            val notificationBody = body ?: "Item is back in stock!"
+
             val notification = com.company.krishivishal.core.model.Notification(
-                title = title ?: "New Notification",
-                body = body ?: "",
+                title = notificationTitle,
+                body = notificationBody,
                 type = type,
                 data = data
             )
 
             serviceScope.launch {
                 repository.saveNotification(notification)
-                // Display rich notification with optional BigPicture banner image and channel routing
+                // Display rich notification with channel routing (stock_alerts channel for STOCK_AVAILABLE)
                 notificationHelper.showRichNotification(
-                    title = title,
-                    message = body,
+                    title = notificationTitle,
+                    message = notificationBody,
                     imageUrl = imageUrl,
                     type = type,
                     targetId = targetId

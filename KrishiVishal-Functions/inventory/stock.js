@@ -162,6 +162,7 @@ exports.onSkuWrite = onDocumentWritten({ document: "skus/{skuId}", region: REGIO
         const productSnap = await productRef.get();
 
         if (productSnap.exists) {
+            const prevStock = Number(productSnap.data().stockQuantity || productSnap.data().stock || 0);
             const minPrice = variants.length > 0 ? Math.min(...variants.map(v => v.price)) : 0;
             const totalAvailableStock = variants.reduce((sum, v) => sum + v.stock, 0);
 
@@ -176,9 +177,72 @@ exports.onSkuWrite = onDocumentWritten({ document: "skus/{skuId}", region: REGIO
             });
 
             console.log(`Synced ${variants.length} SKUs to Product ${productId} (Stock: ${totalAvailableStock}, MinPrice: ₹${minPrice})`);
+
+            const beforeStock = Number(beforeData?.inventory?.availableStock || 0);
+            const afterStock = Number(afterData?.inventory?.availableStock || 0);
+
+            if ((prevStock <= 0 && totalAvailableStock > 0) || (beforeStock <= 0 && afterStock > 0)) {
+                await notifyStockRestored(productId, productSnap.data()?.name);
+            }
         }
     } catch (err) {
         console.error(`Failed to sync SKUs for Product ${productId}:`, err.message);
     }
     return null;
 });
+
+/**
+ * Notifies all users who requested stock alerts for a product when stock becomes available.
+ */
+async function notifyStockRestored(productId, productName) {
+    try {
+        const requestsSnap = await db.collection("stock_notification_requests")
+            .where("productId", "==", productId)
+            .where("fulfilled", "==", false)
+            .get();
+
+        if (requestsSnap.empty) return;
+
+        const docsToUpdate = [];
+        const fcmTokens = [];
+
+        requestsSnap.docs.forEach(doc => {
+            const data = doc.data();
+            if (data.fcmToken && typeof data.fcmToken === "string" && data.fcmToken.trim().length > 0) {
+                fcmTokens.push(data.fcmToken.trim());
+            }
+            docsToUpdate.push(doc.ref);
+        });
+
+        if (fcmTokens.length > 0) {
+            const uniqueTokens = Array.from(new Set(fcmTokens));
+            for (let i = 0; i < uniqueTokens.length; i += 500) {
+                const batchTokens = uniqueTokens.slice(i, i + 500);
+                await admin.messaging().sendEachForMulticast({
+                    tokens: batchTokens,
+                    notification: {
+                        title: "✅ Stock Available!",
+                        body: `${productName || "Product"} is now back in stock!`
+                    },
+                    data: {
+                        type: 'STOCK_AVAILABLE',
+                        productId: String(productId)
+                    }
+                });
+            }
+        }
+
+        const batch = db.batch();
+        docsToUpdate.forEach(ref => {
+            batch.update(ref, {
+                fulfilled: true,
+                notifiedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        });
+        await batch.commit();
+
+        console.log(`Notified ${fcmTokens.length} stock notification requests for Product ${productId}`);
+    } catch (err) {
+        console.error(`Failed to send FCM multicast for stock restoration of product ${productId}:`, err);
+    }
+}
