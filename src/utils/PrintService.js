@@ -73,7 +73,7 @@ export const printThermalShippingLabel = async (order, parcelInfo = {}) => {
   const parcelWeight = parcelInfo.weightKg || order?.totalWeightKg || '3.5';
   const sealNumber = parcelInfo.sealNumber || order?.sealNumber || `SEAL-${order?.id?.slice(-6)?.toUpperCase() || '8921'}`;
   const trackingNumber = parcelInfo.parcelId || `AWB-${order?.id?.slice(-8)?.toUpperCase() || '1001'}-${parcelIndex}`;
-  const hubCode = order?.hubCode || order?.fulfillmentWarehouseId || 'HUB-PURNEA-01';
+  const hubCode = order?.hubCode || order?.fulfillmentWarehouseId || 'HUB-SAM-001';
   const pincode = order?.address?.pincode || order?.shippingAddress?.pincode || '854301';
   const zoneCode = `ZONE-${pincode.slice(-3)}`;
 
@@ -559,7 +559,7 @@ export const printB2BEInvoice = async (order) => {
             <div>
               <div class="company-title">KRISHI VISHAL PRIVATE LIMITED</div>
               <div>Corporate Agri Logistics & Supply Chain Network</div>
-              <div>Central Depot, Agro Market Yard, Purnea, Bihar - 854301</div>
+              <div>Samastipur Central Hub, Station Road, Samastipur, Bihar - 848101</div>
               <div><strong>GSTIN:</strong> 10AAACK9821M1Z5 | State: 10 (Bihar)</div>
             </div>
             <div style="text-align: right;">
@@ -585,7 +585,7 @@ export const printB2BEInvoice = async (order) => {
             </div>
             <div class="party-card">
               <strong>DISPATCH & PAYMENT DETAILS:</strong><br/>
-              <strong>Dispatch From Hub:</strong> Purnea Central Depot<br/>
+              <strong>Dispatch From Hub:</strong> Samastipur Central Hub<br/>
               <strong>Transport Mode:</strong> Road Fleet<br/>
               <strong>Payment Terms:</strong> ${sanitize(order?.paymentMethod || 'Prepaid')}<br/>
               <strong>Place of Supply:</strong> Bihar (10)

@@ -41,8 +41,10 @@ import {
   MapPin
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../hooks/useAuth';
 
 const ProcurementQueue = () => {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('pos'); // 'pos' | 'queue'
   const [queueItems, setQueueItems] = useState([]);
@@ -61,7 +63,7 @@ const ProcurementQueue = () => {
   const [poFormData, setPOFormData] = useState({
     expectedDeliveryDate: '',
     notes: '',
-    deliveryAddress: 'KrishiVishal Central Hub, Agro Market Road, Purnea, Bihar - 854301'
+    deliveryAddress: 'KrishiVishal Central Hub, Station Road, Samastipur, Bihar - 848101'
   });
   const [directPOForm, setDirectPOForm] = useState({
     supplierId: '',
@@ -173,16 +175,17 @@ const ProcurementQueue = () => {
     const defaultDate = new Date();
     defaultDate.setDate(defaultDate.getDate() + 3);
     
-    const defaultWarehouse = warehouses[0] || null;
-    const defaultSupplier = suppliers[0] || null;
+    const assignedWh = user?.assignedWarehouse ? warehouses.find(w => w.id === user.assignedWarehouse) : null;
+    const defaultWarehouse = assignedWh || null;
+    const defaultSupplier = suppliers.length === 1 ? suppliers[0] : null;
 
     setDirectPOForm({
       supplierId: defaultSupplier ? defaultSupplier.id : '',
-      warehouseId: defaultWarehouse ? defaultWarehouse.id : 'WH_PURNEA_CENTRAL',
+      warehouseId: defaultWarehouse ? defaultWarehouse.id : '',
       expectedDeliveryDate: defaultDate.toISOString().split('T')[0],
       deliveryAddress: defaultWarehouse 
-        ? `${defaultWarehouse.name || 'Central Hub'}, ${defaultWarehouse.city || 'Purnea'}, ${defaultWarehouse.district || 'Bihar'}` 
-        : 'KrishiVishal Central Hub, Agro Market Road, Purnea, Bihar - 854301',
+        ? `${defaultWarehouse.name || 'Central Hub'}, ${defaultWarehouse.city || ''}, ${defaultWarehouse.district || ''}` 
+        : '',
       notes: '',
       items: [
         {
@@ -364,7 +367,7 @@ const ProcurementQueue = () => {
     setPOFormData({
       expectedDeliveryDate: defaultDate.toISOString().split('T')[0],
       notes: '',
-      deliveryAddress: 'KrishiVishal Central Hub, Agro Market Road, Purnea, Bihar - 854301'
+      deliveryAddress: 'KrishiVishal Central Hub, Station Road, Samastipur, Bihar - 848101'
     });
     setIsPOModalOpen(true);
   };
@@ -932,7 +935,7 @@ const ProcurementQueue = () => {
                       </option>
                     ))}
                     {warehouses.length === 0 && (
-                      <option value="WH_PURNEA_CENTRAL">KrishiVishal Central Hub (Purnea)</option>
+                      <option value="HUB-SAM-001">KrishiVishal Central Hub (Samastipur)</option>
                     )}
                   </select>
                 </div>
