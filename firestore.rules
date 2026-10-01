@@ -340,7 +340,7 @@ service cloud.firestore {
 
     match /orders/{orderId} {
 
-      allow read: if isAdmin() || isViewer() || isHubManager() ||
+      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager() ||
         (
           isAuthenticated() &&
           resource.data.userId == request.auth.uid
@@ -434,7 +434,7 @@ service cloud.firestore {
 
     match /returns/{returnId} {
 
-      allow read: if isAdmin() || isViewer() || isHubManager() ||
+      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager() ||
         (
           isAuthenticated() &&
           resource.data.userId == request.auth.uid
@@ -577,7 +577,7 @@ service cloud.firestore {
     }
 
     match /riders/{riderId} {
-      allow read: if isAdmin() || isViewer() || isOwner(riderId);
+      allow read: if isAdmin() || isViewer() || isOwner(riderId) || isHubManager();
       // Self-creation blocked: Only Admin can onboard/create rider profiles
       allow create: if isAdmin();
       // Rider self-updates restricted to non-sensitive profile fields
@@ -788,7 +788,7 @@ service cloud.firestore {
     }
 
     match /warehouse_inventory/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
       allow write: if isAdmin() || isHubManager();
     }
 
@@ -918,30 +918,30 @@ service cloud.firestore {
     }
 
     match /procurement_queue/{itemId} {
-      allow read: if isAdmin() || isViewer();
+      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
       allow write: if isAdmin();
     }
 
     match /purchase_orders/{poId} {
-      allow read: if isAdmin() || isViewer();
+      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
       allow write: if isAdmin();
       match /{document=**} {
-        allow read: if isAdmin() || isViewer();
+        allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
         allow write: if isAdmin();
       }
     }
 
     match /goods_receipts/{grnId} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
-      allow write: if isAdmin();
+      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
+      allow write: if isAdmin() || isHubManager();
       match /{document=**} {
-        allow read: if isAdmin() || isViewer() || isHubManager();
-        allow write: if isAdmin();
+        allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
+        allow write: if isAdmin() || isHubManager();
       }
     }
 
     match /inventory_movements/{movementId} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
       allow write: if false; // Immutable ledger: mutated strictly via Cloud Functions / Admin SDK
     }
 
