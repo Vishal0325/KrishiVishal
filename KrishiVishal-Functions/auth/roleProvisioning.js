@@ -122,49 +122,8 @@ exports.claimRiderRole = onCall({ region: REGION, invoker: 'public' }, async (re
     };
 });
 
-/**
- * setUserRole:
- * Admin-only role assignment for SuperAdmin to set role='Serviceman', 'Partner', 'Rider', etc.
- * Merges with existing custom claims.
- */
-exports.setUserRole = onCall({ region: REGION }, async (request) => {
-    const context = { auth: request.auth };
-    if (!context.auth) {
-        throw new HttpsError('unauthenticated', 'User must be authenticated.');
-    }
-
-    const token = context.auth.token || {};
-    const isSuperAdmin = token.role === 'SuperAdmin';
-    if (!isSuperAdmin) {
-        throw new HttpsError('permission-denied', 'SuperAdmin privileges required to assign user roles.');
-    }
-
-    const { targetUid, role } = request.data || {};
-    if (!targetUid || typeof targetUid !== 'string' || targetUid.trim().length === 0) {
-        throw new HttpsError('invalid-argument', 'targetUid is required.');
-    }
-
-    const allowedRoles = ['SuperAdmin', 'ADMIN', 'OrderManager', 'CatalogManager', 'Viewer', 'Rider', 'Serviceman', 'Partner', 'Customer'];
-    if (!role || !allowedRoles.includes(role)) {
-        throw new HttpsError('invalid-argument', `Invalid role. Allowed roles: ${allowedRoles.join(', ')}`);
-    }
-
-    // Merge existing claims
-    const userRecord = await auth.getUser(targetUid);
-    const existingClaims = userRecord.customClaims || {};
-    await auth.setCustomUserClaims(targetUid, {
-        ...existingClaims,
-        role: role
-    });
-
-    // Update Firestore users/{targetUid} document
-    await db.collection("users").doc(targetUid).set({
-        role: role,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
-
-    return { success: true, targetUid, role };
-});
+const staffFunctions = require('../admin/staffFunctions');
+exports.setUserRole = staffFunctions.setUserRole;
 
 /**
  * deactivateUser:

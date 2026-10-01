@@ -1,0 +1,1 @@
+const admin = require('firebase-admin'); admin.initializeApp({projectId: 'krishivishal-a9ed7'}); admin.auth().listUsers(1).then(console.log).catch(console.error);
