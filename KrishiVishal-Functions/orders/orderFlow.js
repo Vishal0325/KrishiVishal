@@ -963,17 +963,18 @@ exports.updateOrderStatus = onCall({ region: REGION, invoker: 'public' }, async 
 
     const orderData = orderSnap.data();
     const isOwner = orderData.userId === context.auth.uid;
-    let isAssignedRider = orderData.riderId === context.auth.uid;
+    const isAssignedRider = Boolean(orderData.riderId && orderData.riderId === context.auth.uid);
     const isAdmin = await isAdminRequest(context);
     const role = (context.auth.token?.role || '').toLowerCase();
-    const isRider = ['rider'].includes(role);
+    const isRider = role === 'rider';
 
-    // Allow rider to assign themselves if order is unassigned or assigned to them and they are accepting/scanning it
-    if (isRider && (!orderData.riderId || orderData.riderId === context.auth.uid)) {
-        isAssignedRider = true;
+    // Block any rider who is not assigned to this order
+    if (isRider && !isAssignedRider) {
+        throw new HttpsError('permission-denied', 'Only the assigned rider can update this order.');
     }
 
-    if (!isOwner && !isAssignedRider && !isRider && !isAdmin) {
+    // Ensure caller is authorized (Admin, Order Owner, or Assigned Rider)
+    if (!isAdmin && !isOwner && !isAssignedRider) {
         throw new HttpsError('permission-denied', 'No permission to update this order.');
     }
 
@@ -984,7 +985,7 @@ exports.updateOrderStatus = onCall({ region: REGION, invoker: 'public' }, async 
         if (!allowed.includes(targetStatus)) {
             throw new HttpsError('invalid-argument', `Cannot transition from ${currentStatus} to ${targetStatus}.`);
         }
-    } else if (isAssignedRider || isRider) {
+    } else if (isAssignedRider) {
         if (targetStatus === 'DELIVERED') {
             throw new HttpsError('permission-denied', 'DELIVERED status can only be set via verifyDeliveryOTP with customer OTP.');
         }
@@ -1016,8 +1017,7 @@ exports.updateOrderStatus = onCall({ region: REGION, invoker: 'public' }, async 
 
     if (riderId !== undefined && isAdmin) {
         updatePayload.riderId = riderId;
-    } else if (isRider && (!orderData.riderId || orderData.riderId === context.auth.uid)) {
-        // Rider assigns/attaches themselves
+    } else if (isAssignedRider) {
         updatePayload.riderId = context.auth.uid;
     }
 
