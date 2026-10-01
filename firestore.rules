@@ -667,6 +667,46 @@ service cloud.firestore {
       allow write: if isAdmin() || isDepartmentManager();
     }
 
+    match /leave_requests/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /leave_balances/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /employee_attendance/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /employee_salary_structures/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /monthly_payroll_runs/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /monthly_payroll_runs/{runId}/payslips/{payslipId} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /document_requirements/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /document_settings/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
 
     // ============================================================
     // WISHLIST
