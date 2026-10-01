@@ -707,6 +707,91 @@ service cloud.firestore {
       allow write: if isAdmin() || isDepartmentManager();
     }
 
+    match /agri_officer_inspections/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /agri_statutory_form_a/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /agri_statutory_form_o/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /b2b_sales_deals/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /b2bOffers/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /coupons/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin();
+    }
+
+    match /expenseAuditLogs/{id} {
+      allow read: if isAdmin() || isViewer() || canViewFinance();
+      allow write: if isAdmin() || canViewFinance();
+    }
+
+    match /expensePayments/{id} {
+      allow read: if isAdmin() || isViewer() || canViewFinance();
+      allow write: if isAdmin() || canViewFinance();
+    }
+
+    match /farmer_crop_profiles/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /interHubTransfers/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /kisan_call_logs/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /physical_stock_audits/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /rtv_returns/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /supplier_debit_notes/{id} {
+      allow read: if isAdmin() || isViewer() || canViewFinance();
+      allow write: if isAdmin() || canViewFinance();
+    }
+
+    match /supplierDebitNotes/{id} {
+      allow read: if isAdmin() || isViewer() || canViewFinance();
+      allow write: if isAdmin() || canViewFinance();
+    }
+
+    match /trips/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /warehouse_inventory/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
 
     // ============================================================
     // WISHLIST
