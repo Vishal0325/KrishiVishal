@@ -35,7 +35,9 @@ exports.verifyPayment = onCall({ region: REGION, secrets: [razorpayKeySecret] },
             .update(`${razorpayOrderId}|${razorpayPaymentId}`)
             .digest("hex");
 
-        if (!crypto.timingSafeEqual(Buffer.from(generatedSignature, 'utf8'), Buffer.from(razorpaySignature, 'utf8'))) {
+        const genBuf = Buffer.from(generatedSignature, 'utf8');
+        const reqBuf = Buffer.from(razorpaySignature, 'utf8');
+        if (genBuf.length !== reqBuf.length || !crypto.timingSafeEqual(genBuf, reqBuf)) {
             throw new HttpsError('invalid-argument', 'Invalid payment signature.');
         }
 
@@ -103,7 +105,8 @@ exports.verifyPayment = onCall({ region: REGION, secrets: [razorpayKeySecret] },
 });
 
 /**
- * Hardened Razorpay Webhook with Idempotency and Integrity checks.
+ * Hardened Razorpay Webhook with Idempotency, Integrity checks, and Expanded Event Handling.
+ * Handles: payment.captured, order.paid, and payment.failed events.
  */
 exports.razorpayWebhook = onRequest({ region: REGION, secrets: [razorpayWebhookSecret] }, async (req, res) => {
     const secret = getSecretVal(razorpayWebhookSecret, 'RAZORPAY_WEBHOOK_SECRET');
@@ -115,52 +118,129 @@ exports.razorpayWebhook = onRequest({ region: REGION, secrets: [razorpayWebhookS
 
     try {
         const expectedSignature = crypto.createHmac("sha256", secret).update(req.rawBody).digest("hex");
-        if (!crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expectedSignature, 'utf8'))) {
+        const sigBuf = Buffer.from(signature, 'utf8');
+        const expectedBuf = Buffer.from(expectedSignature, 'utf8');
+        if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
             return res.status(400).json({ error: 'Signature mismatch.' });
         }
 
         const body = req.body || {};
-        if (body.event !== "payment.captured") return res.status(200).json({ status: 'ignored' });
+        const eventType = body.event;
 
-        const payment = body.payload?.payment?.entity;
-        const orderId = payment?.notes?.orderId;
-        if (!orderId) return res.status(400).json({ error: 'Missing orderId.' });
+        const supportedEvents = ["payment.captured", "order.paid", "payment.failed"];
+        if (!supportedEvents.includes(eventType)) {
+            return res.status(200).json({ status: 'ignored', event: eventType });
+        }
 
-        await db.runTransaction(async (transaction) => {
-            // 1. Idempotency Check
-            const eventRef = db.collection("razorpay_webhook_events").doc(eventId);
-            if ((await transaction.get(eventRef)).exists) return;
+        if (eventType === "payment.captured") {
+            const payment = body.payload?.payment?.entity;
+            const orderId = payment?.notes?.orderId;
+            if (!orderId) return res.status(400).json({ error: 'Missing orderId.' });
 
-            // 2. Order Reconciliation
-            const orderRef = db.collection("orders").doc(orderId);
-            const orderSnap = await transaction.get(orderRef);
-            if (!orderSnap.exists) throw new Error('Order not found.');
-            const orderData = orderSnap.data();
+            await db.runTransaction(async (transaction) => {
+                // 1. Idempotency Check
+                const eventRef = db.collection("razorpay_webhook_events").doc(eventId);
+                if ((await transaction.get(eventRef)).exists) return;
 
-            if (payment.order_id !== orderData.razorpayOrderId) throw new Error('Order ID mismatch.');
-            if (payment.status !== 'captured') throw new Error('Payment not captured.');
-            if (payment.currency !== 'INR') throw new Error('Currency mismatch.');
+                // 2. Order Reconciliation
+                const orderRef = db.collection("orders").doc(orderId);
+                const orderSnap = await transaction.get(orderRef);
+                if (!orderSnap.exists) throw new Error('Order not found.');
+                const orderData = orderSnap.data();
 
-            const expectedPaise = Math.round((orderData.totalAmount || 0) * 100);
-            if (payment.amount !== expectedPaise) throw new Error('Amount mismatch.');
+                if (payment.order_id && orderData.razorpayOrderId && payment.order_id !== orderData.razorpayOrderId) {
+                    throw new Error('Order ID mismatch.');
+                }
+                if (payment.status !== 'captured') throw new Error('Payment not captured.');
+                if (payment.currency !== 'INR') throw new Error('Currency mismatch.');
 
-            if (['CANCELLED', 'DELIVERED', 'REFUNDED'].includes(orderData.status)) {
-                throw new Error(`Cannot process payment for ${orderData.status} order.`);
-            }
+                const expectedPaise = Math.round((orderData.totalAmount || 0) * 100);
+                if (payment.amount !== expectedPaise) throw new Error('Amount mismatch.');
 
-            // 3. Atomic Commit
-            transaction.set(eventRef, { processedAt: admin.firestore.FieldValue.serverTimestamp(), orderId });
-            if (orderData.paymentStatus !== 'PAID') {
-                transaction.update(orderRef, {
-                    paymentStatus: "PAID",
-                    status: "CONFIRMED",
-                    razorpayPaymentId: payment.id,
-                    paymentMethod: "RAZORPAY_ONLINE",
-                    webhookReceivedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-            }
-        });
+                if (['CANCELLED', 'DELIVERED', 'REFUNDED'].includes(orderData.status)) {
+                    throw new Error(`Cannot process payment for ${orderData.status} order.`);
+                }
+
+                // 3. Atomic Commit
+                transaction.set(eventRef, { processedAt: admin.firestore.FieldValue.serverTimestamp(), orderId, event: eventType });
+                if (orderData.paymentStatus !== 'PAID') {
+                    transaction.update(orderRef, {
+                        paymentStatus: "PAID",
+                        status: "CONFIRMED",
+                        razorpayPaymentId: payment.id,
+                        paymentMethod: "RAZORPAY_ONLINE",
+                        webhookReceivedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            });
+        } else if (eventType === "order.paid") {
+            const orderEntity = body.payload?.order?.entity;
+            const paymentEntity = body.payload?.payment?.entity;
+            const orderId = orderEntity?.notes?.orderId || paymentEntity?.notes?.orderId;
+            if (!orderId) return res.status(400).json({ error: 'Missing orderId.' });
+
+            await db.runTransaction(async (transaction) => {
+                const eventRef = db.collection("razorpay_webhook_events").doc(eventId);
+                if ((await transaction.get(eventRef)).exists) return;
+
+                const orderRef = db.collection("orders").doc(orderId);
+                const orderSnap = await transaction.get(orderRef);
+                if (!orderSnap.exists) throw new Error('Order not found.');
+                const orderData = orderSnap.data();
+
+                transaction.set(eventRef, { processedAt: admin.firestore.FieldValue.serverTimestamp(), orderId, event: eventType });
+                if (orderData.paymentStatus !== 'PAID') {
+                    transaction.update(orderRef, {
+                        paymentStatus: "PAID",
+                        status: "CONFIRMED",
+                        razorpayPaymentId: paymentEntity?.id || orderData.razorpayPaymentId || null,
+                        paymentMethod: "RAZORPAY_ONLINE",
+                        webhookReceivedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            });
+        } else if (eventType === "payment.failed") {
+            const payment = body.payload?.payment?.entity;
+            const orderId = payment?.notes?.orderId;
+            if (!orderId) return res.status(400).json({ error: 'Missing orderId.' });
+
+            const errorCode = payment?.error_code || payment?.error_reason || 'PAYMENT_FAILED';
+            const errorDescription = payment?.error_description || 'Payment failed on gateway.';
+
+            await db.runTransaction(async (transaction) => {
+                const eventRef = db.collection("razorpay_webhook_events").doc(eventId);
+                if ((await transaction.get(eventRef)).exists) return;
+
+                const orderRef = db.collection("orders").doc(orderId);
+                const orderSnap = await transaction.get(orderRef);
+                if (!orderSnap.exists) throw new Error('Order not found.');
+                const orderData = orderSnap.data();
+
+                transaction.set(eventRef, { processedAt: admin.firestore.FieldValue.serverTimestamp(), orderId, event: eventType });
+                if (orderData.paymentStatus !== 'PAID') {
+                    transaction.update(orderRef, {
+                        paymentStatus: "FAILED",
+                        paymentError: {
+                            code: errorCode,
+                            description: errorDescription,
+                            timestamp: admin.firestore.FieldValue.serverTimestamp()
+                        },
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    const auditRef = db.collection("audit_logs").doc();
+                    transaction.set(auditRef, {
+                        event: "PAYMENT_FAILED",
+                        targetId: orderId,
+                        paymentId: payment?.id || null,
+                        error: errorDescription,
+                        timestamp: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            });
+        }
 
         return res.status(200).json({ status: 'ok' });
     } catch (error) {
