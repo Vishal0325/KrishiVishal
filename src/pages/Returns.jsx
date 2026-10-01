@@ -9,6 +9,9 @@ import StatusBadge from '../components/common/StatusBadge';
 import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '../firebase/config';
+import { useAuthContext } from '../hooks/useAuthContext';
+import { useReadOnly } from '../hooks/useReadOnly';
+import ReadOnlyBanner from '../components/common/ReadOnlyBanner';
 import toast from 'react-hot-toast';
 
 const getDistance = (lat1, lon1, lat2, lon2) => {
@@ -24,6 +27,8 @@ const getDistance = (lat1, lon1, lat2, lon2) => {
 };
 
 const Returns = () => {
+  const { isHubScoped, hubId } = useAuthContext();
+  const { isReadOnly } = useReadOnly();
   const [statusFilter, setStatusFilter] = useState('All');
   const [searchTerm, setSearch] = useState('');
   const { returns, loading, updateReturnStatus } = useReturns(statusFilter);
@@ -38,10 +43,14 @@ const Returns = () => {
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, 'riders'), (snapshot) => {
-      setRiders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      let list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      if (isHubScoped && hubId) {
+        list = list.filter(r => r.assignedWarehouse === hubId || r.warehouseId === hubId);
+      }
+      setRiders(list);
     });
     return unsubscribe;
-  }, []);
+  }, [isHubScoped, hubId]);
 
   useEffect(() => {
     if (selectedReturn) {
@@ -134,6 +143,8 @@ const Returns = () => {
         title="Returns & Refund Management"
         subtitle="Track return requests, manage pickups, QC, and process refunds via backend Cloud Functions"
       />
+
+      {isReadOnly && <ReadOnlyBanner />}
 
       {/* KPI Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -267,7 +278,7 @@ const Returns = () => {
                         </div>
                         <button 
                           onClick={handleRefund}
-                          disabled={isRefunding}
+                          disabled={isRefunding || isReadOnly}
                           className="w-full py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md hover:bg-blue-700 disabled:opacity-50"
                         >
                           {isRefunding ? 'PROCESSING...' : `REFUND TO ${refundDestination === 'WALLET' ? 'WALLET' : 'GATEWAY'}`}
@@ -279,29 +290,32 @@ const Returns = () => {
 
                 <h3 className="text-xs font-black text-primary-dark uppercase tracking-widest border-b border-gray-50 pb-2">Admin Resolution</h3>
                 <textarea
-                  placeholder="Enter notes for the customer..."
-                  className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl focus:ring-4 focus:ring-primary/5 outline-none font-medium text-sm text-gray-700 shadow-inner"
+                  placeholder={isReadOnly ? "Read-only access - notes cannot be modified." : "Enter notes for the customer..."}
+                  disabled={isReadOnly}
+                  className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl focus:ring-4 focus:ring-primary/5 outline-none font-medium text-sm text-gray-700 shadow-inner disabled:opacity-60 disabled:cursor-not-allowed"
                   rows="4"
                   value={adminNote}
                   onChange={(e) => setAdminNote(e.target.value)}
                 />
 
-                <div className="grid grid-cols-2 gap-4">
-                   <button
-                    onClick={() => updateReturnStatus(selectedReturn.id, 'REJECTED', adminNote)}
-                    className="flex items-center justify-center space-x-2 py-4 rounded-2xl border-2 border-red-100 text-red-500 font-black text-xs uppercase tracking-widest hover:bg-red-50 transition-all active:scale-95"
-                   >
-                     <Ban size={18} />
-                     <span>Reject</span>
-                   </button>
-                   <button
-                    onClick={() => updateReturnStatus(selectedReturn.id, 'APPROVED', adminNote)}
-                    className="flex items-center justify-center space-x-2 py-4 rounded-2xl bg-primary text-white font-black text-xs uppercase tracking-widest shadow-xl shadow-green-100 hover:bg-primary-dark transition-all active:scale-95"
-                   >
-                     <CheckCircle2 size={18} />
-                     <span>Approve</span>
-                   </button>
-                </div>
+                {!isReadOnly && (
+                  <div className="grid grid-cols-2 gap-4">
+                     <button
+                      onClick={() => updateReturnStatus(selectedReturn.id, 'REJECTED', adminNote)}
+                      className="flex items-center justify-center space-x-2 py-4 rounded-2xl border-2 border-red-100 text-red-500 font-black text-xs uppercase tracking-widest hover:bg-red-50 transition-all active:scale-95"
+                     >
+                       <Ban size={18} />
+                       <span>Reject</span>
+                     </button>
+                     <button
+                      onClick={() => updateReturnStatus(selectedReturn.id, 'APPROVED', adminNote)}
+                      className="flex items-center justify-center space-x-2 py-4 rounded-2xl bg-primary text-white font-black text-xs uppercase tracking-widest shadow-xl shadow-green-100 hover:bg-primary-dark transition-all active:scale-95"
+                     >
+                       <CheckCircle2 size={18} />
+                       <span>Approve</span>
+                     </button>
+                  </div>
+                )}
               </section>
 
               {/* Proof Images */}
@@ -326,8 +340,9 @@ const Returns = () => {
                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Assign Nearest Rider</label>
                    <select
                      value={selectedRiderId}
+                     disabled={isReadOnly}
                      onChange={(e) => setSelectedRiderId(e.target.value)}
-                     className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-4 py-3 text-sm font-bold text-gray-700 outline-none focus:ring-4 focus:ring-primary/5"
+                     className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-4 py-3 text-sm font-bold text-gray-700 outline-none focus:ring-4 focus:ring-primary/5 disabled:opacity-50"
                    >
                      <option value="">Select a Rider</option>
                      {sortedRiders.filter(r => r.online).map(r => (
@@ -340,7 +355,7 @@ const Returns = () => {
                )}
                <button
                  onClick={() => updateReturnStatus(selectedReturn.id, 'PICKUP_SCHEDULED', adminNote, selectedRiderId)}
-                 disabled={selectedReturn.status === 'APPROVED' && !selectedRiderId}
+                 disabled={isReadOnly || (selectedReturn.status === 'APPROVED' && !selectedRiderId)}
                  className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 disabled:grayscale"
                >
                  <Truck size={18} />

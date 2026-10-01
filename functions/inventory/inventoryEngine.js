@@ -182,3 +182,138 @@ exports.writeOffStock = onCall(async (request) => {
     throw new HttpsError("internal", error.message);
   }
 });
+
+/**
+ * Concurrency-safe Return QC Pass & Stock Restocking via Backend Cloud Function.
+ */
+exports.restockReturnedItem = onCall(async (request) => {
+  const data = request.data || {};
+  const auth = request.auth;
+
+  if (!auth) {
+    throw new HttpsError("unauthenticated", "Unauthorized.");
+  }
+
+  const callerIsAdmin = auth && (auth.token.isAdmin === true || auth.token.admin === true);
+  const callerRole = auth?.token?.role;
+  if (!callerIsAdmin && !['SuperAdmin', 'WarehouseManager', 'Operations', 'Admin'].includes(callerRole)) {
+    throw new HttpsError("permission-denied", "Unauthorized. Only warehouse managers or admins can restock returned items.");
+  }
+
+  const { returnId, orderId, items, warehouseId, qcStatus = "PASSED", notes = "" } = data;
+
+  if (!returnId) {
+    throw new HttpsError("invalid-argument", "Missing returnId parameter.");
+  }
+
+  const db = admin.firestore();
+
+  try {
+    const returnRef = db.collection("returns").doc(returnId);
+    const returnDoc = await returnRef.get();
+    if (!returnDoc.exists) {
+      throw new HttpsError("not-found", `Return request ${returnId} not found.`);
+    }
+
+    const returnData = returnDoc.data();
+    const targetWarehouse = warehouseId || returnData.warehouseId || "MAIN_HUB";
+
+    const itemsToRestock = Array.isArray(items) && items.length > 0
+      ? items
+      : [{
+          productId: returnData.productId || returnData.skuId,
+          skuCode: returnData.skuCode || returnData.productId,
+          batchId: returnData.batchId || "DEFAULT",
+          quantity: Number(returnData.quantity || 1)
+        }];
+
+    await db.runTransaction(async (transaction) => {
+      for (const item of itemsToRestock) {
+        const skuId = item.skuCode || item.productId;
+        const qty = Number(item.quantity) || 1;
+        const batchId = item.batchId || "DEFAULT";
+
+        if (!skuId) continue;
+
+        // 1. Update warehouse inventory
+        const inventoryId = `${targetWarehouse}_${skuId}_${batchId}`;
+        const invRef = db.collection("warehouse_inventory").doc(inventoryId);
+        const invDoc = await transaction.get(invRef);
+
+        if (invDoc.exists) {
+          transaction.update(invRef, {
+            availableQty: admin.firestore.FieldValue.increment(qty),
+            lastMovementAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        } else {
+          transaction.set(invRef, {
+            warehouseId: targetWarehouse,
+            skuId,
+            batchId,
+            availableQty: qty,
+            reservedQty: 0,
+            transferReservedQty: 0,
+            damagedQty: 0,
+            expiredQty: 0,
+            unitCost: Number(item.unitCost) || 0,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastMovementAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        }
+
+        // 2. Global product stock increment
+        const prodRef = db.collection("products").doc(skuId);
+        const prodDoc = await transaction.get(prodRef);
+        if (prodDoc.exists) {
+          transaction.update(prodRef, {
+            stock: admin.firestore.FieldValue.increment(qty),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        }
+
+        // 3. Immutable Inventory Movement Log
+        const mRef = db.collection("inventory_movements").doc();
+        transaction.set(mRef, {
+          warehouseId: targetWarehouse,
+          skuId,
+          batchId,
+          quantity: qty,
+          movementType: "RETURN_RESTOCK",
+          referenceId: returnId,
+          orderId: orderId || returnData.orderId || null,
+          reason: notes || "Restocked upon QC Approval",
+          actorId: auth.uid,
+          timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+
+      // 4. Update return status to HUB_RECEIVED and qcStatus to PASSED
+      transaction.update(returnRef, {
+        status: "HUB_RECEIVED",
+        qcStatus: qcStatus,
+        hubDepositedAt: admin.firestore.FieldValue.serverTimestamp(),
+        restockedAt: admin.firestore.FieldValue.serverTimestamp(),
+        restockedBy: auth.uid,
+        restockWarehouseId: targetWarehouse,
+        adminNotes: notes ? `${returnData.adminNotes || ''}\n[QC RESTOCK]: ${notes}` : (returnData.adminNotes || ''),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      // 5. Audit log
+      const auditRef = db.collection("audit_logs").doc();
+      transaction.set(auditRef, {
+        action: "RESTOCK_RETURNED_ITEM",
+        resource: "Return",
+        resourceId: returnId,
+        warehouseId: targetWarehouse,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        details: { orderId: orderId || returnData.orderId, actor: auth.uid, qcStatus }
+      });
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error restocking returned item:", error);
+    throw new HttpsError("internal", error.message);
+  }
+});

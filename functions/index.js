@@ -267,6 +267,7 @@ const skuMaster = require("./inventory/skuMaster");
 exports.receiveGrn = grn.receiveGrn;
 exports.adjustInventory = inventoryEngine.adjustInventory;
 exports.writeOffStock = inventoryEngine.writeOffStock;
+exports.restockReturnedItem = inventoryEngine.restockReturnedItem;
 exports.getInventoryReport = reports.getInventoryReport;
 exports.upsertSku = skuMaster.upsertSku;
 exports.importSkus = skuMaster.importSkus;

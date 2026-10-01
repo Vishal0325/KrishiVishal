@@ -135,6 +135,17 @@ export async function callWriteOffStock(payload) {
 }
 
 /**
+ * Restock returned items via Cloud Function after QC approval.
+ * @param {object} payload { returnId, orderId, items, warehouseId, qcStatus, notes }
+ * @returns {Promise<object>}
+ */
+export async function callRestockReturnedItem(payload) {
+  const fn = httpsCallable(functions, "restockReturnedItem");
+  const result = await fn(payload);
+  return result.data;
+}
+
+/**
  * Fetch inventory report via Cloud Function.
  * @returns {Promise<object>} { total, items[] }
  */

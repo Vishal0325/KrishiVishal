@@ -62,8 +62,8 @@ const Riders = () => {
     const unsubWh = onSnapshot(collection(db, "warehouses"), (snapshot) => {
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setWarehouses(list);
-      if (list.length > 0 && !whitelistHub) {
-        setWhitelistHub(list[0].id);
+      if (currentUser?.assignedWarehouse || currentUser?.warehouseId) {
+        setWhitelistHub(currentUser.assignedWarehouse || currentUser.warehouseId);
       }
     });
 
@@ -122,6 +122,9 @@ const Riders = () => {
     const formattedPhone = whitelistPhone.startsWith("+91") ? whitelistPhone : `+91${whitelistPhone.replace(/\D/g, "")}`;
     if (formattedPhone.length !== 13) {
       return toast.error("Phone must be 10 digits (e.g. +919876543210)");
+    }
+    if (!whitelistHub) {
+      return toast.error("कृपया राइडर के लिए हब/वेयरहाउस चुनें (Please select a Hub)");
     }
     setWhitelisting(true);
     try {
@@ -549,6 +552,7 @@ const Riders = () => {
                     onChange={(e) => setWhitelistHub(e.target.value)}
                     className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold text-gray-800 outline-none"
                   >
+                    <option value="">-- चुनें हब / वेयरहाउस --</option>
                     {warehouses.map(wh => (
                       <option key={wh.id} value={wh.id}>
                         📍 {wh.name} ({wh.code || wh.id})

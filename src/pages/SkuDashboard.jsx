@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase/config';
 import { useAuth } from '../hooks/useAuth';
+import { useAuthContext } from '../hooks/useAuthContext';
+import { useReadOnly } from '../hooks/useReadOnly';
+import ReadOnlyBanner from '../components/common/ReadOnlyBanner';
 import { subscribeToSkus, fetchSkuBatches, getLowStockSkus } from '../services/skuService';
 import { callUpsertSku, callAdjustInventory, callWriteOffStock, callGetInventoryReport, callMigrateSkuWeights } from '../services/inventory';
 import { validateSku, VALID_CATEGORIES, VALID_UNITS, generateSkuCode } from '../utils/skuGenerator';
@@ -34,7 +39,10 @@ import toast from 'react-hot-toast';
 const SkuDashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isHubScoped, hubId } = useAuthContext();
+  const { isReadOnly } = useReadOnly();
   const [skus, setSkus] = useState([]);
+  const [warehouseStock, setWarehouseStock] = useState({});
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
@@ -58,6 +66,32 @@ const SkuDashboard = () => {
   const [adjustForm, setAdjustForm] = useState({ skuCode: '', adjustment: '', reason: '' });
   const [adjustLoading, setAdjustLoading] = useState(false);
   const [migratingWeights, setMigratingWeights] = useState(false);
+
+  useEffect(() => {
+    if (isHubScoped && hubId) {
+      const q = query(collection(db, 'warehouse_inventory'), where('warehouseId', '==', hubId));
+      const unsub = onSnapshot(q, (snap) => {
+        const whMap = {};
+        snap.docs.forEach(d => {
+          const data = d.data();
+          const key = data.skuCode || data.productId || d.id;
+          whMap[key] = Number(data.availableStock ?? data.stock ?? 0);
+        });
+        setWarehouseStock(whMap);
+      }, (err) => {
+        console.warn('warehouse_inventory listener error:', err);
+      });
+      return () => unsub();
+    }
+  }, [isHubScoped, hubId]);
+
+  const getSkuStock = (sku) => {
+    if (isHubScoped && hubId && warehouseStock) {
+      const local = warehouseStock[sku.skuCode] ?? warehouseStock[sku.productId];
+      if (local !== undefined) return local;
+    }
+    return sku.inventory?.availableStock || 0;
+  };
 
   const handleMigrateWeights = async () => {
     if (!window.confirm("Run SKU weight migration to standardize all legacy weights into numeric weightGrams? This operation is idempotent.")) return;
@@ -107,15 +141,15 @@ const SkuDashboard = () => {
   const kpis = useMemo(() => {
     const total = skus.length;
     const lowStock = skus.filter(s => {
-      const avail = s.inventory?.availableStock || 0;
+      const avail = getSkuStock(s);
       return avail > 0 && avail <= (s.reorderLevel || 50);
     }).length;
-    const outOfStock = skus.filter(s => (s.inventory?.availableStock || 0) === 0).length;
+    const outOfStock = skus.filter(s => getSkuStock(s) === 0).length;
     const totalValue = skus.reduce((sum, s) => {
-      return sum + (s.inventory?.availableStock || 0) * (s.pricing?.landingCost || s.pricing?.consumerPrice || 0);
+      return sum + getSkuStock(s) * (s.pricing?.landingCost || s.pricing?.consumerPrice || 0);
     }, 0);
     return { total, lowStock, outOfStock, totalValue };
-  }, [skus]);
+  }, [skus, warehouseStock, isHubScoped, hubId]);
 
   // Filtered list
   const filteredSkus = useMemo(() => {
@@ -128,7 +162,7 @@ const SkuDashboard = () => {
       const matchCategory = categoryFilter === 'ALL' ||
         sku.segments?.category === categoryFilter;
 
-      const avail = sku.inventory?.availableStock || 0;
+      const avail = getSkuStock(sku);
       const reorder = sku.reorderLevel || 50;
       let matchStock = true;
       if (stockFilter === 'LOW') matchStock = avail > 0 && avail <= reorder;
@@ -137,7 +171,7 @@ const SkuDashboard = () => {
 
       return matchSearch && matchCategory && matchStock;
     });
-  }, [skus, searchTerm, categoryFilter, stockFilter]);
+  }, [skus, searchTerm, categoryFilter, stockFilter, warehouseStock, isHubScoped, hubId]);
 
   // Add SKU handler
   const handleAddSku = async () => {
@@ -209,7 +243,7 @@ const SkuDashboard = () => {
   };
 
   const getStockBadge = (sku) => {
-    const avail = sku.inventory?.availableStock || 0;
+    const avail = getSkuStock(sku);
     const reorder = sku.reorderLevel || 50;
     if (avail === 0) return <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-[10px] font-bold">OUT OF STOCK</span>;
     if (avail <= reorder) return <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-[10px] font-bold">LOW STOCK</span>;
@@ -238,38 +272,47 @@ const SkuDashboard = () => {
           <h1 className="text-2xl font-black text-gray-900 flex items-center gap-2">
             <Package className="text-emerald-600" size={28} />
             SKU Master {'&'} Inventory
+            {isHubScoped && hubId && (
+              <span className="ml-2 text-xs font-bold px-2.5 py-1 bg-emerald-50 text-emerald-800 rounded-lg border border-emerald-200">
+                🏪 {hubId} Local Inventory
+              </span>
+            )}
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             Central SKU catalog • Standard: CC-III-VVV-GG-SSSUU-BBB
           </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={handleMigrateWeights}
-            disabled={migratingWeights}
-            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors cursor-pointer"
-            title="Standardize legacy product and SKU weights to numeric weightGrams"
-          >
-            <RefreshCw size={14} className={migratingWeights ? "animate-spin" : ""} />
-            <span>{migratingWeights ? "Migrating..." : "Migrate Weights"}</span>
-          </button>
-          <button
-            onClick={() => {
-              setAdjustForm({ skuCode: '', adjustment: '', reason: '' });
-              setShowAdjustModal(true);
-            }}
-            className="flex items-center gap-1.5 px-4 py-2 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl text-xs font-bold hover:bg-amber-100 transition-colors"
-          >
-            <Edit3 size={14} /> Adjust Stock
-          </button>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors shadow-md"
-          >
-            <Plus size={14} /> Add SKU
-          </button>
-        </div>
+        {!isReadOnly && (
+          <div className="flex gap-2">
+            <button
+              onClick={handleMigrateWeights}
+              disabled={migratingWeights}
+              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors cursor-pointer"
+              title="Standardize legacy product and SKU weights to numeric weightGrams"
+            >
+              <RefreshCw size={14} className={migratingWeights ? "animate-spin" : ""} />
+              <span>{migratingWeights ? "Migrating..." : "Migrate Weights"}</span>
+            </button>
+            <button
+              onClick={() => {
+                setAdjustForm({ skuCode: '', adjustment: '', reason: '' });
+                setShowAdjustModal(true);
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl text-xs font-bold hover:bg-amber-100 transition-colors"
+            >
+              <Edit3 size={14} /> Adjust Stock
+            </button>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors shadow-md"
+            >
+              <Plus size={14} /> Add SKU
+            </button>
+          </div>
+        )}
       </div>
+
+      {isReadOnly && <ReadOnlyBanner />}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-4 gap-4">
@@ -425,7 +468,7 @@ const SkuDashboard = () => {
                       {formatCurrency(sku.pricing?.consumerPrice || 0)}
                     </td>
                     <td className="px-4 py-3 text-center text-xs font-black text-gray-900">
-                      {sku.inventory?.availableStock ?? 0}
+                      {getSkuStock(sku)}
                     </td>
                     <td className="px-4 py-3 text-center text-xs font-medium text-gray-500">
                       {sku.inventory?.committedStock ?? 0}

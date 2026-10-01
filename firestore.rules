@@ -68,8 +68,7 @@ service cloud.firestore {
 
     match /products/{id} {
       allow read: if true;
-      // Price and Stock are derived from SKUs via Cloud Functions
-      allow update: if isAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['price', 'stockQuantity']);
+      allow update: if isAdmin();
       allow create: if isAdmin();
       allow delete: if isSuperAdmin();
 
@@ -106,8 +105,7 @@ service cloud.firestore {
 
     match /skus/{skuId} {
       allow read: if isAuthenticated();
-      // Only Cloud Functions / Admin SDK can mutate SKU identity, price, and inventory
-      allow write: if false;
+      allow write: if isAdmin();
 
       match /batches/{batchId} {
         allow read: if isAdmin() || isViewer() || isHubManager();
@@ -279,7 +277,7 @@ service cloud.firestore {
         request.resource.data
           .diff(resource.data)
           .affectedKeys()
-          .hasOnly(['status', 'reason', 'reviewedBy', 'reviewedAt']);
+          .hasOnly(['status', 'reviewedBy', 'reviewedAt', 'updatedAt', 'notes', 'reason', 'approvedBy', 'rejectedBy']);
 
       allow create, delete: if false;
     }
@@ -296,7 +294,7 @@ service cloud.firestore {
         request.resource.data
           .diff(resource.data)
           .affectedKeys()
-          .hasOnly(['status']);
+          .hasOnly(['status', 'resolutionNotes', 'resolvedBy', 'resolvedAt', 'updatedAt']);
 
       allow create, delete: if false;
     }
@@ -561,13 +559,7 @@ service cloud.firestore {
           (resource.data.phone != null && ('+91' + resource.data.phone) == request.auth.token.phone_number)
         )
       );
-      allow list: if isAdmin() || isViewer() || isHubManager() || (
-        isAuthenticated() && ('phone_number' in request.auth.token) && (
-          resource.data.phone == request.auth.token.phone_number ||
-          ('+91' + resource.data.phone) == request.auth.token.phone_number ||
-          resource.data.phone == request.auth.token.phone_number.replace('^\\+91', '')
-        )
-      );
+      allow list: if isAdmin() || isViewer() || isHubManager();
       allow update, create, delete: if isAdmin();
     }
 
@@ -608,6 +600,21 @@ service cloud.firestore {
     }
 
     match /employee_documents/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin();
+    }
+
+    match /leave_balances/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin();
+    }
+
+    match /leave_requests/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin();
+    }
+
+    match /rider_hr_profiles/{id} {
       allow read: if isAdmin() || isViewer() || isDepartmentManager();
       allow write: if isAdmin();
     }
@@ -925,6 +932,54 @@ service cloud.firestore {
       // Only Admin can add or update service definitions
       allow write: if isAdmin();
     }
+
+
+    // ============================================================
+    // NEW HR & OPERATIONS MODULES (Catch-all for Admin)
+    // ============================================================
+    match /workforce_documents/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
+    match /employee_attendance/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
+    match /employee_salary_structures/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
+    match /document_requirements/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
+    match /background_verification/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
+    match /contracts/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
+    match /physical_files/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
+    match /exit_requests/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
+    match /monthly_payroll_runs/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
+    match /training/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
+
+    match /trips/{id} { allow read, write: if isAdmin() || isHubManager(); }
+    match /assets/{id} { allow read, write: if isAdmin() || isHubManager(); }
+    match /interHubTransfers/{id} { allow read, write: if isAdmin() || isHubManager(); }
+    match /warehouse_inventory/{id} { allow read, write: if isAdmin() || isHubManager(); }
+    
+    match /coupons/{id} { allow read, write: if isAdmin(); }
+    match /b2bOffers/{id} { allow read, write: if isAdmin(); }
+    match /supplier_debit_notes/{id} { allow read, write: if isAdmin(); }
+    match /supplierDebitNotes/{id} { allow read, write: if isAdmin(); }
+
+    // Agricultural Statutory & Compliance Registers
+    match /agri_statutory_form_o/{id} { allow read, write: if isAdmin(); }
+    match /agri_statutory_form_a/{id} { allow read, write: if isAdmin(); }
+    match /agri_officer_inspections/{id} { allow read, write: if isAdmin(); }
+
+    // CRM, Agronomy & Deals
+    match /farmer_crop_profiles/{id} { allow read, write: if isAdmin() || isAuthenticated(); }
+    match /b2b_sales_deals/{id} { allow read, write: if isAdmin(); }
+    match /kisan_call_logs/{id} { allow read, write: if isAdmin(); }
+
+    // Finance, Expenses & System Counters
+    match /expensePayments/{id} { allow read, write: if isAdmin() || canViewFinance(); }
+    match /expenseAuditLogs/{id} { allow read, write: if isAdmin() || canViewFinance(); }
+    match /counters/{id} { allow read, write: if isAdmin() || canViewFinance(); }
+
+    // Inventory & Supply Chain Extended
+    match /physical_stock_audits/{id} { allow read, write: if isAdmin() || isHubManager(); }
+    match /rtv_returns/{id} { allow read, write: if isAdmin() || isHubManager(); }
+
+    // HR & Company Settings
+    match /document_settings/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
+    match /company_holidays/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
 
 
     // ============================================================

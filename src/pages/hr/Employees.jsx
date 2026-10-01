@@ -79,9 +79,6 @@ const Employees = () => {
     const unsub = onSnapshot(collection(db, "warehouses"), (snap) => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setWarehouses(list);
-      if (list.length > 0 && !formData.warehouseId) {
-        setFormData(prev => ({ ...prev, warehouseId: list[0].id }));
-      }
     });
     return () => unsub();
   }, []);
@@ -116,7 +113,7 @@ const Employees = () => {
       setFormData({
         firstName: "", lastName: "", email: "", phone: "",
         departmentId: "Operations", designationId: "Executive",
-        employmentType: "Full-Time", warehouseId: warehouses[0]?.id || "", status: "Active"
+        employmentType: "Full-Time", warehouseId: "", status: "Active"
       });
       fetchEmployees();
     } catch (error) {

@@ -70,11 +70,8 @@ const InterHubTransfers = () => {
     const unsubWarehouses = onSnapshot(collection(db, 'warehouses'), (snap) => {
       const whList = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setWarehouses(whList);
-      if (whList.length >= 2) {
-        setSourceWarehouseId(whList[0].id);
-        setDestinationWarehouseId(whList[1].id);
-      } else if (whList.length === 1) {
-        setSourceWarehouseId(whList[0].id);
+      if (user?.assignedWarehouse || user?.warehouseId) {
+        setSourceWarehouseId(user.assignedWarehouse || user.warehouseId);
       }
     });
 
@@ -469,6 +466,7 @@ const InterHubTransfers = () => {
                     className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold outline-none"
                     required
                   >
+                    <option value="">-- Select Source Hub --</option>
                     {warehouses.map(w => (
                       <option key={w.id} value={w.id}>{w.name} ({w.code || w.id})</option>
                     ))}
@@ -483,8 +481,9 @@ const InterHubTransfers = () => {
                     className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold outline-none"
                     required
                   >
+                    <option value="">-- Select Destination Depot / Hub --</option>
                     {warehouses.map(w => (
-                      <option key={w.id} value={w.id}>{w.name} ({w.code || w.id})</option>
+                      <option key={w.id} value={w.id} disabled={w.id === sourceWarehouseId}>{w.name} ({w.code || w.id})</option>
                     ))}
                   </select>
                 </div>

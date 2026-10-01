@@ -2,6 +2,9 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, query, where, onSnapshot, getDocs, doc, writeBatch, Timestamp, addDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { useAuth } from '../hooks/useAuth';
+import { useAuthContext } from '../hooks/useAuthContext';
+import { useReadOnly } from '../hooks/useReadOnly';
+import ReadOnlyBanner from '../components/common/ReadOnlyBanner';
 import DataTable from '../components/common/DataTable';
 import PageHeader from '../components/common/PageHeader';
 import MetricCard from '../components/common/MetricCard';
@@ -28,12 +31,20 @@ import toast from 'react-hot-toast';
 
 const AutoBatching = () => {
   const { user } = useAuth();
+  const { isHubScoped, hubId } = useAuthContext();
+  const { isReadOnly } = useReadOnly();
   const [orders, setOrders] = useState([]);
   const [riders, setRiders] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedHub, setSelectedHub] = useState('ALL');
+  const [selectedHub, setSelectedHub] = useState(isHubScoped && hubId ? hubId : 'ALL');
   const [selectedClusterKey, setSelectedClusterKey] = useState(null);
+
+  useEffect(() => {
+    if (isHubScoped && hubId) {
+      setSelectedHub(hubId);
+    }
+  }, [isHubScoped, hubId]);
 
   // Dispatch Modal State
   const [assignModalCluster, setAssignModalCluster] = useState(null);
@@ -50,9 +61,13 @@ const AutoBatching = () => {
       setWarehouses(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // 2. Fetch Active Riders
+    // 2. Fetch Active Riders (Hub-scoped if applicable)
     const unsubRiders = onSnapshot(collection(db, 'riders'), (snap) => {
-      setRiders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      let list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (isHubScoped && hubId) {
+        list = list.filter(r => r.assignedWarehouse === hubId || r.warehouseId === hubId);
+      }
+      setRiders(list);
     });
 
     // 3. Fetch Unassigned Ready Orders (CONFIRMED, PACKED, READY_FOR_DISPATCH, PLACED)
@@ -62,7 +77,10 @@ const AutoBatching = () => {
     );
 
     const unsubOrders = onSnapshot(qOrders, (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      let list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (isHubScoped && hubId) {
+        list = list.filter(o => o.warehouseId === hubId || o.fulfillmentWarehouseId === hubId);
+      }
       setOrders(list.filter(o => !o.riderId));
       setLoading(false);
     }, (err) => {
@@ -75,7 +93,7 @@ const AutoBatching = () => {
       unsubRiders();
       unsubOrders();
     };
-  }, []);
+  }, [isHubScoped, hubId]);
 
   const getWarehouseName = (whId) => {
     const wh = warehouses.find(w => w.id === whId || w.code === whId);
@@ -218,6 +236,8 @@ const AutoBatching = () => {
         />
       </div>
 
+      {isReadOnly && <ReadOnlyBanner />}
+
       {/* Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
@@ -253,14 +273,21 @@ const AutoBatching = () => {
           Filter by Depot:
         </div>
         <select
-          value={selectedHub}
+          value={isHubScoped && hubId ? hubId : selectedHub}
+          disabled={isHubScoped}
           onChange={(e) => setSelectedHub(e.target.value)}
-          className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-bold text-gray-800 outline-none cursor-pointer focus:ring-2 focus:ring-primary/20"
+          className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-bold text-gray-800 outline-none cursor-pointer focus:ring-2 focus:ring-primary/20 disabled:opacity-75 disabled:cursor-not-allowed"
         >
-          <option value="ALL">🏢 All Regional Depots (Consolidated)</option>
-          {warehouses.map(wh => (
-            <option key={wh.id} value={wh.id}>📍 {wh.name}</option>
-          ))}
+          {isHubScoped ? (
+            <option value={hubId}>🏪 {warehouses.find(w => w.id === hubId)?.name || hubId} (Assigned)</option>
+          ) : (
+            <>
+              <option value="ALL">🏢 All Regional Depots (Consolidated)</option>
+              {warehouses.map(wh => (
+                <option key={wh.id} value={wh.id}>📍 {wh.name}</option>
+              ))}
+            </>
+          )}
         </select>
         <div className="ml-auto text-xs font-bold text-gray-400">
           {clusters.length} optimized route batches formed
@@ -331,16 +358,22 @@ const AutoBatching = () => {
               </div>
 
               <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
-                <button
-                  onClick={() => {
-                    setAssignModalCluster(cl);
-                    setSelectedRiderId(riders[0]?.id || '');
-                  }}
-                  className="w-full py-2.5 bg-[#0B4D31] text-white rounded-xl text-xs font-black shadow-md shadow-green-900/10 hover:bg-[#146c43] transition-all flex items-center justify-center gap-1.5 active:scale-95"
-                >
-                  <Truck size={14} />
-                  Dispatch Cluster to Rider
-                </button>
+                {!isReadOnly ? (
+                  <button
+                    onClick={() => {
+                      setAssignModalCluster(cl);
+                      setSelectedRiderId(riders[0]?.id || '');
+                    }}
+                    className="w-full py-2.5 bg-[#0B4D31] text-white rounded-xl text-xs font-black shadow-md shadow-green-900/10 hover:bg-[#146c43] transition-all flex items-center justify-center gap-1.5 active:scale-95"
+                  >
+                    <Truck size={14} />
+                    Dispatch Cluster to Rider
+                  </button>
+                ) : (
+                  <div className="w-full py-2 text-center text-xs text-gray-400 font-bold bg-gray-50 rounded-xl">
+                    View Only
+                  </div>
+                )}
               </div>
             </div>
           ))}

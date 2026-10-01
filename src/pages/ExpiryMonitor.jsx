@@ -2,9 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, onSnapshot, getDocs, updateDoc, doc, Timestamp, addDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { useAuth } from '../hooks/useAuth';
+import { useAuthContext } from '../hooks/useAuthContext';
+import { useReadOnly } from '../hooks/useReadOnly';
+import ReadOnlyBanner from '../components/common/ReadOnlyBanner';
 import DataTable from '../components/common/DataTable';
 import PageHeader from '../components/common/PageHeader';
 import MetricCard from '../components/common/MetricCard';
+import { callWriteOffStock } from '../services/inventory';
 import { 
   AlertTriangle, 
   ShieldAlert, 
@@ -28,12 +32,20 @@ import toast from 'react-hot-toast';
 
 const ExpiryMonitor = () => {
   const { user, role } = useAuth();
+  const { isHubScoped, hubId } = useAuthContext();
+  const { isReadOnly } = useReadOnly();
   const [products, setProducts] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedHub, setSelectedHub] = useState('ALL');
+  const [selectedHub, setSelectedHub] = useState(isHubScoped && hubId ? hubId : 'ALL');
   const [urgencyFilter, setUrgencyFilter] = useState('ALL'); // 'ALL' | 'EXPIRED' | 'CRITICAL' | 'WARNING' | 'HEALTHY' | 'QUARANTINED'
+
+  useEffect(() => {
+    if (isHubScoped && hubId) {
+      setSelectedHub(hubId);
+    }
+  }, [isHubScoped, hubId]);
 
   // Action Modal State (Quarantine / RTV Debit Note)
   const [selectedBatchItem, setSelectedBatchItem] = useState(null);
@@ -141,19 +153,23 @@ const ExpiryMonitor = () => {
         b.batchNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
         b.brand.toLowerCase().includes(searchTerm.toLowerCase());
 
-      const matchesHub = selectedHub === 'ALL' || b.warehouseId === selectedHub;
+      const effectiveHub = isHubScoped && hubId ? hubId : selectedHub;
+      const matchesHub = effectiveHub === 'ALL' || b.warehouseId === effectiveHub;
       const matchesUrgency = urgencyFilter === 'ALL' || b.status === urgencyFilter;
 
       return matchesSearch && matchesHub && matchesUrgency;
     });
-  }, [batchList, searchTerm, selectedHub, urgencyFilter]);
+  }, [batchList, searchTerm, selectedHub, urgencyFilter, isHubScoped, hubId]);
 
   // Metrics
   const metrics = useMemo(() => {
-    const expired = batchList.filter(b => b.status === 'EXPIRED');
-    const critical = batchList.filter(b => b.status === 'CRITICAL');
-    const warning = batchList.filter(b => b.status === 'WARNING');
-    const quarantined = batchList.filter(b => b.isQuarantined);
+    const effectiveHub = isHubScoped && hubId ? hubId : selectedHub;
+    const relevantBatches = effectiveHub === 'ALL' ? batchList : batchList.filter(b => b.warehouseId === effectiveHub);
+
+    const expired = relevantBatches.filter(b => b.status === 'EXPIRED');
+    const critical = relevantBatches.filter(b => b.status === 'CRITICAL');
+    const warning = relevantBatches.filter(b => b.status === 'WARNING');
+    const quarantined = relevantBatches.filter(b => b.isQuarantined);
 
     const expiredValue = expired.reduce((sum, b) => sum + (b.stock * b.costPrice), 0);
     const criticalValue = critical.reduce((sum, b) => sum + (b.stock * b.costPrice), 0);
@@ -166,7 +182,7 @@ const ExpiryMonitor = () => {
       warningCount: warning.length,
       quarantinedCount: quarantined.length
     };
-  }, [batchList]);
+  }, [batchList, selectedHub, isHubScoped, hubId]);
 
   // Handle Quarantine / Return to Vendor / Scrap Write-off
   const handleProcessAction = async (e) => {
@@ -204,25 +220,43 @@ const ExpiryMonitor = () => {
           createdBy: user?.displayName || user?.email || 'Admin'
         });
 
-        // Set stock to 0 as returned
+        // Write off inventory via backend Cloud Function (SSoT)
+        await callWriteOffStock({
+          skuCode: selectedBatchItem.productId,
+          batchId: selectedBatchItem.batchNumber,
+          quantity: selectedBatchItem.stock,
+          type: 'EXPIRED',
+          reason: actionNotes || `RTV Debit Note ${debitNoteNo}`,
+          warehouseId: selectedBatchItem.warehouseId || 'MAIN_HUB'
+        });
+
+        // Update product non-stock metadata only
         await updateDoc(prodRef, {
-          stock: 0,
           isQuarantined: false,
           lastRtvRef: debitNoteNo
         });
 
-        toast.success(`Debit Note ${debitNoteNo} generated for ₹${(selectedBatchItem.stock * selectedBatchItem.costPrice).toLocaleString('en-IN')}! Stock returned.`);
+        toast.success(`Debit Note ${debitNoteNo} generated for ₹${(selectedBatchItem.stock * selectedBatchItem.costPrice).toLocaleString('en-IN')}! Stock returned via Cloud Function.`);
       } else if (actionType === 'SCRAP_WRITE_OFF') {
-        // Write off stock to scrap
+        // Write off stock via backend Cloud Function (SSoT)
+        await callWriteOffStock({
+          skuCode: selectedBatchItem.productId,
+          batchId: selectedBatchItem.batchNumber,
+          quantity: selectedBatchItem.stock,
+          type: 'EXPIRED',
+          reason: actionNotes || 'Scrapped due to expiration',
+          warehouseId: selectedBatchItem.warehouseId || 'MAIN_HUB'
+        });
+
+        // Update non-stock metadata
         await updateDoc(prodRef, {
-          stock: 0,
           isQuarantined: false,
           writeOffReason: actionNotes || 'Scrapped due to expiration',
           writtenOffAt: Timestamp.now(),
           writtenOffBy: user?.displayName || user?.email || 'Admin'
         });
 
-        toast.success(`Stock written off to Scrap Expense. Inventory cleared.`);
+        toast.success(`Stock written off via Cloud Function to Scrap Expense. Inventory cleared.`);
       }
 
       setSelectedBatchItem(null);
@@ -359,47 +393,52 @@ const ExpiryMonitor = () => {
     },
     {
       header: 'Actions / Protect Revenue',
-      render: (b) => (
-        <div className="flex items-center gap-1.5">
-          {!b.isQuarantined && b.status === 'EXPIRED' && (
-            <button
-              onClick={() => {
-                setSelectedBatchItem(b);
-                setActionType('QUARANTINE');
-              }}
-              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1"
-            >
-              <ShieldAlert size={12} />
-              Quarantine Stock
-            </button>
-          )}
+      render: (b) => {
+        if (isReadOnly) {
+          return <span className="text-[11px] text-gray-400 font-semibold italic">View Only</span>;
+        }
+        return (
+          <div className="flex items-center gap-1.5">
+            {!b.isQuarantined && b.status === 'EXPIRED' && (
+              <button
+                onClick={() => {
+                  setSelectedBatchItem(b);
+                  setActionType('QUARANTINE');
+                }}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1"
+              >
+                <ShieldAlert size={12} />
+                Quarantine Stock
+              </button>
+            )}
 
-          {b.isQuarantined && (
-            <button
-              onClick={() => {
-                setSelectedBatchItem(b);
-                setActionType('RETURN_TO_VENDOR');
-              }}
-              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1"
-            >
-              <RotateCcw size={12} />
-              Return to Vendor (RTV)
-            </button>
-          )}
+            {b.isQuarantined && (
+              <button
+                onClick={() => {
+                  setSelectedBatchItem(b);
+                  setActionType('RETURN_TO_VENDOR');
+                }}
+                className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1"
+              >
+                <RotateCcw size={12} />
+                Return to Vendor (RTV)
+              </button>
+            )}
 
-          {!b.isQuarantined && (b.status === 'CRITICAL' || b.status === 'WARNING') && (
-            <button
-              onClick={() => {
-                setSelectedBatchItem(b);
-                setActionType('QUARANTINE');
-              }}
-              className="px-3 py-1.5 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-xl text-xs font-bold transition-all border border-amber-200"
-            >
-              Quarantine / Inspect
-            </button>
-          )}
-        </div>
-      )
+            {!b.isQuarantined && (b.status === 'CRITICAL' || b.status === 'WARNING') && (
+              <button
+                onClick={() => {
+                  setSelectedBatchItem(b);
+                  setActionType('QUARANTINE');
+                }}
+                className="px-3 py-1.5 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-xl text-xs font-bold transition-all border border-amber-200"
+              >
+                Quarantine / Inspect
+              </button>
+            )}
+          </div>
+        );
+      }
     }
   ];
 
@@ -418,6 +457,8 @@ const ExpiryMonitor = () => {
           Export FEFO Audit CSV
         </button>
       </div>
+
+      {isReadOnly && <ReadOnlyBanner />}
 
       {/* 4 Health KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -463,14 +504,21 @@ const ExpiryMonitor = () => {
 
           <div>
             <select
-              value={selectedHub}
+              value={isHubScoped && hubId ? hubId : selectedHub}
+              disabled={isHubScoped}
               onChange={(e) => setSelectedHub(e.target.value)}
-              className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-bold text-gray-800 outline-none"
+              className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-bold text-gray-800 outline-none disabled:opacity-75 disabled:cursor-not-allowed"
             >
-              <option value="ALL">🏢 All Regional Depots (Consolidated)</option>
-              {warehouses.map(wh => (
-                <option key={wh.id} value={wh.id}>📍 {wh.name}</option>
-              ))}
+              {isHubScoped ? (
+                <option value={hubId}>🏪 {warehouses.find(w => w.id === hubId)?.name || hubId} (Assigned Hub)</option>
+              ) : (
+                <>
+                  <option value="ALL">🏢 All Regional Depots (Consolidated)</option>
+                  {warehouses.map(wh => (
+                    <option key={wh.id} value={wh.id}>📍 {wh.name}</option>
+                  ))}
+                </>
+              )}
             </select>
           </div>
         </div>

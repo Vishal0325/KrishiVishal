@@ -71,8 +71,8 @@ export default function PhysicalStockAudit() {
       onSnapshot(collection(db, 'warehouses'), (snap) => {
         const whList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setWarehouses(whList);
-        if (whList.length > 0 && !selectedWarehouse) {
-          setSelectedWarehouse(whList[0].id);
+        if (user?.assignedWarehouse || user?.warehouseId) {
+          setSelectedWarehouse(user.assignedWarehouse || user.warehouseId);
         }
       })
     );

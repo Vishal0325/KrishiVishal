@@ -28,9 +28,9 @@ exports.allocateOrderWarehouse = functions.firestore
       const address = orderData.shippingAddress || {};
       const targetPincode = address.pincode || address.zip || "";
 
-      // [FIXED] Point #138: Fetch default warehouse from config instead of hardcoding
-      const configSnap = await db.collection("settings").doc("config").get();
-      let allocatedWarehouseId = configSnap.exists ? configSnap.data().defaultFulfillmentWarehouse : "WH-PURNEA-01";
+      // Pincode Routing with strict UNASSIGNED fallback
+      let allocatedWarehouseId = "UNASSIGNED";
+      let routingStatus = "NEEDS_MANUAL_ROUTING";
 
       // 1. Fetch Serviceable Warehouses for Pincode
       if (targetPincode) {
@@ -42,16 +42,40 @@ exports.allocateOrderWarehouse = functions.firestore
           .get();
 
         if (!serviceabilityQuery.empty) {
-          // Just picking the highest priority serviceable warehouse for now
-          // (Full FEFO/Availability check can be added here)
           allocatedWarehouseId = serviceabilityQuery.docs[0].data().warehouseId;
+          routingStatus = "PINCODE_MATCH";
+        } else {
+          // Check warehouses collection directly for pincode match
+          const whSnap = await db.collection("warehouses")
+            .where("isActive", "==", true)
+            .get();
+          const matchedWh = whSnap.docs.find(d => {
+            const data = d.data();
+            return data.pincodes && Array.isArray(data.pincodes) && data.pincodes.includes(targetPincode);
+          });
+
+          if (matchedWh) {
+            allocatedWarehouseId = matchedWh.id;
+            routingStatus = "PINCODE_MATCH";
+          } else {
+            // Check for explicit primary hub
+            const primaryWh = whSnap.docs.find(d => d.data().isPrimary === true);
+            if (primaryWh) {
+              allocatedWarehouseId = primaryWh.id;
+              routingStatus = "PRIMARY_HUB";
+            } else {
+              allocatedWarehouseId = "UNASSIGNED";
+              routingStatus = "NEEDS_MANUAL_ROUTING";
+            }
+          }
         }
       }
 
       // 2. Assign to order
       await db.collection("orders").doc(orderId).update({
         fulfillmentWarehouseId: allocatedWarehouseId,
-        fulfillmentAssignmentType: "AUTO",
+        fulfillmentAssignmentType: routingStatus,
+        routingStatus: routingStatus,
         fulfillmentAssignedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -61,74 +85,79 @@ exports.allocateOrderWarehouse = functions.firestore
         shipmentId: shipmentId,
         orderId: orderId,
         warehouseId: allocatedWarehouseId,
-        status: "PROCUREMENT_PENDING",
+        status: allocatedWarehouseId === "UNASSIGNED" ? "NEEDS_ROUTING" : "PROCUREMENT_PENDING",
         items: orderData.items || [],
         createdAt: admin.firestore.FieldValue.serverTimestamp()
       });
 
-      // 4. Real-time Inventory Reservation & Movements Logging (Inside Transaction)
-      // [FIXED] Points #48 & #137: Use Firestore Transaction for atomic stock reservation with strict read-before-write order
+      // 4. Real-time Inventory Reservation & Movements Logging (Only if allocated to valid warehouse)
       let hasInsufficientStock = false;
-      await db.runTransaction(async (transaction) => {
-        const items = orderData.items || [];
-        const invReads = [];
+      if (allocatedWarehouseId === "UNASSIGNED") {
+        await db.collection("orders").doc(orderId).update({
+          stockReservationStatus: "NEEDS_MANUAL_ROUTING"
+        });
+      } else {
+        await db.runTransaction(async (transaction) => {
+          const items = orderData.items || [];
+          const invReads = [];
 
-        // All reads must precede all writes in Firestore transactions
-        for (const item of items) {
-          const skuId = item.productId || item.skuId || item.id;
-          const qty = Number(item.quantity) || 1;
-          if (!skuId) continue;
+          // All reads must precede all writes in Firestore transactions
+          for (const item of items) {
+            const skuId = item.productId || item.skuId || item.id;
+            const qty = Number(item.quantity) || 1;
+            if (!skuId) continue;
 
-          const invQuery = await db.collection("warehouse_inventory")
-            .where("warehouseId", "==", allocatedWarehouseId)
-            .where("skuId", "==", skuId)
-            .limit(1)
-            .get();
+            const invQuery = await db.collection("warehouse_inventory")
+              .where("warehouseId", "==", allocatedWarehouseId)
+              .where("skuId", "==", skuId)
+              .limit(1)
+              .get();
 
-          if (!invQuery.empty) {
-            const invRef = invQuery.docs[0].ref;
-            const freshDoc = await transaction.get(invRef);
-            invReads.push({ skuId, qty, invRef, freshDoc });
-          } else {
-            invReads.push({ skuId, qty, invRef: null, freshDoc: null });
+            if (!invQuery.empty) {
+              const invRef = invQuery.docs[0].ref;
+              const freshDoc = await transaction.get(invRef);
+              invReads.push({ skuId, qty, invRef, freshDoc });
+            } else {
+              invReads.push({ skuId, qty, invRef: null, freshDoc: null });
+            }
           }
-        }
 
-        // Now execute all writes
-        for (const { skuId, qty, invRef, freshDoc } of invReads) {
-          if (invRef && freshDoc && freshDoc.exists) {
-            const invData = freshDoc.data();
-            const avail = Number(invData.availableQty) || 0;
+          // Now execute all writes
+          for (const { skuId, qty, invRef, freshDoc } of invReads) {
+            if (invRef && freshDoc && freshDoc.exists) {
+              const invData = freshDoc.data();
+              const avail = Number(invData.availableQty) || 0;
 
-            if (avail >= qty) {
-              transaction.update(invRef, {
-                availableQty: admin.firestore.FieldValue.increment(-qty),
-                reservedQty: admin.firestore.FieldValue.increment(qty),
-                lastMovementAt: admin.firestore.FieldValue.serverTimestamp()
-              });
+              if (avail >= qty) {
+                transaction.update(invRef, {
+                  availableQty: admin.firestore.FieldValue.increment(-qty),
+                  reservedQty: admin.firestore.FieldValue.increment(qty),
+                  lastMovementAt: admin.firestore.FieldValue.serverTimestamp()
+                });
 
-              const movementRef = db.collection("inventory_movements").doc();
-              transaction.set(movementRef, {
-                warehouseId: allocatedWarehouseId,
-                skuId: skuId,
-                batchId: invData.batchId || "DEFAULT",
-                quantity: -qty,
-                movementType: "ORDER_RESERVED",
-                referenceId: orderId,
-                timestamp: admin.firestore.FieldValue.serverTimestamp()
-              });
+                const movementRef = db.collection("inventory_movements").doc();
+                transaction.set(movementRef, {
+                  warehouseId: allocatedWarehouseId,
+                  skuId: skuId,
+                  batchId: invData.batchId || "DEFAULT",
+                  quantity: -qty,
+                  movementType: "ORDER_RESERVED",
+                  referenceId: orderId,
+                  timestamp: admin.firestore.FieldValue.serverTimestamp()
+                });
+              } else {
+                hasInsufficientStock = true;
+              }
             } else {
               hasInsufficientStock = true;
             }
-          } else {
-            hasInsufficientStock = true;
           }
-        }
 
-        transaction.update(db.collection("orders").doc(orderId), {
-          stockReservationStatus: hasInsufficientStock ? "PENDING_STOCK" : "FULLY_RESERVED"
+          transaction.update(db.collection("orders").doc(orderId), {
+            stockReservationStatus: hasInsufficientStock ? "PENDING_STOCK" : "FULLY_RESERVED"
+          });
         });
-      });
+      }
 
       // 5. Log Audit
       await db.collection("audit_logs").add({
@@ -137,7 +166,7 @@ exports.allocateOrderWarehouse = functions.firestore
         resourceId: orderId,
         warehouseId: allocatedWarehouseId,
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        details: { pincode: targetPincode, shipmentCreated: shipmentId, reservation: hasInsufficientStock ? "PARTIAL" : "RESERVED" },
+        details: { pincode: targetPincode, routingStatus, shipmentCreated: shipmentId, reservation: hasInsufficientStock ? "PARTIAL" : (allocatedWarehouseId === "UNASSIGNED" ? "UNASSIGNED" : "RESERVED") },
       });
 
       return null;

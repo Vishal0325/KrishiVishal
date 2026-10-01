@@ -41,6 +41,7 @@ import {
 } from 'recharts';
 import { useOrders } from '../hooks/useOrders';
 import { useProducts } from '../hooks/useProducts';
+import { useAuthContext } from '../hooks/useAuthContext';
 import { formatCurrency } from '../utils/formatters';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -77,12 +78,20 @@ const getStatusBadgeStyle = (status) => {
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { role, hubId, isHubScoped, canViewFinance } = useAuthContext();
   const { orders: allOrders } = useOrders();
   const { products } = useProducts();
   const [salesFilter, setSalesFilter] = useState('This Week');
   const [categoryFilter, setCategoryFilter] = useState('This Month');
-  const [hubFilter, setHubFilter] = useState('All');
+  const [hubFilter, setHubFilter] = useState(isHubScoped && hubId ? hubId : 'All');
   const [warehouses, setWarehouses] = useState([]);
+  const [riders, setRiders] = useState([]);
+
+  useEffect(() => {
+    if (isHubScoped && hubId) {
+      setHubFilter(hubId);
+    }
+  }, [isHubScoped, hubId]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'warehouses'), (snap) => {
@@ -91,6 +100,27 @@ const Dashboard = () => {
     return unsub;
   }, []);
 
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'riders'), (snap) => {
+      let list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const targetHub = isHubScoped && hubId ? hubId : (hubFilter !== 'All' ? hubFilter : null);
+      if (targetHub) {
+        list = list.filter(r => r.assignedWarehouse === targetHub || r.warehouseId === targetHub);
+      }
+      setRiders(list);
+    });
+    return unsub;
+  }, [isHubScoped, hubId, hubFilter]);
+
+  const scopedOrders = useMemo(() => {
+    if (!allOrders) return [];
+    const targetHub = isHubScoped && hubId ? hubId : hubFilter;
+    if (targetHub !== 'All') {
+      return allOrders.filter(o => o.warehouseId === targetHub || o.fulfillmentWarehouseId === targetHub);
+    }
+    return allOrders;
+  }, [allOrders, isHubScoped, hubId, hubFilter]);
+
   // 1. Dynamic Metrics Calculation via Web Worker
   const [dynamicMetrics, setDynamicMetrics] = useState({
     totalOrders: 0, totalRevenue: 0, pendingDelivery: 0,
@@ -98,14 +128,14 @@ const Dashboard = () => {
   });
 
   useEffect(() => {
-    if (!allOrders && !products) return;
+    if (!scopedOrders && !products) return;
     const worker = new Worker(new URL('../workers/dashboardMetricsWorker.js', import.meta.url));
-    worker.postMessage({ allOrders, products });
+    worker.postMessage({ allOrders: scopedOrders, products });
     worker.onmessage = (e) => {
       setDynamicMetrics(e.data);
     };
     return () => worker.terminate();
-  }, [allOrders, products]);
+  }, [scopedOrders, products]);
 
   // 2. Dynamic Sales Trend (Last 7 Days)
   const salesTrendData = useMemo(() => {
@@ -121,8 +151,8 @@ const Dashboard = () => {
         orders: 0
       });
     }
-    if (allOrders) {
-      allOrders.forEach(o => {
+    if (scopedOrders) {
+      scopedOrders.forEach(o => {
         if (!o.createdAt) return;
         const d = o.createdAt?.toDate ? o.createdAt.toDate() : new Date(o.createdAt);
         const match = result.find(r => r.dateStr === d.toDateString());
@@ -133,13 +163,13 @@ const Dashboard = () => {
       });
     }
     return result.map(r => ({ date: r.date, revenue: r.revenue, orders: r.orders }));
-  }, [allOrders]);
+  }, [scopedOrders]);
 
   // 3. Dynamic Status Distribution
   const statusDistributionData = useMemo(() => {
-    if (!allOrders || allOrders.length === 0) return [];
+    if (!scopedOrders || scopedOrders.length === 0) return [];
     const counts = {};
-    allOrders.forEach(o => {
+    scopedOrders.forEach(o => {
       let s = o.status;
       if (s === 'ready_for_pickup') s = 'Ready for Pickup';
       else if (s) s = s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
@@ -151,16 +181,16 @@ const Dashboard = () => {
     return Object.keys(counts).map(key => ({
       name: key,
       count: counts[key],
-      percentage: ((counts[key] / allOrders.length) * 100).toFixed(1) + '%',
+      percentage: ((counts[key] / scopedOrders.length) * 100).toFixed(1) + '%',
       color: colors[key] || '#94a3b8'
     }));
-  }, [allOrders]);
+  }, [scopedOrders]);
 
   // 4. Dynamic Pipeline Counts
   const pipelineCounts = useMemo(() => {
     const counts = { processing: 0, packing: 0, packed: 0, pickup: 0, delivery: 0, delivered: 0 };
-    if (allOrders) {
-      allOrders.forEach(o => {
+    if (scopedOrders) {
+      scopedOrders.forEach(o => {
         const s = o.status?.toLowerCase() || 'processing';
         if (['placed', 'confirmed', 'processing'].includes(s)) counts.processing++;
         else if (s === 'ready for packing' || s === 'packing') counts.packing++;
@@ -171,25 +201,33 @@ const Dashboard = () => {
       });
     }
     return counts;
-  }, [allOrders]);
+  }, [scopedOrders]);
 
-  // 5. Dynamic Warehouse Overview
+  // 5. Dynamic Warehouse Overview with live calculations per hub
   const warehouseOverviewData = useMemo(() => {
     if (!warehouses || warehouses.length === 0) return [];
-    return warehouses.map(w => ({
-      id: w.id,
-      code: w.code || w.name,
-      stockValue: 'N/A',
-      orders: 0,
-      lowStock: 0,
-      status: w.isActive === false ? 'Warning' : 'Healthy'
-    }));
-  }, [warehouses]);
+    return warehouses.map(w => {
+      const whOrders = (allOrders || []).filter(o => o.warehouseId === w.id || o.fulfillmentWarehouseId === w.id);
+      const deliveredRevenue = whOrders
+        .filter(o => o.status?.toLowerCase() === 'delivered')
+        .reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
+      return {
+        id: w.id,
+        code: w.code || w.name,
+        name: w.name,
+        stockValue: deliveredRevenue > 0 ? formatCurrency(deliveredRevenue) : '₹0',
+        orders: whOrders.length,
+        lowStock: 0,
+        status: w.isActive === false ? 'Warning' : 'Healthy',
+        isPrimary: !!w.isPrimary
+      };
+    });
+  }, [warehouses, allOrders]);
 
   // Display orders (Recent 5)
   const displayOrders = useMemo(() => {
-    if (allOrders && allOrders.length > 0) {
-      return allOrders.slice(0, 5).map(o => ({
+    if (scopedOrders && scopedOrders.length > 0) {
+      return scopedOrders.slice(0, 5).map(o => ({
         id: o.id.length > 6 ? o.id.substring(0, 6).toUpperCase() : o.id,
         customer: o.address?.name || o.customerName || 'Farmer Partner',
         amount: Number(o.totalAmount) || 0,
@@ -198,79 +236,212 @@ const Dashboard = () => {
       }));
     }
     return [];
-  }, [allOrders]);
+  }, [scopedOrders]);
 
-  // KPI Metric Cards Data
-  const metricCards = [
-    {
-      title: "Total Orders",
-      value: dynamicMetrics.totalOrders.toLocaleString(),
-      change: "Lifetime Orders",
-      trend: "up",
-      icon: ShoppingCart,
-      iconBg: "bg-emerald-600",
-      waveColor: "#10b981",
-      path: "/orders"
-    },
-    {
-      title: "Total Revenue",
-      value: formatCurrency(dynamicMetrics.totalRevenue),
-      change: "Lifetime Revenue",
-      trend: "up",
-      icon: IndianRupee,
-      iconBg: "bg-blue-600",
-      waveColor: "#3b82f6",
-      path: "/finance"
-    },
-    {
-      title: "Inventory Value",
-      value: formatCurrency(dynamicMetrics.inventoryValue),
-      change: "Based on active products",
-      trend: "up",
-      icon: Package,
-      iconBg: "bg-purple-600",
-      waveColor: "#a855f7",
-      path: "/products"
-    },
-    {
-      title: "Pending Delivery",
-      value: dynamicMetrics.pendingDelivery.toString(),
-      change: "Orders in pipeline",
-      trend: "down",
-      icon: Truck,
-      iconBg: "bg-orange-500",
-      waveColor: "#f97316",
-      path: "/trips"
-    },
-    {
-      title: "COD Collection",
-      value: formatCurrency(dynamicMetrics.codCollection),
-      change: "Pending to deposit",
-      trend: "subtext",
-      icon: Wallet,
-      iconBg: "bg-teal-600",
-      waveColor: "#14b8a6",
-      path: "/cash-recon"
-    },
-    {
-      title: "Low Stock SKUs",
-      value: dynamicMetrics.lowStockCount.toString(),
-      change: "Below threshold (10)",
-      trend: "subtext",
-      icon: AlertTriangle,
-      iconBg: "bg-amber-500",
-      waveColor: "#f59e0b",
-      path: "/products?filter=low-stock"
+  // KPI Metric Cards Data (Role Scoped)
+  const cardsToRender = useMemo(() => {
+    if (role === 'FinanceAdmin') {
+      return [
+        {
+          title: "Total Revenue",
+          value: formatCurrency(dynamicMetrics.totalRevenue),
+          change: "Gross billing value",
+          trend: "up",
+          icon: IndianRupee,
+          iconBg: "bg-emerald-600",
+          waveColor: "#10b981",
+          path: "/finance"
+        },
+        {
+          title: "COD In-Transit",
+          value: formatCurrency(dynamicMetrics.codCollection),
+          change: "Pending deposit to bank",
+          trend: "subtext",
+          icon: Wallet,
+          iconBg: "bg-teal-600",
+          waveColor: "#14b8a6",
+          path: "/cash-recon"
+        },
+        {
+          title: "GST Liability (Est.)",
+          value: formatCurrency((scopedOrders || []).reduce((sum, o) => sum + (Number(o.taxAmount || o.gstAmount || (Number(o.totalAmount || 0) * 0.05))), 0)),
+          change: "Tax liability estimate",
+          trend: "up",
+          icon: BarChart3,
+          iconBg: "bg-blue-600",
+          waveColor: "#3b82f6",
+          path: "/gst-reports"
+        },
+        {
+          title: "Paid Delivered",
+          value: (scopedOrders || []).filter(o => o.status?.toLowerCase() === 'delivered').length.toString(),
+          change: "Completed settlements",
+          trend: "up",
+          icon: CheckCircle,
+          iconBg: "bg-purple-600",
+          waveColor: "#a855f7",
+          path: "/orders"
+        },
+        {
+          title: "Total Invoices",
+          value: dynamicMetrics.totalOrders.toLocaleString(),
+          change: "Financial billing events",
+          trend: "up",
+          icon: ShoppingCart,
+          iconBg: "bg-indigo-600",
+          waveColor: "#6366f1",
+          path: "/orders"
+        },
+        {
+          title: "Return Claims",
+          value: (scopedOrders || []).filter(o => o.status?.toLowerCase() === 'returned').length.toString(),
+          change: "Processed return claims",
+          trend: "down",
+          icon: AlertTriangle,
+          iconBg: "bg-amber-500",
+          waveColor: "#f59e0b",
+          path: "/returns"
+        }
+      ];
     }
-  ];
 
-  // Dynamic Top Categories from real orders & products
+    if (isHubScoped && hubId) {
+      return [
+        {
+          title: "Depot Orders",
+          value: scopedOrders.length.toLocaleString(),
+          change: "Orders assigned to hub",
+          trend: "up",
+          icon: ShoppingCart,
+          iconBg: "bg-emerald-600",
+          waveColor: "#10b981",
+          path: "/orders"
+        },
+        {
+          title: "Pending Dispatch",
+          value: scopedOrders.filter(o => ['placed', 'confirmed', 'packing', 'packed', 'processing'].includes(o.status?.toLowerCase())).length.toString(),
+          change: "Ready for rider routing",
+          trend: "down",
+          icon: Package,
+          iconBg: "bg-amber-500",
+          waveColor: "#f59e0b",
+          path: "/auto-batching"
+        },
+        {
+          title: "Hub Fleet Riders",
+          value: `${riders.filter(r => r.online).length} / ${riders.length}`,
+          change: "Riders online now",
+          trend: "up",
+          icon: Truck,
+          iconBg: "bg-blue-600",
+          waveColor: "#3b82f6",
+          path: "/fleet"
+        },
+        {
+          title: "Depot Sales Value",
+          value: formatCurrency(scopedOrders.filter(o => o.status?.toLowerCase() === 'delivered').reduce((s, o) => s + Number(o.totalAmount || 0), 0)),
+          change: "Delivered order value",
+          trend: "up",
+          icon: IndianRupee,
+          iconBg: "bg-purple-600",
+          waveColor: "#a855f7",
+          path: "/orders"
+        },
+        {
+          title: "COD Collected",
+          value: formatCurrency(dynamicMetrics.codCollection),
+          change: "Depot cash in hand",
+          trend: "subtext",
+          icon: Wallet,
+          iconBg: "bg-teal-600",
+          waveColor: "#14b8a6",
+          path: "/cash-recon"
+        },
+        {
+          title: "Pipeline Orders",
+          value: dynamicMetrics.pendingDelivery.toString(),
+          change: "Active delivery run",
+          trend: "subtext",
+          icon: Warehouse,
+          iconBg: "bg-orange-500",
+          waveColor: "#f97316",
+          path: "/orders"
+        }
+      ];
+    }
+
+    // Default SuperAdmin / Network View
+    return [
+      {
+        title: "Total Orders",
+        value: dynamicMetrics.totalOrders.toLocaleString(),
+        change: "Lifetime Orders",
+        trend: "up",
+        icon: ShoppingCart,
+        iconBg: "bg-emerald-600",
+        waveColor: "#10b981",
+        path: "/orders"
+      },
+      {
+        title: "Total Revenue",
+        value: formatCurrency(dynamicMetrics.totalRevenue),
+        change: "Lifetime Revenue",
+        trend: "up",
+        icon: IndianRupee,
+        iconBg: "bg-blue-600",
+        waveColor: "#3b82f6",
+        path: "/finance"
+      },
+      {
+        title: "Inventory Value",
+        value: formatCurrency(dynamicMetrics.inventoryValue),
+        change: "Based on active products",
+        trend: "up",
+        icon: Package,
+        iconBg: "bg-purple-600",
+        waveColor: "#a855f7",
+        path: "/products"
+      },
+      {
+        title: "Pending Delivery",
+        value: dynamicMetrics.pendingDelivery.toString(),
+        change: "Orders in pipeline",
+        trend: "down",
+        icon: Truck,
+        iconBg: "bg-orange-500",
+        waveColor: "#f97316",
+        path: "/trips"
+      },
+      {
+        title: "COD Collection",
+        value: formatCurrency(dynamicMetrics.codCollection),
+        change: "Pending to deposit",
+        trend: "subtext",
+        icon: Wallet,
+        iconBg: "bg-teal-600",
+        waveColor: "#14b8a6",
+        path: "/cash-recon"
+      },
+      {
+        title: "Low Stock SKUs",
+        value: dynamicMetrics.lowStockCount.toString(),
+        change: "Below threshold (10)",
+        trend: "subtext",
+        icon: AlertTriangle,
+        iconBg: "bg-amber-500",
+        waveColor: "#f59e0b",
+        path: "/products?filter=low-stock"
+      }
+    ];
+  }, [role, isHubScoped, hubId, dynamicMetrics, scopedOrders, riders]);
+
+  // Dynamic Top Categories from real scoped orders & products
   const topCategories = useMemo(() => {
     const categoryTotals = {};
     const categoryOrders = {};
 
-    if (allOrders && allOrders.length > 0) {
-      allOrders.forEach(o => {
+    if (scopedOrders && scopedOrders.length > 0) {
+      scopedOrders.forEach(o => {
         if (Array.isArray(o.items)) {
           o.items.forEach(item => {
             const cat = item.category || 'Agri Inputs';
@@ -317,7 +488,7 @@ const Dashboard = () => {
         orders: ordersCount
       };
     });
-  }, [allOrders, products]);
+  }, [scopedOrders, products]);
 
   // Dynamic AI Alerts based strictly on live store state
   const aiAlerts = useMemo(() => {
@@ -370,18 +541,87 @@ const Dashboard = () => {
     return list;
   }, [dynamicMetrics, warehouses]);
 
+  const quickActions = useMemo(() => {
+    if (role === 'FinanceAdmin') {
+      return [
+        { label: 'Financial Audit', icon: BarChart3, path: '/finance' },
+        { label: 'Cash Reconciliation', icon: Wallet, path: '/cash-recon' },
+        { label: 'Bank Deposits', icon: IndianRupee, path: '/cash-recon' },
+        { label: 'GST Reports', icon: ClipboardList, path: '/gst-reports' },
+        { label: 'Orders Hub', icon: ShoppingCart, path: '/orders' },
+        { label: 'Staff Directory', icon: UserPlus, path: '/staff' }
+      ];
+    }
+    if (isHubScoped) {
+      return [
+        { label: 'View Depot Orders', icon: ShoppingCart, path: '/orders' },
+        { label: 'Add Goods Receipt (GRN)', icon: PackageCheck, path: '/grn' },
+        { label: 'Auto Route Batching', icon: Truck, path: '/auto-batching' },
+        { label: 'Inventory Movements', icon: RefreshCcw, path: '/transfers' },
+        { label: 'FEFO Shelf Expiry', icon: AlertTriangle, path: '/expiry-monitor' },
+        { label: 'Local SKU Stock', icon: Tag, path: '/skus' }
+      ];
+    }
+    return [
+      { label: 'Create Order', icon: ShoppingCart, path: '/orders' },
+      { label: 'Add GRN', icon: PackageCheck, path: '/grn' },
+      { label: 'Stock Transfer', icon: RefreshCcw, path: '/transfers' },
+      { label: 'Add Product', icon: Tag, path: '/products' },
+      { label: 'View Reports', icon: BarChart3, path: '/reports' },
+      { label: 'Add User', icon: UserPlus, path: '/staff' }
+    ];
+  }, [role, isHubScoped]);
+
   return (
     <div className="space-y-4 animate-in fade-in duration-300">
       
-      {/* Active Hub Selector - Only displayed if warehouses exist */}
-      {warehouses.length > 0 && (
+      {/* Role-Specific Header / Hub Selector */}
+      {isHubScoped && hubId ? (
+        <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold">
+              <Warehouse size={20} />
+            </div>
+            <div>
+              <h2 className="text-sm font-black text-emerald-950">
+                🏪 {warehouses.find(w => w.id === hubId)?.name || hubId} ({hubId})
+              </h2>
+              <p className="text-xs text-emerald-700 font-medium">
+                Scoped Depot Dashboard • Displaying localized inventory, dispatch queues, and fleet operations.
+              </p>
+            </div>
+          </div>
+          <span className="px-3 py-1 bg-white text-emerald-800 text-[11px] font-black rounded-lg border border-emerald-200">
+            Role: {role || 'HubManager'}
+          </span>
+        </div>
+      ) : role === 'FinanceAdmin' ? (
+        <div className="bg-blue-50 border border-blue-200 p-4 rounded-2xl flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold">
+              <IndianRupee size={20} />
+            </div>
+            <div>
+              <h2 className="text-sm font-black text-blue-950">
+                💰 Financial & Revenue Control Room
+              </h2>
+              <p className="text-xs text-blue-700 font-medium">
+                Consolidated GMV, COD in-transit reconciliation, and GST reporting.
+              </p>
+            </div>
+          </div>
+          <span className="px-3 py-1 bg-white text-blue-800 text-[11px] font-black rounded-lg border border-blue-200">
+            FinanceAdmin Access
+          </span>
+        </div>
+      ) : warehouses.length > 0 && (
         <div className="bg-white p-3.5 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Active Hub:</label>
             <select
               value={hubFilter}
               onChange={(e) => setHubFilter(e.target.value)}
-              className="bg-gray-50 border border-gray-200 rounded-xl px-3.5 py-1.5 text-xs font-bold text-gray-800 outline-none focus:ring-2 focus:ring-emerald-500/20"
+              className="bg-gray-50 border border-gray-200 rounded-xl px-3.5 py-1.5 text-xs font-bold text-gray-800 outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
             >
               <option value="All">All Hubs (Network View)</option>
               {warehouses.map(w => (
@@ -397,7 +637,7 @@ const Dashboard = () => {
 
       {/* 1. KPI Cards Row (6 horizontal cards) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 sm:gap-3">
-        {metricCards.map((card, idx) => (
+        {cardsToRender.map((card, idx) => (
           <div 
             key={idx} 
             onClick={() => navigate(card.path)} 
@@ -780,14 +1020,7 @@ const Dashboard = () => {
         <div className="md:col-span-5 bg-white rounded-2xl border border-gray-100 shadow-sm p-3 flex flex-col justify-between">
           <h2 className="text-sm font-black text-gray-900 mb-2">Quick Actions</h2>
           <div className="grid grid-cols-2 gap-2">
-            {[
-              { label: 'Create Order', icon: ShoppingCart, path: '/orders' },
-              { label: 'Add GRN', icon: PackageCheck, path: '/grn' },
-              { label: 'Stock Transfer', icon: RefreshCcw, path: '/transfers' },
-              { label: 'Add Product', icon: Tag, path: '/products' },
-              { label: 'View Reports', icon: BarChart3, path: '/reports' },
-              { label: 'Add User', icon: UserPlus, path: '/staff' }
-            ].map((action, i) => (
+            {quickActions.map((action, i) => (
               <button 
                 key={i}
                 onClick={() => navigate(action.path)}

@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, Timestamp, getDoc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, Timestamp, getDoc, where } from 'firebase/firestore';
 import { db } from '../firebase/config';
+import { useAuthContext } from '../hooks/useAuthContext';
+import { useReadOnly } from '../hooks/useReadOnly';
+import ReadOnlyBanner from '../components/common/ReadOnlyBanner';
 import DataTable from '../components/common/DataTable';
 import StatusBadge from '../components/common/StatusBadge';
 import PageHeader from '../components/common/PageHeader';
@@ -36,6 +39,8 @@ import ProofOfDeliveryModal from '../components/orders/ProofOfDeliveryModal';
 const Orders = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { isHubScoped, hubId } = useAuthContext();
+  const { isReadOnly } = useReadOnly();
   const [orders, setOrders] = useState([]);
   const [riders, setRiders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -63,11 +68,21 @@ const Orders = () => {
       if (snap.exists()) setAutoPrintEnabled(snap.data().autoPrintNewOrders || false);
     });
 
-    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+    const q = isHubScoped && hubId
+      ? query(collection(db, 'orders'), where('warehouseId', '==', hubId))
+      : query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+
     let initialLoad = true;
 
     const unsubscribeOrders = onSnapshot(q, (snapshot) => {
-      const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      let ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      if (isHubScoped) {
+        ordersData.sort((a, b) => {
+          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0);
+          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0);
+          return timeB - timeA;
+        });
+      }
       setOrders(ordersData);
       setLoading(false);
 
@@ -105,7 +120,11 @@ const Orders = () => {
     unsubs.push(unsubscribeOrders);
 
     const unsubRiders = onSnapshot(collection(db, 'riders'), (snapshot) => {
-      setRiders(snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name || doc.id, warehouseId: doc.data().warehouseId })));
+      let list = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name || doc.id, warehouseId: doc.data().warehouseId }));
+      if (isHubScoped && hubId) {
+        list = list.filter(r => !r.warehouseId || r.warehouseId === hubId);
+      }
+      setRiders(list);
     });
     unsubs.push(unsubRiders);
 
@@ -116,7 +135,7 @@ const Orders = () => {
 
     // [FIXED] Point #111: Centralized cleanup for massive real-time listeners to prevent memory leaks
     return () => unsubs.forEach(unsub => unsub());
-  }, [autoPrintEnabled]);
+  }, [autoPrintEnabled, isHubScoped, hubId]);
 
   // [FIXED] Point #62: Improved Deep-link handling for selected order to handle async data loading
   useEffect(() => {
@@ -325,13 +344,15 @@ const Orders = () => {
         subtitle="Manage end-to-end order processing, dispatch, printing, and rider assignment across Bihar."
         actions={
           <div className="flex items-center space-x-3">
-            <button
-              onClick={() => navigate('/packing-station')}
-              className="flex items-center space-x-2 bg-[#1b5e20] text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider shadow-sm hover:bg-[#2e7d32] transition-all"
-            >
-              <PackageCheck size={16} />
-              <span>Packing Station</span>
-            </button>
+            {!isReadOnly && (
+              <button
+                onClick={() => navigate('/packing-station')}
+                className="flex items-center space-x-2 bg-[#1b5e20] text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider shadow-sm hover:bg-[#2e7d32] transition-all"
+              >
+                <PackageCheck size={16} />
+                <span>Packing Station</span>
+              </button>
+            )}
             <button
               onClick={exportOrdersCSV}
               className="flex items-center space-x-2 bg-white px-3.5 py-2 rounded-xl text-xs font-bold text-gray-700 border border-gray-200 hover:border-primary transition-all shadow-sm"
@@ -342,6 +363,8 @@ const Orders = () => {
           </div>
         }
       />
+
+      <ReadOnlyBanner message="You are viewing Orders in Read-Only Mode. Order routing, rider assignment, and status updates are restricted." />
 
       {/* SuperAdmin Multi-Hub Routing Alert Banner */}
       {flaggedOrUnassignedOrders.length > 0 && (
@@ -472,9 +495,12 @@ const Orders = () => {
                   Update Order Status
                 </label>
                 <select
+                  disabled={isReadOnly}
                   value={selectedOrder.status}
                   onChange={(e) => updateOrderStatus(selectedOrder.id, e.target.value)}
-                  className="w-full bg-white border border-green-200 rounded-xl px-3.5 py-2.5 text-xs font-bold text-gray-800 outline-none focus:ring-2 focus:ring-primary shadow-sm"
+                  className={`w-full bg-white border border-green-200 rounded-xl px-3.5 py-2.5 text-xs font-bold text-gray-800 outline-none focus:ring-2 focus:ring-primary shadow-sm ${
+                    isReadOnly ? "opacity-60 cursor-not-allowed" : ""
+                  }`}
                 >
                   <option value="PLACED">Placed</option>
                   <option value="CONFIRMED">Confirmed</option>
@@ -497,9 +523,12 @@ const Orders = () => {
                   <UserCheck size={14} />
                 </label>
                 <select
+                  disabled={isReadOnly}
                   value={selectedOrder.riderId || ''}
                   onChange={(e) => handleAssignRider(selectedOrder.id, e.target.value)}
-                  className="w-full bg-white border border-blue-200 rounded-xl px-3.5 py-2.5 text-xs font-bold text-gray-800 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+                  className={`w-full bg-white border border-blue-200 rounded-xl px-3.5 py-2.5 text-xs font-bold text-gray-800 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm ${
+                    isReadOnly ? "opacity-60 cursor-not-allowed" : ""
+                  }`}
                 >
                   <option value="">Select Rider...</option>
                   {riders.filter(r => !r.warehouseId || r.warehouseId === selectedOrder.fulfillmentWarehouseId).map(r => (

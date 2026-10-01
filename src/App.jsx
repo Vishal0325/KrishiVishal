@@ -1,6 +1,7 @@
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
-import { useAuth } from "./hooks/useAuth";
+import { AuthProvider, useAuthContext } from "./hooks/useAuthContext";
+import ProtectedRoute from "./components/ProtectedRoute";
 import { auth } from "./firebase/config";
 import { signOut } from "firebase/auth";
 import LoadingSpinner from "./components/common/LoadingSpinner";
@@ -39,23 +40,14 @@ const RiderProfile = React.lazy(() => import("./pages/hr/RiderProfile"));
 const ExpenseDetail = React.lazy(() => import("./pages/Expenses/ExpenseDetail"));
 const ExpenseForm = React.lazy(() => import("./pages/Expenses/ExpenseForm"));
 
-function App() {
-  const { user, loading, isAdmin, role, authError } = useAuth();
+function AppRoutes() {
+  const { user, loading, isAdmin, isSuperAdmin, role, authError } = useAuthContext();
 
-  const RequireRole = ({ allowedRoles, children }) => {
-    if (!user || !role) {
-      return <Navigate to="/login" replace />;
-    }
-    // SuperAdmin bypasses all role checks
-    if (role === "SuperAdmin") {
-      return children;
-    }
-    // Check if user's role is in allowed roles
-    if (!allowedRoles.includes(role)) {
-      return <Navigate to="/unauthorized" replace />;
-    }
-    return children;
-  };
+  const RequireRole = ({ allowedRoles, children }) => (
+    <ProtectedRoute allowedRoles={allowedRoles}>
+      {children}
+    </ProtectedRoute>
+  );
 
   if (loading) {
     return <LoadingSpinner fullScreen />;
@@ -88,7 +80,12 @@ function App() {
     );
   }
 
-  if (!isAdmin) {
+  const hasStaffAccess = isAdmin || isSuperAdmin || [
+    "SuperAdmin", "FinanceAdmin", "HubManager", "DepartmentManager", "Viewer", "Admin", "ADMIN",
+    "OrderManager", "CatalogManager", "HRAdmin", "HRExecutive", "WarehouseManager", "RiderManager", "OperationsAdmin"
+  ].includes(role);
+
+  if (!hasStaffAccess) {
     return (
       <div className="min-h-screen w-full flex items-center justify-center bg-red-50 p-6">
         <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-red-100 text-center">
@@ -297,4 +294,10 @@ function App() {
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppRoutes />
+    </AuthProvider>
+  );
+}

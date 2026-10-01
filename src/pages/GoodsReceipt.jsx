@@ -3,12 +3,16 @@ import {
   collection,
   onSnapshot,
   query,
-  orderBy
+  orderBy,
+  where
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
 import { db, storage, functions } from '../firebase/config';
 import { useAuth } from '../hooks/useAuth';
+import { useAuthContext } from '../hooks/useAuthContext';
+import { useReadOnly } from '../hooks/useReadOnly';
+import ReadOnlyBanner from '../components/common/ReadOnlyBanner';
 import DataTable from '../components/common/DataTable';
 import PageHeader from '../components/common/PageHeader';
 import { formatCurrency } from '../utils/formatters';
@@ -35,6 +39,8 @@ import toast from 'react-hot-toast';
 
 const GoodsReceipt = () => {
   const { user } = useAuth();
+  const { isHubScoped, hubId } = useAuthContext();
+  const { isReadOnly } = useReadOnly();
   const [grnList, setGrnList] = useState([]);
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -48,15 +54,34 @@ const GoodsReceipt = () => {
   const [invoiceFile, setInvoiceFile] = useState(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [receiptItems, setReceiptItems] = useState([]);
-  const [warehouseLocation, setWarehouseLocation] = useState('WH_PURNEA_CENTRAL_A1');
+  const [warehouseLocation, setWarehouseLocation] = useState(hubId || 'HUB-SAM-001');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    if (hubId) {
+      setWarehouseLocation(hubId);
+    }
+  }, [hubId]);
+
   // Listen to Goods Receipts
   useEffect(() => {
-    const q = query(collection(db, 'goods_receipts'), orderBy('createdAt', 'desc'));
+    let q;
+    if (isHubScoped && hubId) {
+      q = query(collection(db, 'goods_receipts'), where('warehouseId', '==', hubId));
+    } else {
+      q = query(collection(db, 'goods_receipts'), orderBy('createdAt', 'desc'));
+    }
     const unsub = onSnapshot(q, (snap) => {
-      setGrnList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      let list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (isHubScoped) {
+        list.sort((a, b) => {
+          const tA = a.createdAt?.seconds || 0;
+          const tB = b.createdAt?.seconds || 0;
+          return tB - tA;
+        });
+      }
+      setGrnList(list);
       setLoading(false);
     }, (err) => {
       console.error('GRN load error:', err);
@@ -64,16 +89,29 @@ const GoodsReceipt = () => {
       setLoading(false);
     });
     return unsub;
-  }, []);
+  }, [isHubScoped, hubId]);
 
   // Listen to Active Purchase Orders
   useEffect(() => {
-    const q = query(collection(db, 'purchase_orders'), orderBy('createdAt', 'desc'));
+    let q;
+    if (isHubScoped && hubId) {
+      q = query(collection(db, 'purchase_orders'), where('warehouseId', '==', hubId));
+    } else {
+      q = query(collection(db, 'purchase_orders'), orderBy('createdAt', 'desc'));
+    }
     const unsub = onSnapshot(q, (snap) => {
-      setPurchaseOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      let list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (isHubScoped) {
+        list.sort((a, b) => {
+          const tA = a.createdAt?.seconds || 0;
+          const tB = b.createdAt?.seconds || 0;
+          return tB - tA;
+        });
+      }
+      setPurchaseOrders(list);
     });
     return unsub;
-  }, []);
+  }, [isHubScoped, hubId]);
 
   // When PO is selected, populate receipt items
   const handleSelectPO = (poId) => {
@@ -294,22 +332,25 @@ const GoodsReceipt = () => {
     <div className="space-y-6 pb-10 animate-in fade-in duration-300">
       <PageHeader
         title="Goods Received Note (GRN) ERP"
-        subtitle="Receive incoming vendor stock, record supplier GST invoices, and update warehouse stock balances."
         actions={
-          <button
-            onClick={() => {
-              setIsCreateModalOpen(true);
-              if (activePOs.length > 0) {
-                handleSelectPO(activePOs[0].id);
-              }
-            }}
-            className="bg-[#1b5e20] text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider shadow-sm hover:bg-[#2e7d32] transition-all flex items-center group active:scale-95"
-          >
-            <Plus size={16} className="mr-2 group-hover:scale-110 transition-transform" />
-            Create Goods Receipt (GRN)
-          </button>
+          !isReadOnly && (
+            <button
+              onClick={() => {
+                setIsCreateModalOpen(true);
+                if (activePOs.length > 0) {
+                  handleSelectPO(activePOs[0].id);
+                }
+              }}
+              className="bg-[#1b5e20] text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider shadow-sm hover:bg-[#2e7d32] transition-all flex items-center group active:scale-95"
+            >
+              <Plus size={16} className="mr-2 group-hover:scale-110 transition-transform" />
+              Create Goods Receipt (GRN)
+            </button>
+          )
         }
       />
+
+      {isReadOnly && <ReadOnlyBanner />}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">

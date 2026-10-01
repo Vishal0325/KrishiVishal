@@ -78,12 +78,12 @@ const CashRecon = () => {
     const unsubWh = onSnapshot(collection(db, 'warehouses'), (snapshot) => {
       const whList = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setWarehouses(whList);
-      if (whList.length > 0 && !bankForm.warehouseId) {
-        setBankForm(prev => ({ ...prev, warehouseId: whList[0].id }));
+      if (user?.assignedWarehouse || user?.warehouseId) {
+        setBankForm(prev => ({ ...prev, warehouseId: user.assignedWarehouse || user.warehouseId }));
       }
     }, (err) => console.warn("Warehouses err:", err));
     return () => unsubWh();
-  }, []);
+  }, [user]);
 
   // 2. Fetch Summaries (Riders + Orders calculation)
   const fetchSummaries = async () => {
@@ -219,10 +219,18 @@ const CashRecon = () => {
       }
     }
 
+    const targetWarehouseId = rider.warehouseId || (selectedHub !== 'ALL' ? selectedHub : null) || user?.assignedWarehouse || user?.warehouseId;
+    if (!targetWarehouseId) {
+      toast.error("Please select a specific Active Depot / Hub from the dropdown first before receiving cash.");
+      return;
+    }
+
     setProcessingId(rider.id);
     try {
       const batch = writeBatch(db);
       const voucherNo = `KV-REC-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+
+      const finalWhInfo = getWarehouseInfo(targetWarehouseId);
 
       // 1. Create Cash Deposit / Receipt Document
       const depositRef = doc(collection(db, 'cash_deposits'));
@@ -231,9 +239,9 @@ const CashRecon = () => {
         riderId: rider.id,
         riderName: rider.name,
         riderPhone: rider.phone,
-        warehouseId: rider.warehouseId || (selectedHub !== 'ALL' ? selectedHub : 'UNASSIGNED'),
-        hubName: whInfo.name,
-        hubCode: whInfo.code,
+        warehouseId: targetWarehouseId,
+        hubName: finalWhInfo.name,
+        hubCode: finalWhInfo.code,
         amount: totalCountedCash,
         expectedAmount: rider.pendingCash,
         difference: totalCountedCash - rider.pendingCash,
@@ -281,6 +289,10 @@ const CashRecon = () => {
   // Submit Step 2: Hub Manager Bank Deposit
   const handleBankDepositSubmit = async (e) => {
     e.preventDefault();
+    if (!bankForm.warehouseId) {
+      toast.error("Please select a valid Warehouse / Origin Hub");
+      return;
+    }
     if (!bankForm.amount || Number(bankForm.amount) <= 0) {
       toast.error("Please enter a valid deposit amount");
       return;
@@ -317,7 +329,7 @@ const CashRecon = () => {
       toast.success("Bank Deposit Challan recorded! Sent to Finance for Audit.");
       setIsBankModalOpen(false);
       setBankForm({
-        warehouseId: warehouses[0]?.id || '',
+        warehouseId: user?.assignedWarehouse || user?.warehouseId || (selectedHub !== 'ALL' ? selectedHub : ''),
         bankName: 'HDFC Bank - Current A/C (..4920)',
         accountNumber: '50200067894920',
         amount: '',
@@ -958,6 +970,7 @@ const CashRecon = () => {
                   className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold outline-none"
                   required
                 >
+                  <option value="">-- Select Origin Hub / Depot --</option>
                   {warehouses.map(wh => (
                     <option key={wh.id} value={wh.id}>{wh.name} ({wh.code || wh.id})</option>
                   ))}

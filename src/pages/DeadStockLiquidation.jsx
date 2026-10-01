@@ -324,7 +324,7 @@ export default function DeadStockLiquidation() {
     setB2bPrice(Math.round(product.landingCost * 1.03)); // Cost + 3% default
     setB2bMinQty(Math.min(20, product.availableStock));
     setTransferQty(Math.min(50, product.availableStock));
-    setTargetHubId(warehouses.length > 0 ? warehouses[0].id : "");
+    setTargetHubId("");
   };
 
   const closeActionModal = () => {
@@ -709,6 +709,7 @@ export default function DeadStockLiquidation() {
                     onChange={(e) => setTargetHubId(e.target.value)}
                     className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold mt-1 outline-none focus:border-[#0B4D31]"
                   >
+                    <option value="">-- Select Destination Hub --</option>
                     {warehouses.map(w => (
                       <option key={w.id} value={w.id}>🏢 {w.name} ({w.district})</option>
                     ))}

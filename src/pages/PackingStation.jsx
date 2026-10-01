@@ -258,7 +258,7 @@ const PackingStation = () => {
       totalAmount: order.totalAmount || 0,
       items: order.items || [],
       qrData: order.qrPayload || JSON.stringify(payloadObj),
-      hubCode: 'HUB-PURNEA-01'
+      hubCode: order.hubCode || order.fulfillmentWarehouseId || order.warehouseId || 'UNASSIGNED'
     });
     setIsLabelModalOpen(true);
   };
