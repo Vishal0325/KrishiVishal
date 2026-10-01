@@ -218,33 +218,212 @@ exports.upsertSku = onCall({ region: 'asia-south1' }, async (request) => {
 });
 
 /**
- * receiveGrn: Inward Goods Receipt with FEFO batch creation and ledger tracking.
+ * receiveGrn: Inward Goods Receipt with FEFO batch creation, multi-item support, and ledger tracking.
  */
 exports.receiveGrn = onCall({ region: 'asia-south1' }, async (request) => {
-    if (!(await isAdminRequest({ auth: request.auth }))) {
-        throw new HttpsError('permission-denied', 'Admin or Staff access required.');
-    }
+    // 1. Authorization check
+    const token = request.auth?.token || {};
+    const allowed = token.admin === true || token.isAdmin === true ||
+      ['SuperAdmin', 'HubManager', 'DepartmentManager'].includes(token.role);
+    if (!allowed) throw new HttpsError('permission-denied', 'Access denied.');
 
     const payload = request.data || {};
-    const { skuCode, batchNumber, quantity, idempotencyKey } = payload;
+    const { items } = payload;
 
-    const validation = validateSku(skuCode);
-    if (!validation.isValid) throw new HttpsError('invalid-argument', validation.error);
-    if (!quantity || quantity <= 0) throw new HttpsError('invalid-argument', 'Quantity must be > 0.');
+    // 2. Backward compatibility: single-item old format if items array is not present
+    if (!Array.isArray(items)) {
+        const { skuCode, batchNumber, quantity, idempotencyKey } = payload;
+        const validation = validateSku(skuCode);
+        if (!validation.isValid) throw new HttpsError('invalid-argument', validation.error);
+        if (!quantity || quantity <= 0) throw new HttpsError('invalid-argument', 'Quantity must be > 0.');
 
-    const cleanKey = idempotencyKey || `GRN:${skuCode}:${batchNumber || Date.now()}:${quantity}`;
+        const cleanKey = idempotencyKey || `GRN:${skuCode}:${batchNumber || Date.now()}:${quantity}`;
 
-    const result = await db.runTransaction(async (transaction) => {
-        return await engineReceiveGrn(transaction, {
-            ...payload,
-            skuCode: validation.skuCode,
-            quantity: Number(quantity),
-            actorId: request.auth.uid,
-            idempotencyKey: cleanKey
+        const result = await db.runTransaction(async (transaction) => {
+            return await engineReceiveGrn(transaction, {
+                ...payload,
+                skuCode: validation.skuCode,
+                quantity: Number(quantity),
+                actorId: request.auth.uid,
+                idempotencyKey: cleanKey
+            });
         });
-    });
 
-    return result;
+        return result;
+    }
+
+    // 3. Multi-item Flow
+    if (items.length === 0) {
+        throw new HttpsError('invalid-argument', 'Items array cannot be empty.');
+    }
+
+    const poId = payload.poId || '';
+    const poNumber = payload.poNumber || '';
+    const supplierId = payload.supplierId || '';
+    const warehouseId = payload.warehouseId || DEFAULT_WAREHOUSE_ID;
+    const grnId = `GRN-${poNumber || 'DIRECT'}-${Date.now()}`;
+    const grnNumber = grnId;
+
+    let totalReceivedUnits = 0;
+    let totalGRNAmount = 0;
+
+    for (const item of items) {
+        const targetSku = item.skuCode || item.productId;
+        if (!targetSku) {
+            throw new HttpsError('invalid-argument', 'skuCode missing for item: ' + (item.productName || 'Unknown'));
+        }
+        const qty = Number(item.receivedQuantity ?? item.quantity ?? 0);
+        const unitCost = Number(item.actualUnitCost ?? item.unitCost ?? 0);
+        totalReceivedUnits += qty;
+        totalGRNAmount += (qty * unitCost);
+    }
+
+    // Fetch PO / Supplier metadata if available
+    let supplierName = payload.supplierName || '';
+    let supplierGstin = payload.supplierGstin || '';
+    let poData = null;
+    let poRef = null;
+
+    if (poId) {
+        poRef = db.collection('purchase_orders').doc(poId);
+        const poSnap = await poRef.get();
+        if (poSnap.exists) {
+            poData = poSnap.data();
+            if (!supplierName) supplierName = poData.supplierName || '';
+            if (!supplierGstin) supplierGstin = poData.supplierGstin || '';
+        }
+    }
+
+    if (!supplierName && supplierId) {
+        const supSnap = await db.collection('suppliers').doc(supplierId).get();
+        if (supSnap.exists) {
+            const sData = supSnap.data();
+            supplierName = sData.name || sData.supplierName || '';
+            supplierGstin = sData.gstin || sData.gstNumber || '';
+        }
+    }
+
+    // Step A: goods_receipts/{grnId} doc create karo
+    const grnRef = db.collection('goods_receipts').doc(grnId);
+    const grnDocData = {
+        grnId,
+        grnNumber,
+        poNumber,
+        poId,
+        supplierId,
+        supplierName,
+        supplierGstin,
+        invoiceNumber: payload.invoiceNumber || '',
+        invoiceDate: payload.receivedDate || new Date().toISOString().split('T')[0],
+        invoiceUrl: payload.invoiceUrl || null,
+        warehouseId,
+        warehouseLocation: warehouseId,
+        totalReceivedUnits,
+        totalGRNAmount,
+        items,
+        notes: payload.notes || '',
+        status: 'COMPLETED',
+        createdBy: request.auth.uid,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    await grnRef.set(grnDocData);
+
+    // Step B: Har item ke liye ALAG transaction mein engineReceiveGrn call karo
+    const failedItems = [];
+    const processedItems = [];
+
+    for (const item of items) {
+        const targetSku = item.skuCode || item.productId;
+        const qty = Number(item.receivedQuantity ?? item.quantity ?? 0);
+        if (qty <= 0) continue;
+
+        const cleanBatchNumber = (item.batchNumber || `BAT-${Date.now()}`).trim().toUpperCase();
+        const itemKey = `GRN:${grnId}:${targetSku}:${cleanBatchNumber}:${qty}`;
+
+        try {
+            await db.runTransaction(async (transaction) => {
+                return await engineReceiveGrn(transaction, {
+                    skuCode: targetSku,
+                    batchNumber: cleanBatchNumber,
+                    mfgDate: item.mfgDate,
+                    expiryDate: item.expiryDate,
+                    quantity: qty,
+                    warehouseId,
+                    binLocation: item.rackBin || '',
+                    supplierId,
+                    purchaseOrderId: poNumber || poId || '',
+                    grnId,
+                    landingCost: Number(item.actualUnitCost ?? item.unitCost ?? 0),
+                    actorId: request.auth.uid,
+                    idempotencyKey: itemKey
+                });
+            });
+            processedItems.push({ skuCode: targetSku, quantity: qty });
+        } catch (err) {
+            console.error(`Failed to process GRN item ${targetSku}:`, err);
+            failedItems.push({
+                skuCode: targetSku,
+                productName: item.productName || targetSku,
+                quantity: qty,
+                error: err.message
+            });
+        }
+    }
+
+    if (failedItems.length > 0) {
+        await grnRef.update({
+            status: 'PARTIAL_FAILURE',
+            failedItems,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+    }
+
+    // Step C: Sab items process hone ke baad purchase_orders/{poId} update karo
+    if (poRef && poData) {
+        try {
+            const poItems = poData.items || [];
+            let allCompleted = true;
+            const updatedPoItems = poItems.map(poItem => {
+                const matchingRecv = items.find(i =>
+                    (i.productId && i.productId === poItem.productId) ||
+                    (i.skuCode && i.skuCode === poItem.skuCode) ||
+                    (i.skuCode && i.skuCode === poItem.productId) ||
+                    (i.productId && i.productId === poItem.skuCode)
+                );
+                const alreadyRecv = Number(poItem.receivedQuantity || 0);
+                const newlyRecv = matchingRecv ? Number(matchingRecv.receivedQuantity ?? matchingRecv.quantity ?? 0) : 0;
+                const totalRecv = alreadyRecv + newlyRecv;
+                const orderedQty = Number(poItem.quantity || 0);
+                if (totalRecv < orderedQty) {
+                    allCompleted = false;
+                }
+                return {
+                    ...poItem,
+                    receivedQuantity: totalRecv
+                };
+            });
+
+            const newPoStatus = allCompleted ? 'COMPLETED' : 'PARTIALLY_RECEIVED';
+            await poRef.update({
+                items: updatedPoItems,
+                status: newPoStatus,
+                lastGrnId: grnId,
+                lastGrnNumber: grnNumber,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        } catch (poErr) {
+            console.error('Failed to update PO status after GRN:', poErr);
+        }
+    }
+
+    return {
+        success: true,
+        grnId,
+        grnNumber,
+        totalReceivedUnits,
+        totalGRNAmount
+    };
 });
 
 /**

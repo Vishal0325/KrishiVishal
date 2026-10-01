@@ -9,7 +9,7 @@
 const { db, admin } = require("../core/admin");
 const { validateSku } = require("./skuValidator");
 
-const DEFAULT_WAREHOUSE_ID = "DEFAULT_HUB";
+const DEFAULT_WAREHOUSE_ID = "HUB-SAM-001";
 
 /**
  * Checks and locks idempotency key within a transaction.
