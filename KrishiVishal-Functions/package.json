@@ -2,7 +2,7 @@
   "name": "krishivishal-functions",
   "scripts": {
     "lint": "eslint .",
-    "test": "node tests/sku_inventory.test.js && node tests/idempotency.test.js && node tests/ledger.test.js && node tests/security_remediation.test.js && node tests/v4_audit_verification.js && node tests/crop_advisory.test.js && node tests/round2_features.test.js && node tests/p0_security_rules.test.js && node tests/p0_pass4_functions.test.js && node tests/backend_p0_fixes.test.js && node tests/invoice_lifecycle.test.js && node tests/stock_notification.test.js",
+    "test": "node tests/sku_inventory.test.js && node tests/idempotency.test.js && node tests/ledger.test.js && node tests/security_remediation.test.js && node tests/v4_audit_verification.js && node tests/crop_advisory.test.js && node tests/round2_features.test.js && node tests/p0_security_rules.test.js && node tests/p0_pass4_functions.test.js && node tests/backend_p0_fixes.test.js && node tests/invoice_lifecycle.test.js && node tests/stock_notification.test.js && node tests/voice_intent.test.js",
     "serve": "firebase emulators:start --only functions",
     "shell": "firebase functions:shell",
     "start": "firebase emulators:start",
@@ -14,6 +14,7 @@
   },
   "main": "index.js",
   "dependencies": {
+    "@google/genai": "^2.25.0",
     "axios": "^1.6.0",
     "firebase-admin": "^12.0.0",
     "firebase-functions": "6.6.0",

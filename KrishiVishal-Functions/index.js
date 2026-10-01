@@ -190,3 +190,19 @@ exports.generateWorkforceId = adminServices.generateWorkforceId;
 exports.getFinanceSummary = adminServices.getFinanceSummary;
 exports.saveExpense = adminServices.saveExpense;
 
+// --- SEARCH & AI VOICE INTENT ---
+const { extractVoiceIntent } = require('./search/voiceIntentService');
+exports.extractVoiceIntent = onCall({ region: 'asia-south1', memory: '256MiB' }, async (request) => {
+    const { query } = request.data || {};
+    if (!query || typeof query !== 'string' || query.trim().length === 0) {
+        throw new HttpsError('invalid-argument', 'Query string is required and cannot be empty.');
+    }
+
+    try {
+        const intent = await extractVoiceIntent(query.trim());
+        return intent;
+    } catch (error) {
+        console.error('[extractVoiceIntent] Error extracting voice intent:', error);
+        throw new HttpsError('internal', error.message || 'Failed to extract voice intent.');
+    }
+});
