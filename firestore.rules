@@ -307,7 +307,7 @@ service cloud.firestore {
     // ============================================================
 
     match /notifications/{id} {
-      allow read, update: if isAdmin();
+      allow read, update: if isAdmin() || isDepartmentManager();
       allow create: if isAdmin();
       allow delete: if isSuperAdmin();
     }
