@@ -46,24 +46,28 @@ Required IAM permissions:
 ## 4. Step-by-Step Recovery Procedure
 
 ### Step 4.1: Determine Recovery Timestamp
-Choose the target timestamp (ISO 8601 UTC format, e.g. `2026-10-01T15:00:00Z`). Ensure this timestamp is greater than `earliestVersionTime` reported by `gcloud firestore databases describe`.
+Choose the target timestamp (ISO 8601 UTC format, e.g. `2026-10-01T15:00:00.00Z`). Ensure this timestamp is greater than `earliestVersionTime` reported by `gcloud firestore databases describe`.
 
-### Step 4.2: Execute Database Restore
-Run the restore command to instantiate a new database instance:
+### Step 4.2: Execute Database Restore (Clone)
+Run the clone command to instantiate a new database instance from the target PITR snapshot:
 
 ```bash
-gcloud firestore databases restore \
-  --source-database="(default)" \
+gcloud firestore databases clone \
+  --source-database="projects/krishivishal-a9ed7/databases/(default)" \
   --destination-database="pitr-test-restore" \
-  --recovery-point="2026-10-01T15:00:00Z" \
+  --snapshot-time="2026-10-01T15:00:00.00Z" \
   --project="krishivishal-a9ed7"
 ```
 
+> [!NOTE]
+> **Long-Running Operation (LRO)**:
+> The `clone` command initiates a background GCP Long-Running Operation. The target database will report `sourceInfo.progress` during the operation and transition to `COMPLETED` when fully instantiated.
+
 ### Step 4.3: Monitor Restoration Progress
-The restore process operates as a Long-Running Operation (LRO). You can monitor progress with:
+You can monitor progress with:
 
 ```bash
-gcloud firestore databases list --project="krishivishal-a9ed7"
+gcloud firestore databases describe --database="pitr-test-restore" --project="krishivishal-a9ed7" --format="json"
 ```
 
 ### Step 4.4: Verify Restored Data
@@ -75,10 +79,10 @@ Once the operation completes:
 
 ## 5. Post-Verification & Cleanup
 
-Once verification is finished, delete the temporary database to avoid incurring ongoing storage costs:
+Once verification is finished, delete the temporary database immediately to avoid incurring ongoing storage costs:
 
 ```bash
-gcloud firestore databases delete pitr-test-restore \
+gcloud firestore databases delete --database=pitr-test-restore \
   --project="krishivishal-a9ed7" \
   --quiet
 ```
@@ -91,12 +95,16 @@ gcloud firestore databases list --project="krishivishal-a9ed7"
 
 ---
 
-## 6. Automated Testing Script
+## 6. Automated Testing & Guaranteed Cleanup Script
 
 An automated PowerShell script is available for periodic DR verification:
 `scripts/test_pitr_restore.ps1`
 
-Run dry-run verification:
+### Guaranteed Billing Safety (Try / Finally)
+The script executes all clone and polling operations within a strict `try { ... } finally { ... }` block.
+Even if the script encounters an error, timeout, or user cancellation (Ctrl+C), the `finally` block guarantees automatic deletion of the temporary instance (`pitr-test-restore`), preventing stray cloud resources or billing charges.
+
+Run verification script:
 ```powershell
 .\scripts\test_pitr_restore.ps1
 ```
