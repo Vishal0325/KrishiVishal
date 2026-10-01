@@ -1,9 +1,11 @@
 package com.company.krishivishal.data.repository
  
 import com.company.krishivishal.core.model.Product
+import com.company.krishivishal.core.model.VoiceIntentResult
 import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.utils.SearchUnderstandingUtil
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.tasks.await
@@ -19,13 +21,69 @@ import javax.inject.Singleton
 @Singleton
 class ProductSearchRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
-    private val productDao: com.company.krishivishal.data.local.ProductDao
+    private val productDao: com.company.krishivishal.data.local.ProductDao,
+    private val functions: FirebaseFunctions = FirebaseFunctions.getInstance("asia-south1")
 ) {
+
+    /**
+     * Extract voice search AI intent using Cloud Functions extractVoiceIntent callable
+     * with automatic fallback to SearchUnderstandingUtil.
+     */
+    suspend fun extractVoiceIntent(query: String): VoiceIntentResult {
+        val cleanQuery = query.trim()
+        if (cleanQuery.isBlank()) {
+            return VoiceIntentResult()
+        }
+
+        return try {
+            Timber.d("Calling extractVoiceIntent callable for query: $cleanQuery")
+            val data = mapOf("query" to cleanQuery)
+            val result = functions
+                .getHttpsCallable("extractVoiceIntent")
+                .call(data)
+                .await()
+
+            @Suppress("UNCHECKED_CAST")
+            val resultMap = result.data as? Map<String, Any?>
+                ?: throw Exception("Invalid response format from extractVoiceIntent")
+
+            val crop = resultMap["crop"] as? String
+            val problem = resultMap["problem"] as? String
+            val category = resultMap["category"] as? String
+            val rawKeywords = resultMap["keywords"] as? List<*>
+            val keywordsList = rawKeywords?.mapNotNull { it?.toString() } ?: emptyList()
+            val confidence = when (val conf = resultMap["confidence"]) {
+                is Number -> conf.toDouble()
+                else -> 0.0
+            }
+
+            VoiceIntentResult(
+                crop = crop,
+                problem = problem,
+                category = category,
+                keywords = keywordsList,
+                confidence = confidence
+            )
+        } catch (e: Exception) {
+            Timber.w(e, "extractVoiceIntent network call failed, falling back to local SearchUnderstandingUtil")
+            val fallback = SearchUnderstandingUtil.understandQuery(cleanQuery)
+            VoiceIntentResult(
+                crop = fallback.crop,
+                problem = fallback.problem,
+                category = fallback.category,
+                keywords = fallback.keywords,
+                confidence = 0.5
+            )
+        }
+    }
 
     /**
      * Search products by keywords and partial strings (2-3 chars or full word).
      */
-    fun searchProductsByKeywords(query: String): Flow<Resource<List<Product>>> = flow {
+    fun searchProductsByKeywords(
+        query: String,
+        intentOverride: VoiceIntentResult? = null
+    ): Flow<Resource<List<Product>>> = flow {
         try {
             val cleanQuery = query.trim()
             if (cleanQuery.isBlank()) {
@@ -35,7 +93,16 @@ class ProductSearchRepository @Inject constructor(
 
             emit(Resource.Loading())
 
-            val intent = SearchUnderstandingUtil.understandQuery(cleanQuery)
+            val intent = intentOverride ?: run {
+                val fallback = SearchUnderstandingUtil.understandQuery(cleanQuery)
+                VoiceIntentResult(
+                    crop = fallback.crop,
+                    problem = fallback.problem,
+                    category = fallback.category,
+                    keywords = fallback.keywords,
+                    confidence = 0.5
+                )
+            }
             Timber.d("Search intent: $intent")
 
             // 1. Fetch local cached products matching query immediately (fast offline & online)
@@ -107,10 +174,17 @@ class ProductSearchRepository @Inject constructor(
                     }
                 }
 
-                if (intent.crop != null && (product.associatedCropNames.contains(intent.crop)
-                            || product.cropName.contains(intent.crop, ignoreCase = true))) score += 20
-                if (intent.problem != null && product.tags.any {
-                        it.contains(intent.problem, ignoreCase = true) }) score += 15
+                // Intent Category match
+                val intentCat = intent.category
+                if (intentCat != null && product.category.equals(intentCat, ignoreCase = true)) score += 35
+
+                val intentCrop = intent.crop
+                if (intentCrop != null && (product.associatedCropNames.any { it.contains(intentCrop, ignoreCase = true) }
+                            || product.cropName.contains(intentCrop, ignoreCase = true))) score += 25
+
+                val intentProb = intent.problem
+                if (intentProb != null && product.tags.any {
+                        it.contains(intentProb, ignoreCase = true) }) score += 20
 
                 product to score
             }.filter { it.second > 0 }

@@ -45,7 +45,20 @@ data class SearchUiState(
     val recentSearches: List<RecentSearch> = emptyList(),
     val isLoading: Boolean = false,
     val isEmpty: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val selectedCategory: String? = null,
+    val detectedIntent: VoiceIntentResult? = null
+)
+
+/**
+ * Voice Search AI Intent Extraction Result
+ */
+data class VoiceIntentResult(
+    val crop: String? = null,
+    val problem: String? = null,
+    val category: String? = null,
+    val keywords: List<String> = emptyList(),
+    val confidence: Double = 0.0
 )
 
 /**

@@ -5,9 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.company.krishivishal.data.local.dao.RecentSearchDao
 import com.company.krishivishal.core.model.RecentSearch
 import com.company.krishivishal.core.model.SearchUiState
+import com.company.krishivishal.core.model.VoiceIntentResult
 import com.company.krishivishal.data.repository.ProductSearchRepository
 import com.company.krishivishal.core.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
@@ -45,12 +47,40 @@ class SearchViewModel @Inject constructor(
             .distinctUntilChanged()
             .filter { it.isNotBlank() }
             .flatMapLatest { query ->
-                searchRepository.searchProductsByKeywords(query)
+                searchRepository.searchProductsByKeywords(query, _searchState.value.detectedIntent)
             }
             .onEach { resource ->
                 handleSearchResource(resource)
             }
             .launchIn(viewModelScope)
+    }
+
+    /**
+     * Triggered when speech-to-text returns a voice search query.
+     * Extracts AI intent on Dispatchers.IO and injects enriched keywords & category filter.
+     */
+    fun onVoiceSearchResult(spokenText: String) {
+        val cleanQuery = spokenText.trim()
+        if (cleanQuery.isBlank()) return
+
+        _searchState.update { it.copy(query = cleanQuery, isLoading = true, error = null) }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val intent = searchRepository.extractVoiceIntent(cleanQuery)
+            Timber.d("Voice search extracted intent: $intent")
+
+            _searchState.update {
+                it.copy(
+                    selectedCategory = intent.category,
+                    detectedIntent = intent
+                )
+            }
+
+            searchRepository.searchProductsByKeywords(cleanQuery, intent)
+                .collect { resource ->
+                    handleSearchResource(resource)
+                }
+        }
     }
 
     private fun handleSearchResource(resource: Resource<List<com.company.krishivishal.core.model.Product>>) {
@@ -102,10 +132,10 @@ class SearchViewModel @Inject constructor(
     }
 
     fun updateSearchQuery(query: String) {
-        _searchState.update { it.copy(query = query) }
+        _searchState.update { it.copy(query = query, selectedCategory = null, detectedIntent = null) }
         _queryFlow.value = query
         if (query.isBlank()) {
-            _searchState.update { it.copy(results = emptyList(), isLoading = false, isEmpty = false, error = null) }
+            _searchState.update { it.copy(results = emptyList(), isLoading = false, isEmpty = false, error = null, selectedCategory = null, detectedIntent = null) }
         }
     }
 

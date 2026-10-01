@@ -26,9 +26,10 @@ object SearchModule {
     @Singleton
     fun provideProductSearchRepository(
         firestore: FirebaseFirestore,
-        productDao: com.company.krishivishal.data.local.ProductDao
+        productDao: com.company.krishivishal.data.local.ProductDao,
+        functions: com.google.firebase.functions.FirebaseFunctions
     ): ProductSearchRepository {
-        return ProductSearchRepository(firestore, productDao)
+        return ProductSearchRepository(firestore, productDao, functions)
     }
 }
 
