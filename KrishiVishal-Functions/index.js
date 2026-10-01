@@ -133,6 +133,27 @@ exports.generateEWayBill = onCall({ region: 'asia-south1', secrets: [cleartaxAut
     return result;
 });
 
+// --- INVOICES & BILLING ---
+const { generateAndUploadInvoice } = require('./invoices/invoiceService');
+
+exports.generateInvoicePdf = onCall({ region: 'asia-south1' }, async (request) => {
+    if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'User must be authenticated.');
+    }
+
+    const { orderId, clearTaxData } = request.data || {};
+    if (!orderId) {
+        throw new HttpsError('invalid-argument', 'Missing orderId.');
+    }
+
+    try {
+        return await generateAndUploadInvoice(orderId, clearTaxData);
+    } catch (error) {
+        console.error(`[generateInvoicePdf] Error generating invoice for ${orderId}:`, error);
+        throw new HttpsError('internal', error.message || 'Failed to generate PDF invoice.');
+    }
+});
+
 // --- MESSAGING & ADVISORY ---
 exports.processOutbox = messaging.processOutbox;
 exports.registerFcmToken = messaging.registerFcmToken;
