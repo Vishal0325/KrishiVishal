@@ -604,12 +604,67 @@ service cloud.firestore {
 
     match /employees/{id} {
       allow read: if isAdmin() || isViewer() || isDepartmentManager();
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isDepartmentManager();
     }
 
     match /employee_documents/{id} {
       allow read: if isAdmin() || isViewer() || isDepartmentManager();
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /physical_files/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /assets/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /exit_requests/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /contracts/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /background_verification/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /training/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /workforce_documents/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /rider_hr_profiles/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /statutory_licenses/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /statutory_registers/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /leaves/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager() || (isAuthenticated() && resource.data.employeeId == request.auth.uid);
+      allow write: if isAdmin() || isDepartmentManager();
     }
 
 
