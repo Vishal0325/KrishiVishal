@@ -112,7 +112,7 @@ class ClearTaxProvider {
                 gstin: gstin || "10AAAAA0000A1Z5", // Sandbox fallback
                 lglNm: "Krishi Vishal",
                 addr1: "Main Road, Near Block Chowk",
-                loc: "Purnea",
+                loc: "Samastipur",
                 pin: 854301,
                 stc: "10"
             },
@@ -165,7 +165,7 @@ class ClearTaxProvider {
             fromGstin: gstin || "10AAAAA0000A1Z5",
             fromTrdName: "Krishi Vishal",
             fromAddr1: "Main Road, Near Block Chowk",
-            fromPlace: "Purnea",
+            fromPlace: "Samastipur",
             fromPincode: 854301,
             fromStateCode: 10,
             toGstin: order.customerGstin || "URP",
