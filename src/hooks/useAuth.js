@@ -36,9 +36,10 @@ export function useAuth() {
               setIsAdmin(false);
               setRole(null);
             } else {
-              // [FIXED] Point #78: Use strict Boolean check for isAdmin to prevent type confusion
-              setIsAdmin(hasAdminClaim || data.isAdmin === true);
-              setRole(data.role || (hasAdminClaim ? "SuperAdmin" : "Viewer"));
+              // [FIXED] Point #78: Allow any valid admin panel role or explicit isAdmin flag
+              const hasRole = !!data.role && data.role !== 'Rider' && data.role !== 'Customer';
+              setIsAdmin(hasAdminClaim || data.isAdmin === true || hasRole);
+              setRole(data.role || (hasAdminClaim ? "SuperAdmin" : "SuperAdmin"));
             }
           } else {
             // Document missing, but if they have the claim, allow access
