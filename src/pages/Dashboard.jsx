@@ -44,6 +44,7 @@ import { useProducts } from '../hooks/useProducts';
 import { useAuthContext } from '../hooks/useAuthContext';
 import { formatCurrency } from '../utils/formatters';
 import { collection, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase/config';
 import { useHubContext } from '../context/HubContext';
 import { useDateContext } from '../context/DateContext';
 
