@@ -59,6 +59,14 @@ service cloud.firestore {
       return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role == "Rider";
     }
 
+    function isAuditor() {
+      return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role in ["Auditor", "StockAuditor", "WarehouseAuditor"];
+    }
+
+    function isTelecaller() {
+      return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role in ["Telecaller", "KisanCallCenter", "SupportAgent", "CRMExecutive"];
+    }
+
 
 
     // ============================================================
@@ -980,6 +988,50 @@ service cloud.firestore {
     // HR & Company Settings
     match /document_settings/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
     match /company_holidays/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
+
+    // ============================================================
+    // RIDER PAYOUTS & COMMISSIONS
+    // ============================================================
+    match /rider_payouts/{payoutId} {
+      allow read: if isAdmin() || isHubManager() || (isRider() && request.auth.uid == resource.data.riderId);
+      allow write: if isAdmin() || isSuperAdmin();
+    }
+
+    // ============================================================
+    // WMS CYCLE COUNTING & BLIND AUDIT SESSIONS
+    // ============================================================
+    match /audit_sessions/{sessionId} {
+      allow read: if isAdmin() || isHubManager() || isAuditor();
+      allow write: if isAdmin() || isHubManager();
+
+      // Blind Audit Security: Auditors CANNOT view live system snapshot
+      match /system_snapshot/{docId} {
+        allow read, write: if isAdmin() || isHubManager();
+      }
+    }
+
+    match /quarantine_stock/{stockId} {
+      allow read: if isAdmin() || isHubManager() || isAuditor();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /inventory_adjustments/{adjId} {
+      allow read: if isAdmin() || isHubManager() || isAuditor();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /hub_debit_notes/{noteId} {
+      allow read: if isAdmin() || isHubManager() || canViewFinance();
+      allow write: if isAdmin() || isSuperAdmin();
+    }
+
+    // ============================================================
+    // MARKETING & DIGITAL LEADS (META ADS)
+    // ============================================================
+    match /leads/{leadId} {
+      allow read: if isAdmin() || isSuperAdmin() || isHubManager() || isTelecaller();
+      allow write: if isAdmin() || isSuperAdmin() || isHubManager() || isTelecaller();
+    }
 
 
     // ============================================================

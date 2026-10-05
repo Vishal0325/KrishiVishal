@@ -65,44 +65,77 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
     { 
       icon: <ShoppingCart size={18} />, 
       label: "Orders & Fulfillment", 
-      path: "/orders",
-      roles: ["SuperAdmin", "OrderManager", "HubManager", "Viewer"]
+      id: "orders_group",
+      roles: ["SuperAdmin", "OrderManager", "HubManager", "Viewer"],
+      subItems: [
+        { label: "Orders", path: "/orders" },
+        { label: "Returns / RTO", path: "/returns" },
+        { label: "AutoBatching", path: "/auto-batching" }
+      ]
     },
     { 
       icon: <Grid3X3 size={18} />, 
       label: "Catalog & SKU Inventory", 
-      path: "/catalog",
-      roles: ["SuperAdmin", "CatalogManager", "HubManager", "Viewer"]
+      id: "catalog_group",
+      roles: ["SuperAdmin", "CatalogManager", "HubManager", "Viewer"],
+      subItems: [
+        { label: "Catalog", path: "/catalog" },
+        { label: "SKU Dashboard", path: "/sku-dashboard" }
+      ]
     },
     { 
       icon: <Building2 size={18} />, 
       label: "Supply Chain & Hubs", 
-      path: "/supply-chain",
-      roles: ["SuperAdmin", "OrderManager", "HubManager", "CatalogManager", "Viewer"]
+      id: "supply_group",
+      roles: ["SuperAdmin", "OrderManager", "HubManager", "CatalogManager", "Viewer"],
+      subItems: [
+        { label: "Procurement Queue", path: "/procurement" },
+        { label: "Goods Receipt", path: "/grn" },
+        { label: "Inter-Hub Transfers", path: "/transfers" },
+        { label: "Expiry Monitor", path: "/expiry" },
+        { label: "Warehouse Settings", path: "/warehouses" }
+      ]
     },
     { 
       icon: <Bike size={18} />, 
       label: "Fleet & Delivery", 
-      path: "/fleet",
-      roles: ["SuperAdmin", "OrderManager", "HubManager", "RiderManager"]
+      id: "fleet_group",
+      roles: ["SuperAdmin", "OrderManager", "HubManager", "RiderManager"],
+      subItems: [
+        { label: "Fleet Overview", path: "/fleet" },
+        { label: "Riders / Workforce", path: "/riders" }
+      ]
     },
     { 
       icon: <Users size={18} />, 
       label: "Customers & Support", 
-      path: "/support-desk",
-      roles: ["SuperAdmin", "OrderManager", "HubManager", "Viewer"]
+      id: "support_group",
+      roles: ["SuperAdmin", "OrderManager", "HubManager", "Viewer"],
+      subItems: [
+        { label: "Customers", path: "/customers" },
+        { label: "Support Tickets", path: "/support-tickets" }
+      ]
     },
     { 
       icon: <Landmark size={18} />, 
       label: "Finance & Accounts", 
-      path: "/finance-desk",
-      roles: ["SuperAdmin", "FinanceAdmin", "OrderManager"]
+      id: "finance_group",
+      roles: ["SuperAdmin", "FinanceAdmin", "OrderManager"],
+      subItems: [
+        { label: "Finance / Ledger", path: "/finance" },
+        { label: "Expenses", path: "/expenses" },
+        { label: "Accounts / GST", path: "/chart-of-accounts" }
+      ]
     },
     { 
       icon: <Briefcase size={18} />, 
       label: "HR & Compliance", 
-      path: "/hr-desk",
-      roles: ["SuperAdmin", "HRAdmin", "HRExecutive", "DepartmentManager"]
+      id: "hr_group",
+      roles: ["SuperAdmin", "HRAdmin", "HRExecutive", "DepartmentManager"],
+      subItems: [
+        { label: "HR Desk", path: "/hr-desk" },
+        { label: "Staff Management", path: "/staff" }
+      ]
     },
     { 
       icon: <Sprout size={18} />, 
@@ -121,12 +154,11 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
       id: "administration",
       roles: ["SuperAdmin"],
       subItems: [
-        { label: "Staff & RBAC Roles", path: "/staff" },
         { label: "Audit Logs", path: "/audit-logs" },
         { label: "Global Settings", path: "/settings" },
         { label: "Push Notifications", path: "/notifications" }
       ]
-    },
+    }
   ];
 
   const toggleExpand = (id) => setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
