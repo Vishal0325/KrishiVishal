@@ -5,17 +5,20 @@ import { useAuth } from '../../hooks/useAuth';
 import { useWarehouse } from '../../context/WarehouseContext';
 import { useHubContext } from '../../context/HubContext';
 import useAuthContext from '../../hooks/useAuthContext';
+import { useDateContext } from '../../context/DateContext';
 import { db } from '../../firebase/config';
 import { collection, query, where, orderBy, limit, onSnapshot, doc, writeBatch, updateDoc } from 'firebase/firestore';
 
 const Topbar = ({ toggleSidebar, isSidebarOpen }) => {
   const { warehouses, selectedWarehouseId, selectWarehouse, isGlobalView } = useWarehouse();
   const { selectedHub, setSelectedHub, HUBS } = useHubContext();
+  const { dateMode, setDateMode, customDate, setCustomDate, dateLabel, DATE_PRESETS } = useDateContext();
   const authContext = useAuthContext();
   const hubAccess = authContext?.hubAccess;
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showWarehouseMenu, setShowWarehouseMenu] = useState(false);
+  const [showDateMenu, setShowDateMenu] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const { user, role, logout } = useAuth();
   const location = useLocation();
@@ -115,10 +118,72 @@ const Topbar = ({ toggleSidebar, isSidebarOpen }) => {
       {/* Right Controls */}
       <div className="flex items-center gap-4">
         
-        {/* Date */}
-        <div className="hidden lg:flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-xl shadow-sm text-gray-600">
-          <Calendar size={15} />
-          <span className="text-xs font-bold">{formattedDate}</span>
+        {/* Date Filter Dropdown */}
+        <div className="relative hidden lg:block">
+          <button
+            onClick={() => setShowDateMenu(!showDateMenu)}
+            className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 hover:border-emerald-500 rounded-xl shadow-sm text-gray-700 hover:text-[#0B4D31] transition-all cursor-pointer group"
+            title="Filter by Date (तारीख के अनुसार डेटा देखें)"
+          >
+            <Calendar size={15} className="text-emerald-700 group-hover:scale-110 transition-transform" />
+            <span className="text-xs font-bold">{dateLabel}</span>
+            <ChevronDown size={14} className={`text-gray-400 transition-transform ${showDateMenu ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showDateMenu && (
+            <>
+              <div 
+                className="fixed inset-0 z-40 cursor-default" 
+                onClick={() => setShowDateMenu(false)} 
+              />
+              <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-50 p-2 animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-3 py-2 border-b border-gray-100 mb-1">
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800">Date Filter / तारीख चुनें</p>
+                  <p className="text-xs text-gray-500">Dashboard data is filtered by this date</p>
+                </div>
+
+                <div className="space-y-0.5">
+                  {DATE_PRESETS.map(preset => {
+                    const isSelected = dateMode === preset.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        onClick={() => {
+                          setDateMode(preset.id);
+                          if (preset.id !== 'CUSTOM') {
+                            setShowDateMenu(false);
+                          }
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-between cursor-pointer ${
+                          isSelected
+                            ? 'bg-[#0B4D31] text-white shadow-md shadow-[#0B4D31]/20'
+                            : 'text-gray-700 hover:bg-emerald-50 hover:text-[#0B4D31]'
+                        }`}
+                      >
+                        <span>{preset.label}</span>
+                        {isSelected && <CheckCircle size={14} className="text-white" />}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Custom Date Input when CUSTOM or always accessible */}
+                <div className="mt-2 pt-2 border-t border-gray-100 px-2">
+                  <label className="text-[10px] font-bold text-gray-500 block mb-1">Pick Exact Date / कोई भी तारीख चुनें:</label>
+                  <input
+                    type="date"
+                    value={customDate}
+                    onChange={(e) => {
+                      setCustomDate(e.target.value);
+                      setDateMode('CUSTOM');
+                      setShowDateMenu(false);
+                    }}
+                    className="w-full text-xs font-bold border border-gray-200 rounded-xl px-2.5 py-1.5 bg-gray-50 focus:bg-white focus:border-emerald-600 outline-none text-gray-800 cursor-pointer"
+                  />
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
 

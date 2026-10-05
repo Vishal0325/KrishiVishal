@@ -44,8 +44,8 @@ import { useProducts } from '../hooks/useProducts';
 import { useAuthContext } from '../hooks/useAuthContext';
 import { formatCurrency } from '../utils/formatters';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { db } from '../firebase/config';
 import { useHubContext } from '../context/HubContext';
+import { useDateContext } from '../context/DateContext';
 
 class ChartErrorBoundary extends React.Component {
   constructor(props) {
@@ -89,6 +89,7 @@ const Dashboard = () => {
   const [riders, setRiders] = useState([]);
 
   const { selectedHub, setSelectedHub } = useHubContext();
+  const { filterByDate, dateLabel, dateMode } = useDateContext();
 
   useEffect(() => {
     if (isHubScoped && hubId) {
@@ -121,12 +122,14 @@ const Dashboard = () => {
 
   const scopedOrders = useMemo(() => {
     if (!allOrders) return [];
+    let orders = allOrders;
     const targetHub = isHubScoped && hubId ? hubId : hubFilter;
     if (targetHub !== 'All') {
-      return allOrders.filter(o => o.warehouseId === targetHub || o.fulfillmentWarehouseId === targetHub);
+      orders = orders.filter(o => o.warehouseId === targetHub || o.fulfillmentWarehouseId === targetHub);
     }
-    return allOrders;
-  }, [allOrders, isHubScoped, hubId, hubFilter]);
+    // Filter by active selected Date
+    return filterByDate(orders, 'createdAt');
+  }, [allOrders, isHubScoped, hubId, hubFilter, filterByDate]);
 
   // 1. Dynamic Metrics Calculation via Web Worker
   const [dynamicMetrics, setDynamicMetrics] = useState({
@@ -642,8 +645,10 @@ const Dashboard = () => {
               ))}
             </select>
           </div>
-          <div className="text-[10px] font-bold text-gray-400 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100">
-            Viewing metrics for: <span className="text-gray-700">{hubFilter === 'All' ? 'Entire Network' : warehouses.find(w => w.id === hubFilter)?.name}</span>
+          <div className="flex items-center gap-2 text-[10px] font-bold text-gray-400 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100">
+            <span>Viewing: <strong className="text-gray-700">{hubFilter === 'All' ? 'Entire Network' : warehouses.find(w => w.id === hubFilter)?.name}</strong></span>
+            <span className="text-gray-300">|</span>
+            <span>Date: <strong className="text-emerald-700">{dateLabel}</strong></span>
           </div>
         </div>
       )}

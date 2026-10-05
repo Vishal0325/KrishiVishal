@@ -5,6 +5,7 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App.jsx";
 import { WarehouseProvider } from "./context/WarehouseContext";
 import { HubProvider } from "./context/HubContext";
+import { DateProvider } from "./context/DateContext";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
@@ -17,7 +18,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     >
       <WarehouseProvider>
         <HubProvider>
-          <App />
+          <DateProvider>
+            <App />
+          </DateProvider>
         </HubProvider>
       </WarehouseProvider>
     </BrowserRouter>
