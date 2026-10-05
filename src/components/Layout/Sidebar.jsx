@@ -22,7 +22,7 @@ import { db } from "../../firebase/config";
 import { doc, getDoc } from "firebase/firestore";
 
 const Sidebar = ({ isOpen, setIsOpen }) => {
-  const { role, hubId, isHubManager, isDeptManager, isViewer } = useAuthContext();
+  const { role, hubId, isHubManager, isDeptManager, isViewer, isSuperAdmin, isAdmin } = useAuthContext();
   const location = useLocation();
   const [expanded, setExpanded] = useState({});
   const [warehouseName, setWarehouseName] = useState(null);
@@ -65,77 +65,44 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
     { 
       icon: <ShoppingCart size={18} />, 
       label: "Orders & Fulfillment", 
-      id: "orders_group",
-      roles: ["SuperAdmin", "OrderManager", "HubManager", "Viewer"],
-      subItems: [
-        { label: "Orders", path: "/orders" },
-        { label: "Returns / RTO", path: "/returns" },
-        { label: "AutoBatching", path: "/auto-batching" }
-      ]
+      path: "/orders",
+      roles: ["SuperAdmin", "OrderManager", "HubManager", "Viewer"]
     },
     { 
       icon: <Grid3X3 size={18} />, 
       label: "Catalog & SKU Inventory", 
-      id: "catalog_group",
-      roles: ["SuperAdmin", "CatalogManager", "HubManager", "Viewer"],
-      subItems: [
-        { label: "Catalog", path: "/catalog" },
-        { label: "SKU Dashboard", path: "/sku-dashboard" }
-      ]
+      path: "/catalog",
+      roles: ["SuperAdmin", "CatalogManager", "HubManager", "Viewer"]
     },
     { 
       icon: <Building2 size={18} />, 
       label: "Supply Chain & Hubs", 
-      id: "supply_group",
-      roles: ["SuperAdmin", "OrderManager", "HubManager", "CatalogManager", "Viewer"],
-      subItems: [
-        { label: "Procurement Queue", path: "/procurement" },
-        { label: "Goods Receipt", path: "/grn" },
-        { label: "Inter-Hub Transfers", path: "/transfers" },
-        { label: "Expiry Monitor", path: "/expiry" },
-        { label: "Warehouse Settings", path: "/warehouses" }
-      ]
+      path: "/supply-chain",
+      roles: ["SuperAdmin", "OrderManager", "HubManager", "CatalogManager", "Viewer"]
     },
     { 
       icon: <Bike size={18} />, 
       label: "Fleet & Delivery", 
-      id: "fleet_group",
-      roles: ["SuperAdmin", "OrderManager", "HubManager", "RiderManager"],
-      subItems: [
-        { label: "Fleet Overview", path: "/fleet" },
-        { label: "Riders / Workforce", path: "/riders" }
-      ]
+      path: "/fleet",
+      roles: ["SuperAdmin", "OrderManager", "HubManager", "RiderManager"]
     },
     { 
       icon: <Users size={18} />, 
       label: "Customers & Support", 
-      id: "support_group",
-      roles: ["SuperAdmin", "OrderManager", "HubManager", "Viewer"],
-      subItems: [
-        { label: "Customers", path: "/customers" },
-        { label: "Support Tickets", path: "/support-tickets" }
-      ]
+      path: "/support-desk",
+      roles: ["SuperAdmin", "OrderManager", "HubManager", "Viewer"]
     },
     { 
       icon: <Landmark size={18} />, 
       label: "Finance & Accounts", 
-      id: "finance_group",
-      roles: ["SuperAdmin", "FinanceAdmin", "OrderManager"],
-      subItems: [
-        { label: "Finance / Ledger", path: "/finance" },
-        { label: "Expenses", path: "/expenses" },
-        { label: "Accounts / GST", path: "/chart-of-accounts" }
-      ]
+      path: "/finance-desk",
+      roles: ["SuperAdmin", "FinanceAdmin", "OrderManager"]
     },
     { 
       icon: <Briefcase size={18} />, 
       label: "HR & Compliance", 
-      id: "hr_group",
-      roles: ["SuperAdmin", "HRAdmin", "HRExecutive", "DepartmentManager"],
-      subItems: [
-        { label: "HR Desk", path: "/hr-desk" },
-        { label: "Staff Management", path: "/staff" }
-      ]
+      path: "/hr-desk",
+      roles: ["SuperAdmin", "HRAdmin", "HRExecutive", "DepartmentManager"]
     },
     { 
       icon: <Sprout size={18} />, 
@@ -154,6 +121,7 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
       id: "administration",
       roles: ["SuperAdmin"],
       subItems: [
+        { label: "Staff & RBAC Roles", path: "/staff" },
         { label: "Audit Logs", path: "/audit-logs" },
         { label: "Global Settings", path: "/settings" },
         { label: "Push Notifications", path: "/notifications" }
@@ -232,7 +200,7 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
 
         {/* Menu */}
         <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1 custom-scrollbar">
-          {menu.filter(m => m.roles.includes(role || "Viewer")).map((item) => {
+          {menu.filter(m => isSuperAdmin || isAdmin || m.roles.includes(role || "Viewer")).map((item) => {
             if (item.subItems) {
               const isExpanded = expanded[item.id];
               const isActiveChild = item.subItems.some(sub => location.pathname === sub.path);
