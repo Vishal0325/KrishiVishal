@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { collection, query, onSnapshot, orderBy, where, limit, startAfter, getDocs } from 'firebase/firestore';
 import { db } from '../firebase/config';
+import { useHubFilter } from './useHubFilter';
 
 export function useOrders(status = 'All', pageSize = 50) {
+  const { applyHubFilter } = useHubFilter();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -15,6 +17,8 @@ export function useOrders(status = 'All', pageSize = 50) {
     if (status !== 'All') {
       q = query(collection(db, 'orders'), where('status', '==', status), orderBy('createdAt', 'desc'), limit(pageSize));
     }
+    
+    q = applyHubFilter(q, 'warehouseId');
 
     const unsubscribe = onSnapshot(q,
       (snapshot) => {
@@ -46,6 +50,8 @@ export function useOrders(status = 'All', pageSize = 50) {
       if (status !== 'All') {
         q = query(collection(db, 'orders'), where('status', '==', status), orderBy('createdAt', 'desc'), startAfter(lastDoc), limit(pageSize));
       }
+      
+      q = applyHubFilter(q, 'warehouseId');
       
       const snapshot = await getDocs(q);
       const moreOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));

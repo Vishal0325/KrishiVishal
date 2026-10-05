@@ -3,11 +3,16 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Bell, Search, Calendar, ChevronDown, Menu, ShoppingCart, AlertCircle, CheckCircle, User, LogOut, FileText, Package, Building2 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useWarehouse } from '../../context/WarehouseContext';
+import { useHubContext } from '../../context/HubContext';
+import useAuthContext from '../../hooks/useAuthContext';
 import { db } from '../../firebase/config';
 import { collection, query, where, orderBy, limit, onSnapshot, doc, writeBatch, updateDoc } from 'firebase/firestore';
 
 const Topbar = ({ toggleSidebar, isSidebarOpen }) => {
   const { warehouses, selectedWarehouseId, selectWarehouse, isGlobalView } = useWarehouse();
+  const { selectedHub, setSelectedHub, HUBS } = useHubContext();
+  const authContext = useAuthContext();
+  const hubAccess = authContext?.hubAccess;
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showWarehouseMenu, setShowWarehouseMenu] = useState(false);
@@ -120,81 +125,19 @@ const Topbar = ({ toggleSidebar, isSidebarOpen }) => {
 
 
         {/* Multi-Warehouse / Hub Switcher */}
-        <div className="relative">
-          <button
-            onClick={() => setShowWarehouseMenu(!showWarehouseMenu)}
-            className="flex items-center gap-2 px-3 py-2 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200/80 rounded-xl shadow-sm text-emerald-900 transition-all font-bold text-xs cursor-pointer"
-            title="Switch Operational Warehouse Hub"
-          >
-            <Building2 size={15} className="text-emerald-700" />
-            <span className="max-w-[130px] truncate">
-              {isGlobalView
-                ? "All Hubs (Global)"
-                : warehouses.find((w) => w.id === selectedWarehouseId || w.code === selectedWarehouseId)?.name || selectedWarehouseId}
-            </span>
-            <ChevronDown size={14} className={`text-emerald-600 transition-transform ${showWarehouseMenu ? "rotate-180" : ""}`} />
-          </button>
-
-          {showWarehouseMenu && (
-            <>
-              <div 
-                className="fixed inset-0 z-40 cursor-default" 
-                onClick={() => setShowWarehouseMenu(false)} 
-              />
-              <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-150">
-              <div className="p-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-black text-gray-900 uppercase tracking-wider">Operational Hub</h4>
-                  <p className="text-[10px] text-gray-500">Filter data by active depot</p>
-                </div>
-                <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">
-                  {warehouses.length} Hubs
-                </span>
-              </div>
-              <div className="max-h-60 overflow-y-auto p-1.5 space-y-1 custom-scrollbar">
-                <button
-                  onClick={() => {
-                    selectWarehouse("ALL");
-                    setShowWarehouseMenu(false);
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
-                    isGlobalView ? "bg-emerald-700 text-white" : "text-gray-700 hover:bg-gray-50"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Building2 size={14} className={isGlobalView ? "text-white" : "text-gray-400"} />
-                    <span>All Warehouses (Global)</span>
-                  </div>
-                  {isGlobalView && <CheckCircle size={14} className="text-emerald-200" />}
-                </button>
-
-                {warehouses.map((wh) => {
-                  const isSelected = selectedWarehouseId === wh.id || selectedWarehouseId === wh.code;
-                  return (
-                    <button
-                      key={wh.id}
-                      onClick={() => {
-                        selectWarehouse(wh.id);
-                        setShowWarehouseMenu(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
-                        isSelected ? "bg-emerald-700 text-white" : "text-gray-700 hover:bg-gray-50"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${wh.isActive !== false ? "bg-emerald-400" : "bg-red-400"}`} />
-                        <span className="truncate">{wh.name}</span>
-                        <span className="text-[10px] font-mono opacity-70 shrink-0">({wh.code || wh.id})</span>
-                      </div>
-                      {isSelected && <CheckCircle size={14} className="text-emerald-200 shrink-0 ml-1" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            </>
-          )}
-        </div>
+        {hubAccess === 'ALL' && (
+          <div className="relative">
+            <select
+              value={selectedHub}
+              onChange={e => setSelectedHub(e.target.value)}
+              className="border rounded-xl px-2 py-1.5 text-xs font-bold bg-white border-gray-200 text-gray-700 shadow-sm cursor-pointer outline-none"
+            >
+              {HUBS.map(h => (
+                <option key={h.id} value={h.id}>{h.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Search */}
         <div className="hidden md:flex items-center px-3 py-2 bg-white border border-gray-200 rounded-xl shadow-sm focus-within:border-green-500 focus-within:ring-1 focus-within:ring-green-500/20 transition-all w-64">

@@ -1,7 +1,6 @@
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuthContext } from "./hooks/useAuthContext";
-import ProtectedRoute from "./components/ProtectedRoute";
+import { useAuth } from "./hooks/useAuth";
 import { auth } from "./firebase/config";
 import { signOut } from "firebase/auth";
 import LoadingSpinner from "./components/common/LoadingSpinner";
@@ -32,6 +31,11 @@ const Settings = React.lazy(() => import("./pages/Settings"));
 const DeliverySlots = React.lazy(() => import("./pages/DeliverySlots"));
 const Notifications = React.lazy(() => import("./pages/Notifications"));
 
+// Service Marketplace
+const ServicesConfig = React.lazy(() => import("./pages/ServicesConfig"));
+const ServiceBookings = React.lazy(() => import("./pages/ServiceBookings"));
+const PartnerSettlements = React.lazy(() => import("./pages/PartnerSettlements"));
+
 // Deep Details Pages (Direct views)
 const ProductDetail = React.lazy(() => import("./pages/ProductDetail"));
 const PurchaseOrderDetail = React.lazy(() => import("./pages/PurchaseOrderDetail"));
@@ -39,15 +43,27 @@ const EmployeeProfile = React.lazy(() => import("./pages/hr/EmployeeProfile"));
 const RiderProfile = React.lazy(() => import("./pages/hr/RiderProfile"));
 const ExpenseDetail = React.lazy(() => import("./pages/Expenses/ExpenseDetail"));
 const ExpenseForm = React.lazy(() => import("./pages/Expenses/ExpenseForm"));
+const RiderPayouts = React.lazy(() => import("./pages/RiderPayouts"));
+const InventoryAudit = React.lazy(() => import("./pages/InventoryAudit"));
+const LeadsManagement = React.lazy(() => import("./pages/LeadsManagement"));
 
-function AppRoutes() {
-  const { user, loading, isAdmin, isSuperAdmin, role, authError } = useAuthContext();
+function App() {
+  const { user, loading, isAdmin, role, authError } = useAuth();
 
-  const RequireRole = ({ allowedRoles, children }) => (
-    <ProtectedRoute allowedRoles={allowedRoles}>
-      {children}
-    </ProtectedRoute>
-  );
+  const RequireRole = ({ allowedRoles, children }) => {
+    if (!user || !role) {
+      return <Navigate to="/login" replace />;
+    }
+    // SuperAdmin bypasses all role checks
+    if (role === "SuperAdmin") {
+      return children;
+    }
+    // Check if user's role is in allowed roles
+    if (!allowedRoles.includes(role)) {
+      return <Navigate to="/unauthorized" replace />;
+    }
+    return children;
+  };
 
   if (loading) {
     return <LoadingSpinner fullScreen />;
@@ -80,12 +96,7 @@ function AppRoutes() {
     );
   }
 
-  const hasStaffAccess = isAdmin || isSuperAdmin || [
-    "SuperAdmin", "FinanceAdmin", "HubManager", "DepartmentManager", "Viewer", "Admin", "ADMIN",
-    "OrderManager", "CatalogManager", "HRAdmin", "HRExecutive", "WarehouseManager", "RiderManager", "OperationsAdmin"
-  ].includes(role);
-
-  if (!hasStaffAccess) {
+  if (!isAdmin) {
     return (
       <div className="min-h-screen w-full flex items-center justify-center bg-red-50 p-6">
         <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-red-100 text-center">
@@ -129,6 +140,7 @@ function AppRoutes() {
   const catalogRoles = ["SuperAdmin", "CatalogManager", "HubManager", "Viewer"];
   const financeRoles = ["SuperAdmin", "FinanceAdmin", "OrderManager"];
   const fleetRoles = ["SuperAdmin", "OrderManager", "HubManager", "RiderManager"];
+  const marketingRoles = ["SuperAdmin", "OrderManager", "HubManager", "Telecaller", "KisanCallCenter", "SupportAgent", "CRMExecutive", "OperationsAdmin", "Viewer"];
 
   const RootRedirect = () => {
     if (role === 'FinanceAdmin') return <Navigate to="/finance-desk" replace />;
@@ -163,6 +175,11 @@ function AppRoutes() {
             <Route path="/notifications" element={<RequireRole allowedRoles={catalogRoles}><Notifications /></RequireRole>} />
             <Route path="/profile" element={<Profile />} />
 
+            {/* Service Marketplace */}
+            <Route path="/services-config" element={<RequireRole allowedRoles={["SuperAdmin", "HubManager", "OrderManager", "Viewer"]}><ServicesConfig /></RequireRole>} />
+            <Route path="/service-bookings" element={<RequireRole allowedRoles={["SuperAdmin", "HubManager", "OrderManager", "Viewer"]}><ServiceBookings /></RequireRole>} />
+            <Route path="/partner-settlements" element={<RequireRole allowedRoles={["SuperAdmin", "HubManager", "FinanceAdmin", "Viewer"]}><PartnerSettlements /></RequireRole>} />
+
             {/* Direct Detail Pages */}
             <Route path="/product/:productId" element={<RequireRole allowedRoles={catalogRoles}><ProductDetail /></RequireRole>} />
             <Route path="/purchase-order/:id" element={<RequireRole allowedRoles={opsRoles}><PurchaseOrderDetail /></RequireRole>} />
@@ -171,6 +188,11 @@ function AppRoutes() {
             <Route path="/expenses/new" element={<RequireRole allowedRoles={financeRoles}><ExpenseForm /></RequireRole>} />
             <Route path="/expenses/edit/:id" element={<RequireRole allowedRoles={financeRoles}><ExpenseForm /></RequireRole>} />
             <Route path="/expenses/:id" element={<RequireRole allowedRoles={financeRoles}><ExpenseDetail /></RequireRole>} />
+
+            {/* P2 & Marketing: Logistics Rider Payouts, Inventory Cycle Count & Telecalling Leads */}
+            <Route path="/logistics/payouts" element={<RequireRole allowedRoles={fleetRoles}><RiderPayouts /></RequireRole>} />
+            <Route path="/inventory/cycle-count" element={<RequireRole allowedRoles={opsRoles}><InventoryAudit /></RequireRole>} />
+            <Route path="/marketing/leads" element={<RequireRole allowedRoles={marketingRoles}><LeadsManagement /></RequireRole>} />
 
             {/* ========================================================================= */}
             {/* 100% Backward Compatible Redirects for KrishiVishal & Bookmarks          */}
@@ -209,8 +231,8 @@ function AppRoutes() {
             <Route path="/grn" element={<Navigate to="/supply-chain?tab=grn" replace />} />
             <Route path="/rtv" element={<Navigate to="/supply-chain?tab=rtv" replace />} />
             <Route path="/return-to-vendor" element={<Navigate to="/supply-chain?tab=rtv" replace />} />
-            <Route path="/physical-audit" element={<Navigate to="/supply-chain?tab=audit" replace />} />
-            <Route path="/cycle-count" element={<Navigate to="/supply-chain?tab=audit" replace />} />
+            <Route path="/physical-audit" element={<Navigate to="/inventory/cycle-count" replace />} />
+            <Route path="/cycle-count" element={<Navigate to="/inventory/cycle-count" replace />} />
             <Route path="/transfers" element={<Navigate to="/supply-chain?tab=transfers" replace />} />
             <Route path="/inventory-movements" element={<Navigate to="/supply-chain?tab=transfers" replace />} />
             <Route path="/suppliers" element={<Navigate to="/supply-chain?tab=suppliers" replace />} />
@@ -226,12 +248,15 @@ function AppRoutes() {
             <Route path="/rider-performance" element={<Navigate to="/fleet?tab=performance" replace />} />
             <Route path="/attendance" element={<Navigate to="/fleet?tab=attendance" replace />} />
             <Route path="/sos" element={<Navigate to="/fleet?tab=sos" replace />} />
-            <Route path="/payouts" element={<Navigate to="/fleet?tab=payouts" replace />} />
+            <Route path="/payouts" element={<Navigate to="/logistics/payouts" replace />} />
+            <Route path="/withdrawals" element={<Navigate to="/fleet?tab=withdrawals" replace />} />
             <Route path="/reconciliation" element={<Navigate to="/fleet?tab=recon" replace />} />
             <Route path="/settlement" element={<Navigate to="/fleet?tab=recon" replace />} />
             <Route path="/delivery-rules" element={<Navigate to="/fleet?tab=fleet" replace />} />
 
-            {/* Customer & Support Aliases */}
+            {/* Customer, Leads & Support Aliases */}
+            <Route path="/leads" element={<Navigate to="/marketing/leads" replace />} />
+            <Route path="/telecalling" element={<Navigate to="/marketing/leads" replace />} />
             <Route path="/customers" element={<Navigate to="/support-desk?tab=customers" replace />} />
             <Route path="/kisan-call-center" element={<Navigate to="/support-desk?tab=kisan-call-center" replace />} />
             <Route path="/tele-agronomy" element={<Navigate to="/support-desk?tab=kisan-call-center" replace />} />
@@ -294,10 +319,4 @@ function AppRoutes() {
   );
 }
 
-export default function App() {
-  return (
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
-  );
-}
+export default App;

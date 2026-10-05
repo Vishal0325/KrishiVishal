@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 
 import App from "./App.jsx";
 import { WarehouseProvider } from "./context/WarehouseContext";
+import { HubProvider } from "./context/HubContext";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
@@ -15,7 +16,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       }}
     >
       <WarehouseProvider>
-        <App />
+        <HubProvider>
+          <App />
+        </HubProvider>
       </WarehouseProvider>
     </BrowserRouter>
   </React.StrictMode>,
