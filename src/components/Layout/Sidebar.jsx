@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -13,43 +13,14 @@ import {
   ChevronDown,
   Sprout,
   X,
-  Warehouse,
-  Eye,
   PanelLeftClose
 } from "lucide-react";
 import { useAuthContext } from "../../hooks/useAuthContext";
-import { db } from "../../firebase/config";
-import { doc, getDoc } from "firebase/firestore";
 
 const Sidebar = ({ isOpen, setIsOpen }) => {
-  const { role, hubId, isHubManager, isDeptManager, isViewer, isSuperAdmin, isAdmin } = useAuthContext();
+  const { role, isSuperAdmin, isAdmin } = useAuthContext();
   const location = useLocation();
   const [expanded, setExpanded] = useState({});
-  const [warehouseName, setWarehouseName] = useState(null);
-
-  useEffect(() => {
-    let isMounted = true;
-    if (hubId) {
-      getDoc(doc(db, "warehouses", hubId))
-        .then((snap) => {
-          if (isMounted) {
-            if (snap.exists()) {
-              setWarehouseName(snap.data().name || hubId);
-            } else {
-              setWarehouseName(hubId);
-            }
-          }
-        })
-        .catch(() => {
-          if (isMounted) setWarehouseName(hubId);
-        });
-    } else {
-      setWarehouseName(null);
-    }
-    return () => {
-      isMounted = false;
-    };
-  }, [hubId]);
 
   const menu = [
     { 
@@ -84,7 +55,7 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
       icon: <Bike size={18} />, 
       label: "Fleet & Delivery", 
       path: "/fleet",
-      roles: ["SuperAdmin", "OrderManager", "HubManager", "RiderManager"]
+      roles: ["SuperAdmin", "OrderManager", "HubManager", "RiderManager", "Viewer"]
     },
     { 
       icon: <Users size={18} />, 
@@ -96,13 +67,13 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
       icon: <Landmark size={18} />, 
       label: "Finance & Accounts", 
       path: "/finance-desk",
-      roles: ["SuperAdmin", "FinanceAdmin", "OrderManager"]
+      roles: ["SuperAdmin", "FinanceAdmin", "OrderManager", "Viewer"]
     },
     { 
       icon: <Briefcase size={18} />, 
       label: "HR & Compliance", 
       path: "/hr-desk",
-      roles: ["SuperAdmin", "HRAdmin", "HRExecutive", "DepartmentManager"]
+      roles: ["SuperAdmin", "HRAdmin", "HRExecutive", "DepartmentManager", "Viewer"]
     },
     { 
       icon: <Sprout size={18} />, 
@@ -119,7 +90,7 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
       icon: <Settings size={18} />, 
       label: "Administration", 
       id: "administration",
-      roles: ["SuperAdmin"],
+      roles: ["SuperAdmin", "Viewer"],
       subItems: [
         { label: "Staff & RBAC Roles", path: "/staff" },
         { label: "Audit Logs", path: "/audit-logs" },
@@ -168,39 +139,9 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
           </button>
         </div>
 
-        {/* Hub Scope Badge (Oct 1 RBAC sprint) */}
-        <div className="px-4 pt-3 pb-2">
-          {isHubManager || isDeptManager ? (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 flex items-center gap-2">
-              <Warehouse size={16} className="text-emerald-700 shrink-0" />
-              <div className="overflow-hidden">
-                <p className="text-[10px] uppercase font-bold text-emerald-700 tracking-wider">Scoped Hub</p>
-                <p className="text-xs font-black text-gray-900 truncate" title={warehouseName || hubId}>
-                  🏪 {warehouseName || hubId || "Local Hub"}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 flex items-center gap-2">
-              <span className="text-sm shrink-0">🌐</span>
-              <div>
-                <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Access Scope</p>
-                <p className="text-xs font-black text-gray-700">All Hubs (Central)</p>
-              </div>
-            </div>
-          )}
-
-          {isViewer && (
-            <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 flex items-center gap-1.5 text-amber-800 text-[11px] font-semibold">
-              <Eye size={13} className="shrink-0 text-amber-600" />
-              <span>Read-Only Viewer Mode</span>
-            </div>
-          )}
-        </div>
-
         {/* Menu */}
-        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1 custom-scrollbar">
-          {menu.filter(m => isSuperAdmin || isAdmin || m.roles.includes(role || "Viewer")).map((item) => {
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1 custom-scrollbar">
+          {menu.map((item) => {
             if (item.subItems) {
               const isExpanded = expanded[item.id];
               const isActiveChild = item.subItems.some(sub => location.pathname === sub.path);
@@ -263,13 +204,14 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
         </div>
 
         {/* Bottom Version Card */}
-        <div className="p-4 pt-2">
-          <div className="bg-[#EAF5F0] rounded-2xl p-3 flex flex-col items-center justify-center text-center">
-            <h3 className="text-xs font-black text-[#0B4D31]">KrishiVishal ERP</h3>
-            <p className="text-[10px] text-green-800/70 font-semibold">
-              {role || "Viewer"} • {hubId || "Global"}
-            </p>
-            <span className="text-[9px] font-bold text-green-700/60 uppercase mt-0.5">Version 2.5.0</span>
+        <div className="p-4">
+          <div className="bg-[#EAF5F0] rounded-2xl p-4 flex flex-col items-center justify-center text-center">
+             <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm mb-2 text-[#0B4D31]">
+               <Sprout size={20} />
+             </div>
+             <h3 className="text-sm font-black text-[#0B4D31]">KrishiVishal</h3>
+             <p className="text-[10px] text-green-800/70 font-semibold mb-2">Multi-Hub Agri ERP</p>
+             <span className="text-[9px] font-bold text-green-700/60 uppercase">Version 2.5.0</span>
           </div>
         </div>
       </div>
