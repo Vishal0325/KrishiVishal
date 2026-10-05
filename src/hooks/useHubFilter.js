@@ -1,4 +1,5 @@
 import { useAuthContext } from './useAuthContext';
+import { query as fsQuery, where as fsWhere } from 'firebase/firestore';
 
 export function useHubFilter() {
   const { hubAccess, hubId: userHubId } = useAuthContext();
@@ -8,10 +9,13 @@ export function useHubFilter() {
   const hubId = hubAccess === 'SINGLE' ? userHubId : null;
   const isFiltered = !!hubId;
   
-  // Call this to add hub filter to any Firestore query
-  function applyHubFilter(query, field = 'warehouseId') {
-    if (!hubId) return query; // no filter = all hubs
-    return query.where(field, '==', hubId);
+  // Call this to add hub filter to any Firestore query (supports modular SDK and chained query)
+  function applyHubFilter(targetQuery, field = 'warehouseId') {
+    if (!hubId) return targetQuery; // no filter = all hubs
+    if (typeof targetQuery?.where === 'function') {
+      return targetQuery.where(field, '==', hubId);
+    }
+    return fsQuery(targetQuery, fsWhere(field, '==', hubId));
   }
   
   return { hubId, isFiltered, applyHubFilter };

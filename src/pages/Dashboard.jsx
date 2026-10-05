@@ -43,9 +43,9 @@ import { useOrders } from '../hooks/useOrders';
 import { useProducts } from '../hooks/useProducts';
 import { useAuthContext } from '../hooks/useAuthContext';
 import { formatCurrency } from '../utils/formatters';
-import { collection, onSnapshot, getDocs, query, where, Timestamp } from 'firebase/firestore';
+import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { HubKpiCard } from '../components/dashboard/HubKpiCard';
+import { useHubContext } from '../context/HubContext';
 
 class ChartErrorBoundary extends React.Component {
   constructor(props) {
@@ -88,47 +88,17 @@ const Dashboard = () => {
   const [warehouses, setWarehouses] = useState([]);
   const [riders, setRiders] = useState([]);
 
-  // Task 3: KPI Fetch Functions with Hub Filter
-  const fetchOrdersToday = async (selectedHubId) => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    let q = query(collection(db, 'orders'), where('createdAt', '>=', Timestamp.fromDate(todayStart)));
-    if (selectedHubId) q = query(q, where('warehouseId', '==', selectedHubId));
-    const snap = await getDocs(q);
-    return snap.size;
-  };
-
-  const fetchRevenue = async (selectedHubId) => {
-    // Current month start
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
-    let q = query(collection(db, 'orders'), where('status', '==', 'Delivered')); // Wait, prompt said ledger where type==SALES. I'll use ledger if it exists, otherwise fallback
-    try {
-      let ledgerQ = query(collection(db, 'ledger'), where('type', '==', 'SALES'), where('createdAt', '>=', Timestamp.fromDate(monthStart)));
-      if (selectedHubId) ledgerQ = query(ledgerQ, where('hubId', '==', selectedHubId));
-      const snap = await getDocs(ledgerQ);
-      let total = 0;
-      snap.forEach(doc => total += Number(doc.data().amount || 0));
-      return total;
-    } catch(e) {
-      // Fallback if ledger doesn't have proper index yet or fails
-      return 0;
-    }
-  };
-
-  const fetchActiveRiders = async (selectedHubId) => {
-    let q = query(collection(db, 'riders'), where('isActive', '==', true));
-    if (selectedHubId) q = query(q, where('hubId', '==', selectedHubId));
-    const snap = await getDocs(q);
-    return snap.size;
-  };
+  const { selectedHub, setSelectedHub } = useHubContext();
 
   useEffect(() => {
     if (isHubScoped && hubId) {
       setHubFilter(hubId);
+    } else if (selectedHub && selectedHub !== 'ALL') {
+      setHubFilter(selectedHub);
+    } else if (selectedHub === 'ALL') {
+      setHubFilter('All');
     }
-  }, [isHubScoped, hubId]);
+  }, [isHubScoped, hubId, selectedHub]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'warehouses'), (snap) => {
@@ -657,7 +627,13 @@ const Dashboard = () => {
             <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Active Hub:</label>
             <select
               value={hubFilter}
-              onChange={(e) => setHubFilter(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setHubFilter(val);
+                if (setSelectedHub) {
+                  setSelectedHub(val === 'All' ? 'ALL' : val);
+                }
+              }}
               className="bg-gray-50 border border-gray-200 rounded-xl px-3.5 py-1.5 text-xs font-bold text-gray-800 outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
             >
               <option value="All">All Hubs (Network View)</option>
@@ -672,12 +648,6 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* NEW: Hub KPI Cards (Task 2B) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 sm:gap-3">
-        <HubKpiCard title="Orders Today" fetchData={fetchOrdersToday} renderValue={(val) => val.toLocaleString()} />
-        <HubKpiCard title="Revenue (Ledger)" fetchData={fetchRevenue} renderValue={(val) => formatCurrency(val)} />
-        <HubKpiCard title="Active Riders" fetchData={fetchActiveRiders} renderValue={(val) => val.toString()} />
-      </div>
 
       {/* 1. KPI Cards Row (6 horizontal cards) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 sm:gap-3">
