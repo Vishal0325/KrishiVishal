@@ -52,11 +52,62 @@ const DISPOSITION_OPTIONS = [
   { id: 'WRONG_NUMBER_OR_JUNK', label: 'Wrong Number / Not Interested' }
 ];
 
+export const CROP_STAGE_FILTERS = [
+  { id: 'ALL', label: 'All Stages (सभी चरण)' },
+  { id: 'STAGE_1_20', label: '1 - 20 Days (Germination & Weed Stage / खरपतवार नियंत्रण)', min: 1, max: 20, stageName: 'Germination & Weed', stageHi: 'खरपतवार नियंत्रण' },
+  { id: 'STAGE_21_45', label: '21 - 45 Days (Vegetative & Top-dressing / यूरिया और टॉनिक)', min: 21, max: 45, stageName: 'Vegetative & Top-Dressing', stageHi: 'यूरिया और टॉनिक' },
+  { id: 'STAGE_45_PLUS', label: '45+ Days (Flowering & Pest Shield / कीटनाशक और फंगस)', min: 46, max: 9999, stageName: 'Flowering & Pest Shield', stageHi: 'कीटनाशक और फंगस' }
+];
+
+export function calculateCropLifecycle(lead) {
+  const raw = lead.rawPayload || {};
+  let sowing = lead.sowingDate || raw.sowing_date || raw.sowingDate;
+  if (!sowing && lead.farmerLandProfile?.sowingDate) {
+    sowing = lead.farmerLandProfile.sowingDate;
+  }
+  if (!sowing && lead.createdAt) {
+    // Fallback if lead was generated during sowing season
+    if (lead.createdAt.toDate) {
+      sowing = lead.createdAt.toDate().getTime();
+    } else if (typeof lead.createdAt === 'number') {
+      sowing = lead.createdAt;
+    } else if (typeof lead.createdAt === 'string') {
+      sowing = new Date(lead.createdAt).getTime();
+    }
+  }
+
+  let days = null;
+  if (sowing) {
+    const sowingTime = typeof sowing === 'number' ? sowing : new Date(sowing).getTime();
+    if (!isNaN(sowingTime) && sowingTime > 0) {
+      const diffMs = Date.now() - sowingTime;
+      days = Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+    }
+  }
+
+  let stage = null;
+  if (days !== null) {
+    if (days <= 20) {
+      stage = CROP_STAGE_FILTERS.find((s) => s.id === 'STAGE_1_20');
+    } else if (days <= 45) {
+      stage = CROP_STAGE_FILTERS.find((s) => s.id === 'STAGE_21_45');
+    } else {
+      stage = CROP_STAGE_FILTERS.find((s) => s.id === 'STAGE_45_PLUS');
+    }
+  }
+
+  const landArea = lead.allocatedArea || lead.totalLand || raw.total_land || raw.land_area || lead.farmerLandProfile?.totalLand;
+  const landUnit = lead.landUnit || raw.land_unit || lead.farmerLandProfile?.landUnit || 'Katha';
+
+  return { days, stage, landArea, landUnit };
+}
+
 export default function LeadsManagement() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedHub, setSelectedHub] = useState('all');
   const [activeTab, setActiveTab] = useState('ALL');
+  const [selectedCropStage, setSelectedCropStage] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
   // Disposition Drawer / Modal State
@@ -97,6 +148,13 @@ export default function LeadsManagement() {
       const matchHub = selectedHub === 'all' || l.assignedHubId === selectedHub;
       const matchTab = activeTab === 'ALL' || l.status === activeTab;
 
+      // Stage Filter
+      let matchStage = true;
+      if (selectedCropStage !== 'ALL') {
+        const { stage } = calculateCropLifecycle(l);
+        matchStage = stage?.id === selectedCropStage;
+      }
+
       const raw = l.rawPayload || {};
       const name = l.customerName || raw.full_name || raw.name || '';
       const phone = l.customerPhone || raw.phone_number || raw.phone || '';
@@ -109,9 +167,9 @@ export default function LeadsManagement() {
         crop.toLowerCase().includes(searchTerm.toLowerCase()) ||
         l.id.toLowerCase().includes(searchTerm.toLowerCase());
 
-      return matchHub && matchTab && matchSearch;
+      return matchHub && matchTab && matchStage && matchSearch;
     });
-  }, [leads, selectedHub, activeTab, searchTerm]);
+  }, [leads, selectedHub, activeTab, selectedCropStage, searchTerm]);
 
   // Aggregate Metrics
   const metrics = useMemo(() => {
@@ -236,6 +294,22 @@ export default function LeadsManagement() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            {/* Crop Growth Stage Filter */}
+            <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-xl border border-gray-200">
+              <Sprout size={16} className="text-emerald-600" />
+              <select
+                value={selectedCropStage}
+                onChange={(e) => setSelectedCropStage(e.target.value)}
+                className="bg-transparent text-xs font-semibold text-gray-700 outline-none max-w-[240px]"
+              >
+                {CROP_STAGE_FILTERS.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* Hub Selector */}
             <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-xl border border-gray-200">
               <Building2 size={16} className="text-gray-400" />
@@ -308,11 +382,20 @@ export default function LeadsManagement() {
                   const crop = lead.cropInterest || raw.crop || 'Paddy / Wheat';
                   const district = lead.district || raw.city || raw.district || 'Samastipur';
 
+                  const { days, stage, landArea, landUnit } = calculateCropLifecycle(lead);
+
                   return (
                     <tr key={lead.id} className="hover:bg-gray-50/60 transition-colors">
                       {/* Kisan Details */}
                       <td className="py-3.5 px-4">
-                        <div className="font-semibold text-gray-900">{kisanName}</div>
+                        <div className="font-semibold text-gray-900 flex items-center gap-2">
+                          <span>{kisanName}</span>
+                          {landArea && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 rounded">
+                              🌾 {landArea} {landUnit}
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-gray-500 font-mono flex items-center gap-1 mt-0.5">
                           <span>{phone || 'No Phone'}</span>
                           <span className="text-gray-300">•</span>
@@ -332,12 +415,32 @@ export default function LeadsManagement() {
                         )}
                       </td>
 
-                      {/* Crop */}
+                      {/* Crop & Lifecycle Stage Badge */}
                       <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-1.5 text-xs text-gray-700 font-medium">
+                        <div className="flex items-center gap-1.5 text-xs text-gray-800 font-semibold">
                           <Sprout size={14} className="text-emerald-600" />
-                          {crop}
+                          <span>{crop}</span>
                         </div>
+
+                        {days !== null && stage ? (
+                          <div className="mt-1">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                                stage.id === 'STAGE_1_20'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                  : stage.id === 'STAGE_21_45'
+                                  ? 'bg-blue-50 text-blue-800 border-blue-300'
+                                  : 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                              }`}
+                              title={`${stage.stageName} (${stage.stageHi})`}
+                            >
+                              <span>🌱 {days} Din</span>
+                              <span className="opacity-60">•</span>
+                              <span>{stage.stageHi}</span>
+                            </span>
+                          </div>
+                        ) : null}
+
                         {lead.lastNotes && (
                           <div className="text-[11px] text-gray-400 italic line-clamp-1 mt-0.5">
                             "{lead.lastNotes}"

@@ -46,6 +46,7 @@ const ExpenseForm = React.lazy(() => import("./pages/Expenses/ExpenseForm"));
 const RiderPayouts = React.lazy(() => import("./pages/RiderPayouts"));
 const InventoryAudit = React.lazy(() => import("./pages/InventoryAudit"));
 const LeadsManagement = React.lazy(() => import("./pages/LeadsManagement"));
+const KisanMitraManagement = React.lazy(() => import("./pages/KisanMitraManagement"));
 
 function App() {
   const { user, loading, isAdmin, role, authError } = useAuth();
@@ -193,6 +194,7 @@ function App() {
             <Route path="/logistics/payouts" element={<RequireRole allowedRoles={fleetRoles}><RiderPayouts /></RequireRole>} />
             <Route path="/inventory/cycle-count" element={<RequireRole allowedRoles={opsRoles}><InventoryAudit /></RequireRole>} />
             <Route path="/marketing/leads" element={<RequireRole allowedRoles={marketingRoles}><LeadsManagement /></RequireRole>} />
+            <Route path="/marketing/kisan-mitra" element={<RequireRole allowedRoles={marketingRoles}><KisanMitraManagement /></RequireRole>} />
 
             {/* ========================================================================= */}
             {/* 100% Backward Compatible Redirects for KrishiVishal & Bookmarks          */}
@@ -256,6 +258,8 @@ function App() {
 
             {/* Customer, Leads & Support Aliases */}
             <Route path="/leads" element={<Navigate to="/marketing/leads" replace />} />
+            <Route path="/vle" element={<Navigate to="/marketing/kisan-mitra" replace />} />
+            <Route path="/kisan-mitra" element={<Navigate to="/marketing/kisan-mitra" replace />} />
             <Route path="/telecalling" element={<Navigate to="/marketing/leads" replace />} />
             <Route path="/customers" element={<Navigate to="/support-desk?tab=customers" replace />} />
             <Route path="/kisan-call-center" element={<Navigate to="/support-desk?tab=kisan-call-center" replace />} />
