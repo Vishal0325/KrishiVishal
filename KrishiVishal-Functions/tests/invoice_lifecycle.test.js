@@ -372,6 +372,47 @@ async function runTests() {
         fail("3.3 generateInvoicePdf succeeds for authenticated caller with valid order", err);
     }
 
+    // Test 3.4: Statutory Batch and Hub License Compliance
+    try {
+        const testStatutoryOrderId = 'ORD_STATUTORY_TEST';
+        mockOrdersStore.set(testStatutoryOrderId, {
+            id: testStatutoryOrderId,
+            userName: 'Rajesh Kisan',
+            userPhone: '9800112233',
+            address: 'Samastipur, Bihar',
+            hub: {
+                name: 'Samastipur Central Hub',
+                code: 'HUB-SAM-001',
+                seedLicenseNo: 'BR-SAM-SED-2024-098',
+                pesticideLicenseNo: 'BR-SAM-PEST-2024-441',
+                fertilizerRegNo: 'BR-SAM-FERT-2024-112'
+            },
+            items: [
+                {
+                    productName: 'Chlorpyrifos 20% EC',
+                    variantLabel: '1 Litre',
+                    hsnCode: '3808',
+                    quantity: 2,
+                    price: 650,
+                    batchNumber: 'BT-2026-CHL-09',
+                    expiryDate: '2027-10-31'
+                }
+            ],
+            totalAmount: 1300
+        });
+
+        const res34 = await generateInvoicePdf.run({
+            auth: { uid: 'admin_test' },
+            data: { orderId: testStatutoryOrderId }
+        });
+
+        assert.strictEqual(res34.success, true);
+        assert(res34.downloadUrl.includes('firebasestorage.googleapis.com'));
+        pass("3.4 Statutory batch details and hub licenses render successfully in invoice PDF");
+    } catch (err) {
+        fail("3.4 Statutory batch details and hub licenses render successfully in invoice PDF", err);
+    }
+
     // Restore original methods
     adminModule.db.collection = originalCollection;
     adminModule.storage.bucket = originalBucket;

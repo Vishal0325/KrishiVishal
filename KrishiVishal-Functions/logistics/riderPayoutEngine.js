@@ -102,7 +102,21 @@ function calculateOrderEarnings(order) {
  * - If pending/mismatch: status = "ON_HOLD_CASH_MISMATCH", settlementVerified = false.
  * - Else: status = "PENDING_APPROVAL", settlementVerified = true.
  */
-function calculateRiderPayout({ riderId, riderName, hubId, startDate, endDate, orders = [], cashSettlements = [] }) {
+function calculateRiderPayout({
+    riderId,
+    riderName,
+    hubId,
+    startDate,
+    endDate,
+    orders = [],
+    deliveredOrderIds = [],
+    cashSettlements = [],
+    rider = {},
+    pendingShortageAmount = 0,
+    baseRate = 0,
+    grossPayoutAmount: directGross = 0,
+    grossAmount = 0
+}) {
     let baseEarnings = 0;
     let heavyAllowances = 0;
     let distanceSurcharges = 0;
@@ -149,8 +163,17 @@ function calculateRiderPayout({ riderId, riderName, hubId, startDate, endDate, o
         }
     }
 
-    const grossEarnings = Math.round((baseEarnings + heavyAllowances + distanceSurcharges) * 100) / 100;
-    const netPayable = Math.max(0, Math.round((grossEarnings - penalties) * 100) / 100);
+    let grossEarnings = Math.round((baseEarnings + heavyAllowances + distanceSurcharges) * 100) / 100;
+    if (grossEarnings === 0 && (baseRate > 0 || directGross > 0 || grossAmount > 0)) {
+        grossEarnings = Number(baseRate || directGross || grossAmount || 0);
+    }
+    const grossPayoutAmount = Math.max(0, Math.round((grossEarnings - penalties) * 100) / 100);
+
+    // Shortage Clawback / Deduction Logic
+    const pendingShortage = Number(rider?.pendingShortageAmount ?? pendingShortageAmount ?? 0);
+    const shortageToDeduct = Math.min(grossPayoutAmount, pendingShortage);
+    const netPayable = Math.max(0, Math.round((grossPayoutAmount - shortageToDeduct) * 100) / 100);
+    const netPayoutAmount = netPayable;
 
     const settlementVerified = !hasCashMismatch;
     const status = settlementVerified ? 'PENDING_APPROVAL' : 'ON_HOLD_CASH_MISMATCH';
@@ -169,7 +192,11 @@ function calculateRiderPayout({ riderId, riderName, hubId, startDate, endDate, o
         distanceSurcharges,
         penalties,
         grossEarnings,
+        grossPayoutAmount,
+        pendingShortageAmount: pendingShortage,
+        shortageDeducted: shortageToDeduct,
         netPayable,
+        netPayoutAmount,
         status,
         settlementVerified,
         orders: evaluatedOrders
@@ -333,7 +360,7 @@ const approveRiderPayout = onCall({ region: REGION, timeoutSeconds: 60, memory: 
         throw new HttpsError('already-exists', `Payout ${payoutId} is already paid.`);
     }
 
-    const netPayable = Number(payoutData.netPayable || 0);
+    const netPayable = Number(payoutData.netPayable || payoutData.netPayoutAmount || 0);
 
     // 1. Post Double-Entry Ledger Entries
     if (netPayable > 0) {
@@ -363,7 +390,21 @@ const approveRiderPayout = onCall({ region: REGION, timeoutSeconds: 60, memory: 
         }
     }
 
-    // 2. Mark Payout as PAID
+    // 2. If shortage was deducted, reduce rider's pendingShortageAmount
+    const shortageDeducted = Number(payoutData.shortageDeducted || 0);
+    if (shortageDeducted > 0 && payoutData.riderId) {
+        try {
+            const riderRef = db.collection("riders").doc(payoutData.riderId);
+            await riderRef.update({
+                pendingShortageAmount: admin.firestore.FieldValue.increment(-shortageDeducted),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        } catch (rErr) {
+            console.warn(`Could not update pendingShortageAmount on rider ${payoutData.riderId}:`, rErr.message);
+        }
+    }
+
+    // 3. Mark Payout as PAID
     await payoutRef.update({
         status: 'PAID',
         paymentMode,
@@ -377,6 +418,7 @@ const approveRiderPayout = onCall({ region: REGION, timeoutSeconds: 60, memory: 
         payoutId,
         status: 'PAID',
         netPayable,
+        netPayoutAmount: netPayable,
         paymentMode
     };
 });

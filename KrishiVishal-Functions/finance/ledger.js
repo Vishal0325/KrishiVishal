@@ -5,6 +5,29 @@ const { isAdminRequest } = require("../core/utils");
 
 const REGION = 'asia-south1';
 
+const ASSET_ACCOUNTS = [
+    'CASH_IN_HAND',
+    'BANK_ACCOUNT',
+    'INVENTORY_VALUE',
+    'INVENTORY_ASSET',
+    'HUB_CASH_VAULT',
+    'RIDER_SHORTAGE_RECEIVABLE',
+    'RIDER_CASH_IN_HAND'
+];
+const EXPENSE_ACCOUNTS = ['COGS', 'EXPENSE', 'DELIVERY_EXPENSE'];
+const LIABILITY_REVENUE_ACCOUNTS = ['WALLET_BALANCE', 'GST_PAYABLE', 'SALES', 'ACCOUNTS_PAYABLE'];
+
+const VALID_ACCOUNTS = [
+    ...ASSET_ACCOUNTS,
+    ...EXPENSE_ACCOUNTS,
+    ...LIABILITY_REVENUE_ACCOUNTS
+];
+
+exports.ASSET_ACCOUNTS = ASSET_ACCOUNTS;
+exports.EXPENSE_ACCOUNTS = EXPENSE_ACCOUNTS;
+exports.LIABILITY_REVENUE_ACCOUNTS = LIABILITY_REVENUE_ACCOUNTS;
+exports.VALID_ACCOUNTS = VALID_ACCOUNTS;
+
 /**
  * recordExpensePayment: Admin only function to track expenses.
  */
@@ -155,16 +178,6 @@ async function postLedgerEntry(transactionOrEntry, maybeEntry) {
         throw new Error('Invalid Ledger Entry');
     }
 
-    const ASSET_ACCOUNTS = ['CASH_IN_HAND', 'BANK_ACCOUNT', 'INVENTORY_VALUE', 'INVENTORY_ASSET'];
-    const EXPENSE_ACCOUNTS = ['COGS', 'EXPENSE'];
-    const LIABILITY_REVENUE_ACCOUNTS = ['WALLET_BALANCE', 'GST_PAYABLE', 'SALES', 'ACCOUNTS_PAYABLE'];
-
-    // Define valid accounts to prevent arbitrary collection updates
-    const VALID_ACCOUNTS = [
-        ...ASSET_ACCOUNTS,
-        ...EXPENSE_ACCOUNTS,
-        ...LIABILITY_REVENUE_ACCOUNTS
-    ];
     if (!VALID_ACCOUNTS.includes(entry.account)) {
         throw new Error(`Invalid Ledger Account: ${entry.account}`);
     }

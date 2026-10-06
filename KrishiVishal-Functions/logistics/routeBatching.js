@@ -14,6 +14,80 @@ const HUB_COORDINATES = {
 
 const DEFAULT_HUB_LAT = 25.8633;
 const DEFAULT_HUB_LNG = 85.7818;
+const MAX_RIDER_CASH_LIMIT = 15000; // Maximum floating in-hand cash ceiling in INR
+
+/**
+ * Evaluates whether a rider can be assigned an order based on the floating cash ceiling.
+ * Prepaid orders (non-COD) are always allowed.
+ * COD orders are blocked if rider.cashInHand >= MAX_RIDER_CASH_LIMIT or (rider.cashInHand + codAmount) > MAX_RIDER_CASH_LIMIT.
+ */
+function evaluateRiderCashCeiling(rider, order) {
+    const isCOD = (order.paymentMethod || order.paymentMode || (order.payment && order.payment.method) || (order.isCod ? 'COD' : '')).toUpperCase() === 'COD' || order.isCOD === true;
+
+    if (!isCOD) {
+        return {
+            allowed: true,
+            eligible: true,
+            cashLimitExceeded: false,
+            projectedCash: Number(rider?.cashInHand || 0),
+            projectedCashInHand: Number(rider?.cashInHand || 0),
+            reason: 'PREPAID_ORDER_BYPASS'
+        };
+    }
+
+    const currentCash = Number(rider?.cashInHand || 0);
+    const codAmount = Number(order.codAmount || order.totalAmount || 0);
+    const projectedCash = currentCash + codAmount;
+
+    if (currentCash >= MAX_RIDER_CASH_LIMIT || projectedCash > MAX_RIDER_CASH_LIMIT) {
+        return {
+            allowed: false,
+            eligible: false,
+            cashLimitExceeded: true,
+            currentCashInHand: currentCash,
+            orderCodAmount: codAmount,
+            projectedCash: projectedCash,
+            projectedCashInHand: projectedCash,
+            limit: MAX_RIDER_CASH_LIMIT,
+            reason: 'CASH_LIMIT_EXCEEDED'
+        };
+    }
+
+    return {
+        allowed: true,
+        eligible: true,
+        cashLimitExceeded: false,
+        currentCashInHand: currentCash,
+        orderCodAmount: codAmount,
+        projectedCash: projectedCash,
+        projectedCashInHand: projectedCash,
+        limit: MAX_RIDER_CASH_LIMIT,
+        reason: 'WITHIN_CASH_LIMIT'
+    };
+}
+
+/**
+ * Routes order to the first candidate rider whose cashInHand remains within MAX_RIDER_CASH_LIMIT.
+ */
+function assignOrderWithCashCeiling(riders = [], order) {
+    for (const rider of riders) {
+        const evaluation = evaluateRiderCashCeiling(rider, order);
+        if (evaluation.allowed) {
+            return {
+                assigned: true,
+                cashLimitExceeded: false,
+                riderId: rider.id || rider.riderId,
+                rider,
+                evaluation
+            };
+        }
+    }
+    return {
+        assigned: false,
+        cashLimitExceeded: true,
+        reason: 'All candidate riders exceed maximum floating cash limit of ₹15,000'
+    };
+}
 
 /**
  * Calculates great-circle Haversine distance between two coordinates in kilometers.
@@ -266,5 +340,8 @@ module.exports = {
     greedyHaversineClustering,
     callOpsMicroserviceOrFallback,
     haversineDistance,
-    HUB_COORDINATES
+    HUB_COORDINATES,
+    MAX_RIDER_CASH_LIMIT,
+    evaluateRiderCashCeiling,
+    assignOrderWithCashCeiling
 };

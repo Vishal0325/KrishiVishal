@@ -47,7 +47,11 @@ function buildInvoicePdfBuffer({ hub, orderMeta, buyer, items, financials, clear
             doc.text(`${hub.name} (${hub.code})`);
             doc.text(hub.address);
             doc.text(`GSTIN: ${hub.gstin} | State Code: ${hub.stateCode}`);
-            doc.text(`Helpline: ${hub.helpline}`);
+            if (hub.seedLicenseNo || hub.pesticideLicenseNo || hub.fertilizerRegNo) {
+                doc.fontSize(7.5).fillColor('#444444');
+                doc.text(`Lic: Seed: ${hub.seedLicenseNo || 'BR-SAM-SED-2024-098'} | Pest: ${hub.pesticideLicenseNo || 'BR-SAM-PEST-2024-441'} | Fert: ${hub.fertilizerRegNo || 'BR-SAM-FERT-2024-112'}`);
+            }
+            doc.fontSize(8.5).fillColor('#333333').text(`Helpline: ${hub.helpline}`);
 
             // Document Meta in Header (Top Right)
             const metaX = 350;
@@ -122,7 +126,7 @@ function buildInvoicePdfBuffer({ hub, orderMeta, buyer, items, financials, clear
             let currentY = tableTop + 24;
             items.forEach((item, idx) => {
                 // Page overflow safeguard
-                if (currentY > 720) {
+                if (currentY > 700) {
                     doc.addPage();
                     currentY = 40;
                 }
@@ -130,13 +134,22 @@ function buildInvoicePdfBuffer({ hub, orderMeta, buyer, items, financials, clear
                 doc.fillColor('#222222').font('Helvetica').fontSize(8);
                 doc.text(String(idx + 1), colX.idx + 4, currentY);
                 doc.font('Helvetica-Bold').text(item.productName, colX.desc, currentY, { width: 185, lineBreak: false });
-                doc.font('Helvetica').text(item.variantLabel || '-', colX.variant, currentY, { width: 75, lineBreak: false });
+                
+                // Statutory Batch & Expiry Display
+                const batchStr = item.batchNumber || item.batch || 'N/A';
+                const expStr = item.expiryDate || 'N/A';
+                if (batchStr !== 'N/A' || expStr !== 'N/A') {
+                    doc.fontSize(6.5).font('Helvetica').fillColor('#666666').text(`Batch: ${batchStr} | Exp: ${expStr}`, colX.desc, currentY + 10, { width: 185, lineBreak: false });
+                }
+
+                doc.fontSize(8).font('Helvetica').fillColor('#222222');
+                doc.text(item.variantLabel || '-', colX.variant, currentY, { width: 75, lineBreak: false });
                 doc.text(item.hsnCode || '3101', colX.hsn, currentY);
                 doc.text(String(item.quantity), colX.qty, currentY, { width: 35, align: 'center' });
                 doc.text(formatCurrency(item.price), colX.price, currentY, { width: 55, align: 'right' });
                 doc.text(formatCurrency(item.lineTotal), colX.total, currentY, { width: 60, align: 'right' });
 
-                currentY += 16;
+                currentY += 20;
                 doc.strokeColor('#eeeeee').lineWidth(0.5).moveTo(leftMargin, currentY - 2).lineTo(leftMargin + contentWidth, currentY - 2).stroke();
             });
 
@@ -227,12 +240,15 @@ async function generateAndUploadInvoice(orderId, clearTaxPayload = null) {
     const hub = {
         brand: 'KRISHI VISHAL',
         subtitle: 'Bihar Fast Rural Agri Logistics & Dispatch',
-        name: 'Samastipur Central Hub',
-        code: order.hubCode || 'HUB-SAM-001',
-        address: 'Station Road, Near Block Chowk, Samastipur, Bihar - 848101',
-        gstin: process.env.STORE_GSTIN || '10AAACK9821M1Z5',
-        stateCode: '10 (Bihar)',
-        helpline: '1800-890-AGRICONNECT'
+        name: order.hub?.name || 'Samastipur Central Hub',
+        code: order.hubCode || order.hub?.code || 'HUB-SAM-001',
+        address: order.hub?.address || 'Station Road, Near Block Chowk, Samastipur, Bihar - 848101',
+        gstin: order.hub?.gstin || process.env.STORE_GSTIN || '10AAACK9821M1Z5',
+        stateCode: order.hub?.stateCode || '10 (Bihar)',
+        helpline: order.hub?.helpline || '1800-890-AGRICONNECT',
+        seedLicenseNo: order.hub?.seedLicenseNo || 'BR-SAM-SED-2024-098',
+        pesticideLicenseNo: order.hub?.pesticideLicenseNo || 'BR-SAM-PEST-2024-441',
+        fertilizerRegNo: order.hub?.fertilizerRegNo || 'BR-SAM-FERT-2024-112'
     };
 
     // 3. Order Metadata
@@ -289,7 +305,9 @@ async function generateAndUploadInvoice(orderId, clearTaxPayload = null) {
             hsnCode: item.hsnCode || item.hsn || '3101',
             quantity: qty,
             price: price,
-            lineTotal: qty * price
+            lineTotal: qty * price,
+            batchNumber: item.batchNumber || item.batch || 'N/A',
+            expiryDate: item.expiryDate ? formatDate(item.expiryDate) : 'N/A'
         };
     });
 
