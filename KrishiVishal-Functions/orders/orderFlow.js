@@ -98,7 +98,45 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
     const context = { auth: request.auth };
 
     if (!context.auth) throw new HttpsError('unauthenticated', 'Login required.');
-    const { cartItems, address, paymentMethod, userName, userPhone, deliverySlotId } = data;
+    const {
+        idempotencyKey,
+        cartItems,
+        address,
+        paymentMethod,
+        userName,
+        userPhone,
+        deliverySlotId,
+        destinationHubId,
+        spokeHubId,
+        vleCode
+    } = data;
+
+    if (!idempotencyKey || typeof idempotencyKey !== 'string' || idempotencyKey.trim().length === 0) {
+        throw new HttpsError('invalid-argument', 'Missing idempotencyKey');
+    }
+
+    const cleanIdempotencyKey = idempotencyKey.trim();
+
+    const resolvedDestinationHub = (destinationHubId || spokeHubId || '').toString().trim();
+    if (!resolvedDestinationHub) {
+        throw new HttpsError('invalid-argument', 'Missing destination hub ID for inventory reservation');
+    }
+
+    // Check for existing order with this idempotency key before starting transaction
+    const idemSnap = await db.collection('idempotency_keys').doc(cleanIdempotencyKey).get();
+    if (idemSnap.exists) {
+        const existingData = idemSnap.data() || {};
+        console.log(`[createOrder] Idempotent request detected for key: ${cleanIdempotencyKey}. Returning existing order.`);
+        return {
+            success: true,
+            orderId: existingData.orderId,
+            totalAmount: existingData.totalAmount || 0,
+            customerOTP: existingData.customerOTP || "",
+            razorpayOrderId: existingData.razorpayOrderId || null,
+            isDuplicate: true,
+            message: "Order already processed"
+        };
+    }
 
     // H2: Validate cartItems
     if (!Array.isArray(cartItems) || cartItems.length === 0) {
@@ -465,9 +503,14 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             ].filter(Boolean).join(", ");
 
             const otp = crypto.randomInt(1000, 10000).toString();
+            const cleanVleCode = (vleCode && typeof vleCode === 'string' && vleCode.trim().length > 0)
+                ? vleCode.trim().toUpperCase()
+                : null;
 
             const order = {
                 id: orderId,
+                idempotencyKey: cleanIdempotencyKey,
+                vleCode: cleanVleCode,
                 userId: context.auth.uid,
                 userName: userName.trim(),
                 userPhone: `+91${cleanPhone}`,
@@ -476,6 +519,8 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 landmark: structuredAddress.landmark || "",
                 warehouseId: assignedWarehouseId,
                 fulfillmentWarehouseId: assignedWarehouseId,
+                destinationHubId: resolvedDestinationHub,
+                spokeHubId: resolvedDestinationHub,
                 warehouseName: assignedWarehouseName,
                 hubCode: assignedWarehouseId,
                 stockStatus: routingDecision.stockStatus || "FULL",
@@ -578,6 +623,21 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             // 4. Save order document
             transaction.set(db.collection("orders").doc(orderId), order);
 
+            // 4b. Store idempotency key mapping atomically inside transaction
+            transaction.set(db.collection("idempotency_keys").doc(cleanIdempotencyKey), {
+                orderId: orderId,
+                totalAmount: totalAmount,
+                customerOTP: otp,
+                // TODO (Vishal — manual GCP step): Enable TTL policy on idempotency_keys
+                // collection via: gcloud firestore fields ttls update expiresAt
+                //   --collection-group=idempotency_keys --enable-ttl
+                //   --project=krishivishal-a9ed7
+                expiresAt: admin.firestore.Timestamp.fromDate(
+                    new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+                ),
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
             // 5. Store OTP in internal subcollection
             transaction.set(db.collection("orders").doc(orderId).collection("internal").doc("otp"), {
                 value: otp,
@@ -612,6 +672,9 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                     razorpayOrderId,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
                 });
+                await db.collection("idempotency_keys").doc(cleanIdempotencyKey).update({
+                    razorpayOrderId
+                }).catch(() => {});
             } catch (rzpError) {
                 // Razorpay order creation failed — still return orderId so the
                 // client can retry. Flag paymentStatus as RAZORPAY_INIT_FAILED
@@ -627,6 +690,7 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
         }
 
         return {
+            success: true,
             orderId,
             totalAmount: finalAmount,
             customerOTP: orderOtp,
@@ -828,12 +892,13 @@ exports.verifyDeliveryOTP = onCall({ region: REGION, invoker: 'public' }, async 
     }
 
     try {
+        let isMismatch = false;
         await db.runTransaction(async (transaction) => {
             const orderRef = db.collection("orders").doc(orderId);
             const orderSnap = await transaction.get(orderRef);
 
             if (!orderSnap.exists) {
-                throw new Error('Order not found.');
+                throw new HttpsError('not-found', 'Order not found.');
             }
 
             const orderData = orderSnap.data();
@@ -842,7 +907,7 @@ exports.verifyDeliveryOTP = onCall({ region: REGION, invoker: 'public' }, async 
 
             // Verify caller is assigned rider or admin
             if (!isAssignedRider && !isAdmin) {
-                throw new Error('Only the assigned delivery rider or admin can verify OTP.');
+                throw new HttpsError('permission-denied', 'Only the assigned delivery rider or admin can verify OTP.');
             }
 
             // Verify order state - allow any active rider fulfillment status
@@ -851,18 +916,18 @@ exports.verifyDeliveryOTP = onCall({ region: REGION, invoker: 'public' }, async 
                 'PICKED_UP', 'PICKING_UP', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'
             ];
             if (!allowedDeliveryStatuses.includes(orderData.status) && !isAdmin) {
-                throw new Error(`Order cannot be marked delivered from ${orderData.status} state.`);
+                throw new HttpsError('failed-precondition', `Order cannot be marked delivered from ${orderData.status} state.`);
             }
 
             const otpVal = String(orderData.customerOTP || orderData.deliveryOtp || '');
             if (!otpVal) {
-                throw new Error('Delivery OTP not found for this order.');
+                throw new HttpsError('failed-precondition', 'Delivery OTP not found for this order.');
             }
 
-            // Enforce max attempts via a field on the order document
-            const attempts = orderData.otpAttempts || 0;
-            if (attempts >= 5) {
-                throw new Error('Maximum OTP verification attempts (5) exceeded.');
+            // 2. Check otpAttempts field (default to 0 if missing)
+            const otpAttempts = Number(orderData.otpAttempts || 0);
+            if (otpAttempts >= 3) {
+                throw new HttpsError('resource-exhausted', 'Too many incorrect OTP attempts. Delivery locked.');
             }
 
             // Constant-time timing-safe comparison
@@ -876,17 +941,17 @@ exports.verifyDeliveryOTP = onCall({ region: REGION, invoker: 'public' }, async 
                 isValid = false;
             }
 
+            // 3. If submitted OTP does NOT match stored customerOTP
             if (!isValid) {
                 transaction.update(orderRef, {
                     otpAttempts: admin.firestore.FieldValue.increment(1),
                     lastFailedOtpAttemptAt: admin.firestore.FieldValue.serverTimestamp()
                 });
-                const remaining = 4 - attempts;
-                throw new Error(`Invalid OTP. ${remaining > 0 ? remaining + ' attempt(s) remaining.' : 'Attempts exceeded.'}`);
+                isMismatch = true;
+                return;
             }
 
-            // OTP verified successfully: complete inventory deduction
-
+            // 4. If submitted OTP matches:
             // Complete inventory stock mutation atomically
             const selfStockItems = (orderData.items || []).filter(item => item.fulfillmentType !== 'ON_DEMAND');
             if (selfStockItems.length > 0) {
@@ -899,6 +964,7 @@ exports.verifyDeliveryOTP = onCall({ region: REGION, invoker: 'public' }, async 
             }
 
             transaction.update(orderRef, {
+                otpAttempts: 0, // reset on success
                 status: "DELIVERED",
                 paymentStatus: "PAID",
                 deliveryStatus: "DELIVERED",
@@ -915,8 +981,15 @@ exports.verifyDeliveryOTP = onCall({ region: REGION, invoker: 'public' }, async 
             });
         });
 
+        if (isMismatch) {
+            throw new HttpsError('invalid-argument', 'Incorrect OTP.');
+        }
+
         return { success: true, message: 'Delivery OTP verified and order marked DELIVERED.' };
     } catch (error) {
+        if (error instanceof HttpsError) {
+            throw error;
+        }
         throw new HttpsError('invalid-argument', error.message);
     }
 });

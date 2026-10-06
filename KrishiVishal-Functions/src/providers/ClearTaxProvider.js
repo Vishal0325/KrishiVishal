@@ -75,6 +75,9 @@ class ClearTaxProvider {
                 operation: 'E_WAY_BILL_GEN',
                 referenceId: orderData.id,
                 providerReferenceId: data.ewbNo,
+                ewayBillNo: data.ewbNo,
+                validUpto: data.validUpto,
+                pdfUrl: data.pdfUrl || null,
                 data: data,
                 timestamp: new Date().toISOString()
             };
@@ -156,41 +159,47 @@ class ClearTaxProvider {
             if (!gstin) throw new Error("STORE_GSTIN secret is required for Production compliance.");
         }
 
+        const createdAtMillis = order.createdAt?.toMillis ? order.createdAt.toMillis() : (order.createdAt ? new Date(order.createdAt).getTime() : Date.now());
+        const docId = String(order.id || order.transferId || 'TRANSFER');
+
         return {
             transactionType: "Regular",
             subTransactionType: "Supply",
             documentType: "INV",
-            documentNumber: order.id.slice(-16),
-            documentDate: new Date(order.createdAt?.toMillis() || Date.now()).toLocaleDateString('en-GB'),
-            fromGstin: gstin || "10AAAAA0000A1Z5",
-            fromTrdName: "Krishi Vishal",
-            fromAddr1: "Main Road, Near Block Chowk",
-            fromPlace: "Samastipur",
-            fromPincode: 854301,
+            documentNumber: docId.slice(-16),
+            documentDate: new Date(createdAtMillis).toLocaleDateString('en-GB'),
+            fromGstin: order.originHubGstin || gstin || "10AAAAA0000A1Z5",
+            fromTrdName: order.originHubName || "Krishi Vishal",
+            fromAddr1: order.originHubAddress || "Main Road, Near Block Chowk",
+            fromPlace: order.originHubPlace || "Samastipur",
+            fromPincode: parseInt(order.originHubPincode) || 854301,
             fromStateCode: 10,
-            toGstin: order.customerGstin || "URP",
-            toTrdName: order.userName,
-            toAddr1: order.address?.substring(0, 100),
-            toPlace: order.city || "Bihar",
-            toPincode: parseInt(order.pincode) || 854301,
+            toGstin: order.destinationHubGstin || order.customerGstin || "URP",
+            toTrdName: order.destinationHubName || order.userName || "Destination Hub",
+            toAddr1: order.destinationHubAddress || order.address?.substring(0, 100) || "Hub Address",
+            toPlace: order.destinationHubPlace || order.city || "Bihar",
+            toPincode: parseInt(order.destinationHubPincode || order.pincode) || 854301,
             toStateCode: 10,
             actualFromStateCode: 10,
             actualToStateCode: 10,
-            itemList: order.items.map(item => ({
-                productName: item.productName,
+            itemList: (order.items || []).map(item => ({
+                productName: item.productName || item.skuCode || "Agri Product",
                 hsnCode: item.hsnCode || "3101",
                 quantity: item.quantity,
-                qtyUnit: "NOS",
-                taxableAmount: item.price * item.quantity,
-                cgstRate: (item.gstRate || 5) / 2,
-                sgstRate: (item.gstRate || 5) / 2,
-                igstRate: 0
+                qtyUnit: item.qtyUnit || "NOS",
+                taxableAmount: item.taxableAmount !== undefined ? item.taxableAmount : (item.taxableValue !== undefined ? item.taxableValue : (Number(item.price || 0) * Number(item.quantity || 1))),
+                cgstRate: item.cgstRate !== undefined ? item.cgstRate : (item.gstRate || 5) / 2,
+                sgstRate: item.sgstRate !== undefined ? item.sgstRate : (item.gstRate || 5) / 2,
+                igstRate: item.igstRate !== undefined ? item.igstRate : 0
             })),
-            totalValue: order.totalAmount,
-            mainHsnCode: parseInt(order.items[0]?.hsnCode) || 3101,
+            totalValue: order.totalConsignmentValue || order.totalAmount || 0,
+            mainHsnCode: parseInt(order.items?.[0]?.hsnCode) || 3101,
             transDistance: order.transDistance || 50,
             transMode: 1,
             vehicleNo: order.vehicleNo || "BR11TEST",
+            transporterId: order.transporterId || "",
+            driverPhone: order.driverPhone || "",
+            lrNumber: order.lrNumber || "",
             vehicleType: "R"
         };
     }

@@ -59,6 +59,14 @@ service cloud.firestore {
       return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role == "Rider";
     }
 
+    function isAuditor() {
+      return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role in ["Auditor", "StockAuditor", "WarehouseAuditor"];
+    }
+
+    function isTelecaller() {
+      return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role in ["Telecaller", "KisanCallCenter", "SupportAgent", "CRMExecutive"];
+    }
+
 
 
     // ============================================================
@@ -653,7 +661,12 @@ service cloud.firestore {
     }
 
     match /statutory_licenses/{id} {
-      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow read: if isAdmin() || isViewer() || isDepartmentManager() || isHubManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /agri_licenses/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager() || isHubManager();
       allow write: if isAdmin() || isDepartmentManager();
     }
 
@@ -787,6 +800,11 @@ service cloud.firestore {
       allow write: if isAdmin() || isHubManager();
     }
 
+    match /dispatch_batches/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager() || isRider();
+      allow write: if isAdmin() || isHubManager();
+    }
+
     match /warehouse_inventory/{id} {
       allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
       allow write: if isAdmin() || isHubManager();
@@ -875,6 +893,11 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    match /admin_alerts/{alertId} {
+      allow read: if isAdmin() || isSuperAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isSuperAdmin();
+    }
+
 
     // ============================================================
     // AUDIT LOGS
@@ -905,6 +928,22 @@ service cloud.firestore {
         isAdmin()
       );
       allow write: if false; // Only Cloud Functions mutate this
+    }
+
+    // ============================================================
+    // KISAN MITRA / VLE COMMISSION NETWORK
+    // ============================================================
+
+    match /vle_profiles/{vleId} {
+      allow read: if isAuthenticated() && (request.auth.uid == vleId || isAdmin() || isHubManager() || isTelecaller() || isViewer());
+      allow create: if isAuthenticated() && request.auth.uid == vleId;
+      allow update: if isAuthenticated() && (isAdmin() || isHubManager() || (request.auth.uid == vleId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['kycStatus', 'walletBalance', 'totalCommissionEarned', 'totalGmvGenerated'])));
+      allow delete: if isAdmin();
+    }
+
+    match /vle_commissions/{commId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.vleId || isAdmin() || isHubManager() || isViewer());
+      allow write: if false; // Server Cloud Functions authoritative only
     }
 
 
@@ -946,8 +985,13 @@ service cloud.firestore {
     }
 
     match /warehouse_stock/{docId} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow read: if true; // Public catalog stock visibility for spoke resolution
       allow write: if false; // Cloud Functions SSoT for location inventory
+    }
+
+    match /pincode_directory/{pincode} {
+      allow read: if true; // Public lookup for pincode-to-hub mapping
+      allow write: if isAdmin();
     }
 
     match /warehouses/{warehouseId} {
@@ -959,8 +1003,8 @@ service cloud.firestore {
       }
     }
 
-    match /idempotency_keys/{key} {
-      allow read, write: if false; // Internal backend idempotency locks
+    match /idempotency_keys/{keyId} {
+      allow read, write: if false; // Admin SDK only — no client access
     }
 
     match /supplier_ledger/{id} {
@@ -1052,6 +1096,13 @@ service cloud.firestore {
       allow update, delete: if isAdmin() || isSuperAdmin();
     }
 
+    match /cash_settlements/{settlementId} {
+      allow read: if (isAdmin() || isSuperAdmin() || isHubManager()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow create: if isAuthenticated() && (isAdmin() || isSuperAdmin() || (isRider() && request.resource.data.riderId == request.auth.uid));
+      allow update: if isAdmin() || isSuperAdmin() || isHubManager();
+      allow delete: if false;
+    }
+
     match /hub_bank_deposits/{id} {
       allow read: if isAdmin() || isSuperAdmin() || isViewer() || isHubManager() || canViewFinance();
       allow write: if isAdmin() || isSuperAdmin();
@@ -1104,6 +1155,50 @@ service cloud.firestore {
       allow read: if true;
       // Only Admin can add or update service definitions
       allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // RIDER PAYOUTS & COMMISSIONS
+    // ============================================================
+    match /rider_payouts/{payoutId} {
+      allow read: if isAdmin() || isHubManager() || (isRider() && request.auth.uid == resource.data.riderId);
+      allow write: if isAdmin() || isSuperAdmin();
+    }
+
+    // ============================================================
+    // WMS CYCLE COUNTING & BLIND AUDIT SESSIONS
+    // ============================================================
+    match /audit_sessions/{sessionId} {
+      allow read: if isAdmin() || isHubManager() || isAuditor();
+      allow write: if isAdmin() || isHubManager();
+
+      // Blind Audit Security: Auditors CANNOT view live system snapshot
+      match /system_snapshot/{docId} {
+        allow read, write: if isAdmin() || isHubManager();
+      }
+    }
+
+    match /quarantine_stock/{stockId} {
+      allow read: if isAdmin() || isHubManager() || isAuditor();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /inventory_adjustments/{adjId} {
+      allow read: if isAdmin() || isHubManager() || isAuditor();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /hub_debit_notes/{noteId} {
+      allow read: if isAdmin() || isHubManager() || canViewFinance();
+      allow write: if isAdmin() || isSuperAdmin();
+    }
+
+    // ============================================================
+    // MARKETING & DIGITAL LEADS (META ADS)
+    // ============================================================
+    match /leads/{leadId} {
+      allow read: if isAdmin() || isSuperAdmin() || isHubManager() || isTelecaller();
+      allow write: if isAdmin() || isSuperAdmin() || isHubManager() || isTelecaller();
     }
 
 

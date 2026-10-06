@@ -127,6 +127,41 @@ async function runP0Tests() {
         failed++;
     }
 
+    // Test 10: Verify idempotency_keys is Admin SDK only in root firestore.rules
+    const idempotencySecure = rulesContent.includes("match /idempotency_keys/{keyId}") &&
+                              rulesContent.includes("allow read, write: if false;");
+    if (idempotencySecure) {
+        console.log("PASS: Test 10 (idempotency_keys locked to Admin SDK only in root firestore.rules)");
+        passed++;
+    } else {
+        console.log("FAIL: Test 10 (idempotency_keys is not properly locked down)");
+        failed++;
+    }
+
+    // Test 11: Verify cash_settlements is guarded in root firestore.rules without duplicates
+    const settlementMatches = (rulesContent.match(/match \/cash_settlements\/\{settlementId\}/g) || []).length;
+    if (settlementMatches === 1) {
+        console.log("PASS: Test 11 (cash_settlements present exactly once in root firestore.rules)");
+        passed++;
+    } else {
+        console.log(`FAIL: Test 11 (cash_settlements match count is ${settlementMatches}, expected 1)`);
+        failed++;
+    }
+
+    // Test 12: Verify KrishiVishalDelivery/firestore.rules has NOT DEPLOYED header and no stray rules
+    const deliveryRulesPath = path.join(__dirname, "../../KrishiVishalDelivery/firestore.rules");
+    const deliveryRulesContent = fs.readFileSync(deliveryRulesPath, 'utf8');
+    const deliveryHeaderPresent = deliveryRulesContent.includes("NOT DEPLOYED — root firestore.rules is the source of truth");
+    const deliveryNoSettlements = !deliveryRulesContent.includes("cash_settlements");
+    const deliveryNoIdempotency = !deliveryRulesContent.includes("idempotency_keys");
+    if (deliveryHeaderPresent && deliveryNoSettlements && deliveryNoIdempotency) {
+        console.log("PASS: Test 12 (KrishiVishalDelivery/firestore.rules properly synced with header and clean)");
+        passed++;
+    } else {
+        console.log("FAIL: Test 12 (KrishiVishalDelivery/firestore.rules failed synchronization check)");
+        failed++;
+    }
+
     console.log(`\n==========================================`);
     console.log(`P0 SECURITY TESTS COMPLETED: ${passed} PASSED, ${failed} FAILED.`);
     console.log(`==========================================\n`);

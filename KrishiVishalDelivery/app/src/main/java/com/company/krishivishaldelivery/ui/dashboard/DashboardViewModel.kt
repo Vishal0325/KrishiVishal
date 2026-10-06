@@ -298,6 +298,18 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
+    fun onSettlementConfirmed(onSuccess: () -> Unit = {}) {
+        val riderId = currentRiderId
+        if (riderId.isNotEmpty()) {
+            viewModelScope.launch {
+                orderRepository.completeSettlementLocally(riderId)
+                syncData(riderId)
+                loadCashDepositHistory(riderId)
+                onSuccess()
+            }
+        }
+    }
+
     /**
      * Solves Shortest Route (Travelling Salesperson Problem) using Greedy Nearest-Neighbor
      * Calculates the 1-2-3-4 delivery sequence minimizing travel distance, petrol and time.

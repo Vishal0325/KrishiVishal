@@ -166,6 +166,88 @@ exports.onOrderStatusUpdate = onDocumentUpdated({ document: "orders/{orderId}", 
     }
     // --- REFERRAL LOGIC END ---
 
+    // --- VLE / KISAN MITRA COMMISSION LOGIC START ---
+    try {
+        const vleCode = newData.vleCode || newData.kisanMitraCode;
+        const bookedByVleId = newData.bookedByVleId;
+
+        if (vleCode || bookedByVleId) {
+            if (newData.status === 'DELIVERED' && oldData.status !== 'DELIVERED') {
+                const commId = `vle_comm_${context.params.orderId}`;
+                const commRef = db.collection('vle_commissions').doc(commId);
+                const existingComm = await commRef.get();
+
+                if (!existingComm.exists) {
+                    let vleDoc = null;
+                    if (bookedByVleId) {
+                        const snap = await db.collection('vle_profiles').doc(bookedByVleId).get();
+                        if (snap.exists) vleDoc = snap;
+                    }
+                    if (!vleDoc && vleCode) {
+                        const querySnap = await db.collection('vle_profiles')
+                            .where('vleCode', '==', String(vleCode).trim())
+                            .limit(1)
+                            .get();
+                        if (!querySnap.empty) {
+                            vleDoc = querySnap.docs[0];
+                        }
+                    }
+
+                    if (vleDoc && vleDoc.data().status === 'ACTIVE') {
+                        const vleData = vleDoc.data();
+                        const { calculateVleOrderCommission } = require('../marketing/vleCommissionEngine');
+                        const { commissionBreakdown, totalCommission } = calculateVleOrderCommission(newData, vleData.commissionSlabs);
+
+                        if (totalCommission > 0) {
+                            const now = new Date();
+                            const maturityDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7-day return window
+
+                            await db.runTransaction(async (transaction) => {
+                                transaction.set(commRef, {
+                                    commId: commId,
+                                    orderId: context.params.orderId,
+                                    vleId: vleDoc.id,
+                                    vleCode: vleData.vleCode,
+                                    farmerId: userId,
+                                    farmerName: newData.userName || newData.customerName || 'Farmer',
+                                    orderTotal: Number(newData.totalAmount || newData.orderTotal || 0),
+                                    commissionBreakdown: commissionBreakdown,
+                                    totalCommission: totalCommission,
+                                    status: 'HOLD_RETURN_WINDOW',
+                                    maturityDate: maturityDate.toISOString(),
+                                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                                });
+
+                                transaction.update(vleDoc.ref, {
+                                    totalGmvGenerated: admin.firestore.FieldValue.increment(Number(newData.totalAmount || 0)),
+                                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                                });
+                            });
+
+                            console.log(`[VLE Commission] Held ₹${totalCommission} commission for VLE ${vleData.vleCode} on order ${context.params.orderId}`);
+                        }
+                    }
+                }
+            } else if (newData.status === 'CANCELLED' || newData.status === 'RETURNED') {
+                const commId = `vle_comm_${context.params.orderId}`;
+                const commRef = db.collection('vle_commissions').doc(commId);
+                const commSnap = await commRef.get();
+
+                if (commSnap.exists && commSnap.data().status === 'HOLD_RETURN_WINDOW') {
+                    await commRef.update({
+                        status: 'CLAWBACK',
+                        voidReason: `Order transitioned to ${newData.status} during return buffer window`,
+                        clawedBackAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                    console.log(`[VLE Commission] Successfully clawed back commission for order ${context.params.orderId}`);
+                }
+            }
+        }
+    } catch (vleErr) {
+        console.error("Error processing VLE commission logic on order update:", vleErr);
+    }
+    // --- VLE / KISAN MITRA COMMISSION LOGIC END ---
+
     // --- STOCK RESTORATION ON CANCELLATION START ---
     try {
         if (newData.status === 'CANCELLED' && oldData.status !== 'CANCELLED') {

@@ -51,7 +51,7 @@ async function isAdminRequest(obj) {
     // Strict Custom Claims check (Server-Authoritative - No DB fallback)
     return auth.token.admin === true ||
            auth.token.isAdmin === true ||
-           ["ADMIN", "SuperAdmin", "CatalogManager", "OrderManager"].includes(auth.token.role);
+           ["ADMIN", "SuperAdmin", "SUPER_ADMIN", "CatalogManager", "OrderManager", "FinanceAdmin", "FinanceManager", "Accountant", "OperationsAdmin", "Admin"].includes(auth.token.role);
 }
 
 function addToOutbox(transaction, type, payload) {

@@ -1,5 +1,6 @@
 package com.company.krishivishaldelivery.ui.reconciliation
 
+import android.graphics.Bitmap
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,16 +18,23 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.company.krishivishaldelivery.data.model.CashDepositRecord
 import com.company.krishivishaldelivery.ui.dashboard.DashboardViewModel
 import com.company.krishivishaldelivery.ui.reconciliation.components.CashDepositSlipDialog
 import com.company.krishivishal.core.util.Resource
 import com.company.krishivishal.core.model.OrderStatus
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -38,6 +46,7 @@ fun CashReconciliationScreen(
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val currentRiderId = remember { FirebaseAuth.getInstance().currentUser?.uid ?: "" }
     val ordersResource by viewModel.orders.collectAsState()
     val depositHistoryResource by viewModel.cashDepositHistory.collectAsState()
 
@@ -45,11 +54,42 @@ fun CashReconciliationScreen(
     val depositHistory = (depositHistoryResource as? Resource.Success)?.data ?: emptyList()
 
     val pendingCashOrders = orders.filter { it.isCOD && it.status == OrderStatus.DELIVERED.name && !it.isCashDeposited }
-    val totalPendingAmount = pendingCashOrders.sumOf { it.codAmount }
+    val totalPendingAmount = pendingCashOrders.sumOf { if (it.codAmount > 0) it.codAmount else it.totalAmount }
+    val pendingOrderIds = pendingCashOrders.map { it.id }
+    val riderHubId = "HUB_CENTRAL"
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     var isLoading by remember { mutableStateOf(false) }
     var activeDepositSlipRecord by remember { mutableStateOf<CashDepositRecord?>(null) }
+    var activeSettlementId by remember { mutableStateOf<String?>(null) }
+    var showSettlementQrDialog by remember { mutableStateOf(false) }
+
+    // Real-time listener for Hub Cash Settlement Confirmation
+    DisposableEffect(activeSettlementId) {
+        val sId = activeSettlementId
+        if (sId.isNullOrBlank()) {
+            return@DisposableEffect onDispose {}
+        }
+        val registration = FirebaseFirestore.getInstance()
+            .collection("cash_settlements")
+            .document(sId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) return@addSnapshotListener
+                if (snapshot != null && snapshot.exists()) {
+                    val status = snapshot.getString("status")
+                    if (status == "CONFIRMED") {
+                        showSettlementQrDialog = false
+                        activeSettlementId = null
+                        viewModel.onSettlementConfirmed {
+                            Toast.makeText(context, "हब मैनेजर द्वारा नकद जमा स्वीकृत! (Settlement Confirmed)", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+        onDispose {
+            registration.remove()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -136,16 +176,28 @@ fun CashReconciliationScreen(
                             Spacer(modifier = Modifier.height(16.dp))
                             Button(
                                 onClick = {
+                                    if (totalPendingAmount <= 0) return@Button
                                     isLoading = true
-                                    viewModel.markCashAsDeposited { record ->
-                                        isLoading = false
-                                        if (record != null) {
-                                            activeDepositSlipRecord = record
-                                            Toast.makeText(context, "नकद सफलतापूर्वक वेयरहाउस में जमा हो गया!", Toast.LENGTH_LONG).show()
-                                        } else {
-                                            Toast.makeText(context, "जमा करने में त्रुटि आई। कृपया दोबारा प्रयास करें।", Toast.LENGTH_SHORT).show()
+                                    val settlementData = hashMapOf(
+                                        "riderId" to currentRiderId,
+                                        "hubId" to riderHubId,
+                                        "totalAmount" to totalPendingAmount,
+                                        "pendingOrderIds" to pendingOrderIds,
+                                        "status" to "PENDING_VERIFICATION",
+                                        "createdAt" to FieldValue.serverTimestamp()
+                                    )
+                                    FirebaseFirestore.getInstance()
+                                        .collection("cash_settlements")
+                                        .add(settlementData)
+                                        .addOnSuccessListener { docRef ->
+                                            isLoading = false
+                                            activeSettlementId = docRef.id
+                                            showSettlementQrDialog = true
                                         }
-                                    }
+                                        .addOnFailureListener { e ->
+                                            isLoading = false
+                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
                                 },
                                 enabled = totalPendingAmount > 0 && !isLoading,
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
@@ -157,9 +209,9 @@ fun CashReconciliationScreen(
                                 if (isLoading) {
                                     CircularProgressIndicator(color = Color.White, modifier = Modifier.size(22.dp))
                                 } else {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = null)
+                                    Icon(Icons.Default.AccountBalanceWallet, contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Mark as Deposited & Get Receipt", fontWeight = FontWeight.Bold)
+                                    Text("Request Hub Settlement", fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -276,5 +328,126 @@ fun CashReconciliationScreen(
             record = record,
             onDismiss = { activeDepositSlipRecord = null }
         )
+    }
+
+    if (showSettlementQrDialog && activeSettlementId != null) {
+        SettlementQrDialog(
+            settlementId = activeSettlementId!!,
+            amount = totalPendingAmount,
+            onDismiss = {
+                showSettlementQrDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun SettlementQrDialog(
+    settlementId: String,
+    amount: Double,
+    onDismiss: () -> Unit
+) {
+    val qrBitmap = remember(settlementId) {
+        try {
+            val bitMatrix = QRCodeWriter().encode(
+                settlementId,
+                BarcodeFormat.QR_CODE,
+                512,
+                512
+            )
+            val width = bitMatrix.width
+            val height = bitMatrix.height
+            val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+            for (x in 0 until width) {
+                for (y in 0 until height) {
+                    bmp.setPixel(x, y, if (bitMatrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+                }
+            }
+            bmp
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "Hub Cash Settlement",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = Color(0xFF2E7D32)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "₹${amount.toInt()}",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 28.sp,
+                    color = Color(0xFF1B5E20)
+                )
+                Text(
+                    "ID: ${settlementId.takeLast(8).uppercase()}",
+                    fontSize = 12.sp,
+                    color = Color.Gray
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (qrBitmap != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = qrBitmap.asImageBitmap(),
+                        contentDescription = "Settlement QR",
+                        modifier = Modifier
+                            .size(220.dp)
+                            .padding(8.dp)
+                    )
+                } else {
+                    Box(modifier = Modifier.size(220.dp), contentAlignment = Alignment.Center) {
+                        Text("Unable to generate QR")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = Color(0xFF2E7D32)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Waiting for Hub Manager scan...",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF555555)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Close / Keep in Background")
+                }
+            }
+        }
     }
 }

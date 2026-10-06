@@ -1,3 +1,5 @@
+// NOT DEPLOYED — root firestore.rules is the source of truth.
+// This file is never referenced by firebase.json. Do not edit rules here.
 rules_version = '2';
 
 service cloud.firestore {

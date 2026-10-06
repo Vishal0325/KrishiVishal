@@ -8,6 +8,7 @@
 
 const { db, admin } = require("../core/admin");
 const { validateSku } = require("./skuValidator");
+const { HttpsError } = require("firebase-functions/v2/https");
 
 const DEFAULT_WAREHOUSE_ID = "HUB-SAM-001";
 
@@ -163,7 +164,7 @@ async function allocateStockFEFO(transaction, skuCode, requiredQty, warehouseId 
     }
 
     if (remainingNeeded > 0) {
-        throw new Error(`Insufficient sellable stock for SKU ${skuCode}. Required: ${requiredQty}, Available (non-expired, PASSED): ${requiredQty - remainingNeeded}`);
+        throw new HttpsError('failed-precondition', `Insufficient stock at designated spoke hub: ${warehouseId}`);
     }
 
     return allocations;
@@ -172,15 +173,17 @@ async function allocateStockFEFO(transaction, skuCode, requiredQty, warehouseId 
 /**
  * Reserves stock for an order atomically using FEFO
  */
-async function reserveOrderStock(transaction, { orderId, items, userId, idempotencyKey }) {
+async function reserveOrderStock(transaction, { orderId, items, userId, idempotencyKey, destinationHubId }) {
     const { alreadyProcessed, cachedResult, keyRef } = await checkIdempotency(transaction, idempotencyKey);
     if (alreadyProcessed) return cachedResult;
 
     const allocationsSummary = [];
+    const targetHubId = destinationHubId || DEFAULT_WAREHOUSE_ID;
 
     for (const item of items) {
         const { skuCode, productId, quantity } = item;
         const targetSku = skuCode || productId;
+        const itemWarehouse = destinationHubId || item.warehouseId || targetHubId;
         const skuRef = db.collection("skus").doc(targetSku);
         const skuSnap = await transaction.get(skuRef);
 
@@ -190,15 +193,8 @@ async function reserveOrderStock(transaction, { orderId, items, userId, idempote
                 throw new Error(`SKU ${targetSku} is currently deactivated.`);
             }
 
-            const currentSkuAvail = skuData.inventory?.availableStock || 0;
-            const currentSkuCommitted = skuData.inventory?.committedStock || 0;
-
-            if (currentSkuAvail < quantity) {
-                throw new Error(`Insufficient overall available stock for SKU ${targetSku}. Available: ${currentSkuAvail}, Requested: ${quantity}`);
-            }
-
-            // Allocate across batches via FEFO
-            const batchAllocs = await allocateStockFEFO(transaction, targetSku, quantity, item.warehouseId || DEFAULT_WAREHOUSE_ID);
+            // Allocate across batches via FEFO strictly from designated spoke hub
+            const batchAllocs = await allocateStockFEFO(transaction, targetSku, quantity, itemWarehouse);
 
             for (const alloc of batchAllocs) {
                 const wsSnap = await transaction.get(alloc.wsRef);
@@ -261,9 +257,30 @@ async function reserveOrderStock(transaction, { orderId, items, userId, idempote
             const productSnap = await transaction.get(productRef);
             if (productSnap.exists) {
                 const productData = productSnap.data();
-                if (productData.stock !== undefined && typeof productData.stock === 'number') {
+                const wsRef = getWarehouseStockRef(prodTargetId, "GENERAL", itemWarehouse);
+                const wsSnap = await transaction.get(wsRef);
+                if (wsSnap.exists) {
+                    const wsAvail = wsSnap.data().availableStock || 0;
+                    if (wsAvail < quantity) {
+                        throw new HttpsError('failed-precondition', `Insufficient stock at designated spoke hub: ${itemWarehouse}`);
+                    }
+                    transaction.update(wsRef, {
+                        availableStock: admin.firestore.FieldValue.increment(-quantity),
+                        committedStock: admin.firestore.FieldValue.increment(quantity),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                } else if (productData.hubStocks && productData.hubStocks[itemWarehouse] !== undefined) {
+                    const spokeStock = Number(productData.hubStocks[itemWarehouse]) || 0;
+                    if (spokeStock < quantity) {
+                        throw new HttpsError('failed-precondition', `Insufficient stock at designated spoke hub: ${itemWarehouse}`);
+                    }
+                    transaction.update(productRef, {
+                        [`hubStocks.${itemWarehouse}`]: admin.firestore.FieldValue.increment(-quantity),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                } else if (productData.stock !== undefined && typeof productData.stock === 'number') {
                     if (productData.stock < quantity) {
-                        throw new Error(`Insufficient stock for ${productData.name || prodTargetId}. Available: ${productData.stock}, Requested: ${quantity}`);
+                        throw new HttpsError('failed-precondition', `Insufficient stock at designated spoke hub: ${itemWarehouse}`);
                     }
                     transaction.update(productRef, {
                         stock: admin.firestore.FieldValue.increment(-quantity),

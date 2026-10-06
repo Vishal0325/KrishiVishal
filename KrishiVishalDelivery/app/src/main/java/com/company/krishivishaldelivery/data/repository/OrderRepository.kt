@@ -875,6 +875,10 @@ class OrderRepository @Inject constructor(
         }
     }
 
+    suspend fun completeSettlementLocally(riderId: String) {
+        deliveryDao.markOrdersAsDeposited(riderId, false)
+    }
+
     private fun Order.toEntity(): DeliveryOrderEntity {
         return DeliveryOrderEntity(
             id = id, userId = userId, userName = userName, userPhone = userPhone,
