@@ -277,6 +277,16 @@ fun CheckoutScreen(
                             com.company.krishivishal.ui.cart.PriceBreakdownCard(uiState.totals)
                         }
 
+                        // Kisan Mitra / VLE Assisted Order Section
+                        item {
+                            KisanMitraCodeCard(
+                                uiState = uiState,
+                                onCodeChanged = viewModel::onVleCodeChanged,
+                                onApply = viewModel::applyVleCode,
+                                onRemove = viewModel::removeVleCode
+                            )
+                        }
+
                         // Delivery Slot Section
                         item {
                             SectionHeader("Delivery Slot")
@@ -612,3 +622,141 @@ fun AddressRadioItem(address: Address, isSelected: Boolean, onSelect: () -> Unit
         }
     }
 }
+
+@Composable
+fun KisanMitraCodeCard(
+    uiState: CheckoutUiState,
+    onCodeChanged: (String) -> Unit,
+    onApply: () -> Unit,
+    onRemove: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (uiState.appliedVleCode != null) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.surface
+        ),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(
+            1.dp,
+            if (uiState.appliedVleCode != null) PrimaryGreen else MaterialTheme.colorScheme.outlineVariant
+        )
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.VolunteerActivism,
+                    contentDescription = null,
+                    tint = if (uiState.appliedVleCode != null) PrimaryGreen else Color(0xFFE65100),
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "किसान मित्र / VLE कोड (Assisted Order)",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                    Text(
+                        if (uiState.appliedVleCode != null)
+                            "यह आर्डर किसान मित्र से लिंक्ड है"
+                        else
+                            "यदि किसी किसान मित्र ने सहायता की है, तो कोड दर्ज करें",
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            if (uiState.appliedVleCode != null) {
+                // Applied state
+                Surface(
+                    color = Color.White,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, PrimaryGreen.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = PrimaryGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                uiState.vleMessage ?: "कोड: ${uiState.appliedVleCode}",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                color = PrimaryGreen
+                            )
+                        }
+                        TextButton(
+                            onClick = onRemove,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("हटाएं", color = Color(0xFFD32F2F), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            } else {
+                // Input state
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = uiState.vleCodeInput,
+                        onValueChange = { onCodeChanged(it.uppercase()) },
+                        placeholder = { Text("उदा. KM-SAMAS-01", fontSize = 12.sp) },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        shape = RoundedCornerShape(8.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = PrimaryGreen,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = onApply,
+                        enabled = uiState.vleCodeInput.isNotBlank() && !uiState.isVleVerifying,
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+                    ) {
+                        if (uiState.isVleVerifying) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("लागू करें", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                if (uiState.vleError != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        uiState.vleError,
+                        color = Color(0xFFD32F2F),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+    }
+}
+

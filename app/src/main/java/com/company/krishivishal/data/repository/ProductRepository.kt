@@ -50,6 +50,8 @@ interface ProductRepository {
         fcmToken: String = ""
     ): Flow<Resource<Unit>>
     fun getRecommendations(productId: String): Flow<Resource<RecommendationResult>>
+    suspend fun resolveHubForPincode(pincode: String?): String
+    fun getProductsForHub(hubId: String? = null): Flow<Resource<List<Product>>>
 }
 
 @Singleton
@@ -59,6 +61,92 @@ class ProductRepositoryImpl @Inject constructor(
     private val functions: FirebaseFunctions,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : ProductRepository {
+
+    companion object {
+        const val DEFAULT_MOTHER_HUB_ID = "hub_central_samastipur"
+    }
+
+    override suspend fun resolveHubForPincode(pincode: String?): String = kotlinx.coroutines.withContext(ioDispatcher) {
+        if (pincode.isNullOrBlank()) return@withContext DEFAULT_MOTHER_HUB_ID
+        try {
+            val doc = firestore.collection("pincode_directory").document(pincode.trim()).get().await()
+            if (doc.exists()) {
+                doc.getString("hubId") ?: doc.getString("assignedHubId") ?: DEFAULT_MOTHER_HUB_ID
+            } else {
+                DEFAULT_MOTHER_HUB_ID
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "Error resolving hub for pincode: $pincode")
+            DEFAULT_MOTHER_HUB_ID
+        }
+    }
+
+    suspend fun resolveActiveHubId(): String = kotlinx.coroutines.withContext(ioDispatcher) {
+        val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+        if (user != null && user.uid.isNotBlank() && user.uid != "guest_user") {
+            try {
+                val addrSnap = firestore.collection("users").document(user.uid)
+                    .collection("addresses")
+                    .whereEqualTo("is_default", true)
+                    .limit(1)
+                    .get()
+                    .await()
+                val defaultDoc = addrSnap.documents.firstOrNull()
+                if (defaultDoc != null) {
+                    val assigned = defaultDoc.getString("assigned_hub_id") ?: defaultDoc.getString("assignedHubId")
+                    if (!assigned.isNullOrBlank()) return@withContext assigned
+                    val pin = defaultDoc.getString("pincode")
+                    if (!pin.isNullOrBlank()) return@withContext resolveHubForPincode(pin)
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "Error resolving active hub from user default address")
+            }
+        }
+        DEFAULT_MOTHER_HUB_ID
+    }
+
+    private suspend fun applySpokeStock(products: List<Product>, hubId: String): List<Product> = kotlinx.coroutines.withContext(ioDispatcher) {
+        val skuStockMap = mutableMapOf<String, Int>()
+        try {
+            val stockSnap = firestore.collection("warehouse_stock")
+                .whereEqualTo("warehouseId", hubId)
+                .get()
+                .await()
+            for (doc in stockSnap.documents) {
+                val sku = doc.getString("skuCode") ?: doc.id.substringBefore("_")
+                val avail = (doc.getLong("availableStock") ?: doc.getLong("stock") ?: 0L).toInt()
+                skuStockMap[sku] = (skuStockMap[sku] ?: 0) + avail
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "Could not fetch warehouse_stock for hub: $hubId")
+        }
+
+        products.map { product ->
+            if (product.variants.isNotEmpty()) {
+                var totalSpokeStock = 0
+                product.variants.forEach { variant ->
+                    val skuKey = variant.skuCode.ifBlank { variant.id }
+                    val vStock = skuStockMap[skuKey] ?: skuStockMap[variant.id] ?: 0
+                    variant.spokeStock = vStock
+                    variant.availableStock = vStock
+                    variant.stock = vStock
+                    variant.isOutOfStock = vStock <= 0
+                    totalSpokeStock += vStock
+                }
+                product.spokeStock = totalSpokeStock
+                product.stockQuantity = totalSpokeStock
+                product.stock = totalSpokeStock
+                product.isOutOfStock = totalSpokeStock <= 0
+            } else {
+                val pStock = skuStockMap[product.id] ?: skuStockMap[product.name] ?: 0
+                product.spokeStock = pStock
+                product.stockQuantity = pStock
+                product.stock = pStock
+                product.isOutOfStock = pStock <= 0
+            }
+            product
+        }
+    }
 
     private suspend fun saveProductsToLocal(products: List<Product>) = kotlinx.coroutines.withContext(ioDispatcher) {
         if (products.isEmpty()) return@withContext
@@ -83,7 +171,9 @@ class ProductRepositoryImpl @Inject constructor(
         }
     }
 
-    override fun getProducts(): Flow<Resource<List<Product>>> = networkBoundResource(
+    override fun getProducts(): Flow<Resource<List<Product>>> = getProductsForHub(null)
+
+    override fun getProductsForHub(hubId: String?): Flow<Resource<List<Product>>> = networkBoundResource(
         query = { 
             productDao.getAllProducts().map { products ->
                 products.map { product ->
@@ -93,12 +183,15 @@ class ProductRepositoryImpl @Inject constructor(
             }
         },
         fetch = {
-            firestore.collection("products")
+            val rawProducts = firestore.collection("products")
                 .whereEqualTo("isActive", true)
                 .limit(50)
                 .get()
                 .await()
                 .mapNotNull { it.toProduct() }
+
+            val effectiveHubId = hubId ?: resolveActiveHubId()
+            applySpokeStock(rawProducts, effectiveHubId)
         },
         saveFetchResult = { products ->
             saveProductsToLocal(products)

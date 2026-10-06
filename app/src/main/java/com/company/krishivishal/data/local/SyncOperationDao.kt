@@ -28,6 +28,9 @@ interface SyncOperationDao {
     @Query("SELECT * FROM sync_operations WHERE id = :operationId")
     suspend fun getOperationById(operationId: String): SyncOperation?
 
+    @Query("SELECT * FROM sync_operations WHERE userId = :userId AND operationType = 'CREATE_ORDER' AND isSynced = 0 ORDER BY createdAt DESC LIMIT 1")
+    suspend fun getPendingCreateOrderOperation(userId: String): SyncOperation?
+
     @Query("DELETE FROM sync_operations WHERE isSynced = 1 AND createdAt < :cutoffTime")
     suspend fun deleteOldSyncedOperations(cutoffTime: Long)
 

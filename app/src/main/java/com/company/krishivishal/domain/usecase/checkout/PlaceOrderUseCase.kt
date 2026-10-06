@@ -22,7 +22,8 @@ class PlaceOrderUseCase @Inject constructor(
         paymentMethod: String = "COD",
         lat: Double = 0.0,
         lng: Double = 0.0,
-        deliverySlotId: String? = null
+        deliverySlotId: String? = null,
+        vleCode: String? = null
     ): Flow<Resource<CreateOrderResult>> {
         val addressMap = hashMapOf<String, Any?>(
             "line1" to "${address.houseNo} ${address.street}".trim().ifEmpty { address.ward.ifEmpty { "Main Road" } },
@@ -50,7 +51,8 @@ class PlaceOrderUseCase @Inject constructor(
             userPhone = address.mobileNumber,
             lat = lat,
             lng = lng,
-            deliverySlotId = deliverySlotId
+            deliverySlotId = deliverySlotId,
+            vleCode = vleCode
         )
     }
 }

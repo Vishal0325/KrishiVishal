@@ -22,5 +22,6 @@ data class SyncOperation(
     val lastAttemptAt: Long? = null,
     val isSynced: Boolean = false,
     val status: String = "PENDING", // PENDING, SYNCED, FAILED
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val idempotencyKey: String? = null
 )

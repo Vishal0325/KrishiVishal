@@ -90,23 +90,39 @@ fun BottomActions(
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (isOutOfStock) {
-                    Button(
-                        onClick = onNotifyMe,
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (notifyMeSuccess) Color.Gray else PrimaryGreen
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        enabled = !isNotifyMeLoading && !notifyMeSuccess
-                    ) {
-                        if (isNotifyMeLoading) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
-                        } else {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        ) {
                             Text(
-                                if (notifyMeSuccess) stringResource(R.string.notify_request_sent) else stringResource(R.string.notify_me_label),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
+                                text = "Out of Stock at your local spoke hub",
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
+                        }
+                        Button(
+                            onClick = onNotifyMe,
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (notifyMeSuccess) Color.Gray else PrimaryGreen
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            enabled = !isNotifyMeLoading && !notifyMeSuccess
+                        ) {
+                            if (isNotifyMeLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
+                            } else {
+                                Text(
+                                    if (notifyMeSuccess) stringResource(R.string.notify_request_sent) else stringResource(R.string.notify_me_label),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
                         }
                     }
                 } else {

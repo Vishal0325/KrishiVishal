@@ -28,6 +28,10 @@ import androidx.navigation.NavController
 import com.company.krishivishal.core.model.Address
 import com.company.krishivishal.core.model.User
 import com.company.krishivishal.ui.navigation.Screen
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 
 @Composable
 fun ProfileScreen(
@@ -42,6 +46,10 @@ fun ProfileScreen(
     val isAdmin by profileViewModel.isAdmin.collectAsState()
     val walletBalanceRes by profileViewModel.walletBalance.collectAsState()
     val walletBalance = (walletBalanceRes as? com.company.krishivishal.core.util.Resource.Success)?.data ?: 0.0
+    val vleProfile by profileViewModel.vleProfile.collectAsState()
+    val isVleLoading by profileViewModel.isVleLoading.collectAsState()
+    var showVleDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     LazyColumn(
         modifier = modifier
@@ -69,6 +77,13 @@ fun ProfileScreen(
             FarmProfileSummaryCard(
                 user = userProfile,
                 onClick = { navController.navigate(Screen.FarmProfile.route) }
+            )
+        }
+
+        item {
+            KisanMitraSummaryCard(
+                vleProfile = vleProfile,
+                onClick = { showVleDialog = true }
             )
         }
 
@@ -104,6 +119,20 @@ fun ProfileScreen(
                 }
             )
         }
+    }
+
+    if (showVleDialog) {
+        KisanMitraRegistrationDialog(
+            vleProfile = vleProfile,
+            isLoading = isVleLoading,
+            defaultPincode = defaultAddress?.pincode ?: "",
+            onDismiss = { showVleDialog = false },
+            onRegister = { village, panchayat, pin, hub, acc, ifsc, pan ->
+                profileViewModel.registerAsKisanMitra(village, panchayat, pin, hub, acc, ifsc, pan) { success, msg ->
+                    Toast.makeText(context, msg ?: if (success) "सफल!" else "त्रुटि", Toast.LENGTH_LONG).show()
+                }
+            }
+        )
     }
 }
 
@@ -579,3 +608,324 @@ data class MenuOption(
     val icon: ImageVector,
     val route: String
 )
+
+@Composable
+fun KisanMitraSummaryCard(
+    vleProfile: Map<String, Any>?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        color = if (vleProfile != null) Color(0xFFF1F8E9) else Color(0xFFFFF8E1),
+        border = BorderStroke(
+            1.dp,
+            if (vleProfile != null) Color(0xFFAED581) else Color(0xFFFFD54F)
+        ),
+        shadowElevation = 1.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (vleProfile != null) Color(0xFFDCEDC8) else Color(0xFFFFECB3),
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.VolunteerActivism,
+                                contentDescription = null,
+                                tint = if (vleProfile != null) Color(0xFF2E7D32) else Color(0xFFF57F17),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = if (vleProfile != null) "किसान मित्र पार्टनर" else "किसान मित्र बनें",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = if (vleProfile != null) Color(0xFF1B5E20) else Color(0xFFE65100)
+                            )
+                            if (vleProfile != null) {
+                                val kyc = vleProfile["kycStatus"] as? String ?: "PENDING"
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    color = if (kyc == "VERIFIED") Color(0xFFC8E6C9) else Color(0xFFFFE0B2),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        text = kyc,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (kyc == "VERIFIED") Color(0xFF2E7D32) else Color(0xFFE65100)
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            text = if (vleProfile != null)
+                                "गाँव स्तर पर कमीशन व आर्डर पार्टनर"
+                            else
+                                "2% से 5% तक रिकरिंग कमीशन कमाएं",
+                            fontSize = 11.sp,
+                            color = if (vleProfile != null) Color(0xFF388E3C) else Color(0xFFF57F17)
+                        )
+                    }
+                }
+
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = "Details",
+                    tint = if (vleProfile != null) Color(0xFF2E7D32) else Color(0xFFE65100),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            if (vleProfile != null) {
+                val code = vleProfile["vleCode"] as? String ?: ""
+                val gmv = (vleProfile["totalGmvGenerated"] as? Number)?.toDouble() ?: 0.0
+                val comm = (vleProfile["totalCommissionEarned"] as? Number)?.toDouble() ?: 0.0
+
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.White.copy(alpha = 0.9f),
+                        modifier = Modifier.weight(1.2f).clickable {
+                            clipboardManager.setText(AnnotatedString(code))
+                            Toast.makeText(context, "कोड कॉपी हो गया: $code", Toast.LENGTH_SHORT).show()
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text("आपका कोड", fontSize = 9.sp, color = Color.Gray)
+                                Text(code, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, color = Color(0xFF1B5E20))
+                            }
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = Color(0xFF2E7D32), modifier = Modifier.size(16.dp))
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.White.copy(alpha = 0.9f),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                            Text("कुल GMV", fontSize = 9.sp, color = Color.Gray)
+                            Text("₹${gmv.toInt()}", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.DarkGray)
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.White.copy(alpha = 0.9f),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                            Text("कमीशन", fontSize = 9.sp, color = Color.Gray)
+                            Text("₹${comm.toInt()}", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF2E7D32))
+                        }
+                    }
+                }
+            } else {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "अपने गाँव के किसानों को बीज व खाद मंगवाने में मदद करें। अभी रजिस्टर करें →",
+                    fontSize = 11.sp,
+                    color = Color(0xFFE65100),
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun KisanMitraRegistrationDialog(
+    vleProfile: Map<String, Any>?,
+    isLoading: Boolean,
+    defaultPincode: String,
+    onDismiss: () -> Unit,
+    onRegister: (village: String, panchayat: String, pincode: String, hubId: String, bankAccountNo: String, ifscCode: String, panNumber: String) -> Unit
+) {
+    var village by remember { mutableStateOf("") }
+    var panchayat by remember { mutableStateOf("") }
+    var pincode by remember { mutableStateOf(defaultPincode) }
+    var hubId by remember { mutableStateOf("hub_central_samastipur") }
+    var bankAccountNo by remember { mutableStateOf("") }
+    var ifscCode by remember { mutableStateOf("") }
+    var panNumber by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.VolunteerActivism, contentDescription = null, tint = Color(0xFF2E7D32))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    if (vleProfile != null) "किसान मित्र प्रोफाइल" else "किसान मित्र पार्टनर रजिस्ट्रेशन",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        text = {
+            if (vleProfile != null) {
+                // View Profile Details
+                val code = vleProfile["vleCode"] as? String ?: ""
+                val kyc = vleProfile["kycStatus"] as? String ?: "PENDING"
+                val villageVal = vleProfile["village"] as? String ?: ""
+                val panchayatVal = vleProfile["panchayat"] as? String ?: ""
+                val hubVal = vleProfile["hubId"] as? String ?: ""
+                val bank = (vleProfile["bankAccountNo"] as? String)?.takeLast(4) ?: "XXXX"
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        color = Color(0xFFE8F5E9),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text("पार्टनर कोड: $code", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF1B5E20))
+                            Text("KYC स्टेटस: $kyc", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = if (kyc == "VERIFIED") Color(0xFF2E7D32) else Color(0xFFE65100))
+                        }
+                    }
+
+                    Text("📍 गाँव / पंचायत: $villageVal, $panchayatVal", fontSize = 13.sp)
+                    Text("🏢 असाइन्ड हब: $hubVal", fontSize = 13.sp)
+                    Text("🏦 बैंक खाता: Ending with ****$bank", fontSize = 13.sp)
+                    Text(
+                        "हर सोमवार परिपक्व कमीशन सीधे आपके बैंक खाते में भेजा जाता है।",
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
+                }
+            } else {
+                // Registration Form
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "खाद पर 1.5%, बीज पर 3.5%, व कीटनाशक पर 5% तक आजीवन कमीशन पाएं।",
+                        fontSize = 11.sp,
+                        color = Color(0xFF2E7D32),
+                        fontWeight = FontWeight.Medium
+                    )
+
+                    OutlinedTextField(
+                        value = village,
+                        onValueChange = { village = it },
+                        label = { Text("गाँव (Village)", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = panchayat,
+                        onValueChange = { panchayat = it },
+                        label = { Text("पंचायत (Panchayat)", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = pincode,
+                        onValueChange = { pincode = it },
+                        label = { Text("पिनकोड (Pincode)", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = bankAccountNo,
+                        onValueChange = { bankAccountNo = it },
+                        label = { Text("बैंक खाता संख्या (A/C No.)", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = ifscCode,
+                        onValueChange = { ifscCode = it.uppercase() },
+                        label = { Text("IFSC कोड", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = panNumber,
+                        onValueChange = { panNumber = it.uppercase() },
+                        label = { Text("पैन कार्ड संख्या (PAN)", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (vleProfile == null) {
+                val canSubmit = village.isNotBlank() && panchayat.isNotBlank() &&
+                        bankAccountNo.isNotBlank() && ifscCode.isNotBlank() && !isLoading
+                Button(
+                    onClick = {
+                        onRegister(village, panchayat, pincode, hubId, bankAccountNo, ifscCode, panNumber)
+                        onDismiss()
+                    },
+                    enabled = canSubmit,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                    } else {
+                        Text("रजिस्टर करें")
+                    }
+                }
+            } else {
+                Button(onClick = onDismiss, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))) {
+                    Text("ठीक है")
+                }
+            }
+        },
+        dismissButton = {
+            if (vleProfile == null) {
+                TextButton(onClick = onDismiss) {
+                    Text("रद्द करें")
+                }
+            }
+        }
+    )
+}
+

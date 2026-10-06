@@ -32,6 +32,10 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.company.krishivishal.core.model.CropAllocation
 import com.company.krishivishal.ui.theme.PrimaryGreen
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 
 private val LAND_UNITS = listOf("Katha", "Bigha", "Acre", "Decimal")
@@ -709,12 +713,18 @@ fun CropAllocationCard(
                     )
                 }
 
-                // Sowing Month
-                if (crop.sowingMonth.isNotBlank()) {
+                // Sowing Date / Month
+                val sowingDateVal = crop.sowingDate
+                val sowingDisplay = if (sowingDateVal != null && sowingDateVal > 0) {
+                    SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(sowingDateVal))
+                } else {
+                    crop.sowingMonth
+                }
+                if (sowingDisplay.isNotBlank()) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.outline)
                         Text(
-                            text = "Sown: ${crop.sowingMonth}",
+                            text = "Sown: $sowingDisplay",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -765,10 +775,43 @@ fun CropAllocationDialog(
     var harvestMonth by remember { mutableStateOf(initialCrop?.harvestMonth ?: "") }
     var status by remember { mutableStateOf(initialCrop?.status ?: "GROWING") }
     var notes by remember { mutableStateOf(initialCrop?.notes ?: "") }
+    var selectedSowingDate by remember { mutableStateOf(initialCrop?.sowingDate ?: System.currentTimeMillis()) }
+    var plotName by remember { mutableStateOf(initialCrop?.plotName?.ifBlank { "खेत 1" } ?: "खेत 1") }
 
-    var sowingExpanded by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = selectedSowingDate
+    )
+    val dateFormatter = remember { SimpleDateFormat("dd MMMM yyyy", Locale.getDefault()) }
+    val formattedDate = remember(selectedSowingDate) { dateFormatter.format(Date(selectedSowingDate)) }
+
     var harvestExpanded by remember { mutableStateOf(false) }
     var unitExpanded by remember { mutableStateOf(false) }
+
+    if (showDatePicker) {
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { pickedMillis ->
+                        selectedSowingDate = pickedMillis
+                        val cal = Calendar.getInstance().apply { timeInMillis = pickedMillis }
+                        sowingMonth = SimpleDateFormat("MMMM", Locale.ENGLISH).format(cal.time)
+                    }
+                    showDatePicker = false
+                }) {
+                    Text("चुनें (Select)", color = PrimaryGreen, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("रद्द करें (Cancel)")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -848,8 +891,8 @@ fun CropAllocationDialog(
                         ) {
                             Row(
                                 modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 8.dp),
+                                .fillMaxSize()
+                                .padding(horizontal = 8.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -874,97 +917,101 @@ fun CropAllocationDialog(
                     }
                 }
 
-                // Sowing & Harvest Month Pickers
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Sowing Month
-                    Box(modifier = Modifier.weight(1f)) {
-                        OutlinedCard(
-                            onClick = { sowingExpanded = true },
+                // Exact Sowing Date Picker Field
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "बोवाई / रोपाई की तारीख (Sowing Date)",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedCard(
+                        onClick = { showDatePicker = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                    ) {
+                        Row(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp),
-                            shape = RoundedCornerShape(10.dp)
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalArrangement = Arrangement.Center
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text("बुआई (Sowing)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Icon(
+                                    Icons.Default.CalendarToday,
+                                    contentDescription = null,
+                                    tint = PrimaryGreen,
+                                    modifier = Modifier.size(18.dp)
+                                )
                                 Text(
-                                    text = sowingMonth.ifBlank { "Select Month" },
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    text = formattedDate,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
-                        }
-                        DropdownMenu(
-                            expanded = sowingExpanded,
-                            onDismissRequest = { sowingExpanded = false }
-                        ) {
-                            MONTHS.forEach { month ->
-                                DropdownMenuItem(
-                                    text = { Text(month) },
-                                    onClick = {
-                                        sowingMonth = month
-                                        sowingExpanded = false
-                                    }
-                                )
-                            }
+                            Text(
+                                text = "बदलें (Change)",
+                                fontSize = 12.sp,
+                                color = PrimaryGreen,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
+                }
 
-                    // Harvest Month
-                    Box(modifier = Modifier.weight(1f)) {
-                        OutlinedCard(
-                            onClick = { harvestExpanded = true },
+                // Harvest Month (Optional)
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedCard(
+                        onClick = { harvestExpanded = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp),
-                            shape = RoundedCornerShape(10.dp)
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalArrangement = Arrangement.Center
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text("कटाई (Harvest)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(
-                                    text = harvestMonth.ifBlank { "Optional" },
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                            Text("कटाई का महीना (Harvest Month - Optional)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                text = harvestMonth.ifBlank { "महीना चुनें (Optional)" },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
-                        DropdownMenu(
-                            expanded = harvestExpanded,
-                            onDismissRequest = { harvestExpanded = false }
-                        ) {
+                    }
+                    DropdownMenu(
+                        expanded = harvestExpanded,
+                        onDismissRequest = { harvestExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("None") },
+                            onClick = {
+                                harvestMonth = ""
+                                harvestExpanded = false
+                            }
+                        )
+                        MONTHS.forEach { month ->
                             DropdownMenuItem(
-                                text = { Text("None") },
+                                text = { Text(month) },
                                 onClick = {
-                                    harvestMonth = ""
+                                    harvestMonth = month
                                     harvestExpanded = false
                                 }
                             )
-                            MONTHS.forEach { month ->
-                                DropdownMenuItem(
-                                    text = { Text(month) },
-                                    onClick = {
-                                        harvestMonth = month
-                                        harvestExpanded = false
-                                    }
-                                )
-                            }
                         }
                     }
                 }
@@ -1009,10 +1056,15 @@ fun CropAllocationDialog(
                         cropName = cropName.trim(),
                         allocatedArea = area,
                         unit = unit,
-                        sowingMonth = sowingMonth,
+                        sowingMonth = sowingMonth.ifBlank {
+                            val cal = Calendar.getInstance().apply { timeInMillis = selectedSowingDate }
+                            SimpleDateFormat("MMMM", Locale.ENGLISH).format(cal.time)
+                        },
                         harvestMonth = harvestMonth,
                         status = status,
-                        notes = notes.trim()
+                        notes = notes.trim(),
+                        sowingDate = selectedSowingDate,
+                        plotName = plotName
                     )
                     onSave(finalCrop)
                 },

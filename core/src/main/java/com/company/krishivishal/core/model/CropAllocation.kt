@@ -30,5 +30,11 @@ data class CropAllocation(
     val status: String = "GROWING", // GROWING, HARVESTED, PLANNED
 
     @SerializedName("notes")
-    val notes: String = ""
+    val notes: String = "",
+
+    @SerializedName("sowingDate")
+    val sowingDate: Long? = null,
+
+    @SerializedName("plotName")
+    val plotName: String = "खेत 1"
 ) : Parcelable

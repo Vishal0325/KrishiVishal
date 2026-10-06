@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.company.krishivishal.core.model.Address
 import com.company.krishivishal.data.repository.AddressRepository
+import kotlinx.coroutines.tasks.await
 
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
@@ -70,6 +71,7 @@ class ProfileViewModel @Inject constructor(
                     loadWallet(it.id)
                     loadStats(it.id)
                     loadDefaultAddress(it.id)
+                    loadVleProfile(it.id)
                 }
             }
         }
@@ -191,4 +193,75 @@ class ProfileViewModel @Inject constructor(
             }
         }
     }
+
+    private val _vleProfile = MutableStateFlow<Map<String, Any>?>(null)
+    val vleProfile: StateFlow<Map<String, Any>?> = _vleProfile.asStateFlow()
+
+    private val _isVleLoading = MutableStateFlow(false)
+    val isVleLoading: StateFlow<Boolean> = _isVleLoading.asStateFlow()
+
+    fun loadVleProfile(userId: String) {
+        viewModelScope.launch {
+            try {
+                val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                val doc = db.collection("vle_profiles").document(userId).get().await()
+                if (doc.exists()) {
+                    _vleProfile.value = doc.data
+                } else {
+                    _vleProfile.value = null
+                }
+            } catch (e: Exception) {
+                timber.log.Timber.w("Failed to load VLE profile: ${e.message}")
+            }
+        }
+    }
+
+    fun registerAsKisanMitra(
+        village: String,
+        panchayat: String,
+        pincode: String,
+        hubId: String,
+        bankAccountNo: String,
+        ifscCode: String,
+        panNumber: String,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val user = _userProfile.value
+        if (user == null) {
+            onResult(false, "User not authenticated")
+            return
+        }
+
+        viewModelScope.launch {
+            _isVleLoading.value = true
+            try {
+                val functions = com.google.firebase.functions.FirebaseFunctions.getInstance()
+                val payload = hashMapOf(
+                    "name" to user.name,
+                    "phone" to user.phone,
+                    "village" to village,
+                    "panchayat" to panchayat,
+                    "pincode" to pincode,
+                    "hubId" to hubId.ifBlank { "hub_central_samastipur" },
+                    "bankAccountNo" to bankAccountNo,
+                    "ifscCode" to ifscCode.uppercase(),
+                    "panNumber" to panNumber.uppercase()
+                )
+
+                val callResult = functions.getHttpsCallable("registerAsKisanMitra").call(payload).await()
+                @Suppress("UNCHECKED_CAST")
+                val resMap = callResult.data as? Map<String, Any>
+                val vleCode = resMap?.get("vleCode") as? String
+
+                loadVleProfile(user.id)
+                _isVleLoading.value = false
+                onResult(true, "बधाई! आपका किसान मित्र कोड $vleCode जनरेट हो गया है।")
+            } catch (e: Exception) {
+                _isVleLoading.value = false
+                timber.log.Timber.e(e, "Kisan Mitra registration failed")
+                onResult(false, e.localizedMessage ?: "Registration failed")
+            }
+        }
+    }
 }
+

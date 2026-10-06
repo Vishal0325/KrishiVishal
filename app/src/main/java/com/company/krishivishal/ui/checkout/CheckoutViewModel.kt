@@ -78,7 +78,8 @@ class CheckoutViewModel @Inject constructor(
     private val configRepository: com.company.krishivishal.data.repository.ConfigRepository,
     private val paymentResilienceManager: com.company.krishivishal.performance.PaymentResilienceManager,
     private val firebaseAuth: com.google.firebase.auth.FirebaseAuth,
-    private val savedStateHandle: SavedStateHandle
+    private val savedStateHandle: SavedStateHandle,
+    private val firestore: com.google.firebase.firestore.FirebaseFirestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CheckoutUiState(
@@ -425,7 +426,8 @@ class CheckoutViewModel @Inject constructor(
                 paymentMethod = currentState.selectedPaymentMethod.name,
                 lat = lat,
                 lng = lng,
-                deliverySlotId = currentState.selectedDeliverySlotId
+                deliverySlotId = currentState.selectedDeliverySlotId,
+                vleCode = currentState.appliedVleCode
             ).collect { resource ->
                 when (resource) {
                     is Resource.Loading -> { } // Already set above
@@ -561,6 +563,78 @@ class CheckoutViewModel @Inject constructor(
         _uiState.update { it.copy(selectedDeliverySlotId = slotId) }
     }
 
+    fun onVleCodeChanged(code: String) {
+        _uiState.update { it.copy(vleCodeInput = code, vleError = null) }
+    }
+
+    fun applyVleCode() {
+        val code = _uiState.value.vleCodeInput.trim().uppercase()
+        if (code.isBlank()) {
+            _uiState.update { it.copy(vleError = "कृपया किसान मित्र कोड दर्ज करें") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isVleVerifying = true, vleError = null) }
+            try {
+                val snapshot = firestore.collection("vle_profiles")
+                    .whereEqualTo("vleCode", code)
+                    .limit(1)
+                    .get()
+                    .await()
+
+                if (!snapshot.isEmpty) {
+                    val doc = snapshot.documents.first()
+                    val mitraName = doc.getString("name") ?: "किसान मित्र"
+                    _uiState.update {
+                        it.copy(
+                            isVleVerifying = false,
+                            appliedVleCode = code,
+                            vleMessage = "सत्यापित: $mitraName ($code)",
+                            vleError = null
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isVleVerifying = false,
+                            vleError = "अमान्य किसान मित्र कोड ($code)"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                // If offline / query error, accept valid format KM-*
+                if (code.startsWith("KM-") || code.length >= 4) {
+                    _uiState.update {
+                        it.copy(
+                            isVleVerifying = false,
+                            appliedVleCode = code,
+                            vleMessage = "कोड लागू: $code",
+                            vleError = null
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isVleVerifying = false,
+                            vleError = "कोड सत्यापित नहीं हो सका"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun removeVleCode() {
+        _uiState.update {
+            it.copy(
+                appliedVleCode = null,
+                vleCodeInput = "",
+                vleMessage = null,
+                vleError = null
+            )
+        }
+    }
+
     private fun calculateTotalWeightGrams(items: List<CartWithProduct>): Double {
         return items.sumOf { item ->
             val directWeightGrams = item.variant?.weightGrams?.toDouble()
@@ -609,5 +683,10 @@ data class CheckoutUiState(
     val totalWeightGrams: Double = 0.0,
     val maxWeightLimitGrams: Double = 50000.0,
     val isWeightLimitExceeded: Boolean = false,
-    val selectedDeliverySlotId: String? = null
+    val selectedDeliverySlotId: String? = null,
+    val vleCodeInput: String = "",
+    val appliedVleCode: String? = null,
+    val isVleVerifying: Boolean = false,
+    val vleMessage: String? = null,
+    val vleError: String? = null
 )

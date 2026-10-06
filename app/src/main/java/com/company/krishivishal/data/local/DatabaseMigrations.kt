@@ -488,6 +488,16 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * Migration from 59 to 60
+     * Adds idempotencyKey column to sync_operations table for order creation idempotency.
+     */
+    val MIGRATION_59_60 = object : Migration(59, 60) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE sync_operations ADD COLUMN idempotencyKey TEXT")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_33_34,
         MIGRATION_34_35,
@@ -506,7 +516,8 @@ object DatabaseMigrations {
         MIGRATION_54_55,
         MIGRATION_55_56,
         MIGRATION_56_57,
-        MIGRATION_58_59
+        MIGRATION_58_59,
+        MIGRATION_59_60
     )
 }
 

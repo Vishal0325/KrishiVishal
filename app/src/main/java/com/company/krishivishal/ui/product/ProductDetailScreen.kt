@@ -144,8 +144,10 @@ fun ProductDetailScreen(
         bottomBar = {
             val product = uiState.product
             if (product != null) {
-                val maxStock = uiState.selectedVariant?.stock ?: product.stockQuantity
-                val isOutOfStock = (uiState.selectedVariant?.stock ?: product.stockQuantity) <= 0
+                val isOutOfStock = uiState.selectedVariant?.isOutOfStock == true ||
+                    product.isOutOfStock ||
+                    (uiState.selectedVariant?.stock ?: product.stockQuantity) <= 0
+                val maxStock = (uiState.selectedVariant?.stock ?: product.stockQuantity).coerceAtLeast(0)
                 BottomActions(
                     quantity = quantity,
                     maxStock = maxStock,

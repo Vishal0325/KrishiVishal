@@ -85,5 +85,12 @@ data class Address(
     @SerializedName("address_type")
     @get:PropertyName("address_type")
     @set:PropertyName("address_type")
-    var addressType: String = "Farm" // Default to Farm
+    var addressType: String = "Farm", // Default to Farm
+
+    @androidx.room.Ignore
+    @kotlinx.parcelize.IgnoredOnParcel
+    @SerializedName("assigned_hub_id")
+    @get:PropertyName("assigned_hub_id")
+    @set:PropertyName("assigned_hub_id")
+    var assignedHubId: String = ""
 ) : Parcelable

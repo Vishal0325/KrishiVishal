@@ -265,6 +265,14 @@ data class Product(
 
     @androidx.room.Ignore
     @IgnoredOnParcel
+    var spokeStock: Int = 0,
+
+    @androidx.room.Ignore
+    @IgnoredOnParcel
+    var isOutOfStock: Boolean = false,
+
+    @androidx.room.Ignore
+    @IgnoredOnParcel
     var seedMetadata: Map<String, Any?>? = null,
 
     @androidx.room.Ignore

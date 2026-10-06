@@ -152,5 +152,13 @@ data class Variant(
     @SerializedName("committedStock")
     @get:PropertyName("committedStock")
     @set:PropertyName("committedStock")
-    var committedStock: Int = 0
+    var committedStock: Int = 0,
+
+    @androidx.room.Ignore
+    @kotlinx.parcelize.IgnoredOnParcel
+    var spokeStock: Int = 0,
+
+    @androidx.room.Ignore
+    @kotlinx.parcelize.IgnoredOnParcel
+    var isOutOfStock: Boolean = false
 ) : Parcelable

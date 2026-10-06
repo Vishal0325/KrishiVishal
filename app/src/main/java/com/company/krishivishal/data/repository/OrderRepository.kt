@@ -54,7 +54,8 @@ interface OrderRepository {
         userPhone: String,
         lat: Double = 0.0,
         lng: Double = 0.0,
-        deliverySlotId: String? = null
+        deliverySlotId: String? = null,
+        vleCode: String? = null
     ): Flow<Resource<CreateOrderResult>>
     fun verifyPayment(
         orderId: String,
@@ -73,6 +74,7 @@ class OrderRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val functions: FirebaseFunctions,
     private val orderDao: OrderDao,
+    private val syncOperationDao: com.company.krishivishal.data.local.SyncOperationDao,
     private val auth: FirebaseAuth,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : OrderRepository {
@@ -100,7 +102,8 @@ class OrderRepositoryImpl @Inject constructor(
         userPhone: String,
         lat: Double,
         lng: Double,
-        deliverySlotId: String?
+        deliverySlotId: String?,
+        vleCode: String?
     ): Flow<Resource<CreateOrderResult>> = flow {
         emit(Resource.Loading())
 
@@ -109,6 +112,34 @@ class OrderRepositoryImpl @Inject constructor(
         if (currentUser == null) {
             emit(Resource.Error("लॉगिन ज़रूरी है! कृपया लॉगिन करें।"))
             return@flow
+        }
+        val userId = currentUser.uid
+
+        // Idempotency Key management: Check if an existing pending CREATE_ORDER operation exists for this user
+        val pendingOp = syncOperationDao.getPendingCreateOrderOperation(userId)
+        val idempotencyKey: String
+        val opId: String
+        if (pendingOp != null && !pendingOp.idempotencyKey.isNullOrBlank()) {
+            idempotencyKey = pendingOp.idempotencyKey
+            opId = pendingOp.id
+            Timber.d("Reusing existing idempotencyKey: $idempotencyKey")
+        } else {
+            idempotencyKey = java.util.UUID.randomUUID().toString()
+            opId = java.util.UUID.randomUUID().toString()
+            val newOp = com.company.krishivishal.data.local.SyncOperation(
+                id = opId,
+                operationType = "CREATE_ORDER",
+                entityType = "order",
+                entityId = "",
+                userId = userId,
+                payload = "",
+                createdAt = System.currentTimeMillis(),
+                isSynced = false,
+                status = "PENDING",
+                idempotencyKey = idempotencyKey
+            )
+            syncOperationDao.insert(newOp)
+            Timber.d("Created new pending operation with idempotencyKey: $idempotencyKey")
         }
 
         // Force-refresh the ID token with retry (up to 3 attempts)
@@ -136,11 +167,46 @@ class OrderRepositoryImpl @Inject constructor(
         // Small wait for Firebase SDK to propagate the refreshed auth state internally
         kotlinx.coroutines.delay(300)
 
+        // Resolve destination spoke hub ID from address or pincode
+        val addressPincode = (address["pincode"] as? String)
+        val resolvedHubId = (address["assignedHubId"] as? String)?.takeIf { it.isNotBlank() }
+            ?: (address["assigned_hub_id"] as? String)?.takeIf { it.isNotBlank() }
+            ?: run {
+                if (!addressPincode.isNullOrBlank()) {
+                    try {
+                        val pinDoc = firestore.collection("pincode_directory").document(addressPincode.trim()).get().await()
+                        pinDoc.getString("hubId") ?: pinDoc.getString("assignedHubId") ?: "hub_central_samastipur"
+                    } catch (e: Exception) {
+                        "hub_central_samastipur"
+                    }
+                } else {
+                    "hub_central_samastipur"
+                }
+            }
+
         // Step 2: Build the data payload
         val data = hashMapOf(
+            "idempotencyKey" to idempotencyKey,
+            "destinationHubId" to resolvedHubId,
+            "spokeHubId" to resolvedHubId,
             "cartItems" to cartItems.map { cwp ->
                 val variantLabel = cwp.displayVariantLabel()
                 val imgUrl = cwp.product?.imageUrl?.ifEmpty { cwp.product?.images?.firstOrNull() ?: "" } ?: ""
+                
+                val finalSkuCode: String
+                if (!cwp.cartItem.variantId.isNullOrBlank()) {
+                    val candidate = cwp.cartItem.skuCode?.takeIf { it.isNotBlank() }
+                        ?: cwp.variant?.skuCode?.takeIf { it.isNotBlank() }
+                    if (candidate.isNullOrBlank()) {
+                        throw IllegalStateException("Missing skuCode for variant ${cwp.cartItem.variantId}")
+                    }
+                    finalSkuCode = candidate
+                } else {
+                    finalSkuCode = cwp.cartItem.skuCode?.takeIf { it.isNotBlank() }
+                        ?: cwp.variant?.skuCode?.takeIf { it.isNotBlank() }
+                        ?: cwp.cartItem.productId
+                }
+
                 hashMapOf(
                     "productId" to cwp.cartItem.productId,
                     "productName" to (cwp.product?.name ?: ""),
@@ -149,7 +215,7 @@ class OrderRepositoryImpl @Inject constructor(
                     "quantity" to cwp.cartItem.quantity,
                     "variantId" to (cwp.cartItem.variantId ?: ""),
                     "variantLabel" to variantLabel,
-                    "skuCode" to (if (!cwp.cartItem.skuCode.isNullOrBlank()) cwp.cartItem.skuCode else cwp.cartItem.productId)
+                    "skuCode" to finalSkuCode
                 )
             },
             "address" to address,
@@ -158,7 +224,8 @@ class OrderRepositoryImpl @Inject constructor(
             "userPhone" to userPhone,
             "targetLat" to lat,
             "targetLng" to lng,
-            "deliverySlotId" to (deliverySlotId ?: "")
+            "deliverySlotId" to (deliverySlotId ?: ""),
+            "vleCode" to (vleCode?.trim()?.uppercase() ?: "")
         )
 
         // Step 3: Call Cloud Function via Firebase SDK (handles auth token automatically)
@@ -187,6 +254,7 @@ class OrderRepositoryImpl @Inject constructor(
                 val customerOTP = resultMap["customerOTP"] as? String ?: ""
                 val razorpayOrderId = resultMap["razorpayOrderId"] as? String
 
+                syncOperationDao.markAsSynced(opId)
                 Timber.d("Order Success! ID: $orderId, RZP Order: $razorpayOrderId")
                 emit(Resource.Success(CreateOrderResult(
                     orderId = orderId,
@@ -216,6 +284,7 @@ class OrderRepositoryImpl @Inject constructor(
 
         // Emit clear friendly error if all attempts fail
         val friendlyMsg = com.company.krishivishal.utils.NetworkErrorHandler.asFriendlyError(lastException ?: Exception("Order creation failed."))
+        syncOperationDao.markAsFailed(opId, friendlyMsg)
         emit(Resource.Error(friendlyMsg))
     }.flowOn(ioDispatcher)
 
