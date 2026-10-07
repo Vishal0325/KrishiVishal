@@ -454,7 +454,11 @@ async function receiveGrn(transaction, {
     batchNumber,
     mfgDate,
     expiryDate,
-    quantity,
+    quantity, // Backward compatibility
+    receivedQty,
+    acceptedQty,
+    damagedQty = 0,
+    damageReason = "",
     warehouseId = DEFAULT_WAREHOUSE_ID,
     binLocation = "",
     supplierId = "",
@@ -464,6 +468,14 @@ async function receiveGrn(transaction, {
     actorId,
     idempotencyKey
 }) {
+    const finalReceived = receivedQty !== undefined ? receivedQty : quantity;
+    const finalAccepted = acceptedQty !== undefined ? acceptedQty : quantity;
+    const finalDamaged = damagedQty || 0;
+
+    if (finalReceived !== (finalAccepted + finalDamaged)) {
+        throw new Error(`GRN Validation Failed: receivedQty (${finalReceived}) must equal acceptedQty (${finalAccepted}) + damagedQty (${finalDamaged})`);
+    }
+
     const { alreadyProcessed, cachedResult, keyRef } = await checkIdempotency(transaction, idempotencyKey);
     if (alreadyProcessed) return cachedResult;
 
@@ -480,13 +492,13 @@ async function receiveGrn(transaction, {
     const mfgTimestamp = mfgDate ? admin.firestore.Timestamp.fromDate(new Date(mfgDate)) : null;
     const expTimestamp = expiryDate ? admin.firestore.Timestamp.fromDate(new Date(expiryDate)) : null;
 
-    // Upsert batch record
+    // Upsert batch record (only accepted goes to saleable stock)
     transaction.set(batchRef, {
         batchId,
         batchNumber: cleanBatchNumber,
         mfgDate: mfgTimestamp,
         expiryDate: expTimestamp,
-        stock: admin.firestore.FieldValue.increment(quantity),
+        stock: admin.firestore.FieldValue.increment(finalAccepted),
         warehouseId,
         binLocation,
         supplierId,
@@ -502,10 +514,12 @@ async function receiveGrn(transaction, {
     // Upsert warehouse stock
     const wsRef = getWarehouseStockRef(skuCode, batchId, warehouseId);
     const wsSnap = await transaction.get(wsRef);
-    const wsData = wsSnap.exists ? wsSnap.data() : { availableStock: 0, committedStock: 0 };
+    const wsData = wsSnap.exists ? wsSnap.data() : { availableStock: 0, committedStock: 0, quarantinedQty: 0 };
 
     const availBefore = wsData.availableStock || 0;
-    const availAfter = availBefore + quantity;
+    const availAfter = availBefore + finalAccepted;
+    const quarantinedBefore = wsData.quarantinedQty || 0;
+    const quarantinedAfter = quarantinedBefore + finalDamaged;
 
     transaction.set(wsRef, {
         skuCode,
@@ -513,36 +527,76 @@ async function receiveGrn(transaction, {
         warehouseId,
         binLocation,
         availableStock: availAfter,
+        quarantinedQty: quarantinedAfter,
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 
     // Update SKU aggregate
-    transaction.update(skuRef, {
-        "inventory.availableStock": admin.firestore.FieldValue.increment(quantity),
-        "inventory.totalStock": admin.firestore.FieldValue.increment(quantity),
+    const skuUpdate = {
+        "inventory.availableStock": admin.firestore.FieldValue.increment(finalAccepted),
+        "inventory.totalStock": admin.firestore.FieldValue.increment(finalAccepted + finalDamaged),
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+    };
+    if (finalDamaged > 0) {
+        skuUpdate["inventory.quarantinedStock"] = admin.firestore.FieldValue.increment(finalDamaged);
+    }
+    transaction.update(skuRef, skuUpdate);
 
-    // Ledger entry
-    recordMovement(transaction, {
-        movementType: "PURCHASE_RECEIPT",
-        skuCode,
-        batchId,
-        batchNumber: cleanBatchNumber,
-        warehouseId,
-        quantity,
-        availableBefore: availBefore,
-        availableAfter: availAfter,
-        committedBefore: wsData.committedStock || 0,
-        committedAfter: wsData.committedStock || 0,
-        referenceId: grnId || purchaseOrderId || "GRN_DIRECT",
-        actorId,
-        actorRole: "ADMIN",
-        reason: `GRN Inward receipt (${cleanBatchNumber})`,
-        idempotencyKey
-    });
+    if (finalDamaged > 0) {
+        const quarantineRef = db.collection("inventory_quarantine").doc();
+        transaction.set(quarantineRef, {
+            skuCode,
+            batchId,
+            hubId: warehouseId,
+            damagedQty: finalDamaged,
+            damageReason,
+            grnId: grnId || purchaseOrderId || "GRN_DIRECT",
+            reportedBy: actorId || "SYSTEM",
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+    }
 
-    const result = { success: true, skuCode, batchId, quantity, availableStock: availAfter };
+    if (finalAccepted > 0) {
+        recordMovement(transaction, {
+            movementType: "PURCHASE_RECEIPT_AVAILABLE",
+            skuCode,
+            batchId,
+            batchNumber: cleanBatchNumber,
+            warehouseId,
+            quantity: finalAccepted,
+            availableBefore: availBefore,
+            availableAfter: availAfter,
+            committedBefore: wsData.committedStock || 0,
+            committedAfter: wsData.committedStock || 0,
+            referenceId: grnId || purchaseOrderId || "GRN_DIRECT",
+            actorId,
+            actorRole: "ADMIN",
+            reason: `GRN Inward receipt (${cleanBatchNumber}) - Accepted`,
+            idempotencyKey: idempotencyKey + "_ACCEPT"
+        });
+    }
+
+    if (finalDamaged > 0) {
+        recordMovement(transaction, {
+            movementType: "PURCHASE_RECEIPT_QUARANTINE",
+            skuCode,
+            batchId,
+            batchNumber: cleanBatchNumber,
+            warehouseId,
+            quantity: finalDamaged,
+            availableBefore: availAfter, 
+            availableAfter: availAfter,
+            committedBefore: wsData.committedStock || 0,
+            committedAfter: wsData.committedStock || 0,
+            referenceId: grnId || purchaseOrderId || "GRN_DIRECT",
+            actorId,
+            actorRole: "ADMIN",
+            reason: `GRN Inward receipt (${cleanBatchNumber}) - Damaged: ${damageReason}`,
+            idempotencyKey: idempotencyKey + "_QUARANTINE"
+        });
+    }
+
+    const result = { success: true, skuCode, batchId, receivedQty: finalReceived, acceptedQty: finalAccepted, damagedQty: finalDamaged, availableStock: availAfter };
     recordIdempotencySuccess(transaction, keyRef, result);
     return result;
 }

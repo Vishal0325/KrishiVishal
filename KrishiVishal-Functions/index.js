@@ -99,6 +99,8 @@ const FUNCTION_MAP = {
     getRecommendations: ['./inventory/recommendations', 'getRecommendations'],
     backfillProductMetadata: ['./inventory/recommendations', 'backfillProductMetadata'],
     onStockTransferUpdated: ['./inventory/stockTransferTriggers', 'onStockTransferUpdated'],
+    onStockTransferCreatedGuard: ['./inventory/stockTransfers', 'onStockTransferCreatedGuard'],
+    onStockTransferReceived: ['./inventory/stockTransfers', 'onStockTransferReceived'],
     startHubAuditSession: ['./inventory/cycleCountEngine', 'startHubAuditSession'],
     submitAuditCounts: ['./inventory/cycleCountEngine', 'submitAuditCounts'],
     reconcileAuditSession: ['./inventory/cycleCountEngine', 'reconcileAuditSession'],
