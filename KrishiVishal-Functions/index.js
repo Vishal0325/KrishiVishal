@@ -83,9 +83,17 @@ const FUNCTION_MAP = {
     onGoodsReceiptCreated: ['./finance/ledger', 'onGoodsReceiptCreated'],
     onCashDepositVerified: ['./finance/ledger', 'onCashDepositVerified'],
     confirmCashSettlement: ['./finance/cashSettlement', 'confirmCashSettlement'],
+    postJournalEntry: ['./finance/generalLedger', 'postJournalEntry'],
 
-    // --- INVOICES & NOTIFICATIONS (1) ---
+    // --- INVOICES & NOTIFICATIONS (2) ---
     orderDeliveryNotification: ['./invoices/orderDeliveryNotification', 'orderDeliveryNotification'],
+    getNextInvoiceNumber: ['./invoices/sequentialInvoiceEngine', 'getNextInvoiceNumber'],
+
+    // --- SENSITIVE AUDIT LOGGERS (4) ---
+    onFinancialSettingsWritten: ['./security/auditLogger', 'onFinancialSettingsWritten'],
+    onSkuWrittenAudit: ['./security/auditLogger', 'onSkuWrittenAudit'],
+    onSupplierWritten: ['./security/auditLogger', 'onSupplierWritten'],
+    onUserRoleWritten: ['./security/auditLogger', 'onUserRoleWritten'],
 
     // --- INVENTORY & WMS (16) ---
     onReturnStockSync: ['./inventory/stock', 'onReturnStockSync'],
