@@ -98,7 +98,10 @@ function validateJournalEntry(entryData) {
         "COD_SETTLEMENT",
         "EXPENSE",
         "SALES_RETURN",
-        "INVENTORY_ADJUSTMENT"
+        "INVENTORY_ADJUSTMENT",
+        "GATEWAY_SETTLEMENT",
+        "BANK_RECONCILIATION",
+        "CAPITAL"
     ];
 
     if (!refType || !ALLOWED_REF_TYPES.includes(refType)) {

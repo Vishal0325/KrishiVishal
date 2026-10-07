@@ -90,6 +90,8 @@ const FUNCTION_MAP = {
     generateTrialBalance: ['./finance/financialReports', 'generateTrialBalance'],
     generateProfitAndLoss: ['./finance/financialReports', 'generateProfitAndLoss'],
     generateBalanceSheet: ['./finance/financialReports', 'generateBalanceSheet'],
+    reconcileGatewaySettlement: ['./finance/reconciliationEngine', 'reconcileGatewaySettlement'],
+    reconcileRiderCashBankDeposit: ['./finance/reconciliationEngine', 'reconcileRiderCashBankDeposit'],
 
     // --- INVOICES & NOTIFICATIONS (3) ---
     orderDeliveryNotification: ['./invoices/orderDeliveryNotification', 'orderDeliveryNotification'],
