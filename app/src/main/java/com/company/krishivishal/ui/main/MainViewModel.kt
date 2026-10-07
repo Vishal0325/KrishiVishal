@@ -37,7 +37,7 @@ class MainViewModel @Inject constructor(
     }
 
     private fun observeCartCount() {
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             authRepository.getCurrentUser().collectLatest { user ->
                 val userId = user?.id ?: Constants.GUEST_USER_ID
                 cartRepository.getCartWithProducts(userId).collectLatest { resource ->
@@ -49,7 +49,7 @@ class MainViewModel @Inject constructor(
     }
 
     private fun observeActiveOrders() {
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             authRepository.getCurrentUser().collectLatest { user ->
                 user?.id?.let { userId ->
                     orderRepository.getOrders(userId).collectLatest { resource ->

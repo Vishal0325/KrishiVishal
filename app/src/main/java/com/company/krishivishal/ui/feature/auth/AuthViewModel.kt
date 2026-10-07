@@ -18,7 +18,10 @@ import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.PhoneAuthCredential
 import com.google.firebase.auth.PhoneAuthProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -168,36 +171,53 @@ class AuthViewModel @Inject constructor(
                 _uiEvent.emit(AuthUiEvent.LoginSuccess)
                 
                 if (user != null) {
-                    // Try applying referral code if entered
-                    if (_uiState.value.referralCode.isNotEmpty()) {
-                        viewModelScope.launch {
-                            try {
-                                referralRepository.applyReferralCode(_uiState.value.referralCode).collect()
-                            } catch (e: Exception) {
-                                Timber.e(e, "Failed to apply referral code: ${e.message}")
-                            }
-                        }
-                    }
-
-                    // Start sync in background independently
-                    viewModelScope.launch {
-                        try {
-                            mergeWishlistUseCase(user.id).collectLatest { }
-                            
-                            val cartResource = cartRepository.getCart("guest_user").first()
-                            if (cartResource is Resource.Success) {
-                                cartResource.data?.forEach { item ->
-                                    launch {
-                                        cartRepository.addToCart(item.copy(
-                                            id = java.util.UUID.randomUUID().toString(), 
-                                            userId = user.id
-                                        )).collect()
+                    val currentReferralCode = _uiState.value.referralCode
+                    // Concurrently parallelize post-login data synchronization
+                    viewModelScope.launch(Dispatchers.IO) {
+                        coroutineScope {
+                            val referralDeferred = async {
+                                if (currentReferralCode.isNotEmpty()) {
+                                    try {
+                                        referralRepository.applyReferralCode(currentReferralCode).collect()
+                                    } catch (e: Exception) {
+                                        Timber.e(e, "Failed to apply referral code: ${e.message}")
                                     }
                                 }
-                                cartRepository.clearCart("guest_user").collect()
                             }
-                        } catch (e: Exception) {
-                            Timber.e(e, "Sync failed: ${e.message}")
+
+                            val wishlistDeferred = async {
+                                try {
+                                    mergeWishlistUseCase(user.id).collectLatest { }
+                                } catch (e: Exception) {
+                                    Timber.e(e, "Merge wishlist failed: ${e.message}")
+                                }
+                            }
+
+                            val cartDeferred = async {
+                                try {
+                                    val cartResource = cartRepository.getCart("guest_user").first()
+                                    if (cartResource is Resource.Success) {
+                                        coroutineScope {
+                                            cartResource.data?.forEach { item ->
+                                                launch {
+                                                    cartRepository.addToCart(item.copy(
+                                                        id = java.util.UUID.randomUUID().toString(),
+                                                        userId = user.id
+                                                    )).collect()
+                                                }
+                                            }
+                                        }
+                                        cartRepository.clearCart("guest_user").collect()
+                                    }
+                                } catch (e: Exception) {
+                                    Timber.e(e, "Cart sync failed: ${e.message}")
+                                }
+                            }
+
+                            // Await all parallel tasks
+                            referralDeferred.await()
+                            wishlistDeferred.await()
+                            cartDeferred.await()
                         }
                     }
                 }

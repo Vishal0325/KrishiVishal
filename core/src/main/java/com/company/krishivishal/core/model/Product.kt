@@ -101,6 +101,20 @@ data class Product(
     @set:PropertyName("imageUrl")
     var imageUrl: String = "",
 
+    @androidx.room.Ignore
+    @IgnoredOnParcel
+    @SerializedName("thumbnailUrl")
+    @get:PropertyName("thumbnailUrl")
+    @set:PropertyName("thumbnailUrl")
+    var thumbnailUrl: String? = null,
+
+    @androidx.room.Ignore
+    @IgnoredOnParcel
+    @SerializedName("mediumImageUrl")
+    @get:PropertyName("mediumImageUrl")
+    @set:PropertyName("mediumImageUrl")
+    var mediumImageUrl: String? = null,
+
     @ColumnInfo(name = "basePrice")
     @SerializedName("basePrice")
     @get:PropertyName("basePrice")
@@ -426,7 +440,14 @@ data class Product(
     fun getEffectiveMrp(): Double {
         return if (mrp > 0.0) mrp else getEffectiveSellingPrice()
     }
+
+    fun getDisplayImageUrl(): String {
+        return thumbnailUrl?.takeIf { it.isNotBlank() }
+            ?: mediumImageUrl?.takeIf { it.isNotBlank() }
+            ?: imageUrl.ifEmpty { images.firstOrNull() ?: "" }
+    }
 }
+
 
 @Parcelize
 data class RecommendationResult(

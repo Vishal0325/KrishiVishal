@@ -11,6 +11,8 @@ import com.company.krishivishal.core.util.Resource
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -105,7 +107,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun loadConfig() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             configRepository.getConfig().collect { resource ->
                 if (resource is Resource.Success) {
                     _uiState.update { it.copy(config = resource.data) }
@@ -115,7 +117,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun observeRecentlyViewed() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _currentUser.collectLatest { user ->
                 val userId = user?.id ?: Constants.GUEST_USER_ID
                 productDao.getRecentlyViewedProducts(userId)
@@ -127,35 +129,49 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun observePersonalizedContent() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _currentUser.collectLatest { user ->
                 if (user != null) {
-                    // Load Buy Again
-                    orderRepository.getSuccessfulProducts(user.id).collect { resource ->
-                        if (resource is Resource.Success) {
-                            _uiState.update { it.copy(buyAgainProducts = resource.data ?: emptyList()) }
+                    coroutineScope {
+                        // Load Buy Again in parallel
+                        launch {
+                            runCatching {
+                                orderRepository.getSuccessfulProducts(user.id).collect { resource ->
+                                    if (resource is Resource.Success) {
+                                        _uiState.update { it.copy(buyAgainProducts = resource.data ?: emptyList()) }
+                                    }
+                                }
+                            }
                         }
-                    }
-                    
-                    // Load Seasonal Recommendations based on current month
-                    val currentMonth = java.util.Calendar.getInstance().get(java.util.Calendar.MONTH)
-                    val seasonalCategory = when (currentMonth) {
-                        in 5..8 -> "Insecticide" // Monsoon: Pest control focus
-                        in 10..1 -> "Seeds" // Winter: Sowing focus
-                        else -> "Micro Nutrients" // Default: Nutrition focus
-                    }
-                    
-                    productRepository.getProductsByCategory(seasonalCategory).collect { resource ->
-                        if (resource is Resource.Success) {
-                            _uiState.update { it.copy(seasonalProducts = resource.data ?: emptyList()) }
+                        
+                        // Load Seasonal Recommendations based on current month in parallel
+                        launch {
+                            runCatching {
+                                val currentMonth = java.util.Calendar.getInstance().get(java.util.Calendar.MONTH)
+                                val seasonalCategory = when (currentMonth) {
+                                    in 5..8 -> "Insecticide" // Monsoon: Pest control focus
+                                    in 10..1 -> "Seeds" // Winter: Sowing focus
+                                    else -> "Micro Nutrients" // Default: Nutrition focus
+                                }
+                                
+                                productRepository.getProductsByCategory(seasonalCategory).collect { resource ->
+                                    if (resource is Resource.Success) {
+                                        _uiState.update { it.copy(seasonalProducts = resource.data ?: emptyList()) }
+                                    }
+                                }
+                            }
                         }
-                    }
 
-                    // Load Recommended for Your Crops (Personalized)
-                    if (user.interestedCategories.isNotEmpty()) {
-                        productRepository.getProductsByCategory(user.interestedCategories.first()).collect { resource ->
-                            if (resource is Resource.Success) {
-                                _uiState.update { it.copy(personalizedProducts = resource.data ?: emptyList()) }
+                        // Load Recommended for Your Crops (Personalized) in parallel
+                        if (user.interestedCategories.isNotEmpty()) {
+                            launch {
+                                runCatching {
+                                    productRepository.getProductsByCategory(user.interestedCategories.first()).collect { resource ->
+                                        if (resource is Resource.Success) {
+                                            _uiState.update { it.copy(personalizedProducts = resource.data ?: emptyList()) }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -170,7 +186,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun loadHomeFeed() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             getHomeFeedUseCase().collect { data ->
                 _uiState.update { it.copy(
                     banners = data.banners,
@@ -205,7 +221,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun getCurrentUser() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             authRepository.getCurrentUser().collectLatest { user ->
                 val isAnon = try {
                     val firebaseUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
@@ -225,7 +241,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun observeCartCount() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _currentUser.collectLatest { user ->
                 val userId = user?.id ?: Constants.GUEST_USER_ID
                 cartRepository.getCartCount(userId).collectLatest { count ->
@@ -236,7 +252,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun observeWishlist() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _currentUser.collectLatest { user ->
                 val userId = user?.id ?: Constants.GUEST_USER_ID
                 wishlistRepository.getWishlist(userId).collectLatest { resource ->

@@ -19,6 +19,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.company.krishivishal.core.model.Address
@@ -64,28 +69,62 @@ class ProfileViewModel @Inject constructor(
     }
 
     private fun getCurrentUser() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             authRepository.getCurrentUser().collectLatest { currentUser ->
                 _userProfile.value = currentUser
-                currentUser?.let {
-                    loadWallet(it.id)
-                    loadStats(it.id)
-                    loadDefaultAddress(it.id)
-                    loadVleProfile(it.id)
+                currentUser?.let { user ->
+                    coroutineScope {
+                        val walletDeferred = async { try { referralRepository.getWalletBalance(user.id).first() } catch (e: Exception) { null } }
+                        val ordersDeferred = async { try { orderRepository.getOrders(user.id).first() } catch (e: Exception) { null } }
+                        val wishlistDeferred = async { try { wishlistRepository.getWishlist(user.id).first() } catch (e: Exception) { null } }
+                        val addressDeferred = async { try { addressRepository.getAddresses(user.id).first() } catch (e: Exception) { null } }
+                        val vleDeferred = async {
+                            try {
+                                val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                                db.collection("vle_profiles").document(user.id).get().await().data
+                            } catch (e: Exception) { null }
+                        }
+
+                        val walletRes = walletDeferred.await()
+                        val ordersRes = ordersDeferred.await()
+                        val wishlistRes = wishlistDeferred.await()
+                        val addressRes = addressDeferred.await()
+                        val vleData = vleDeferred.await()
+
+                        withContext(Dispatchers.Main) {
+                            walletRes?.let { _walletBalance.value = it }
+                            if (ordersRes is Resource.Success) {
+                                _totalOrdersCount.value = ordersRes.data?.size ?: 0
+                            }
+                            if (wishlistRes is Resource.Success) {
+                                _wishlistItemsCount.value = wishlistRes.data?.size ?: 0
+                            }
+                            if (addressRes is Resource.Success) {
+                                val addresses = addressRes.data ?: emptyList()
+                                _defaultAddress.value = addresses.find { it.isDefault } ?: addresses.firstOrNull()
+                            }
+                            _vleProfile.value = vleData
+                        }
+                    }
+
+                    // Keep reactive real-time listeners attached on IO
+                    loadWallet(user.id)
+                    loadStats(user.id)
+                    loadDefaultAddress(user.id)
                 }
             }
         }
     }
 
     private fun loadStats(userId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             orderRepository.getOrders(userId).collectLatest { resource ->
                 if (resource is Resource.Success) {
                     _totalOrdersCount.value = resource.data?.size ?: 0
                 }
             }
         }
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             wishlistRepository.getWishlist(userId).collectLatest { resource ->
                 if (resource is Resource.Success) {
                     _wishlistItemsCount.value = resource.data?.size ?: 0
@@ -95,7 +134,7 @@ class ProfileViewModel @Inject constructor(
     }
 
     private fun loadDefaultAddress(userId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             addressRepository.getAddresses(userId).collectLatest { resource ->
                 if (resource is Resource.Success) {
                     val addresses = resource.data ?: emptyList()
@@ -106,7 +145,7 @@ class ProfileViewModel @Inject constructor(
     }
 
     private fun loadWallet(userId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             referralRepository.getWalletBalance(userId).collectLatest {
                 _walletBalance.value = it
             }
@@ -114,7 +153,7 @@ class ProfileViewModel @Inject constructor(
     }
 
     private fun checkAdminStatus() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _isAdmin.value = adminAuthManager.isCurrentUserAdmin()
         }
     }
