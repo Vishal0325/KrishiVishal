@@ -104,6 +104,7 @@ const FUNCTION_MAP = {
     startHubAuditSession: ['./inventory/cycleCountEngine', 'startHubAuditSession'],
     submitAuditCounts: ['./inventory/cycleCountEngine', 'submitAuditCounts'],
     reconcileAuditSession: ['./inventory/cycleCountEngine', 'reconcileAuditSession'],
+    resolveQuarantinedStock: ['./inventory/quarantineEngine', 'resolveQuarantinedStock'],
 
     // --- MARKETING & REFERRALS (14) ---
     generateReferralCode: ['./marketing/referrals', 'generateReferralCode'],
