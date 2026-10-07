@@ -92,6 +92,10 @@ const FUNCTION_MAP = {
     generateBalanceSheet: ['./finance/financialReports', 'generateBalanceSheet'],
     reconcileGatewaySettlement: ['./finance/reconciliationEngine', 'reconcileGatewaySettlement'],
     reconcileRiderCashBankDeposit: ['./finance/reconciliationEngine', 'reconcileRiderCashBankDeposit'],
+    runMonthEndChecklist: ['./finance/fiscalPeriodEngine', 'runMonthEndChecklist'],
+    lockFiscalPeriod: ['./finance/fiscalPeriodEngine', 'lockFiscalPeriod'],
+    unlockFiscalPeriod: ['./finance/fiscalPeriodEngine', 'unlockFiscalPeriod'],
+    getFiscalPeriodsList: ['./finance/fiscalPeriodEngine', 'getFiscalPeriodsList'],
 
     // --- INVOICES & NOTIFICATIONS (3) ---
     orderDeliveryNotification: ['./invoices/orderDeliveryNotification', 'orderDeliveryNotification'],
