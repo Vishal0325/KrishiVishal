@@ -30,12 +30,20 @@ service cloud.firestore {
       );
     }
 
-    function canViewFinance() {
+    function isFinanceRole() {
       return isAuthenticated() && (
         isSuperAdmin() ||
         isAdmin() ||
-        (('role' in request.auth.token) && request.auth.token.role in ["FinanceAdmin", "Accountant", "FinanceManager"])
+        (('role' in request.auth.token) && request.auth.token.role in [
+          "SuperAdmin", "SUPER_ADMIN", "super_admin", "Admin", "ADMIN", "admin",
+          "FinanceAdmin", "FINANCE_ADMIN", "finance_manager", "FinanceManager",
+          "director", "Director", "CFO", "Accountant", "Auditor"
+        ])
       );
+    }
+
+    function canViewFinance() {
+      return isFinanceRole();
     }
 
     function isViewer() {
@@ -243,6 +251,60 @@ service cloud.firestore {
     match /corporate_simulations/{id} {
       allow read, write: if isAuthenticated() &&
         ('role' in request.auth.token) && request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
+    }
+
+    // ============================================================
+    // CA & GENERAL LEDGER FINANCIAL COLLECTIONS (SPRINTS 1-10)
+    // ============================================================
+    match /journal_entries/{entryId} {
+      allow read, write: if isFinanceRole();
+      match /lines/{lineId} {
+        allow read, write: if isFinanceRole();
+      }
+    }
+
+    match /fiscal_periods/{periodId} {
+      allow read, write: if isFinanceRole();
+    }
+
+    match /approval_requests/{requestId} {
+      allow read, write: if isFinanceRole();
+    }
+
+    match /supplier_invoices/{invoiceId} {
+      allow read, write: if isFinanceRole() || isHubManager();
+    }
+
+    match /credit_notes/{cnId} {
+      allow read, write: if isFinanceRole();
+    }
+
+    match /invoice_counters/{counterId} {
+      allow read, write: if isFinanceRole();
+    }
+
+    match /credit_note_counters/{counterId} {
+      allow read, write: if isFinanceRole();
+    }
+
+    match /gateway_settlements/{settlementId} {
+      allow read, write: if isFinanceRole();
+    }
+
+    match /cash_deposits/{depositId} {
+      allow read, write: if isFinanceRole() || isHubManager();
+    }
+
+    match /quarantine/{quarantineId} {
+      allow read, write: if isFinanceRole() || isHubManager() || isAdmin();
+    }
+
+    match /quarantine_items/{itemId} {
+      allow read, write: if isFinanceRole() || isHubManager() || isAdmin();
+    }
+
+    match /inventory_quarantine/{itemId} {
+      allow read, write: if isFinanceRole() || isHubManager() || isAdmin();
     }
 
     // TODO: journal_vouchers ka HubManager/WarehouseManager write access
@@ -904,8 +966,8 @@ service cloud.firestore {
     // ============================================================
 
     match /audit_logs/{id} {
-      allow read: if isSuperAdmin();
-      allow write: if false;
+      allow read: if isSuperAdmin() || isFinanceRole();
+      allow write: if false; // Immutable audit log, only Cloud Functions can write
     }
 
 
