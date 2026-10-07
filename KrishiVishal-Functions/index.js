@@ -86,6 +86,7 @@ const FUNCTION_MAP = {
     postJournalEntry: ['./finance/generalLedger', 'postJournalEntry'],
     recordSupplierPurchaseInvoice: ['./finance/supplierLedger', 'recordSupplierPurchaseInvoice'],
     recordSupplierPayment: ['./finance/supplierLedger', 'recordSupplierPayment'],
+    recognizeOrderDeliveryFinancials: ['./finance/salesLedger', 'recognizeOrderDeliveryFinancials'],
 
     // --- INVOICES & NOTIFICATIONS (3) ---
     orderDeliveryNotification: ['./invoices/orderDeliveryNotification', 'orderDeliveryNotification'],

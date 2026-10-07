@@ -20,6 +20,22 @@ exports.orderDeliveryNotification = onDocumentUpdated({
         return null;
     }
 
+    // --- REVENUE RECOGNITION & COGS MATCHING (Sprint 4 CA Compliance) ---
+    try {
+        if (!afterData.financialStatus || afterData.financialStatus !== 'RECOGNIZED') {
+            const { recognizeOrderDeliveryFinancials } = require('../finance/salesLedger');
+            await recognizeOrderDeliveryFinancials({
+                orderId,
+                paymentMethod: afterData.paymentMode || afterData.paymentMethod || 'COD',
+                shippingState: afterData.shippingAddress?.state || afterData.deliveryAddress?.state || 'Bihar',
+                items: afterData.items || []
+            });
+            console.log(`[orderDeliveryNotification] Successfully recognized revenue and COGS for delivered order ${orderId}`);
+        }
+    } catch (finErr) {
+        console.error(`[orderDeliveryNotification] Error recognizing financials for order ${orderId}:`, finErr);
+    }
+
     const db = getFirestore();
     const invoicePdfUrl = afterData.invoiceUrl || afterData.invoice?.pdfUrl || afterData.invoicePdfUrl;
     const farmerName = afterData.userName || afterData.customerName || afterData.address?.name || 'Kisan';
