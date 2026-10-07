@@ -87,28 +87,28 @@ const FUNCTION_MAP = {
     recordSupplierPurchaseInvoice: ['./finance/supplierLedger', 'recordSupplierPurchaseInvoice'],
     recordSupplierPayment: ['./finance/supplierLedger', 'recordSupplierPayment'],
     recognizeOrderDeliveryFinancials: ['./finance/salesLedger', 'recognizeOrderDeliveryFinancials'],
-    generateTrialBalance: ['./finance/financialReports', 'generateTrialBalance'],
-    generateProfitAndLoss: ['./finance/financialReports', 'generateProfitAndLoss'],
-    generateBalanceSheet: ['./finance/financialReports', 'generateBalanceSheet'],
-    reconcileGatewaySettlement: ['./finance/reconciliationEngine', 'reconcileGatewaySettlement'],
-    reconcileRiderCashBankDeposit: ['./finance/reconciliationEngine', 'reconcileRiderCashBankDeposit'],
-    runMonthEndChecklist: ['./finance/fiscalPeriodEngine', 'runMonthEndChecklist'],
-    lockFiscalPeriod: ['./finance/fiscalPeriodEngine', 'lockFiscalPeriod'],
-    unlockFiscalPeriod: ['./finance/fiscalPeriodEngine', 'unlockFiscalPeriod'],
-    getFiscalPeriodsList: ['./finance/fiscalPeriodEngine', 'getFiscalPeriodsList'],
-    submitApprovalRequest: ['./finance/makerCheckerEngine', 'submitApprovalRequest'],
-    reviewApprovalRequest: ['./finance/makerCheckerEngine', 'reviewApprovalRequest'],
-    getApprovalRequests: ['./finance/makerCheckerEngine', 'getApprovalRequests'],
+    generateTrialBalance: ['./finance/financeCallables', 'generateTrialBalance'],
+    generateProfitAndLoss: ['./finance/financeCallables', 'generateProfitAndLoss'],
+    generateBalanceSheet: ['./finance/financeCallables', 'generateBalanceSheet'],
+    generateGstr1Summary: ['./finance/financeCallables', 'generateGstr1Summary'],
+    reconcileGatewaySettlement: ['./finance/financeCallables', 'reconcileGatewaySettlement'],
+    reconcileRiderCashBankDeposit: ['./finance/financeCallables', 'reconcileRiderCashBankDeposit'],
+    runMonthEndChecklist: ['./finance/financeCallables', 'runMonthEndChecklist'],
+    lockFiscalPeriod: ['./finance/financeCallables', 'lockFiscalPeriod'],
+    unlockFiscalPeriod: ['./finance/financeCallables', 'unlockFiscalPeriod'],
+    getFiscalPeriodsList: ['./finance/financeCallables', 'getFiscalPeriodsList'],
+    submitApprovalRequest: ['./finance/financeCallables', 'submitApprovalRequest'],
+    reviewApprovalRequest: ['./finance/financeCallables', 'reviewApprovalRequest'],
+    getApprovalRequests: ['./finance/financeCallables', 'getApprovalRequests'],
 
     // --- INVOICES & NOTIFICATIONS (3) ---
     orderDeliveryNotification: ['./invoices/orderDeliveryNotification', 'orderDeliveryNotification'],
     getNextInvoiceNumber: ['./invoices/sequentialInvoiceEngine', 'getNextInvoiceNumber'],
     generateCreditNoteForReturn: ['./invoices/creditNoteEngine', 'generateCreditNoteForReturn'],
 
-    // --- TAX, GST & TDS (3) ---
+    // --- TAX, GST & TDS (2) ---
     calculateTaxForOrder: ['./tax/gstEngine', 'calculateTaxForOrder'],
     calculateTdsDeduction: ['./tax/tdsEngine', 'calculateTdsDeduction'],
-    generateGstr1Summary: ['./tax/gstrReportEngine', 'generateGstr1Summary'],
 
     // --- SENSITIVE AUDIT LOGGERS (4) ---
     onFinancialSettingsWritten: ['./security/auditLogger', 'onFinancialSettingsWritten'],
