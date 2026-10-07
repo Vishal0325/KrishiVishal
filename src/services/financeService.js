@@ -375,7 +375,113 @@ export async function unlockFiscalPeriod({ periodId, unlockedBy = "SuperAdmin", 
   }
 }
 
-// --- 5. DATA EXPORT CSV GENERATOR UTILITY ---
+// --- 5. MAKER-CHECKER & DUAL-AUTHORIZATION APIS ---
+
+export async function fetchApprovalRequests(status = "PENDING") {
+  try {
+    const fn = httpsCallable(functions, "getApprovalRequests");
+    const res = await fn({ status });
+    if (res.data) return res.data;
+  } catch (err) {
+    console.warn("[financeService] getApprovalRequests callable fallback:", err.message);
+  }
+
+  // Fallback: Read from Firestore
+  try {
+    let q = query(collection(db, "approval_requests"));
+    if (status && status !== "ALL") {
+      q = query(collection(db, "approval_requests"), where("status", "==", status));
+    }
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+
+    // Default sample mock requests for rich UX testing
+    return [
+      {
+        id: "REQ_BANK_1791392201_9A",
+        requestId: "REQ_BANK_1791392201_9A",
+        requestType: "SUPPLIER_BANK_UPDATE",
+        entityType: "SUPPLIERS",
+        entityId: "SUP_IFFCO_01",
+        entityName: "IFFCO Agro Supplies Ltd.",
+        payload: {
+          currentBank: { accountNumber: "91028374619", ifsc: "SBIN0001234", beneficiaryName: "IFFCO OLD ACCOUNT", bankName: "State Bank of India" },
+          accountNumber: "50200084920192",
+          ifsc: "HDFC0000456",
+          beneficiaryName: "IFFCO PRIVATE LIMITED",
+          bankName: "HDFC Bank Samastipur Main"
+        },
+        maker: { uid: "ACC_001", email: "rahul.accountant@krishivishal.com", role: "Accountant", timestamp: new Date(Date.now() - 3600000) },
+        status: "PENDING",
+        checker: null
+      },
+      {
+        id: "REQ_PAY_1791392202_4K",
+        requestId: "REQ_PAY_1791392202_4K",
+        requestType: "HIGH_VALUE_PAYMENT",
+        entityType: "SUPPLIER_INVOICES",
+        entityId: "SUP_BAYER_01",
+        entityName: "Bayer CropScience Limited",
+        payload: {
+          invoiceId: "INV-BAYER-2026-008",
+          grnId: "GRN-2026-10-0045",
+          amount: 179820,
+          grossAmount: 180000,
+          tdsAmount: 180,
+          utrRef: "HDFCN202610079912",
+          bankAccountCode: "1030_BANK_CURRENT_HDFC",
+          periodId: "2026-10"
+        },
+        maker: { uid: "ACC_002", email: "priya.finance@krishivishal.com", role: "FinanceManager", timestamp: new Date(Date.now() - 7200000) },
+        status: "PENDING",
+        checker: null
+      }
+    ];
+  } catch (err) {
+    console.error("[financeService] Error fetching approval requests:", err);
+    return [];
+  }
+}
+
+export async function submitApprovalRequest(payload) {
+  try {
+    const fn = httpsCallable(functions, "submitApprovalRequest");
+    const res = await fn(payload);
+    return res.data;
+  } catch (err) {
+    console.warn("[financeService] submitApprovalRequest callable fallback:", err.message);
+    const reqId = `REQ_${Date.now()}`;
+    const ref = doc(db, "approval_requests", reqId);
+    await setDoc(ref, {
+      ...payload,
+      requestId: reqId,
+      status: "PENDING",
+      createdAt: serverTimestamp()
+    });
+    return { requestId: reqId, status: "PENDING" };
+  }
+}
+
+export async function reviewApprovalRequest({ requestId, checker, action, remarks }) {
+  try {
+    const fn = httpsCallable(functions, "reviewApprovalRequest");
+    const res = await fn({ requestId, checker, action, remarks });
+    return res.data;
+  } catch (err) {
+    console.warn("[financeService] reviewApprovalRequest callable fallback:", err.message);
+    const ref = doc(db, "approval_requests", requestId);
+    await updateDoc(ref, {
+      status: action === "APPROVE" ? "APPROVED" : "REJECTED",
+      checker: { ...checker, reviewedAt: serverTimestamp(), remarks },
+      updatedAt: serverTimestamp()
+    });
+    return { requestId, status: action === "APPROVE" ? "APPROVED" : "REJECTED" };
+  }
+}
+
+// --- 6. DATA EXPORT CSV GENERATOR UTILITY ---
 
 export function exportToCsv(filename, rows = [], headers = []) {
   if (!rows || !rows.length) {

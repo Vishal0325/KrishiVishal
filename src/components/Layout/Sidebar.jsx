@@ -73,7 +73,8 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
         { label: "CA Statutory Reports", path: "/finance/reports" },
         { label: "Rider COD Settlement", path: "/finance/cod-desk" },
         { label: "Supplier AP & TDS Desk", path: "/finance/supplier-ap" },
-        { label: "🔒 Month-End & Period Lock", path: "/finance/period-close" }
+        { label: "🔒 Month-End & Period Lock", path: "/finance/period-close" },
+        { label: "⚖️ Approvals & Maker-Checker", path: "/finance/approvals" }
       ]
     },
     { 
