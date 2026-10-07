@@ -25,6 +25,7 @@ const FinanceHubPage = React.lazy(() => import("./pages/FinanceHubPage"));
 const FinanceReports = React.lazy(() => import("./pages/finance/FinanceReports"));
 const CodSettlementDesk = React.lazy(() => import("./pages/finance/CodSettlementDesk"));
 const SupplierPayables = React.lazy(() => import("./pages/finance/SupplierPayables"));
+const PeriodCloseDesk = React.lazy(() => import("./pages/finance/PeriodCloseDesk"));
 const HRHubPage = React.lazy(() => import("./pages/HRHubPage"));
 
 // Administration
@@ -172,6 +173,7 @@ function App() {
             <Route path="/finance/reports" element={<RequireRole allowedRoles={financeRoles}><FinanceReports /></RequireRole>} />
             <Route path="/finance/cod-desk" element={<RequireRole allowedRoles={financeRoles}><CodSettlementDesk /></RequireRole>} />
             <Route path="/finance/supplier-ap" element={<RequireRole allowedRoles={financeRoles}><SupplierPayables /></RequireRole>} />
+            <Route path="/finance/period-close" element={<RequireRole allowedRoles={financeRoles}><PeriodCloseDesk /></RequireRole>} />
             <Route path="/hr-desk" element={<RequireRole allowedRoles={hrRoles}><HRHubPage /></RequireRole>} />
 
             {/* Administration & Staff Management */}
