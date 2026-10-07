@@ -37,6 +37,25 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+const DAMAGE_REASONS = [
+  { value: 'BAG_TORN_IN_TRANSIT', label: 'Bag torn in transit (रास्ते में बोरी फटी)' },
+  { value: 'MOISTURE_OR_CAKING', label: 'Moisture / caking (सीलन / खाद जम गई)' },
+  { value: 'SEAL_BROKEN', label: 'Seal broken (सील टूटी हुई)' },
+  { value: 'EXPIRED_ON_ARRIVAL', label: 'Expired / near expiry (एक्सपायरी डेट निकट या समाप्त)' }
+];
+
+// Returns an error string for an invalid GRN line, or null when valid.
+const getLineError = (item) => {
+  const received = Number(item.receivedQuantity) || 0;
+  const accepted = Number(item.acceptedQty) || 0;
+  const damaged = Number(item.damagedQty) || 0;
+  if (received <= 0) return null; // line skipped on submit
+  if (accepted < 0 || damaged < 0) return 'Quantities cannot be negative';
+  if (received !== accepted + damaged) return `Received (${received}) ≠ Accepted (${accepted}) + Damaged (${damaged})`;
+  if (damaged > 0 && !item.damageReason) return 'Damage reason is required';
+  return null;
+};
+
 const GoodsReceipt = () => {
   const { user } = useAuth();
   const { isHubScoped, hubId } = useAuthContext();
@@ -132,6 +151,9 @@ const GoodsReceipt = () => {
         orderedQuantity: item.quantity || 0,
         alreadyReceived,
         receivedQuantity: remaining,
+        acceptedQty: remaining,
+        damagedQty: 0,
+        damageReason: '',
         actualUnitCost: item.estimatedCostPrice || 0,
         batchNumber: `BAT-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
         mfgDate: new Date().toISOString().split('T')[0],
@@ -143,6 +165,22 @@ const GoodsReceipt = () => {
     });
     setReceiptItems(items);
   };
+
+  // Immutable line update. Editing Received or Damaged auto-recomputes Accepted;
+  // editing Accepted directly is allowed (validation flags any mismatch).
+  const updateLine = (idx, field, value) => {
+    setReceiptItems(prev => prev.map((item, i) => {
+      if (i !== idx) return item;
+      const next = { ...item, [field]: value };
+      if (field === 'receivedQuantity' || field === 'damagedQty') {
+        next.acceptedQty = Math.max(0, (Number(next.receivedQuantity) || 0) - (Number(next.damagedQty) || 0));
+      }
+      if (field === 'damagedQty' && !(Number(value) > 0)) next.damageReason = '';
+      return next;
+    }));
+  };
+
+  const hasLineErrors = receiptItems.some(item => getLineError(item) !== null);
 
   // Upload Invoice file
   const handleFileUpload = async (file) => {
@@ -176,6 +214,12 @@ const GoodsReceipt = () => {
       return;
     }
 
+    const invalidLine = itemsWithQty.find(getLineError);
+    if (invalidLine) {
+      toast.error(`${invalidLine.productName}: ${getLineError(invalidLine)}`);
+      return;
+    }
+
     setSubmitting(true);
     try {
       let invoiceUrl = null;
@@ -189,6 +233,10 @@ const GoodsReceipt = () => {
         skuCode: item.skuCode || item.productId,
         quantity: Number(item.receivedQuantity),
         receivedQuantity: Number(item.receivedQuantity),
+        receivedQty: Number(item.receivedQuantity),
+        acceptedQty: Number(item.acceptedQty),
+        damagedQty: Number(item.damagedQty) || 0,
+        damageReason: Number(item.damagedQty) > 0 ? item.damageReason : '',
         orderedQuantity: Number(item.orderedQuantity) || 0,
         actualUnitCost: Number(item.actualUnitCost) || 0,
         unitCost: Number(item.actualUnitCost) || 0,
@@ -282,6 +330,9 @@ const GoodsReceipt = () => {
         <div>
           <span className="font-black text-sm text-gray-900">{grn.totalReceivedUnits} units</span>
           <p className="text-[10px] text-gray-400">{grn.items?.length || 0} products</p>
+          {grn.totalDamagedUnits > 0 && (
+            <p className="text-[10px] font-black text-red-600">{grn.totalDamagedUnits} quarantined</p>
+          )}
         </div>
       )
     },
@@ -533,6 +584,9 @@ const GoodsReceipt = () => {
                           <th className="py-3 px-3">Product Name</th>
                           <th className="py-3 px-3 text-center">Ordered</th>
                           <th className="py-3 px-3">Recv Qty *</th>
+                          <th className="py-3 px-3">Accepted Qty *</th>
+                          <th className="py-3 px-3">Damaged / Rejected</th>
+                          <th className="py-3 px-3">Damage Reason</th>
                           <th className="py-3 px-3">Actual Cost (₹) *</th>
                           <th className="py-3 px-3">Batch Number</th>
                           <th className="py-3 px-3">Expiry Date</th>
@@ -541,12 +595,17 @@ const GoodsReceipt = () => {
                       </thead>
                       <tbody className="divide-y divide-gray-100 font-bold text-gray-900">
                         {receiptItems.map((item, idx) => (
-                          <tr key={idx} className="hover:bg-gray-50/50">
+                          <tr key={idx} className={`hover:bg-gray-50/50 ${getLineError(item) ? 'bg-red-50/60' : ''}`}>
                             <td className="py-3 px-3 font-black">
                               {item.productName}
                               {item.alreadyReceived > 0 && (
                                 <p className="text-[10px] text-amber-600 font-normal">
                                   Already received: {item.alreadyReceived}
+                                </p>
+                              )}
+                              {getLineError(item) && (
+                                <p className="text-[10px] text-red-600 font-bold flex items-center gap-1 mt-0.5">
+                                  <AlertCircle size={10} /> {getLineError(item)}
                                 </p>
                               )}
                             </td>
@@ -560,13 +619,44 @@ const GoodsReceipt = () => {
                                 min="0"
                                 max={item.orderedQuantity}
                                 value={item.receivedQuantity}
-                                onChange={(e) => {
-                                  const updated = [...receiptItems];
-                                  updated[idx].receivedQuantity = e.target.value;
-                                  setReceiptItems(updated);
-                                }}
+                                onChange={(e) => updateLine(idx, 'receivedQuantity', e.target.value)}
                                 className="w-full px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-lg text-sm font-black text-gray-900 text-center outline-none focus:border-[#1b5e20]"
                               />
+                            </td>
+                            <td className="py-3 px-3 w-28">
+                              <input
+                                type="number"
+                                required
+                                min="0"
+                                value={item.acceptedQty}
+                                onChange={(e) => updateLine(idx, 'acceptedQty', e.target.value)}
+                                className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-sm font-black text-gray-900 text-center outline-none focus:border-[#1b5e20]"
+                              />
+                            </td>
+                            <td className="py-3 px-3 w-28">
+                              <input
+                                type="number"
+                                min="0"
+                                value={item.damagedQty}
+                                onChange={(e) => updateLine(idx, 'damagedQty', e.target.value)}
+                                className={`w-full px-2.5 py-1.5 border rounded-lg text-sm font-black text-center outline-none ${
+                                  Number(item.damagedQty) > 0 ? 'bg-red-50 border-red-300 text-red-700 focus:border-red-500' : 'bg-white border-gray-200 text-gray-900 focus:border-[#1b5e20]'
+                                }`}
+                              />
+                            </td>
+                            <td className="py-3 px-3 w-48">
+                              <select
+                                value={item.damageReason}
+                                required={Number(item.damagedQty) > 0}
+                                disabled={!(Number(item.damagedQty) > 0)}
+                                onChange={(e) => updateLine(idx, 'damageReason', e.target.value)}
+                                className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-[11px] font-bold text-gray-900 outline-none focus:border-red-500 disabled:bg-gray-50 disabled:text-gray-300"
+                              >
+                                <option value="">{Number(item.damagedQty) > 0 ? 'Select reason *' : '—'}</option>
+                                {DAMAGE_REASONS.map(r => (
+                                  <option key={r.value} value={r.value}>{r.label}</option>
+                                ))}
+                              </select>
                             </td>
                             <td className="py-3 px-3 w-32">
                               <input
@@ -629,9 +719,9 @@ const GoodsReceipt = () => {
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={submitting || !selectedPO || receiptItems.length === 0}
+                disabled={submitting || !selectedPO || receiptItems.length === 0 || hasLineErrors}
                 className={`w-full bg-[#1b5e20] text-white py-4 rounded-xl font-black text-sm uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-[#2e7d32] transition-all active:scale-[0.98] flex items-center justify-center gap-2 ${
-                  submitting ? 'opacity-50 cursor-not-allowed' : ''
+                  submitting || hasLineErrors ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >
                 {submitting && <Loader2 size={18} className="animate-spin" />}

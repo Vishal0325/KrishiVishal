@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, Timestamp, getDoc, where } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, Timestamp, getDoc, getDocs, where, limit, startAfter } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { useAuthContext } from '../hooks/useAuthContext';
 import { useReadOnly } from '../hooks/useReadOnly';
@@ -28,13 +28,17 @@ import {
   FileSpreadsheet,
   RefreshCw,
   UserCheck,
-  ShieldCheck
+  ShieldCheck,
+  ArrowDownCircle,
+  Loader2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { printShippingLabel, printThermalShippingLabel, printInvoice } from '../utils/PrintService';
 import { sendOrderConfirmationWhatsApp, sendOutForDeliveryWhatsApp } from '../services/whatsappService';
 import StatusTimeline from '../components/common/StatusTimeline';
 import ProofOfDeliveryModal from '../components/orders/ProofOfDeliveryModal';
+
+const PAGE_SIZE = 20;
 
 const Orders = () => {
   const navigate = useNavigate();
@@ -44,6 +48,10 @@ const Orders = () => {
   const [orders, setOrders] = useState([]);
   const [riders, setRiders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [lastVisibleDoc, setLastVisibleDoc] = useState(null);
+  const [fallbackUserData, setFallbackUserData] = useState({});
   const [searchTerm, setSearch] = useState('');
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [statusFilter, setStatusFilter] = useState('All');
@@ -68,13 +76,13 @@ const Orders = () => {
       if (snap.exists()) setAutoPrintEnabled(snap.data().autoPrintNewOrders || false);
     });
 
-    const q = isHubScoped && hubId
-      ? query(collection(db, 'orders'), where('warehouseId', '==', hubId))
-      : query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+    const baseQuery = isHubScoped && hubId
+      ? query(collection(db, 'orders'), where('warehouseId', '==', hubId), limit(PAGE_SIZE))
+      : query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
 
     let initialLoad = true;
 
-    const unsubscribeOrders = onSnapshot(q, (snapshot) => {
+    const unsubscribeOrders = onSnapshot(baseQuery, (snapshot) => {
       let ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       if (isHubScoped) {
         ordersData.sort((a, b) => {
@@ -85,6 +93,12 @@ const Orders = () => {
       }
       setOrders(ordersData);
       setLoading(false);
+      setHasMore(snapshot.docs.length >= PAGE_SIZE);
+      if (snapshot.docs.length > 0) {
+        setLastVisibleDoc(snapshot.docs[snapshot.docs.length - 1]);
+      } else {
+        setLastVisibleDoc(null);
+      }
 
       if (location.state?.selectedOrderId && initialLoad) {
         const target = ordersData.find(o => o.id === location.state.selectedOrderId);
@@ -136,6 +150,36 @@ const Orders = () => {
     // [FIXED] Point #111: Centralized cleanup for massive real-time listeners to prevent memory leaks
     return () => unsubs.forEach(unsub => unsub());
   }, [autoPrintEnabled, isHubScoped, hubId]);
+
+  // Handle Load More (pagination via startAfter)
+  const handleLoadMore = async () => {
+    if (!lastVisibleDoc || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const nextQuery = isHubScoped && hubId
+        ? query(collection(db, 'orders'), where('warehouseId', '==', hubId), startAfter(lastVisibleDoc), limit(PAGE_SIZE))
+        : query(collection(db, 'orders'), orderBy('createdAt', 'desc'), startAfter(lastVisibleDoc), limit(PAGE_SIZE));
+
+      const snap = await getDocs(nextQuery);
+      if (snap.empty) {
+        setHasMore(false);
+      } else {
+        const nextOrders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setOrders(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          const deduplicated = nextOrders.filter(n => !existingIds.has(n.id));
+          return [...prev, ...deduplicated];
+        });
+        setLastVisibleDoc(snap.docs[snap.docs.length - 1]);
+        setHasMore(snap.docs.length >= PAGE_SIZE);
+      }
+    } catch (err) {
+      console.error('Failed to load more orders:', err);
+      toast.error('Failed to load more orders');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   // [FIXED] Point #62: Improved Deep-link handling for selected order to handle async data loading
   useEffect(() => {
@@ -243,12 +287,16 @@ const Orders = () => {
     },
     {
       header: 'Customer & Address',
-      render: (o) => (
-        <div className="flex flex-col">
-          <span className="font-bold text-gray-900 text-xs">{o.userName || o.address?.name || 'Farmer'}</span>
-          <span className="text-[10px] text-gray-400 font-semibold uppercase">{o.userPhone || o.address?.phone || o.address?.district || 'Bihar'}</span>
-        </div>
-      )
+      render: (o) => {
+        const name = o.customerName || o.userName || o.address?.name || fallbackUserData[o.customerId || o.userId]?.name || 'Farmer Customer';
+        const phone = o.customerPhone || o.userPhone || o.address?.phone || fallbackUserData[o.customerId || o.userId]?.phone || o.address?.district || 'Bihar';
+        return (
+          <div className="flex flex-col">
+            <span className="font-bold text-gray-900 text-xs">{name}</span>
+            <span className="text-[10px] text-gray-400 font-semibold uppercase">{phone}</span>
+          </div>
+        );
+      }
     },
     {
       header: 'Items',
@@ -463,6 +511,29 @@ const Orders = () => {
         loading={loading}
         onRowClick={(o) => setSelectedOrder(o)}
       />
+
+      {/* Pagination Footer */}
+      {!loading && hasMore && (
+        <div className="flex justify-center items-center pt-2 pb-6">
+          <button
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="flex items-center gap-2 px-6 py-2.5 bg-white border border-gray-200 hover:border-[#1b5e20] text-gray-800 hover:text-[#1b5e20] font-black text-xs uppercase tracking-wider rounded-xl shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed group active:scale-95"
+          >
+            {loadingMore ? (
+              <>
+                <Loader2 size={16} className="animate-spin text-[#1b5e20]" />
+                Loading More Orders...
+              </>
+            ) : (
+              <>
+                <ArrowDownCircle size={16} className="text-[#1b5e20] group-hover:translate-y-0.5 transition-transform" />
+                Load More Orders ({PAGE_SIZE} per page)
+              </>
+            )}
+          </button>
+        </div>
+      )}
 
       {/* Order Detail Drawer */}
       <DetailDrawer
