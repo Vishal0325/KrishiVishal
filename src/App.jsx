@@ -22,6 +22,9 @@ const SupplyChainHub = React.lazy(() => import("./pages/SupplyChainHub"));
 const FleetHub = React.lazy(() => import("./pages/FleetHub"));
 const SupportDeskHub = React.lazy(() => import("./pages/SupportDeskHub"));
 const FinanceHubPage = React.lazy(() => import("./pages/FinanceHubPage"));
+const FinanceReports = React.lazy(() => import("./pages/finance/FinanceReports"));
+const CodSettlementDesk = React.lazy(() => import("./pages/finance/CodSettlementDesk"));
+const SupplierPayables = React.lazy(() => import("./pages/finance/SupplierPayables"));
 const HRHubPage = React.lazy(() => import("./pages/HRHubPage"));
 
 // Administration
@@ -166,6 +169,9 @@ function App() {
             <Route path="/fleet" element={<RequireRole allowedRoles={fleetRoles}><FleetHub /></RequireRole>} />
             <Route path="/support-desk" element={<RequireRole allowedRoles={opsRoles}><SupportDeskHub /></RequireRole>} />
             <Route path="/finance-desk" element={<RequireRole allowedRoles={financeRoles}><FinanceHubPage /></RequireRole>} />
+            <Route path="/finance/reports" element={<RequireRole allowedRoles={financeRoles}><FinanceReports /></RequireRole>} />
+            <Route path="/finance/cod-desk" element={<RequireRole allowedRoles={financeRoles}><CodSettlementDesk /></RequireRole>} />
+            <Route path="/finance/supplier-ap" element={<RequireRole allowedRoles={financeRoles}><SupplierPayables /></RequireRole>} />
             <Route path="/hr-desk" element={<RequireRole allowedRoles={hrRoles}><HRHubPage /></RequireRole>} />
 
             {/* Administration & Staff Management */}

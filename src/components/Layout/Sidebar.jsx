@@ -66,8 +66,14 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
     { 
       icon: <Landmark size={18} />, 
       label: "Finance & Accounts", 
-      path: "/finance-desk",
-      roles: ["SuperAdmin", "FinanceAdmin", "OrderManager", "Viewer"]
+      id: "finance",
+      roles: ["SuperAdmin", "FinanceAdmin", "OrderManager", "Viewer"],
+      subItems: [
+        { label: "Finance & Accounts Hub", path: "/finance-desk" },
+        { label: "CA Statutory Reports", path: "/finance/reports" },
+        { label: "Rider COD Settlement", path: "/finance/cod-desk" },
+        { label: "Supplier AP & TDS Desk", path: "/finance/supplier-ap" }
+      ]
     },
     { 
       icon: <Briefcase size={18} />, 
