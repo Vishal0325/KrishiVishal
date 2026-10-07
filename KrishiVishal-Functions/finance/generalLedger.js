@@ -27,6 +27,8 @@ const CHART_OF_ACCOUNTS = {
         "2030_OUTPUT_SGST_PAYABLE": { name: "Output SGST Payable", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
         "2040_OUTPUT_IGST_PAYABLE": { name: "Output IGST Payable", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
         "2050_TDS_PAYABLE_194C": { name: "TDS Payable (Sec 194C / Contractor)", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
+        "2050_TDS_PAYABLE_194Q": { name: "TDS Payable (Sec 194Q / Purchase of Goods)", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
+        "2050_TDS_PAYABLE_194H": { name: "TDS Payable (Sec 194H / Commission)", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
         "2060_CUSTOMER_REFUNDS_PAYABLE": { name: "Customer Refunds & Wallets Payable", category: "CURRENT_LIABILITY", normalBalance: "CREDIT" }
     },
     // EQUITY (3000 - 3999)

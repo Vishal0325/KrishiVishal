@@ -84,14 +84,17 @@ const FUNCTION_MAP = {
     onCashDepositVerified: ['./finance/ledger', 'onCashDepositVerified'],
     confirmCashSettlement: ['./finance/cashSettlement', 'confirmCashSettlement'],
     postJournalEntry: ['./finance/generalLedger', 'postJournalEntry'],
+    recordSupplierPurchaseInvoice: ['./finance/supplierLedger', 'recordSupplierPurchaseInvoice'],
+    recordSupplierPayment: ['./finance/supplierLedger', 'recordSupplierPayment'],
 
     // --- INVOICES & NOTIFICATIONS (3) ---
     orderDeliveryNotification: ['./invoices/orderDeliveryNotification', 'orderDeliveryNotification'],
     getNextInvoiceNumber: ['./invoices/sequentialInvoiceEngine', 'getNextInvoiceNumber'],
     generateCreditNoteForReturn: ['./invoices/creditNoteEngine', 'generateCreditNoteForReturn'],
 
-    // --- TAX & GST (1) ---
+    // --- TAX, GST & TDS (2) ---
     calculateTaxForOrder: ['./tax/gstEngine', 'calculateTaxForOrder'],
+    calculateTdsDeduction: ['./tax/tdsEngine', 'calculateTdsDeduction'],
 
     // --- SENSITIVE AUDIT LOGGERS (4) ---
     onFinancialSettingsWritten: ['./security/auditLogger', 'onFinancialSettingsWritten'],
