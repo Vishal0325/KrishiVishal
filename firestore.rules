@@ -30,12 +30,20 @@ service cloud.firestore {
       );
     }
 
-    function canViewFinance() {
+    function isFinanceRole() {
       return isAuthenticated() && (
         isSuperAdmin() ||
         isAdmin() ||
-        (('role' in request.auth.token) && request.auth.token.role in ["FinanceAdmin", "Accountant", "FinanceManager"])
+        (('role' in request.auth.token) && request.auth.token.role in [
+          "SuperAdmin", "SUPER_ADMIN", "super_admin", "Admin", "ADMIN", "admin",
+          "FinanceAdmin", "FINANCE_ADMIN", "finance_manager", "FinanceManager",
+          "director", "Director", "CFO", "Accountant", "Auditor"
+        ])
       );
+    }
+
+    function canViewFinance() {
+      return isFinanceRole();
     }
 
     function isViewer() {
@@ -76,7 +84,8 @@ service cloud.firestore {
 
     match /products/{id} {
       allow read: if true;
-      allow update: if isAdmin();
+      // Price and Stock are derived from SKUs via Cloud Functions
+      allow update: if isAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['price', 'stockQuantity']);
       allow create: if isAdmin();
       allow delete: if isSuperAdmin();
 
@@ -113,7 +122,8 @@ service cloud.firestore {
 
     match /skus/{skuId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      // Only Cloud Functions / Admin SDK can mutate SKU identity, price, and inventory
+      allow write: if false;
 
       match /batches/{batchId} {
         allow read: if isAdmin() || isViewer() || isHubManager();
@@ -243,6 +253,60 @@ service cloud.firestore {
         ('role' in request.auth.token) && request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"];
     }
 
+    // ============================================================
+    // CA & GENERAL LEDGER FINANCIAL COLLECTIONS (SPRINTS 1-10)
+    // ============================================================
+    match /journal_entries/{entryId} {
+      allow read, write: if isFinanceRole();
+      match /lines/{lineId} {
+        allow read, write: if isFinanceRole();
+      }
+    }
+
+    match /fiscal_periods/{periodId} {
+      allow read, write: if isFinanceRole();
+    }
+
+    match /approval_requests/{requestId} {
+      allow read, write: if isFinanceRole();
+    }
+
+    match /supplier_invoices/{invoiceId} {
+      allow read, write: if isFinanceRole() || isHubManager();
+    }
+
+    match /credit_notes/{cnId} {
+      allow read, write: if isFinanceRole();
+    }
+
+    match /invoice_counters/{counterId} {
+      allow read, write: if isFinanceRole();
+    }
+
+    match /credit_note_counters/{counterId} {
+      allow read, write: if isFinanceRole();
+    }
+
+    match /gateway_settlements/{settlementId} {
+      allow read, write: if isFinanceRole();
+    }
+
+    match /cash_deposits/{depositId} {
+      allow read, write: if isFinanceRole() || isHubManager();
+    }
+
+    match /quarantine/{quarantineId} {
+      allow read, write: if isFinanceRole() || isHubManager() || isAdmin();
+    }
+
+    match /quarantine_items/{itemId} {
+      allow read, write: if isFinanceRole() || isHubManager() || isAdmin();
+    }
+
+    match /inventory_quarantine/{itemId} {
+      allow read, write: if isFinanceRole() || isHubManager() || isAdmin();
+    }
+
     // TODO: journal_vouchers ka HubManager/WarehouseManager write access
     // temporary hai. Long-term isse Cloud Function (Admin SDK) route karo
     // taaki entry type (STOCK_AUDIT/RTV) validate ho sake, client arbitrary
@@ -285,7 +349,7 @@ service cloud.firestore {
         request.resource.data
           .diff(resource.data)
           .affectedKeys()
-          .hasOnly(['status', 'reviewedBy', 'reviewedAt', 'updatedAt', 'notes', 'reason', 'approvedBy', 'rejectedBy']);
+          .hasOnly(['status', 'reason', 'reviewedBy', 'reviewedAt']);
 
       allow create, delete: if false;
     }
@@ -302,7 +366,7 @@ service cloud.firestore {
         request.resource.data
           .diff(resource.data)
           .affectedKeys()
-          .hasOnly(['status', 'resolutionNotes', 'resolvedBy', 'resolvedAt', 'updatedAt']);
+          .hasOnly(['status']);
 
       allow create, delete: if false;
     }
@@ -313,7 +377,7 @@ service cloud.firestore {
     // ============================================================
 
     match /notifications/{id} {
-      allow read, update: if isAdmin();
+      allow read, update: if isAdmin() || isDepartmentManager();
       allow create: if isAdmin();
       allow delete: if isSuperAdmin();
     }
@@ -346,7 +410,7 @@ service cloud.firestore {
 
     match /orders/{orderId} {
 
-      allow read: if isAdmin() || isViewer() || isHubManager() ||
+      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager() ||
         (
           isAuthenticated() &&
           resource.data.userId == request.auth.uid
@@ -440,7 +504,7 @@ service cloud.firestore {
 
     match /returns/{returnId} {
 
-      allow read: if isAdmin() || isViewer() || isHubManager() ||
+      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager() ||
         (
           isAuthenticated() &&
           resource.data.userId == request.auth.uid
@@ -567,7 +631,13 @@ service cloud.firestore {
           (resource.data.phone != null && ('+91' + resource.data.phone) == request.auth.token.phone_number)
         )
       );
-      allow list: if isAdmin() || isViewer() || isHubManager();
+      allow list: if isAdmin() || isViewer() || isHubManager() || (
+        isAuthenticated() && ('phone_number' in request.auth.token) && (
+          resource.data.phone == request.auth.token.phone_number ||
+          ('+91' + resource.data.phone) == request.auth.token.phone_number ||
+          resource.data.phone == request.auth.token.phone_number.replace('^\\+91', '')
+        )
+      );
       allow update, create, delete: if isAdmin();
     }
 
@@ -577,7 +647,7 @@ service cloud.firestore {
     }
 
     match /riders/{riderId} {
-      allow read: if isAdmin() || isViewer() || isOwner(riderId);
+      allow read: if isAdmin() || isViewer() || isOwner(riderId) || isHubManager();
       // Self-creation blocked: Only Admin can onboard/create rider profiles
       allow create: if isAdmin();
       // Rider self-updates restricted to non-sensitive profile fields
@@ -604,27 +674,202 @@ service cloud.firestore {
 
     match /employees/{id} {
       allow read: if isAdmin() || isViewer() || isDepartmentManager();
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isDepartmentManager();
     }
 
     match /employee_documents/{id} {
       allow read: if isAdmin() || isViewer() || isDepartmentManager();
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isDepartmentManager();
     }
 
-    match /leave_balances/{id} {
+    match /physical_files/{id} {
       allow read: if isAdmin() || isViewer() || isDepartmentManager();
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isDepartmentManager();
     }
 
-    match /leave_requests/{id} {
+    match /assets/{id} {
       allow read: if isAdmin() || isViewer() || isDepartmentManager();
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /exit_requests/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /contracts/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /background_verification/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /training/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /workforce_documents/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
     }
 
     match /rider_hr_profiles/{id} {
       allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /statutory_licenses/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager() || isHubManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /agri_licenses/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager() || isHubManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /statutory_registers/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /leaves/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager() || (isAuthenticated() && resource.data.employeeId == request.auth.uid);
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /leave_requests/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /leave_balances/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /employee_attendance/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /employee_salary_structures/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /monthly_payroll_runs/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /monthly_payroll_runs/{runId}/payslips/{payslipId} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /document_requirements/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /document_settings/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /agri_officer_inspections/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /agri_statutory_form_a/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /agri_statutory_form_o/{id} {
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
+      allow write: if isAdmin() || isDepartmentManager();
+    }
+
+    match /b2b_sales_deals/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /b2bOffers/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /coupons/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
       allow write: if isAdmin();
+    }
+
+    match /expenseAuditLogs/{id} {
+      allow read: if isAdmin() || isViewer() || canViewFinance();
+      allow write: if isAdmin() || canViewFinance();
+    }
+
+    match /expensePayments/{id} {
+      allow read: if isAdmin() || isViewer() || canViewFinance();
+      allow write: if isAdmin() || canViewFinance();
+    }
+
+    match /farmer_crop_profiles/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /interHubTransfers/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /kisan_call_logs/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /physical_stock_audits/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /rtv_returns/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /supplier_debit_notes/{id} {
+      allow read: if isAdmin() || isViewer() || canViewFinance();
+      allow write: if isAdmin() || canViewFinance();
+    }
+
+    match /supplierDebitNotes/{id} {
+      allow read: if isAdmin() || isViewer() || canViewFinance();
+      allow write: if isAdmin() || canViewFinance();
+    }
+
+    match /trips/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /dispatch_batches/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager() || isRider();
+      allow write: if isAdmin() || isHubManager();
+    }
+
+    match /warehouse_inventory/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
+      allow write: if isAdmin() || isHubManager();
     }
 
 
@@ -643,9 +888,9 @@ service cloud.firestore {
 
     match /stock_notification_requests/{id} {
       allow read: if isAdmin();
-      allow create: if isAuthenticated() &&
+      allow create, update: if isAuthenticated() &&
         request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isAdmin();
+      allow delete: if isAdmin();
     }
 
 
@@ -710,14 +955,19 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    match /admin_alerts/{alertId} {
+      allow read: if isAdmin() || isSuperAdmin() || isViewer() || isHubManager();
+      allow write: if isAdmin() || isSuperAdmin();
+    }
+
 
     // ============================================================
     // AUDIT LOGS
     // ============================================================
 
     match /audit_logs/{id} {
-      allow read: if isSuperAdmin();
-      allow write: if false;
+      allow read: if isSuperAdmin() || isFinanceRole();
+      allow write: if false; // Immutable audit log, only Cloud Functions can write
     }
 
 
@@ -742,6 +992,22 @@ service cloud.firestore {
       allow write: if false; // Only Cloud Functions mutate this
     }
 
+    // ============================================================
+    // KISAN MITRA / VLE COMMISSION NETWORK
+    // ============================================================
+
+    match /vle_profiles/{vleId} {
+      allow read: if isAuthenticated() && (request.auth.uid == vleId || isAdmin() || isHubManager() || isTelecaller() || isViewer());
+      allow create: if isAuthenticated() && request.auth.uid == vleId;
+      allow update: if isAuthenticated() && (isAdmin() || isHubManager() || (request.auth.uid == vleId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['kycStatus', 'walletBalance', 'totalCommissionEarned', 'totalGmvGenerated'])));
+      allow delete: if isAdmin();
+    }
+
+    match /vle_commissions/{commId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.vleId || isAdmin() || isHubManager() || isViewer());
+      allow write: if false; // Server Cloud Functions authoritative only
+    }
+
 
     // ============================================================
     // SUPPLIERS & PROCUREMENT (Phase 1 & 2)
@@ -753,36 +1019,41 @@ service cloud.firestore {
     }
 
     match /procurement_queue/{itemId} {
-      allow read: if isAdmin() || isViewer();
+      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
       allow write: if isAdmin();
     }
 
     match /purchase_orders/{poId} {
-      allow read: if isAdmin() || isViewer();
+      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
       allow write: if isAdmin();
       match /{document=**} {
-        allow read: if isAdmin() || isViewer();
+        allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
         allow write: if isAdmin();
       }
     }
 
     match /goods_receipts/{grnId} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
-      allow write: if isAdmin();
+      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
+      allow write: if isAdmin() || isHubManager();
       match /{document=**} {
-        allow read: if isAdmin() || isViewer() || isHubManager();
-        allow write: if isAdmin();
+        allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
+        allow write: if isAdmin() || isHubManager();
       }
     }
 
     match /inventory_movements/{movementId} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
       allow write: if false; // Immutable ledger: mutated strictly via Cloud Functions / Admin SDK
     }
 
     match /warehouse_stock/{docId} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow read: if true; // Public catalog stock visibility for spoke resolution
       allow write: if false; // Cloud Functions SSoT for location inventory
+    }
+
+    match /pincode_directory/{pincode} {
+      allow read: if true; // Public lookup for pincode-to-hub mapping
+      allow write: if isAdmin();
     }
 
     match /warehouses/{warehouseId} {
@@ -794,8 +1065,8 @@ service cloud.firestore {
       }
     }
 
-    match /idempotency_keys/{key} {
-      allow read, write: if false; // Internal backend idempotency locks
+    match /idempotency_keys/{keyId} {
+      allow read, write: if false; // Admin SDK only — no client access
     }
 
     match /supplier_ledger/{id} {
@@ -887,6 +1158,13 @@ service cloud.firestore {
       allow update, delete: if isAdmin() || isSuperAdmin();
     }
 
+    match /cash_settlements/{settlementId} {
+      allow read: if (isAdmin() || isSuperAdmin() || isHubManager()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow create: if isAuthenticated() && (isAdmin() || isSuperAdmin() || (isRider() && request.resource.data.riderId == request.auth.uid));
+      allow update: if isAdmin() || isSuperAdmin() || isHubManager();
+      allow delete: if false;
+    }
+
     match /hub_bank_deposits/{id} {
       allow read: if isAdmin() || isSuperAdmin() || isViewer() || isHubManager() || canViewFinance();
       allow write: if isAdmin() || isSuperAdmin();
@@ -940,54 +1218,6 @@ service cloud.firestore {
       // Only Admin can add or update service definitions
       allow write: if isAdmin();
     }
-
-
-    // ============================================================
-    // NEW HR & OPERATIONS MODULES (Catch-all for Admin)
-    // ============================================================
-    match /workforce_documents/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
-    match /employee_attendance/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
-    match /employee_salary_structures/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
-    match /document_requirements/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
-    match /background_verification/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
-    match /contracts/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
-    match /physical_files/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
-    match /exit_requests/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
-    match /monthly_payroll_runs/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
-    match /training/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
-
-    match /trips/{id} { allow read, write: if isAdmin() || isHubManager(); }
-    match /assets/{id} { allow read, write: if isAdmin() || isHubManager(); }
-    match /interHubTransfers/{id} { allow read, write: if isAdmin() || isHubManager(); }
-    match /warehouse_inventory/{id} { allow read, write: if isAdmin() || isHubManager(); }
-    
-    match /coupons/{id} { allow read, write: if isAdmin(); }
-    match /b2bOffers/{id} { allow read, write: if isAdmin(); }
-    match /supplier_debit_notes/{id} { allow read, write: if isAdmin(); }
-    match /supplierDebitNotes/{id} { allow read, write: if isAdmin(); }
-
-    // Agricultural Statutory & Compliance Registers
-    match /agri_statutory_form_o/{id} { allow read, write: if isAdmin(); }
-    match /agri_statutory_form_a/{id} { allow read, write: if isAdmin(); }
-    match /agri_officer_inspections/{id} { allow read, write: if isAdmin(); }
-
-    // CRM, Agronomy & Deals
-    match /farmer_crop_profiles/{id} { allow read, write: if isAdmin() || isAuthenticated(); }
-    match /b2b_sales_deals/{id} { allow read, write: if isAdmin(); }
-    match /kisan_call_logs/{id} { allow read, write: if isAdmin(); }
-
-    // Finance, Expenses & System Counters
-    match /expensePayments/{id} { allow read, write: if isAdmin() || canViewFinance(); }
-    match /expenseAuditLogs/{id} { allow read, write: if isAdmin() || canViewFinance(); }
-    match /counters/{id} { allow read, write: if isAdmin() || canViewFinance(); }
-
-    // Inventory & Supply Chain Extended
-    match /physical_stock_audits/{id} { allow read, write: if isAdmin() || isHubManager(); }
-    match /rtv_returns/{id} { allow read, write: if isAdmin() || isHubManager(); }
-
-    // HR & Company Settings
-    match /document_settings/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
-    match /company_holidays/{id} { allow read, write: if isAdmin() || isDepartmentManager(); }
 
     // ============================================================
     // RIDER PAYOUTS & COMMISSIONS
