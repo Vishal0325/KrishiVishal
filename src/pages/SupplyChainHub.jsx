@@ -16,6 +16,7 @@ const ProcurementQueue = React.lazy(() => import("./ProcurementQueue"));
 const AutoReorderEngine = React.lazy(() => import("./supply-chain/AutoReorderEngine"));
 const GoodsReceipt = React.lazy(() => import("./GoodsReceipt"));
 const ReturnToVendor = React.lazy(() => import("./supply-chain/ReturnToVendor"));
+const QuarantineDesk = React.lazy(() => import("./QuarantineDesk"));
 const PhysicalStockAudit = React.lazy(() => import("./inventory/PhysicalStockAudit"));
 const InterHubTransfers = React.lazy(() => import("./InterHubTransfers"));
 const Suppliers = React.lazy(() => import("./Suppliers"));
@@ -35,6 +36,7 @@ export default function SupplyChainHub() {
     { id: "procurement", label: "Purchase Orders (PO)", icon: ClipboardList },
     { id: "reorder", label: "Auto Re-Order (ROL)", icon: ClipboardList },
     { id: "grn", label: "Goods Receipt (GRN)", icon: PackageCheck },
+    { id: "quarantine", label: "Quarantine & Scrap Desk", icon: ArrowRightLeft },
     { id: "rtv", label: "Vendor Returns (RTV)", icon: ArrowRightLeft },
     { id: "audit", label: "Physical Stock Audit", icon: PackageCheck },
     { id: "transfers", label: "Inter-Hub Stock Transfers", icon: ArrowRightLeft },
@@ -79,6 +81,7 @@ export default function SupplyChainHub() {
           {activeTab === "procurement" && <ProcurementQueue />}
           {activeTab === "reorder" && <AutoReorderEngine />}
           {activeTab === "grn" && <GoodsReceipt />}
+          {activeTab === "quarantine" && <QuarantineDesk />}
           {activeTab === "rtv" && <ReturnToVendor />}
           {activeTab === "audit" && <PhysicalStockAudit />}
           {activeTab === "transfers" && <InterHubTransfers />}
