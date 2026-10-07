@@ -90,7 +90,53 @@ class ProductViewModel @Inject constructor(
             }
         }
     }
+
+    // --- CATALOG PAGINATION ---
+    private var lastVisibleDocument: com.google.firebase.firestore.DocumentSnapshot? = null
+    private var isLastPage = false
+    private var isFetchingNextPage = false
+
+    private val _catalogProducts = MutableStateFlow<List<Product>>(emptyList())
+    val catalogProducts: StateFlow<List<Product>> = _catalogProducts.asStateFlow()
+
+    private val _isLoadingNextPage = MutableStateFlow(false)
+    val isLoadingNextPage: StateFlow<Boolean> = _isLoadingNextPage.asStateFlow()
+
+    fun loadInitialCatalog(limit: Long = 20) {
+        viewModelScope.launch {
+            try {
+                val (products, lastDoc) = productRepository.fetchInitialProductPage(limit)
+                lastVisibleDocument = lastDoc
+                isLastPage = products.size < limit || lastDoc == null
+                _catalogProducts.value = products
+            } catch (e: Exception) {
+                timber.log.Timber.e(e, "Error loading initial catalog")
+            }
+        }
+    }
+
+    fun loadNextPage(limit: Long = 20) {
+        val lastDoc = lastVisibleDocument ?: return
+        if (isLastPage || isFetchingNextPage) return
+
+        isFetchingNextPage = true
+        _isLoadingNextPage.value = true
+        viewModelScope.launch {
+            try {
+                val (newProducts, newLastDoc) = productRepository.fetchNextProductPage(lastDoc, limit)
+                lastVisibleDocument = newLastDoc
+                isLastPage = newProducts.size < limit || newLastDoc == null
+                _catalogProducts.update { current -> current + newProducts }
+            } catch (e: Exception) {
+                timber.log.Timber.e(e, "Error loading next catalog page")
+            } finally {
+                isFetchingNextPage = false
+                _isLoadingNextPage.value = false
+            }
+        }
+    }
 }
+
 
 data class ProductUiState(
     val brandProducts: Resource<List<Product>> = Resource.Idle(),

@@ -52,6 +52,8 @@ interface ProductRepository {
     fun getRecommendations(productId: String): Flow<Resource<RecommendationResult>>
     suspend fun resolveHubForPincode(pincode: String?): String
     fun getProductsForHub(hubId: String? = null): Flow<Resource<List<Product>>>
+    suspend fun fetchInitialProductPage(limit: Long = 20): Pair<List<Product>, com.google.firebase.firestore.DocumentSnapshot?>
+    suspend fun fetchNextProductPage(lastDoc: com.google.firebase.firestore.DocumentSnapshot, limit: Long = 20): Pair<List<Product>, com.google.firebase.firestore.DocumentSnapshot?>
 }
 
 @Singleton
@@ -183,12 +185,22 @@ class ProductRepositoryImpl @Inject constructor(
             }
         },
         fetch = {
-            val rawProducts = firestore.collection("products")
-                .whereEqualTo("isActive", true)
-                .limit(50)
-                .get()
-                .await()
-                .mapNotNull { it.toProduct() }
+            val rawProducts = try {
+                firestore.collection("products")
+                    .whereEqualTo("isActive", true)
+                    .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                    .limit(20)
+                    .get()
+                    .await()
+                    .mapNotNull { it.toProduct() }
+            } catch (e: Exception) {
+                firestore.collection("products")
+                    .whereEqualTo("isActive", true)
+                    .limit(20)
+                    .get()
+                    .await()
+                    .mapNotNull { it.toProduct() }
+            }
 
             val effectiveHubId = hubId ?: resolveActiveHubId()
             applySpokeStock(rawProducts, effectiveHubId)
@@ -199,10 +211,85 @@ class ProductRepositoryImpl @Inject constructor(
         dispatcher = ioDispatcher
     )
 
+    override suspend fun fetchInitialProductPage(limit: Long): Pair<List<Product>, com.google.firebase.firestore.DocumentSnapshot?> = kotlinx.coroutines.withContext(ioDispatcher) {
+        try {
+            val query = firestore.collection("products")
+                .whereEqualTo("isActive", true)
+                .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .limit(limit)
+
+            val snapshot = query.get().await()
+            val products = snapshot.documents.mapNotNull { it.toProduct() }
+            val lastDoc = snapshot.documents.lastOrNull()
+
+            val hubId = resolveActiveHubId()
+            val stockedProducts = applySpokeStock(products, hubId)
+            saveProductsToLocal(stockedProducts)
+
+            Pair(stockedProducts, lastDoc)
+        } catch (e: Exception) {
+            Timber.e(e, "Error fetching initial product page with orderBy(createdAt)")
+            try {
+                val fallbackQuery = firestore.collection("products")
+                    .whereEqualTo("isActive", true)
+                    .limit(limit)
+                val snapshot = fallbackQuery.get().await()
+                val products = snapshot.documents.mapNotNull { it.toProduct() }
+                val lastDoc = snapshot.documents.lastOrNull()
+                val hubId = resolveActiveHubId()
+                val stockedProducts = applySpokeStock(products, hubId)
+                saveProductsToLocal(stockedProducts)
+                Pair(stockedProducts, lastDoc)
+            } catch (ex: Exception) {
+                Timber.e(ex, "Fallback initial product fetch failed")
+                Pair(emptyList(), null)
+            }
+        }
+    }
+
+    override suspend fun fetchNextProductPage(lastDoc: com.google.firebase.firestore.DocumentSnapshot, limit: Long): Pair<List<Product>, com.google.firebase.firestore.DocumentSnapshot?> = kotlinx.coroutines.withContext(ioDispatcher) {
+        try {
+            val query = firestore.collection("products")
+                .whereEqualTo("isActive", true)
+                .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .startAfter(lastDoc)
+                .limit(limit)
+
+            val snapshot = query.get().await()
+            val products = snapshot.documents.mapNotNull { it.toProduct() }
+            val nextLastDoc = snapshot.documents.lastOrNull()
+
+            val hubId = resolveActiveHubId()
+            val stockedProducts = applySpokeStock(products, hubId)
+            saveProductsToLocal(stockedProducts)
+
+            Pair(stockedProducts, nextLastDoc)
+        } catch (e: Exception) {
+            Timber.e(e, "Error fetching next product page with orderBy(createdAt)")
+            try {
+                val fallbackQuery = firestore.collection("products")
+                    .whereEqualTo("isActive", true)
+                    .startAfter(lastDoc)
+                    .limit(limit)
+                val snapshot = fallbackQuery.get().await()
+                val products = snapshot.documents.mapNotNull { it.toProduct() }
+                val nextLastDoc = snapshot.documents.lastOrNull()
+                val hubId = resolveActiveHubId()
+                val stockedProducts = applySpokeStock(products, hubId)
+                saveProductsToLocal(stockedProducts)
+                Pair(stockedProducts, nextLastDoc)
+            } catch (ex: Exception) {
+                Timber.e(ex, "Fallback next product page fetch failed")
+                Pair(emptyList(), null)
+            }
+        }
+    }
+
     override fun getProductsPaged(pageSize: Int): Flow<PagingData<Product>> {
         return Pager(
             config = PagingConfig(
                 pageSize = pageSize,
+                initialLoadSize = pageSize,
                 enablePlaceholders = false
             ),
             pagingSourceFactory = { ProductPagingSource(firestore) }

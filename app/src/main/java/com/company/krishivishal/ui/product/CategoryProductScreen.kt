@@ -47,6 +47,22 @@ fun CategoryProductScreen(
         }
     }
 
+    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val totalItemsCount = gridState.layoutInfo.totalItemsCount
+            val lastVisibleItemIndex = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItemsCount > 0 && lastVisibleItemIndex >= (totalItemsCount - 4)
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore) {
+        if (shouldLoadMore) {
+            viewModel.loadNextPage()
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -77,6 +93,7 @@ fun CategoryProductScreen(
                         Text("No products found.", modifier = Modifier.align(Alignment.Center))
                     } else {
                         LazyVerticalGrid(
+                            state = gridState,
                             columns = GridCells.Fixed(2),
                             contentPadding = PaddingValues(16.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),

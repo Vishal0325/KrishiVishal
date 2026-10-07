@@ -15,7 +15,10 @@ fun DocumentSnapshot.toProduct(): Product? {
             val (finalUrl, finalImages) = parseImages(data)
             imageUrl = finalUrl
             images = finalImages
+            thumbnailUrl = (data["thumbnailUrl"] ?: data["thumbUrl"] ?: "").toString().trim().takeIf { it.isNotBlank() && it != "null" }
+            mediumImageUrl = (data["mediumImageUrl"] ?: data["mediumUrl"] ?: "").toString().trim().takeIf { it.isNotBlank() && it != "null" }
             parsePricing(data)
+
             parseReviewsAndFeatures(data)
             parseLogistics(data)
             applyTechnicalMetadata(data)

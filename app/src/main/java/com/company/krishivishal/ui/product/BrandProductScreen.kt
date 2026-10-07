@@ -128,8 +128,12 @@ fun ProductItem(product: Product, onClick: () -> Unit, onShare: () -> Unit) {
                     .background(MaterialTheme.colorScheme.surface),
                 contentAlignment = Alignment.Center
             ) {
+                val displayImageUrl = product.thumbnailUrl
+                    ?: product.mediumImageUrl
+                    ?: product.imageUrl.ifEmpty { product.images.firstOrNull() ?: "" }
+
                 AsyncImage(
-                    model = product.imageUrl.ifEmpty { product.images.firstOrNull() },
+                    model = displayImageUrl,
                     contentDescription = product.name,
                     modifier = Modifier.fillMaxSize().padding(8.dp),
                     contentScale = ContentScale.Fit

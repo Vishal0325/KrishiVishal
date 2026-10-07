@@ -34,55 +34,122 @@ import com.company.krishivishaldelivery.worker.SyncWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.company.krishivishaldelivery.data.local.PreferencesManager
+import com.company.krishivishaldelivery.di.IoDispatcher
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 
 @Singleton
 class OrderRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val firestore: FirebaseFirestore,
     private val functions: FirebaseFunctions,
-    private val deliveryDao: DeliveryDao
+    private val deliveryDao: DeliveryDao,
+    private val preferencesManager: PreferencesManager = PreferencesManager(context),
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     fun getAssignedOrders(): Flow<List<Order>> {
         return deliveryDao.getAllOrders().map { entities ->
             entities.map { it.toDomainModel() }
-        }
+        }.flowOn(ioDispatcher)
     }
 
-    fun getPendingSyncCount(): Flow<Int> = deliveryDao.getPendingSyncCount()
+    fun getPendingSyncCount(): Flow<Int> = deliveryDao.getPendingSyncCount().flowOn(ioDispatcher)
 
-    suspend fun syncAssignedOrders(riderId: String) {
+    /**
+     * Optimized 3G-friendly sync:
+     * 1. If lastSyncTimestamp > 0: Incremental delta sync via whereGreaterThan("updatedAt", lastSyncDate)
+     * 2. If initial load / force: Targeted active query via whereIn("status", activeStatuses)
+     * All Firestore parsing and Room database operations are strictly offloaded to Dispatchers.IO.
+     */
+    suspend fun syncAssignedOrders(riderId: String, forceFullSync: Boolean = false) = withContext(ioDispatcher) {
+        if (riderId.isBlank()) return@withContext
         try {
-            val todayStart = java.util.Calendar.getInstance().apply {
-                set(java.util.Calendar.HOUR_OF_DAY, 0)
-                set(java.util.Calendar.MINUTE, 0)
-                set(java.util.Calendar.SECOND, 0)
-            }.time
+            val lastSyncTimestamp = if (forceFullSync) 0L else preferencesManager.getLastSyncTimestamp(riderId)
+            val syncStartTime = System.currentTimeMillis()
 
-            val snapshot = firestore.collection("orders")
-                .whereEqualTo("riderId", riderId)
-                .whereGreaterThanOrEqualTo("updatedAt", todayStart)
-                .get().await()
+            if (lastSyncTimestamp > 0L) {
+                // Incremental Delta Sync (whereGreaterThan)
+                val deltaSnapshot = try {
+                    firestore.collection("orders")
+                        .whereEqualTo("riderId", riderId)
+                        .whereGreaterThan("updatedAt", Date(lastSyncTimestamp))
+                        .get().await()
+                } catch (e: Exception) {
+                    Timber.w(e, "Delta sync query failed, falling back to targeted active query")
+                    null
+                }
 
-            val orders = snapshot.toObjects(Order::class.java).map { it.copy(isCOD = it.isCOD || it.paymentMethod.equals("COD", ignoreCase = true), codAmount = if (it.codAmount > 0) it.codAmount else it.totalAmount) }
+                if (deltaSnapshot != null) {
+                    val deltaOrders = deltaSnapshot.documents.mapNotNull { doc ->
+                        runCatching {
+                            doc.toObject(Order::class.java)?.copy(
+                                id = doc.id,
+                                isCOD = doc.getBoolean("isCOD") ?: (doc.getString("paymentMethod")?.equals("COD", ignoreCase = true) == true),
+                                codAmount = doc.getDouble("codAmount") ?: doc.getDouble("totalAmount") ?: 0.0
+                            )
+                        }.getOrNull()
+                    }
 
+                    val entities = deltaOrders.map { it.toEntity() }
+                    if (entities.isNotEmpty()) {
+                        deliveryDao.insertOrders(entities)
+                    }
+                    preferencesManager.setLastSyncTimestamp(riderId, syncStartTime)
+                    Timber.d("Incremental delta sync completed for rider $riderId: ${entities.size} orders updated")
+                    return@withContext
+                }
+            }
+
+            // Targeted Active Task Query (Stop Full Hydration)
             val activeStatuses = listOf(
-                OrderStatus.ASSIGNED.name,
-                OrderStatus.PICKED_UP.name,
-                OrderStatus.OUT_FOR_DELIVERY.name,
-                OrderStatus.DELIVERED.name
+                "ASSIGNED",
+                "OUT_FOR_DELIVERY",
+                "IN_PROGRESS",
+                "ACCEPTED",
+                "RIDER_ASSIGNED",
+                "RIDER_ACCEPTED",
+                OrderStatus.PICKED_UP.name
             )
+
+            val snapshot = try {
+                firestore.collection("orders")
+                    .whereEqualTo("riderId", riderId)
+                    .whereIn("status", activeStatuses)
+                    .get().await()
+            } catch (e: Exception) {
+                Timber.w(e, "Targeted active query failed, falling back to basic riderId query")
+                firestore.collection("orders")
+                    .whereEqualTo("riderId", riderId)
+                    .get().await()
+            }
+
+            val orders = snapshot.documents.mapNotNull { doc ->
+                runCatching {
+                    doc.toObject(Order::class.java)?.copy(
+                        id = doc.id,
+                        isCOD = doc.getBoolean("isCOD") ?: (doc.getString("paymentMethod")?.equals("COD", ignoreCase = true) == true),
+                        codAmount = doc.getDouble("codAmount") ?: doc.getDouble("totalAmount") ?: 0.0
+                    )
+                }.getOrNull()
+            }
+
             val filteredOrders = orders.filter { it.status in activeStatuses }
             val entities = filteredOrders.map { it.toEntity() }
 
-            // Atomic: clear + insert ek hi transaction mein — data loss nahi hoga
+            // Atomic clear + insert in transaction on Dispatchers.IO
             deliveryDao.clearAndInsertOrders(entities)
+            preferencesManager.setLastSyncTimestamp(riderId, syncStartTime)
+            Timber.d("Targeted active sync completed for rider $riderId: ${entities.size} orders hydrated")
         } catch (e: Exception) {
             Timber.e(e, "syncAssignedOrders failed for rider: $riderId")
         }
     }
 
-    suspend fun updateOrderStatus(orderId: String, newStatus: String) {
-        if (newStatus == OrderStatus.DELIVERED.name) return
+    suspend fun updateOrderStatus(orderId: String, newStatus: String) = withContext(ioDispatcher) {
+        if (newStatus == OrderStatus.DELIVERED.name) return@withContext
         try {
             deliveryDao.updateOrderStatus(orderId, newStatus, true)
 
@@ -98,8 +165,8 @@ class OrderRepository @Inject constructor(
         }
     }
 
-    suspend fun verifyOrderDelivery(orderId: String, otp: String): Resource<Unit> {
-        return try {
+    suspend fun verifyOrderDelivery(orderId: String, otp: String): Resource<Unit> = withContext(ioDispatcher) {
+        try {
             val data = hashMapOf("orderId" to orderId, "otp" to otp)
             functions.getHttpsCallable("verifyDeliveryOTP").call(data).await()
             deliveryDao.updateOrderStatus(orderId, OrderStatus.DELIVERED.name, false)
@@ -109,7 +176,7 @@ class OrderRepository @Inject constructor(
         }
     }
 
-    suspend fun syncPendingOrders() {
+    suspend fun syncPendingOrders() = withContext(ioDispatcher) {
         val pending = deliveryDao.getPendingSyncOrders()
         pending.forEach { entity ->
             try {
@@ -222,7 +289,7 @@ class OrderRepository @Inject constructor(
         }
     }
 
-    suspend fun fetchOrderForPreview(scannedRawText: String): Order? {
+    suspend fun fetchOrderForPreview(scannedRawText: String): Order? = withContext(ioDispatcher) {
         val trimmed = scannedRawText.trim()
         if (trimmed.startsWith("{") && trimmed.endsWith("}") && trimmed.contains("checksum")) {
             try {
@@ -231,7 +298,7 @@ class OrderRepository @Inject constructor(
                 val verifiedOrderId = data?.get("orderId") as? String
                 if (!verifiedOrderId.isNullOrBlank()) {
                     val doc = firestore.collection("orders").document(verifiedOrderId).get().await()
-                    if (doc.exists()) return doc.toObject(Order::class.java)?.let { it.copy(isCOD = it.isCOD || it.paymentMethod.equals("COD", ignoreCase = true), codAmount = if (it.codAmount > 0) it.codAmount else it.totalAmount) }
+                    if (doc.exists()) return@withContext doc.toObject(Order::class.java)?.let { it.copy(isCOD = it.isCOD || it.paymentMethod.equals("COD", ignoreCase = true), codAmount = if (it.codAmount > 0) it.codAmount else it.totalAmount) }
                 }
             } catch (e: Exception) {
                 Timber.w(e, "verifyScannedQR failed or offline, falling back to local/direct lookup")
@@ -241,10 +308,10 @@ class OrderRepository @Inject constructor(
         val cleanId = extractOrderIdFromScan(scannedRawText)
         val doc = firestore.collection("orders").document(cleanId).get().await()
         if (doc.exists()) {
-            return doc.toObject(Order::class.java)?.let { it.copy(isCOD = it.isCOD || it.paymentMethod.equals("COD", ignoreCase = true), codAmount = if (it.codAmount > 0) it.codAmount else it.totalAmount) }
+            return@withContext doc.toObject(Order::class.java)?.let { it.copy(isCOD = it.isCOD || it.paymentMethod.equals("COD", ignoreCase = true), codAmount = if (it.codAmount > 0) it.codAmount else it.totalAmount) }
         }
         // Fallback: check if id matches prefix
-        return try {
+        try {
             val snap = firestore.collection("orders").whereEqualTo("id", cleanId).get().await()
             snap.documents.firstOrNull()?.toObject(Order::class.java)?.let { it.copy(isCOD = it.isCOD || it.paymentMethod.equals("COD", ignoreCase = true), codAmount = if (it.codAmount > 0) it.codAmount else it.totalAmount) }
         } catch (e: Exception) {
@@ -279,12 +346,12 @@ class OrderRepository @Inject constructor(
         orderLocationThrottleMap.clear()
     }
 
-    suspend fun updateOrderLocation(orderId: String, lat: Double, lng: Double) {
-        if (orderId.isBlank()) return
+    suspend fun updateOrderLocation(orderId: String, lat: Double, lng: Double) = withContext(ioDispatcher) {
+        if (orderId.isBlank()) return@withContext
         val now = System.currentTimeMillis()
 
         if (shouldThrottleLocationUpdate(orderId, lat, lng, now)) {
-            return // Throttled for this specific order
+            return@withContext // Throttled for this specific order
         }
 
         try {
@@ -360,9 +427,9 @@ class OrderRepository @Inject constructor(
                 trySend(incoming)
             }
         awaitClose { listener.remove() }
-    }
+    }.flowOn(ioDispatcher)
 
-    suspend fun acceptAssignedOrder(orderId: String, riderId: String) {
+    suspend fun acceptAssignedOrder(orderId: String, riderId: String) = withContext(ioDispatcher) {
         val data = hashMapOf(
             "orderId" to orderId,
             "targetStatus" to "RIDER_ACCEPTED"
@@ -383,7 +450,7 @@ class OrderRepository @Inject constructor(
         deliveryDao.updateOrderStatus(orderId, "RIDER_ACCEPTED", false)
     }
 
-    suspend fun acceptOrderByScan(orderId: String, riderId: String): Order {
+    suspend fun acceptOrderByScan(orderId: String, riderId: String): Order = withContext(ioDispatcher) {
         val doc = firestore.collection("orders").document(orderId).get().await()
         val order = doc.toObject(Order::class.java)?.let { 
             it.copy(
@@ -431,10 +498,10 @@ class OrderRepository @Inject constructor(
 
         val updatedOrder = order.copy(riderId = riderId, status = targetStatus, isAccepted = true)
         deliveryDao.insertOrder(updatedOrder.toEntity())
-        return updatedOrder
+        updatedOrder
     }
 
-    suspend fun rejectOrder(orderId: String, riderId: String, reason: String) {
+    suspend fun rejectOrder(orderId: String, riderId: String, reason: String) = withContext(ioDispatcher) {
         val payload = mapOf(
             "orderId" to orderId,
             "reason" to reason
@@ -478,9 +545,9 @@ class OrderRepository @Inject constructor(
                 trySend(returnList)
             }
         awaitClose { listener.remove() }
-    }
+    }.flowOn(ioDispatcher)
 
-    suspend fun updateReturnStatus(returnId: String, newStatus: String) {
+    suspend fun updateReturnStatus(returnId: String, newStatus: String) = withContext(ioDispatcher) {
         firestore.collection("returns").document(returnId).update(
             "status", newStatus,
             "updatedAt", FieldValue.serverTimestamp()
@@ -494,8 +561,8 @@ class OrderRepository @Inject constructor(
         qcNote: String,
         photoBitmap: Bitmap? = null,
         qcPhotos: List<String> = emptyList()
-    ): Boolean {
-        return try {
+    ): Boolean = withContext(ioDispatcher) {
+        try {
             val photoUrls = qcPhotos.toMutableList()
             if (photoBitmap != null) {
                 try {
@@ -529,8 +596,8 @@ class OrderRepository @Inject constructor(
         }
     }
 
-    suspend fun depositReturnAtHub(returnId: String, warehouseId: String = ""): Boolean {
-        return try {
+    suspend fun depositReturnAtHub(returnId: String, warehouseId: String = ""): Boolean = withContext(ioDispatcher) {
+        try {
             val data = mapOf(
                 "action" to "DEPOSIT_RETURN_TO_HUB",
                 "payload" to mapOf(
@@ -552,8 +619,8 @@ class OrderRepository @Inject constructor(
         reason: String,
         notes: String,
         photoBitmap: Bitmap?
-    ): Boolean {
-        return try {
+    ): Boolean = withContext(ioDispatcher) {
+        try {
             val photoUrls = mutableListOf<String>()
             if (photoBitmap != null) {
                 try {
@@ -572,7 +639,7 @@ class OrderRepository @Inject constructor(
 
             if (photoUrls.isEmpty()) {
                 Timber.e("No photo uploaded for doorstep return rejection of $returnId")
-                return false
+                return@withContext false
             }
 
             val data = mapOf(
@@ -600,8 +667,8 @@ class OrderRepository @Inject constructor(
         notes: String,
         isRTO: Boolean,
         photoBitmap: Bitmap? = null
-    ): Boolean {
-        return try {
+    ): Boolean = withContext(ioDispatcher) {
+        try {
             val targetStatus = if (isRTO) "RTO_INITIATED" else "REATTEMPT_SCHEDULED"
             val attemptLog = mapOf(
                 "riderId" to riderId,
@@ -680,10 +747,10 @@ class OrderRepository @Inject constructor(
         photoBitmap: Bitmap?,
         signatureBitmap: Bitmap?,
         collectedCash: Double
-    ): Resource<String> {
-        return try {
+    ): Resource<String> = withContext(ioDispatcher) {
+        try {
             val localOrder = deliveryDao.getOrderById(orderId)
-                ?: return Resource.Error("Order not found locally")
+                ?: return@withContext Resource.Error("Order not found locally")
 
             // 1. Verify OTP: try online functions call first, fallback to cached local OTP if offline
             var isOnlineVerified = false
@@ -698,7 +765,7 @@ class OrderRepository @Inject constructor(
                 val isOfflineMatch = cachedOtp.isNotBlank() && (cleanOtp == cachedOtp)
                 
                 if (!isOfflineMatch) {
-                    return Resource.Error("Invalid delivery PIN/OTP. Please check with customer.")
+                    return@withContext Resource.Error("Invalid delivery PIN/OTP. Please check with customer.")
                 }
             }
 
@@ -821,10 +888,10 @@ class OrderRepository @Inject constructor(
                 trySend(records)
             }
         awaitClose { listener.remove() }
-    }
+    }.flowOn(ioDispatcher)
 
-    suspend fun markCashAsDeposited(riderId: String): com.company.krishivishaldelivery.data.model.CashDepositRecord? {
-        return try {
+    suspend fun markCashAsDeposited(riderId: String): com.company.krishivishaldelivery.data.model.CashDepositRecord? = withContext(ioDispatcher) {
+        try {
             deliveryDao.markOrdersAsDeposited(riderId, false)
             val snapshot = firestore.collection("orders")
                 .whereEqualTo("riderId", riderId)
@@ -875,7 +942,7 @@ class OrderRepository @Inject constructor(
         }
     }
 
-    suspend fun completeSettlementLocally(riderId: String) {
+    suspend fun completeSettlementLocally(riderId: String) = withContext(ioDispatcher) {
         deliveryDao.markOrdersAsDeposited(riderId, false)
     }
 

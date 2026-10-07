@@ -341,4 +341,27 @@ class HomeViewModel @Inject constructor(
             else -> {}
         }
     }
+
+    // --- PAGINATION SUPPORT ---
+    private var lastCatalogDoc: com.google.firebase.firestore.DocumentSnapshot? = null
+    private var isCatalogLastPage = false
+    private var isFetchingCatalogNextPage = false
+
+    fun loadNextPage(limit: Long = 20) {
+        val lastDoc = lastCatalogDoc ?: return
+        if (isCatalogLastPage || isFetchingCatalogNextPage) return
+        isFetchingCatalogNextPage = true
+        viewModelScope.launch {
+            try {
+                val (newProducts, nextDoc) = productRepository.fetchNextProductPage(lastDoc, limit)
+                lastCatalogDoc = nextDoc
+                isCatalogLastPage = newProducts.size < limit || nextDoc == null
+            } catch (e: Exception) {
+                timber.log.Timber.e(e, "Error fetching next catalog page")
+            } finally {
+                isFetchingCatalogNextPage = false
+            }
+        }
+    }
 }
+

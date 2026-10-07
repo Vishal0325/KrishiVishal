@@ -166,8 +166,12 @@ fun HomeProductItem(
                     .background(if (isOutOfStock) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f) 
                     else MaterialTheme.colorScheme.surface)
             ) {
+                val displayImageUrl = product.thumbnailUrl
+                    ?: product.mediumImageUrl
+                    ?: product.imageUrl.ifEmpty { product.images.firstOrNull() ?: "" }
+
                 AsyncImage(
-                    model = product.imageUrl.ifEmpty { product.images.firstOrNull() },
+                    model = displayImageUrl,
                     contentDescription = product.name,
                     modifier = Modifier
                         .fillMaxSize()
@@ -511,8 +515,12 @@ fun SearchSuggestionProductItem(
             modifier = Modifier.padding(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            val displayImageUrl = product.thumbnailUrl
+                ?: product.mediumImageUrl
+                ?: product.imageUrl.ifEmpty { product.images.firstOrNull() ?: "" }
+
             AsyncImage(
-                model = product.imageUrl.ifEmpty { product.images.firstOrNull() },
+                model = displayImageUrl,
                 contentDescription = product.name,
                 modifier = Modifier
                     .size(100.dp)

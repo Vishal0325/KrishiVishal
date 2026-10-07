@@ -17,6 +17,7 @@ class ProductPagingSource(
     private val firestore: FirebaseFirestore,
     private val query: Query = firestore.collection("products")
         .whereEqualTo("isActive", true)
+        .orderBy("createdAt", Query.Direction.DESCENDING)
 ) : PagingSource<DocumentSnapshot, Product>() {
 
     override fun getRefreshKey(state: PagingState<DocumentSnapshot, Product>): DocumentSnapshot? {

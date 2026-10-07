@@ -28,5 +28,17 @@ class PreferencesManager @Inject constructor(context: Context) {
         prefs.edit().putString("partner_role", normalized).apply()
         _partnerRoleFlow.value = normalized
     }
+
+    fun getLastSyncTimestamp(riderId: String): Long {
+        return prefs.getLong("last_sync_timestamp_$riderId", 0L)
+    }
+
+    fun setLastSyncTimestamp(riderId: String, timestamp: Long) {
+        prefs.edit().putLong("last_sync_timestamp_$riderId", timestamp).apply()
+    }
+
+    fun clearLastSyncTimestamp(riderId: String) {
+        prefs.edit().remove("last_sync_timestamp_$riderId").apply()
+    }
 }
 

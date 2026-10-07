@@ -43,6 +43,23 @@ fun AllProductsScreen(
     val wishlistItems by viewModel.wishlistItems.collectAsState()
     val context = LocalContext.current
 
+    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+
+    // Pagination Trigger on Scroll: Detect when user reaches near the end (last 3-4 items)
+    val shouldLoadMore by androidx.compose.runtime.remember {
+        androidx.compose.runtime.derivedStateOf {
+            val totalItemsCount = gridState.layoutInfo.totalItemsCount
+            val lastVisibleItemIndex = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItemsCount > 0 && lastVisibleItemIndex >= (totalItemsCount - 4)
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(shouldLoadMore) {
+        if (shouldLoadMore) {
+            viewModel.loadNextPage()
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -60,6 +77,7 @@ fun AllProductsScreen(
 
         Box(modifier = Modifier.fillMaxSize()) {
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Fixed(2),
                 contentPadding = PaddingValues(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),

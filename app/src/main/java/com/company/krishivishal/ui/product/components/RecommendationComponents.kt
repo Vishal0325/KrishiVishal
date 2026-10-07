@@ -75,8 +75,12 @@ fun RecommendedProductCard(
     ) {
         Column {
             Box(modifier = Modifier.height(130.dp).fillMaxWidth()) {
+                val displayImageUrl = product.thumbnailUrl
+                    ?: product.mediumImageUrl
+                    ?: product.imageUrl.ifEmpty { product.images.firstOrNull() ?: "" }
+
                 AsyncImage(
-                    model = product.imageUrl,
+                    model = displayImageUrl,
                     contentDescription = product.name,
                     modifier = Modifier.fillMaxSize().padding(8.dp),
                     contentScale = ContentScale.Fit
