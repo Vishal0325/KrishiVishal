@@ -96,6 +96,9 @@ const FUNCTION_MAP = {
     lockFiscalPeriod: ['./finance/fiscalPeriodEngine', 'lockFiscalPeriod'],
     unlockFiscalPeriod: ['./finance/fiscalPeriodEngine', 'unlockFiscalPeriod'],
     getFiscalPeriodsList: ['./finance/fiscalPeriodEngine', 'getFiscalPeriodsList'],
+    submitApprovalRequest: ['./finance/makerCheckerEngine', 'submitApprovalRequest'],
+    reviewApprovalRequest: ['./finance/makerCheckerEngine', 'reviewApprovalRequest'],
+    getApprovalRequests: ['./finance/makerCheckerEngine', 'getApprovalRequests'],
 
     // --- INVOICES & NOTIFICATIONS (3) ---
     orderDeliveryNotification: ['./invoices/orderDeliveryNotification', 'orderDeliveryNotification'],
