@@ -84,6 +84,9 @@ const FUNCTION_MAP = {
     onCashDepositVerified: ['./finance/ledger', 'onCashDepositVerified'],
     confirmCashSettlement: ['./finance/cashSettlement', 'confirmCashSettlement'],
 
+    // --- INVOICES & NOTIFICATIONS (1) ---
+    orderDeliveryNotification: ['./invoices/orderDeliveryNotification', 'orderDeliveryNotification'],
+
     // --- INVENTORY & WMS (16) ---
     onReturnStockSync: ['./inventory/stock', 'onReturnStockSync'],
     onSkuWrite: ['./inventory/stock', 'onSkuWrite'],
@@ -272,3 +275,28 @@ Object.defineProperty(exports, 'extractVoiceIntent', {
         return _extractVoiceIntent;
     }
 });
+
+// 4. generateWebPThumbnails (Lazy-loaded Cloud Storage WebP Image Resizing Pipeline)
+let _generateWebPThumbnails;
+Object.defineProperty(exports, 'generateWebPThumbnails', {
+    enumerable: true,
+    configurable: true,
+    get() {
+        if (!_generateWebPThumbnails) {
+            if (!process.env.FIREBASE_CONFIG && !process.env.GCLOUD_PROJECT) {
+                process.env.GCLOUD_PROJECT = 'krishivishal-a9ed7';
+                process.env.FIREBASE_CONFIG = JSON.stringify({
+                    projectId: 'krishivishal-a9ed7',
+                    storageBucket: 'krishivishal-a9ed7.firebasestorage.app'
+                });
+            }
+            const functions = require('firebase-functions/v1');
+            _generateWebPThumbnails = functions.region('asia-south1').storage.object().onFinalize(async (object) => {
+                const { handleImageUpload } = require('./media/imageProcessor');
+                return handleImageUpload(object);
+            });
+        }
+        return _generateWebPThumbnails;
+    }
+});
+
