@@ -298,8 +298,20 @@ async function getApprovalRequests(status = "PENDING") {
     if (status && status !== "ALL") {
         q = q.where("status", "==", status);
     }
-    const snap = await q.orderBy("createdAt", "desc").limit(50).get();
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    try {
+        const snap = await q.orderBy("createdAt", "desc").limit(50).get();
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (err) {
+        // Fallback for missing or building composite index: fetch without order and sort in-memory
+        const snap = await q.limit(100).get();
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        docs.sort((a, b) => {
+            const tA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?._seconds ? a.createdAt._seconds * 1000 : new Date(a.createdAt || 0).getTime());
+            const tB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?._seconds ? b.createdAt._seconds * 1000 : new Date(b.createdAt || 0).getTime());
+            return tB - tA;
+        });
+        return docs.slice(0, 50);
+    }
 }
 
 module.exports = {
