@@ -87,15 +87,19 @@ const FUNCTION_MAP = {
     recordSupplierPurchaseInvoice: ['./finance/supplierLedger', 'recordSupplierPurchaseInvoice'],
     recordSupplierPayment: ['./finance/supplierLedger', 'recordSupplierPayment'],
     recognizeOrderDeliveryFinancials: ['./finance/salesLedger', 'recognizeOrderDeliveryFinancials'],
+    generateTrialBalance: ['./finance/financialReports', 'generateTrialBalance'],
+    generateProfitAndLoss: ['./finance/financialReports', 'generateProfitAndLoss'],
+    generateBalanceSheet: ['./finance/financialReports', 'generateBalanceSheet'],
 
     // --- INVOICES & NOTIFICATIONS (3) ---
     orderDeliveryNotification: ['./invoices/orderDeliveryNotification', 'orderDeliveryNotification'],
     getNextInvoiceNumber: ['./invoices/sequentialInvoiceEngine', 'getNextInvoiceNumber'],
     generateCreditNoteForReturn: ['./invoices/creditNoteEngine', 'generateCreditNoteForReturn'],
 
-    // --- TAX, GST & TDS (2) ---
+    // --- TAX, GST & TDS (3) ---
     calculateTaxForOrder: ['./tax/gstEngine', 'calculateTaxForOrder'],
     calculateTdsDeduction: ['./tax/tdsEngine', 'calculateTdsDeduction'],
+    generateGstr1Summary: ['./tax/gstrReportEngine', 'generateGstr1Summary'],
 
     // --- SENSITIVE AUDIT LOGGERS (4) ---
     onFinancialSettingsWritten: ['./security/auditLogger', 'onFinancialSettingsWritten'],
