@@ -265,6 +265,7 @@ exports.receiveGrn = onCall({ region: 'asia-south1' }, async (request) => {
     const grnNumber = grnId;
 
     let totalReceivedUnits = 0;
+    let totalDamagedUnits = 0;
     let totalGRNAmount = 0;
 
     for (const item of items) {
@@ -275,6 +276,7 @@ exports.receiveGrn = onCall({ region: 'asia-south1' }, async (request) => {
         const qty = Number(item.receivedQuantity ?? item.quantity ?? 0);
         const unitCost = Number(item.actualUnitCost ?? item.unitCost ?? 0);
         totalReceivedUnits += qty;
+        totalDamagedUnits += Number(item.damagedQty || 0);
         totalGRNAmount += (qty * unitCost);
     }
 
@@ -319,6 +321,8 @@ exports.receiveGrn = onCall({ region: 'asia-south1' }, async (request) => {
         warehouseId,
         warehouseLocation: warehouseId,
         totalReceivedUnits,
+        totalDamagedUnits,
+        totalAcceptedUnits: totalReceivedUnits - totalDamagedUnits,
         totalGRNAmount,
         items,
         notes: payload.notes || '',
@@ -338,6 +342,15 @@ exports.receiveGrn = onCall({ region: 'asia-south1' }, async (request) => {
         const qty = Number(item.receivedQuantity ?? item.quantity ?? 0);
         if (qty <= 0) continue;
 
+        // Quarantine split (optional): legacy payloads without split => all accepted
+        const hasSplit = item.acceptedQty !== undefined || item.damagedQty !== undefined;
+        const damagedQty = hasSplit ? Number(item.damagedQty || 0) : 0;
+        const acceptedQty = hasSplit ? Number(item.acceptedQty ?? (qty - damagedQty)) : qty;
+        if (hasSplit && damagedQty > 0 && !item.damageReason) {
+            failedItems.push({ skuCode: targetSku, productName: item.productName || targetSku, quantity: qty, error: 'damageReason is required when damagedQty > 0' });
+            continue;
+        }
+
         const cleanBatchNumber = (item.batchNumber || `BAT-${Date.now()}`).trim().toUpperCase();
         const itemKey = `GRN:${grnId}:${targetSku}:${cleanBatchNumber}:${qty}`;
 
@@ -349,6 +362,10 @@ exports.receiveGrn = onCall({ region: 'asia-south1' }, async (request) => {
                     mfgDate: item.mfgDate,
                     expiryDate: item.expiryDate,
                     quantity: qty,
+                    receivedQty: qty,
+                    acceptedQty,
+                    damagedQty,
+                    damageReason: item.damageReason || '',
                     warehouseId,
                     binLocation: item.rackBin || '',
                     supplierId,
