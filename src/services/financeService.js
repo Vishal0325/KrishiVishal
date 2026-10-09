@@ -516,3 +516,29 @@ export function exportToCsv(filename, rows = [], headers = []) {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+
+// --- 5. TALLYPRIME / ERP XML EXPORT ---
+
+export async function exportTallyXmlService({ periodId = null, startDate = null, endDate = null, voucherTypeFilter = "ALL" } = {}) {
+  const fn = httpsCallable(functions, "exportTallyXml");
+  const res = await fn({
+    periodId,
+    startDate,
+    endDate,
+    voucherTypeFilter
+  });
+  return res.data;
+}
+
+export function downloadXmlFile(filename, xmlString) {
+  const blob = new Blob([xmlString], { type: "application/xml;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", filename.endsWith(".xml") ? filename : `${filename}.xml`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+

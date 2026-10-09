@@ -12,7 +12,8 @@ import {
   Layers, 
   Building2,
   Calendar,
-  Lock
+  Lock,
+  FileCode2
 } from "lucide-react";
 import PageHeader from "../../components/common/PageHeader";
 import { 
@@ -20,7 +21,9 @@ import {
   fetchProfitAndLoss, 
   fetchBalanceSheet, 
   fetchGstr1Summary, 
-  exportToCsv 
+  exportToCsv,
+  exportTallyXmlService,
+  downloadXmlFile
 } from "../../services/financeService";
 import toast from "react-hot-toast";
 
@@ -32,6 +35,13 @@ export default function FinanceReports() {
   const [pnlData, setPnlData] = useState(null);
   const [balanceSheetData, setBalanceSheetData] = useState(null);
   const [gstr1Data, setGstr1Data] = useState(null);
+
+  // TallyPrime XML Export State
+  const [tallyStartDate, setTallyStartDate] = useState("2026-10-01");
+  const [tallyEndDate, setTallyEndDate] = useState(new Date().toISOString().split("T")[0]);
+  const [tallyVoucherFilter, setTallyVoucherFilter] = useState("ALL");
+  const [tallyExporting, setTallyExporting] = useState(false);
+  const [tallyExportResult, setTallyExportResult] = useState(null);
 
   const loadData = async (period = periodId) => {
     setLoading(true);
@@ -107,6 +117,32 @@ export default function FinanceReports() {
       { key: "TotalTax", label: "Total Tax (₹)" }
     ]);
     toast.success("GSTR-1 HSN summary exported to CSV");
+  };
+
+  const handleExportTally = async () => {
+    setTallyExporting(true);
+    setTallyExportResult(null);
+    try {
+      const res = await exportTallyXmlService({
+        periodId: periodId || null,
+        startDate: tallyStartDate,
+        endDate: tallyEndDate,
+        voucherTypeFilter: tallyVoucherFilter
+      });
+      if (res && res.success && res.xmlContent) {
+        setTallyExportResult(res);
+        const fileName = `KrishiVishal_Tally_${tallyVoucherFilter}_${tallyStartDate}_to_${tallyEndDate}.xml`;
+        downloadXmlFile(fileName, res.xmlContent);
+        toast.success(`Exported ${res.exportedVouchersCount} vouchers to ${fileName}`);
+      } else {
+        toast.error("No valid balanced vouchers found for selected criteria");
+      }
+    } catch (err) {
+      console.error("Tally XML export error:", err);
+      toast.error(err.message || "Failed to generate Tally XML");
+    } finally {
+      setTallyExporting(false);
+    }
   };
 
   return (
@@ -193,6 +229,18 @@ export default function FinanceReports() {
           >
             <FileSpreadsheet size={15} />
             <span>GSTR-1 Statutory Return</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("tally-export")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeTab === "tally-export"
+                ? "bg-[#0B4D31] text-white shadow-sm"
+                : "bg-white text-gray-600 hover:text-gray-900 border border-gray-100"
+            }`}
+          >
+            <FileCode2 size={15} />
+            <span>TallyPrime / ERP XML Export</span>
           </button>
         </div>
 
@@ -699,6 +747,165 @@ export default function FinanceReports() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. TALLYPRIME / ERP XML EXPORT DESK */}
+      {activeTab === "tally-export" && (
+        <div className="space-y-6">
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-gray-100">
+              <div>
+                <h3 className="text-base font-black text-gray-900 flex items-center gap-2">
+                  <FileCode2 className="text-[#0B4D31]" size={20} />
+                  <span>TallyPrime / ERP XML Export Engine</span>
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Automated export of KrishiVishal General Ledger into official TallyPrime XML schema (Part A: Ledger Masters + Part B: Vouchers).
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={13} />
+                  <span>Tally.imp Compliant (0-Error Import)</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Filter Controls */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 py-6 border-b border-gray-100">
+              <div>
+                <label className="text-[11px] font-bold text-gray-500 uppercase block mb-1.5">
+                  Start Date (तारीख से)
+                </label>
+                <input
+                  type="date"
+                  value={tallyStartDate}
+                  onChange={(e) => setTallyStartDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-800 outline-none focus:border-[#0B4D31]"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-gray-500 uppercase block mb-1.5">
+                  End Date (तारीख तक)
+                </label>
+                <input
+                  type="date"
+                  value={tallyEndDate}
+                  onChange={(e) => setTallyEndDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-800 outline-none focus:border-[#0B4D31]"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-gray-500 uppercase block mb-1.5">
+                  Voucher Type Filter (वाउचर प्रकार)
+                </label>
+                <select
+                  value={tallyVoucherFilter}
+                  onChange={(e) => setTallyVoucherFilter(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-800 outline-none focus:border-[#0B4D31]"
+                >
+                  <option value="ALL">All Vouchers (सभी वाउचर्स)</option>
+                  <option value="Sales">Sales Vouchers (Order Delivery)</option>
+                  <option value="Purchase">Purchase Vouchers (GRN / Supplier)</option>
+                  <option value="Receipt">Receipt Vouchers (Rider / Gateway)</option>
+                  <option value="Payment">Payment Vouchers (Vendor / Expenses)</option>
+                  <option value="Journal">Journal Vouchers (COGS / Adjustments)</option>
+                </select>
+              </div>
+
+              <div className="flex items-end">
+                <button
+                  onClick={handleExportTally}
+                  disabled={tallyExporting}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#0B4D31] hover:bg-[#073321] text-white rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {tallyExporting ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      <span>Generating XML...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download size={14} />
+                      <span>Generate & Download XML</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Results / Status Card */}
+            {tallyExportResult ? (
+              <div className="mt-6 p-4 bg-emerald-50/60 border border-emerald-200 rounded-xl">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h4 className="text-xs font-black text-emerald-900 flex items-center gap-1.5">
+                      <CheckCircle2 size={15} className="text-emerald-700" />
+                      <span>TallyPrime XML Export Successful!</span>
+                    </h4>
+                    <p className="text-[11px] text-emerald-700 mt-1">
+                      File generated for <span className="font-bold">{tallyExportResult.companyName}</span> matching statutory debit-credit balance.
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold bg-white px-2 py-1 rounded text-emerald-800 border border-emerald-200">
+                    {(tallyExportResult.byteLength / 1024).toFixed(1)} KB
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 text-xs">
+                  <div className="bg-white p-2.5 rounded-lg border border-emerald-100">
+                    <span className="text-[10px] text-gray-500 uppercase block">Exported Vouchers</span>
+                    <span className="text-sm font-black text-gray-900 font-mono">
+                      {tallyExportResult.exportedVouchersCount}
+                    </span>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-lg border border-emerald-100">
+                    <span className="text-[10px] text-gray-500 uppercase block">Skipped / Imbalanced</span>
+                    <span className="text-sm font-black text-gray-400 font-mono">
+                      {tallyExportResult.skippedVouchersCount}
+                    </span>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-lg border border-emerald-100">
+                    <span className="text-[10px] text-gray-500 uppercase block">Total Debits</span>
+                    <span className="text-sm font-black text-[#0B4D31] font-mono">
+                      ₹{Number(tallyExportResult.totalDebit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-lg border border-emerald-100">
+                    <span className="text-[10px] text-gray-500 uppercase block">Total Credits</span>
+                    <span className="text-sm font-black text-blue-900 font-mono">
+                      ₹{Number(tallyExportResult.totalCredit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                  <span className="font-bold text-gray-900 block">1. Part A: Master Ledgers</span>
+                  <p className="text-gray-500 mt-1 leading-relaxed text-[11px]">
+                    Automatic creation of all Chart of Accounts (Cash, Bank, Debtors, Creditors, GST, TDS u/s 194Q) with correct Tally parent groups.
+                  </p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                  <span className="font-bold text-gray-900 block">2. Part B: Vouchers</span>
+                  <p className="text-gray-500 mt-1 leading-relaxed text-[11px]">
+                    Delivered sales invoices, supplier GRN bills, rider cash settlements, and vendor payments mapped to standard voucher types.
+                  </p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                  <span className="font-bold text-gray-900 block">3. Mathematical Balance</span>
+                  <p className="text-gray-500 mt-1 leading-relaxed text-[11px]">
+                    ISDEEMEDPOSITIVE rules strictly applied (Debits: Yes / -Amt, Credits: No / +Amt) ensuring zero import errors in Tally.imp.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
