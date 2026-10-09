@@ -100,6 +100,7 @@ const FUNCTION_MAP = {
     submitApprovalRequest: ['./finance/financeCallables', 'submitApprovalRequest'],
     reviewApprovalRequest: ['./finance/financeCallables', 'reviewApprovalRequest'],
     getApprovalRequests: ['./finance/financeCallables', 'getApprovalRequests'],
+    exportTallyXml: ['./finance/financeCallables', 'exportTallyXml'],
 
     // --- INVOICES & NOTIFICATIONS (3) ---
     orderDeliveryNotification: ['./invoices/orderDeliveryNotification', 'orderDeliveryNotification'],

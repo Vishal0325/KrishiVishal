@@ -209,3 +209,32 @@ exports.getApprovalRequests = onCall({ region: REGION }, async (request) => {
         throw new HttpsError("internal", err.message);
     }
 });
+
+// 5. TALLYPRIME / ERP XML EXPORT ENGINE
+const { exportTallyXml } = require("./tallyExportEngine");
+
+exports.exportTallyXml = onCall({ region: REGION }, async (request) => {
+    assertAuth(request);
+    // Role verification: SuperAdmin, FinanceAdmin, Director, Auditor, CFO
+    const userRole = (request.auth.token && (request.auth.token.role || request.auth.token.adminRole)) || "Viewer";
+    const allowedRoles = ["SuperAdmin", "FinanceAdmin", "FinanceManager", "CFO", "Director", "Auditor", "admin", "super_admin"];
+    const isAuthorized = allowedRoles.some(r => r.toLowerCase() === userRole.toLowerCase()) || Boolean(request.auth.token?.isAdmin);
+
+    if (!isAuthorized) {
+        throw new HttpsError("permission-denied", "UNAUTHORIZED: Only Finance Controllers, CFOs, or Statutory Auditors can export Tally XML.");
+    }
+
+    try {
+        const data = request.data || {};
+        return await exportTallyXml({
+            periodId: data.periodId || null,
+            startDate: data.startDate || null,
+            endDate: data.endDate || null,
+            voucherTypeFilter: data.voucherTypeFilter || "ALL"
+        });
+    } catch (err) {
+        console.error("[exportTallyXml] Error:", err);
+        throw new HttpsError("internal", err.message);
+    }
+});
+
