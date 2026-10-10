@@ -23,8 +23,8 @@ const HSN_TAX_SLABS = {
     // SEEDS: 0% GST (Exempt from GST under Notification No. 2/2017-Central Tax (Rate))
     "1209": { rate: 0.00, category: "SEEDS", description: "Seeds, fruit and spores, of a kind used for sowing" },
 
-    // FARM TOOLS & AGRICULTURAL IMPLEMENTS: 12% GST (CGST 6% + SGST 6% or IGST 12%)
-    "8201": { rate: 0.12, category: "FARM_TOOLS", description: "Hand tools, spades, shovels, mattocks, picks, hoes, forks and rakes" }
+    // AGRICULTURAL HAND TOOLS: 0% GST (Exempt under Notification No. 2/2017-Central Tax (Rate), Entry 113)
+    "8201": { rate: 0.00, category: "FARM_TOOLS", description: "Agricultural hand tools, spades, shovels, sickles, khurpi, kodali, mattocks, picks, hoes" }
 };
 
 /**
@@ -64,7 +64,7 @@ function resolveHsnRate(hsnCode, category = null) {
             return { rate: 0.18, category: "PESTICIDES_FUNGICIDES", hsn: "3808" };
         }
         if (catKey.includes("TOOL") || catKey.includes("EQUIP")) {
-            return { rate: 0.12, category: "FARM_TOOLS", hsn: "8201" };
+            return { rate: 0.00, category: "FARM_TOOLS", hsn: "8201" };
         }
     }
 

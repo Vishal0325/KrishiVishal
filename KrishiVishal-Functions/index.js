@@ -102,10 +102,13 @@ const FUNCTION_MAP = {
     getApprovalRequests: ['./finance/financeCallables', 'getApprovalRequests'],
     exportTallyXml: ['./finance/financeCallables', 'exportTallyXml'],
 
-    // --- INVOICES & NOTIFICATIONS (3) ---
+    // --- INVOICES & NOTIFICATIONS (5) ---
     orderDeliveryNotification: ['./invoices/orderDeliveryNotification', 'orderDeliveryNotification'],
     getNextInvoiceNumber: ['./invoices/sequentialInvoiceEngine', 'getNextInvoiceNumber'],
     generateCreditNoteForReturn: ['./invoices/creditNoteEngine', 'generateCreditNoteForReturn'],
+    generateAndUploadCreditNotePdf: ['./invoices/invoiceService', 'generateAndUploadCreditNotePdf'],
+    buildCreditNotePdfBuffer: ['./invoices/invoiceService', 'buildCreditNotePdfBuffer'],
+    onReturnApproved: ['./returns/returnTriggers', 'onReturnApproved'],
 
     // --- TAX, GST & TDS (2) ---
     calculateTaxForOrder: ['./tax/gstEngine', 'calculateTaxForOrder'],

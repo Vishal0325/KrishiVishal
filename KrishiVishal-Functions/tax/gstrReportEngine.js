@@ -26,10 +26,20 @@ async function generateGstr1Summary({ periodId, financialYear = "26-27" }) {
         .where("financialStatus", "==", "RECOGNIZED")
         .get();
 
-    // 2. Fetch all credit notes for this period
-    const creditNotesSnap = await db.collection("credit_notes")
+    // 2. Fetch all credit notes for this period strictly
+    // Credit notes are stored with financialPeriodId (or periodId fallback) and status: "ISSUED"
+    let creditNotesSnap = await db.collection("credit_notes")
+        .where("financialPeriodId", "==", periodId)
         .where("status", "==", "ISSUED")
         .get();
+
+    // Fallback if records were indexed under legacy periodId field
+    if (creditNotesSnap.empty) {
+        creditNotesSnap = await db.collection("credit_notes")
+            .where("periodId", "==", periodId)
+            .where("status", "==", "ISSUED")
+            .get();
+    }
 
     // Data structures for Tables 7, 12, 13
     const table7Map = new Map(); // key: `${state}_${rate}`
@@ -105,30 +115,95 @@ async function generateGstr1Summary({ periodId, financialYear = "26-27" }) {
         }
     }
 
-    // Process Credit Notes for Table 13 and netted adjustments
+    // Process Credit Notes for Table 7 netting, Table 12 reduction, Table 13 serials, and totals
     for (const doc of creditNotesSnap.docs) {
         const cn = doc.data() || {};
         if (cn.creditNoteNo) creditNoteSerials.push(cn.creditNoteNo);
+
+        const cnState = cn.shippingState || "Bihar";
+        const cnItems = cn.items || [];
+
+        // If line items are present on credit note, net per-line
+        if (Array.isArray(cnItems) && cnItems.length > 0) {
+            for (const item of cnItems) {
+                const hsn = String(item.hsn || item.hsnCode || "3808").slice(0, 4);
+                const qty = Number(item.quantity || 1);
+                const taxable = roundCurrency(Number(item.taxableAmount !== undefined ? item.taxableAmount : (item.taxablePrice ? item.taxablePrice * qty : 0)));
+                const rate = Number(item.taxRate !== undefined ? item.taxRate : 0.18);
+                const cgst = roundCurrency(Number(item.cgstAmount || 0));
+                const sgst = roundCurrency(Number(item.sgstAmount || 0));
+                const igst = roundCurrency(Number(item.igstAmount || 0));
+                const totalTax = roundCurrency(cgst + sgst + igst);
+
+                totalTaxableValue -= taxable;
+                totalTaxLiability -= totalTax;
+
+                // Table 7 netting (subtract from respective state + rate bucket)
+                const t7Key = `${cnState}_${rate}`;
+                if (table7Map.has(t7Key)) {
+                    const t7Entry = table7Map.get(t7Key);
+                    t7Entry.taxableValue -= taxable;
+                    t7Entry.cgstAmount -= cgst;
+                    t7Entry.sgstAmount -= sgst;
+                    t7Entry.igstAmount -= igst;
+                    t7Entry.totalTax -= totalTax;
+                }
+
+                // Table 12 netting (subtract returned line item quantities and taxable amounts per HSN)
+                if (table12Map.has(hsn)) {
+                    const t12Entry = table12Map.get(hsn);
+                    t12Entry.totalQuantity -= qty;
+                    t12Entry.totalTaxableValue -= taxable;
+                    t12Entry.cgstAmount -= cgst;
+                    t12Entry.sgstAmount -= sgst;
+                    t12Entry.igstAmount -= igst;
+                    t12Entry.totalTax -= totalTax;
+                }
+            }
+        } else {
+            // Document-level fallback if item breakdown not present (e.g. mock or summary-only credit notes)
+            const cnTaxable = roundCurrency(Number(cn.taxableAmount || 0));
+            const cnCgst = roundCurrency(Number(cn.cgstReversal || cn.cgstAmount || 0));
+            const cnSgst = roundCurrency(Number(cn.sgstReversal || cn.sgstAmount || 0));
+            const cnIgst = roundCurrency(Number(cn.igstReversal || cn.igstAmount || 0));
+            const cnTotalTax = roundCurrency(cnCgst + cnSgst + cnIgst || Number(cn.totalTaxReversal || 0));
+
+            totalTaxableValue -= cnTaxable;
+            totalTaxLiability -= cnTotalTax;
+
+            // Net from first matching state bucket or dominant bucket
+            for (const [key, t7Entry] of table7Map.entries()) {
+                if (key.startsWith(`${cnState}_`)) {
+                    t7Entry.taxableValue -= cnTaxable;
+                    t7Entry.cgstAmount -= cnCgst;
+                    t7Entry.sgstAmount -= cnSgst;
+                    t7Entry.igstAmount -= cnIgst;
+                    t7Entry.totalTax -= cnTotalTax;
+                    break;
+                }
+            }
+        }
     }
 
-    // Format Table 7
+    // Format Table 7 with non-negative lower bounds
     const table7B2C = Array.from(table7Map.values()).map(row => ({
         ...row,
-        taxableValue: roundCurrency(row.taxableValue),
-        cgstAmount: roundCurrency(row.cgstAmount),
-        sgstAmount: roundCurrency(row.sgstAmount),
-        igstAmount: roundCurrency(row.igstAmount),
-        totalTax: roundCurrency(row.totalTax)
+        taxableValue: Math.max(0, roundCurrency(row.taxableValue)),
+        cgstAmount: Math.max(0, roundCurrency(row.cgstAmount)),
+        sgstAmount: Math.max(0, roundCurrency(row.sgstAmount)),
+        igstAmount: Math.max(0, roundCurrency(row.igstAmount)),
+        totalTax: Math.max(0, roundCurrency(row.totalTax))
     }));
 
-    // Format Table 12
+    // Format Table 12 with non-negative lower bounds
     const table12Hsn = Array.from(table12Map.values()).map(row => ({
         ...row,
-        totalTaxableValue: roundCurrency(row.totalTaxableValue),
-        cgstAmount: roundCurrency(row.cgstAmount),
-        sgstAmount: roundCurrency(row.sgstAmount),
-        igstAmount: roundCurrency(row.igstAmount),
-        totalTax: roundCurrency(row.totalTax)
+        totalQuantity: Math.max(0, row.totalQuantity),
+        totalTaxableValue: Math.max(0, roundCurrency(row.totalTaxableValue)),
+        cgstAmount: Math.max(0, roundCurrency(row.cgstAmount)),
+        sgstAmount: Math.max(0, roundCurrency(row.sgstAmount)),
+        igstAmount: Math.max(0, roundCurrency(row.igstAmount)),
+        totalTax: Math.max(0, roundCurrency(row.totalTax))
     }));
 
     // Format Table 13 (Documents Issued)
@@ -158,8 +233,8 @@ async function generateGstr1Summary({ periodId, financialYear = "26-27" }) {
         table7B2C,
         table12Hsn,
         table13Documents,
-        totalTaxableValue: roundCurrency(totalTaxableValue),
-        totalTaxLiability: roundCurrency(totalTaxLiability)
+        totalTaxableValue: Math.max(0, roundCurrency(totalTaxableValue)),
+        totalTaxLiability: Math.max(0, roundCurrency(totalTaxLiability))
     };
 }
 

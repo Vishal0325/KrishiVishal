@@ -25,6 +25,13 @@ function formatCurrency(amt) {
 }
 
 /**
+ * Rounds numeric currency to 2 decimal places cleanly
+ */
+function roundCurrency(num) {
+    return Math.round((Number(num || 0) + Number.EPSILON) * 100) / 100;
+}
+
+/**
  * Generates an in-memory PDF buffer using PDFKit with standard styling.
  */
 function buildInvoicePdfBuffer({ hub, orderMeta, buyer, items, financials, clearTax, qrBuffer }) {
@@ -444,7 +451,296 @@ async function generateAndUploadInvoice(orderId, clearTaxPayload = null, options
     };
 }
 
+/**
+ * Builds an in-memory PDF buffer for a CGST Rule 53 compliant Credit Note.
+ * Conforms strictly to Section 34 of the CGST Act, 2017 & Rule 53.
+ *
+ * @param {object} creditNoteData
+ * @returns {Promise<Buffer>}
+ */
+function buildCreditNotePdfBuffer(creditNoteData) {
+    return new Promise((resolve, reject) => {
+        try {
+            const doc = new PDFDocument({ size: 'A4', margin: 36 });
+            const buffers = [];
+
+            doc.on('data', (chunk) => buffers.push(chunk));
+            doc.on('end', () => resolve(Buffer.concat(buffers)));
+            doc.on('error', (err) => reject(err));
+
+            const contentWidth = 523; // 595 - 2 * 36
+            const leftMargin = 36;
+
+            const cn = creditNoteData || {};
+            const cnNo = cn.creditNoteNo || cn.creditNoteNumber || 'KVCN/26-27/00000';
+            const originalInvNo = cn.originalInvoiceNo || 'N/A';
+            const returnReason = cn.returnReason || 'CUSTOMER_RETURN';
+            const dateStr = formatDate(cn.issuedAt || cn.createdAt || new Date());
+            const invDateStr = formatDate(cn.originalInvoiceDate || cn.orderDate || cn.issuedAt || new Date());
+
+            const supplier = cn.supplier || {
+                name: 'KrishiVishal Private Limited',
+                address: 'Main Road, Samastipur, Bihar - 848101',
+                gstin: '10AAACK9821M1Z5',
+                state: 'Bihar',
+                stateCode: '10'
+            };
+
+            const recipient = cn.recipient || {
+                name: cn.customerName || 'Valued Farmer / Customer',
+                phone: cn.customerPhone || '',
+                address: cn.shippingAddress || 'Samastipur, Bihar',
+                state: cn.shippingState || 'Bihar',
+                stateCode: (cn.shippingState && cn.shippingState.toLowerCase() !== 'bihar') ? '09' : '10'
+            };
+
+            // 1. Header: Brand & Document Type
+            doc.fontSize(16).font('Helvetica-Bold').fillColor('#b71c1c').text('CREDIT NOTE', leftMargin, 36);
+            doc.fontSize(7.5).font('Helvetica').fillColor('#555555').text('(Issued in accordance with Section 34 of the CGST Act, 2017 & Rule 53)', leftMargin, doc.y);
+
+            // Document Meta in Header (Top Right)
+            const metaX = 330;
+            const metaWidth = 229;
+            doc.fontSize(10).font('Helvetica-Bold').fillColor('#b71c1c').text(`Credit Note No: ${cnNo}`, metaX, 36, { align: 'right', width: metaWidth });
+            doc.fontSize(8.5).font('Helvetica').fillColor('#333333');
+            doc.text(`Credit Note Date: ${dateStr}`, metaX, doc.y, { align: 'right', width: metaWidth });
+            doc.text(`Original Tax Invoice No: ${originalInvNo}`, metaX, doc.y, { align: 'right', width: metaWidth });
+            doc.text(`Original Invoice Date: ${invDateStr}`, metaX, doc.y, { align: 'right', width: metaWidth });
+            doc.text(`Reason: ${returnReason}`, metaX, doc.y, { align: 'right', width: metaWidth });
+
+            doc.y = 95;
+            doc.strokeColor('#b71c1c').lineWidth(1.5).moveTo(leftMargin, doc.y).lineTo(leftMargin + contentWidth, doc.y).stroke();
+            doc.y += 8;
+
+            // 2. Supplier Block & Recipient Block (Two Columns)
+            const blockTop = doc.y;
+            const halfWidth = 250;
+
+            // Supplier Block (Left)
+            doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#222222').text('SUPPLIER (ISSUER):', leftMargin, blockTop);
+            doc.font('Helvetica-Bold').fontSize(8).fillColor('#111111').text(supplier.name, leftMargin, doc.y + 2);
+            doc.font('Helvetica').fontSize(7.5).fillColor('#444444');
+            doc.text(supplier.address, leftMargin, doc.y, { width: halfWidth });
+            doc.text(`GSTIN: ${supplier.gstin} | State: ${supplier.state} (Code: ${supplier.stateCode})`, leftMargin, doc.y);
+
+            // Recipient Block (Right)
+            const recX = leftMargin + 273;
+            doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#222222').text('RECIPIENT (CUSTOMER):', recX, blockTop);
+            doc.font('Helvetica-Bold').fontSize(8).fillColor('#111111').text(recipient.name, recX, doc.y + 2);
+            doc.font('Helvetica').fontSize(7.5).fillColor('#444444');
+            if (recipient.phone) doc.text(`Phone: ${recipient.phone}`, recX, doc.y);
+            doc.text(`Address: ${recipient.address}`, recX, doc.y, { width: halfWidth });
+            doc.text(`State: ${recipient.state} (Code: ${recipient.stateCode})`, recX, doc.y);
+
+            doc.y = Math.max(doc.y, blockTop + 55);
+            doc.strokeColor('#e0e0e0').lineWidth(0.75).moveTo(leftMargin, doc.y).lineTo(leftMargin + contentWidth, doc.y).stroke();
+            doc.y += 6;
+
+            // 3. Line Items Table (Rule 53 Compliance)
+            const tableTop = doc.y;
+            doc.rect(leftMargin, tableTop, contentWidth, 18).fill('#fbe9e7');
+
+            const colX = {
+                sno: leftMargin + 4,
+                desc: leftMargin + 24,
+                hsn: leftMargin + 160,
+                qty: leftMargin + 205,
+                rate: leftMargin + 240,
+                taxable: leftMargin + 295,
+                cgst: leftMargin + 355,
+                sgst: leftMargin + 410,
+                total: leftMargin + 465
+            };
+
+            doc.fontSize(6.5).font('Helvetica-Bold').fillColor('#b71c1c');
+            doc.text('S.No', colX.sno, tableTop + 5);
+            doc.text('Item / SKU Description', colX.desc, tableTop + 5);
+            doc.text('HSN', colX.hsn, tableTop + 5);
+            doc.text('Qty', colX.qty, tableTop + 5, { width: 30, align: 'center' });
+            doc.text('Unit Rate', colX.rate, tableTop + 5, { width: 50, align: 'right' });
+            doc.text('Taxable Rev.', colX.taxable, tableTop + 5, { width: 55, align: 'right' });
+            doc.text('CGST', colX.cgst, tableTop + 5, { width: 50, align: 'right' });
+            doc.text('SGST', colX.sgst, tableTop + 5, { width: 50, align: 'right' });
+            doc.text('Total Refund', colX.total, tableTop + 5, { width: 54, align: 'right' });
+
+            let currentY = tableTop + 22;
+            const rawItems = Array.isArray(cn.items) && cn.items.length > 0 ? cn.items : [{
+                name: 'Returned Agri-Input Merchandise',
+                hsn: '3808',
+                quantity: 1,
+                unitPrice: cn.taxableAmount || cn.totalRefundAmount || 0,
+                taxableAmount: cn.taxableAmount || 0,
+                cgstAmount: cn.cgstReversal || 0,
+                sgstAmount: cn.sgstReversal || 0,
+                grandTotal: cn.totalRefundAmount || 0
+            }];
+
+            let totalTaxableReversal = 0;
+            let totalCgstReversal = 0;
+            let totalSgstReversal = 0;
+            let grandRefund = 0;
+
+            rawItems.forEach((item, index) => {
+                if (currentY > 700) {
+                    doc.addPage();
+                    currentY = 40;
+                }
+
+                const qty = Number(item.quantity || 1);
+                const taxable = roundCurrency(Number(item.taxableAmount !== undefined ? item.taxableAmount : ((item.taxablePrice || item.unitPrice || 0) * qty)));
+                const cgst = roundCurrency(Number(item.cgstAmount !== undefined ? item.cgstAmount : 0));
+                const sgst = roundCurrency(Number(item.sgstAmount !== undefined ? item.sgstAmount : 0));
+                const lineTotal = roundCurrency(Number(item.grandTotal !== undefined ? item.grandTotal : (taxable + cgst + sgst)));
+                const unitRate = roundCurrency(Number(item.unitPrice || item.taxablePrice || (taxable / (qty || 1))));
+
+                totalTaxableReversal += taxable;
+                totalCgstReversal += cgst;
+                totalSgstReversal += sgst;
+                grandRefund += lineTotal;
+
+                doc.fontSize(7).font('Helvetica').fillColor('#222222');
+                doc.text(String(index + 1), colX.sno, currentY);
+                doc.text(item.name || item.title || item.skuId || 'Agri Item', colX.desc, currentY, { width: 130, lineBreak: false });
+                doc.text(String(item.hsn || item.hsnCode || '3808').slice(0, 4), colX.hsn, currentY);
+                doc.text(String(qty), colX.qty, currentY, { width: 30, align: 'center' });
+                doc.text(formatCurrency(unitRate), colX.rate, currentY, { width: 50, align: 'right' });
+                doc.text(formatCurrency(taxable), colX.taxable, currentY, { width: 55, align: 'right' });
+                doc.text(formatCurrency(cgst), colX.cgst, currentY, { width: 50, align: 'right' });
+                doc.text(formatCurrency(sgst), colX.sgst, currentY, { width: 50, align: 'right' });
+                doc.text(formatCurrency(lineTotal), colX.total, currentY, { width: 54, align: 'right' });
+
+                currentY += 16;
+                doc.strokeColor('#eeeeee').lineWidth(0.5).moveTo(leftMargin, currentY - 2).lineTo(leftMargin + contentWidth, currentY - 2).stroke();
+            });
+
+            // Fallback totals if document-level summary overrides
+            if (cn.taxableAmount !== undefined) totalTaxableReversal = roundCurrency(Number(cn.taxableAmount));
+            if (cn.cgstReversal !== undefined) totalCgstReversal = roundCurrency(Number(cn.cgstReversal));
+            if (cn.sgstReversal !== undefined) totalSgstReversal = roundCurrency(Number(cn.sgstReversal));
+            if (cn.totalRefundAmount !== undefined) grandRefund = roundCurrency(Number(cn.totalRefundAmount));
+
+            // 4. Summary Box
+            currentY += 8;
+            if (currentY > 670) {
+                doc.addPage();
+                currentY = 40;
+            }
+
+            const totalsLeft = leftMargin + 250;
+            const totalsWidth = contentWidth - 250;
+            const labelWidth = 145;
+            const valWidth = totalsWidth - labelWidth;
+
+            doc.rect(totalsLeft, currentY, totalsWidth, 90).fillAndStroke('#fafafa', '#e0e0e0');
+
+            let lineY = currentY + 8;
+            const addSummaryLine = (label, val, bold = false, color = '#333333') => {
+                doc.fontSize(8).font(bold ? 'Helvetica-Bold' : 'Helvetica').fillColor(color);
+                doc.text(label, totalsLeft + 8, lineY, { width: labelWidth });
+                doc.text(val, totalsLeft + labelWidth, lineY, { width: valWidth - 12, align: 'right' });
+                lineY += 15;
+            };
+
+            addSummaryLine('Net Taxable Value Reversal:', formatCurrency(totalTaxableReversal));
+            addSummaryLine('Total CGST Reversal:', `-${formatCurrency(totalCgstReversal)}`);
+            addSummaryLine('Total SGST Reversal:', `-${formatCurrency(totalSgstReversal)}`);
+            doc.strokeColor('#cccccc').lineWidth(0.5).moveTo(totalsLeft + 5, lineY - 2).lineTo(totalsLeft + totalsWidth - 5, lineY - 2).stroke();
+            lineY += 3;
+            addSummaryLine('Grand Refund Amount:', formatCurrency(grandRefund), true, '#b71c1c');
+
+            // 5. Statutory Footer
+            doc.y = Math.max(currentY + 105, doc.y + 15);
+            if (doc.y > 760) {
+                doc.addPage();
+                doc.y = 750;
+            }
+
+            doc.strokeColor('#b71c1c').lineWidth(1).moveTo(leftMargin, doc.y).lineTo(leftMargin + contentWidth, doc.y).stroke();
+            doc.y += 8;
+            doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#b71c1c').text(
+                'Computer generated credit note issued under Section 34 of the CGST Act, 2017. Tax liability and inventory have been adjusted accordingly.',
+                leftMargin,
+                doc.y,
+                { align: 'center', width: contentWidth }
+            );
+            doc.fontSize(7).font('Helvetica').fillColor('#777777').text(
+                'KrishiVishal Private Limited | Samastipur Central Hub | Help: 1800-123-5747',
+                leftMargin,
+                doc.y + 3,
+                { align: 'center', width: contentWidth }
+            );
+
+            doc.end();
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+
+/**
+ * Builds Credit Note PDF buffer, uploads to Cloud Storage at credit_notes/{creditNoteId}/CN_{cleanNo}.pdf,
+ * and updates credit_notes/{creditNoteId} document with pdfUrl and storagePath.
+ *
+ * @param {string} creditNoteId
+ * @returns {Promise<{ success: boolean, creditNoteNo: string, pdfUrl: string, storagePath: string }>}
+ */
+async function generateAndUploadCreditNotePdf(creditNoteId) {
+    if (!creditNoteId) {
+        throw new Error('Missing creditNoteId for Credit Note PDF generation.');
+    }
+
+    const cnRef = db.collection('credit_notes').doc(creditNoteId);
+    const cnSnap = await cnRef.get();
+    if (!cnSnap.exists) {
+        throw new Error(`Credit Note not found: ${creditNoteId}`);
+    }
+    const cnData = cnSnap.data() || {};
+    const creditNoteNo = cnData.creditNoteNo || cnData.creditNoteNumber || creditNoteId;
+    const cleanNo = creditNoteNo.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    // 1. Render PDF Buffer
+    const pdfBuffer = await buildCreditNotePdfBuffer(cnData);
+
+    // 2. Upload buffer to Firebase Cloud Storage
+    const storagePath = `credit_notes/${creditNoteId}/CN_${cleanNo}.pdf`;
+    const bucket = storage.bucket();
+    const file = bucket.file(storagePath);
+    const downloadToken = randomUUID();
+
+    await file.save(pdfBuffer, {
+        contentType: 'application/pdf',
+        metadata: {
+            contentType: 'application/pdf',
+            metadata: {
+                firebaseStorageDownloadTokens: downloadToken
+            }
+        },
+        resumable: false
+    });
+
+    const bucketName = bucket.name || process.env.STORAGE_BUCKET || 'krishivishal.appspot.com';
+    const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`;
+
+    // 3. Update Firestore Document
+    await cnRef.update({
+        pdfUrl: downloadUrl,
+        storagePath: storagePath,
+        pdfGeneratedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log(`[invoiceService] Successfully generated and uploaded credit note PDF for ${creditNoteId}: ${downloadUrl}`);
+
+    return {
+        success: true,
+        creditNoteNo,
+        pdfUrl: downloadUrl,
+        storagePath
+    };
+}
+
 module.exports = {
     generateAndUploadInvoice,
-    buildInvoicePdfBuffer
+    buildInvoicePdfBuffer,
+    generateAndUploadCreditNotePdf,
+    buildCreditNotePdfBuffer
 };

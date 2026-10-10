@@ -45,7 +45,9 @@ const TDS_SECTIONS = {
         code: "194H",
         name: "Commission or Brokerage",
         aggregateFyThreshold: 15000,
-        rate: 0.05, // 5.0%
+        rate: 0.02, // 2.0% as per Finance (No. 2) Act 2024 effective 01-10-2024 (prior rate 5.0%)
+        ratePriorOct2024: 0.05,
+        effectiveDateOct2024: new Date("2024-10-01T00:00:00Z"),
         accountCode: "2050_TDS_PAYABLE_194H"
     },
     // Section 194Q: Purchase of Goods (High-Value Procurement > ₹50 Lakhs)
@@ -54,13 +56,14 @@ const TDS_SECTIONS = {
         name: "TDS on Purchase of Goods exceeding ₹50L",
         fyThreshold: 5000000,
         rate: 0.001, // 0.1%
+        penalRate: 0.05, // 5.0% Proviso to Section 206AA(1) (Finance Act 2021)
         accountCode: "2050_TDS_PAYABLE_194Q"
     },
     // Section 206AA: Higher rate of TDS in case of non-furnishing or invalid PAN
     SEC_206AA: {
         code: "206AA",
         name: "Penalty TDS for Missing/Invalid PAN",
-        rate: 0.20 // 20.0%
+        rate: 0.20 // 20.0% standard, except 5.0% cap under second proviso for Sec 194Q
     }
 };
 
@@ -73,6 +76,7 @@ const TDS_SECTIONS = {
  * @param {string} [param0.entityType] "INDIVIDUAL" | "HUF" | "COMPANY" | "PARTNERSHIP" | "LLP"
  * @param {string} [param0.pan] 10-character PAN string
  * @param {number} [param0.fyCumulativeAmount] Cumulative prior payments to same vendor/person in current FY
+ * @param {Date|string|number} [param0.date] Transaction date (defaults to current date)
  * @returns {object}
  */
 function calculateTdsDeduction({
@@ -80,7 +84,8 @@ function calculateTdsDeduction({
     amount,
     entityType = "COMPANY",
     pan = null,
-    fyCumulativeAmount = 0
+    fyCumulativeAmount = 0,
+    date = null
 }) {
     const grossAmount = roundCurrency(Number(amount || 0));
     if (grossAmount <= 0) {
@@ -99,9 +104,14 @@ function calculateTdsDeduction({
     const cleanPan = pan ? String(pan).trim().toUpperCase() : null;
     const hasValidPan = isValidPan(cleanPan);
 
-    // Section 206AA Guard: If PAN is missing or invalid, statutory TDS is flat 20.0%
+    // Section 206AA Guard:
+    // In accordance with the Second Proviso to Section 206AA(1) (Finance Act 2021),
+    // penal TDS under Section 194Q for missing/invalid PAN is capped at 5% (0.05) instead of 20% (0.20).
     if (!hasValidPan) {
-        const penaltyRate = TDS_SECTIONS.SEC_206AA.rate; // 0.20
+        const penaltyRate = (secKey === "194Q")
+            ? TDS_SECTIONS.SEC_194Q.penalRate // 0.05 (5.0%)
+            : TDS_SECTIONS.SEC_206AA.rate; // 0.20 (20.0%)
+
         const tdsAmount = roundCurrency(grossAmount * penaltyRate);
         const netPayable = roundCurrency(grossAmount - tdsAmount);
 
@@ -113,7 +123,7 @@ function calculateTdsDeduction({
             netPayable,
             isPanMissingPenalty: true,
             accountCode: secKey === "194H" ? "2050_TDS_PAYABLE_194H" : (secKey === "194Q" ? "2050_TDS_PAYABLE_194Q" : "2050_TDS_PAYABLE_194C"),
-            reason: "INVALID_OR_MISSING_PAN_SECTION_206AA"
+            reason: secKey === "194Q" ? "INVALID_OR_MISSING_PAN_SECTION_206AA_194Q_CAPPED_5PCT" : "INVALID_OR_MISSING_PAN_SECTION_206AA"
         };
     }
 
@@ -135,7 +145,15 @@ function calculateTdsDeduction({
         }
     } else if (secKey === "194H") {
         accountCode = TDS_SECTIONS.SEC_194H.accountCode;
-        applicableRate = TDS_SECTIONS.SEC_194H.rate; // 0.05
+        // Section 194H rate: 2% effective for dates on or after 01-10-2024 (Finance (No. 2) Act 2024)
+        // If an explicit date is provided and prior to 01-10-2024, rate was 5% (0.05)
+        let txDate = date ? new Date(date) : new Date();
+        if (isNaN(txDate.getTime())) txDate = new Date();
+        if (txDate < TDS_SECTIONS.SEC_194H.effectiveDateOct2024) {
+            applicableRate = TDS_SECTIONS.SEC_194H.ratePriorOct2024; // 0.05
+        } else {
+            applicableRate = TDS_SECTIONS.SEC_194H.rate; // 0.02
+        }
 
         // Threshold check: Aggregate in FY > ₹15,000
         if (newTotal > TDS_SECTIONS.SEC_194H.aggregateFyThreshold) {

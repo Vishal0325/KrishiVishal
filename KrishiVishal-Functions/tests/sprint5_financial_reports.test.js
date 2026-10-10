@@ -294,6 +294,8 @@ async function runSprint5TestSuite() {
         // Seed Credit Note
         store.credit_notes.set("CN_GSTR_1", {
             creditNoteNo: "KVCN/26-27/00001",
+            financialPeriodId: periodId,
+            periodId,
             status: "ISSUED"
         });
 

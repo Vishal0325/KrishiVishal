@@ -169,15 +169,28 @@ async function runSprint3TestSuite() {
         // =================================================================
         console.log("\n--- PART 3: Section 194H TDS (Commission > ₹15,000) ---");
 
-        const vleCommissionTds = calculateTdsDeduction({
+        // Legacy date (< 01-10-2024): 5%
+        const vleCommissionTdsLegacy = calculateTdsDeduction({
+            section: "194H",
+            amount: 20000,
+            pan: validPanInd,
+            date: new Date("2024-09-15T00:00:00Z")
+        });
+        assert.strictEqual(vleCommissionTdsLegacy.applicableRate, 0.05);
+        assert.strictEqual(vleCommissionTdsLegacy.tdsAmount, 1000);
+        assert.strictEqual(vleCommissionTdsLegacy.netPayable, 19000);
+        pass("3.1 Section 194H Pre-Oct 2024 VLE Commission: 5% TDS on ₹20,000 = ₹1,000 (Net Payable: ₹19,000)");
+
+        // Statutory update effective 01-10-2024 (Finance (No. 2) Act 2024): 2%
+        const vleCommissionTdsCurrent = calculateTdsDeduction({
             section: "194H",
             amount: 20000,
             pan: validPanInd
         });
-        assert.strictEqual(vleCommissionTds.applicableRate, 0.05);
-        assert.strictEqual(vleCommissionTds.tdsAmount, 1000);
-        assert.strictEqual(vleCommissionTds.netPayable, 19000);
-        pass("3.1 Section 194H VLE Commission: 5% TDS on ₹20,000 = ₹1,000 (Net Payable: ₹19,000)");
+        assert.strictEqual(vleCommissionTdsCurrent.applicableRate, 0.02);
+        assert.strictEqual(vleCommissionTdsCurrent.tdsAmount, 400);
+        assert.strictEqual(vleCommissionTdsCurrent.netPayable, 19600);
+        pass("3.2 Section 194H Post-Oct 2024 VLE Commission: 2% TDS on ₹20,000 = ₹400 (Net Payable: ₹19,600)");
 
         // =================================================================
         // PART 4: INBOUND PURCHASE GRN & DOUBLE-ENTRY LEDGER BALANCE
