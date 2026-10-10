@@ -68,8 +68,10 @@ function resolveHsnRate(hsnCode, category = null) {
         }
     }
 
-    // Default standard rate for unspecified agricultural merchandise (18%)
-    return { rate: 0.18, category: "STANDARD_AGRI", hsn: hsnCode || "3808" };
+    throw new Error(
+        `GST_RULE_46_VIOLATION: Unknown HSN "${hsnCode}" and category "${category}". ` +
+        `Add to HSN_TAX_SLABS in gstEngine.js before processing this product.`
+    );
 }
 
 /**

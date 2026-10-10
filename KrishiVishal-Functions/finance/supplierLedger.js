@@ -64,15 +64,39 @@ async function recordSupplierPurchaseInvoice(invoiceData) {
 
     const { taxableAmount, cgstAmount, sgstAmount, igstAmount, totalTax, grandTotal } = taxCalculation;
 
+    // Helper to get FY string (e.g. "2026-27")
+    const getCurrentFinancialYear = () => {
+        const d = new Date();
+        const month = d.getMonth() + 1;
+        const year = d.getFullYear();
+        return month >= 4 ? `${year}-${String(year+1).slice(2)}` : `${year-1}-${String(year).slice(2)}`;
+    };
+
+    // Helper to calculate cumulative amount for TDS threshold
+    const getFyCumulativeAmount = async (supplierPan, section, financialYear) => {
+        if (!supplierPan) return 0;
+        const snapshot = await db.collection('supplier_invoices')
+            .where('supplierPan', '==', supplierPan)
+            .where('tdsSection', '==', section)
+            .where('financialYear', '==', financialYear)
+            .where('status', '==', 'POSTED')
+            .get();
+        return snapshot.docs.reduce((sum, doc) => sum + (doc.data().taxableAmount || 0), 0);
+    };
+
     // 2. Calculate Statutory TDS (Section 194Q on purchase of goods) if applicable
     let tdsDeduction = { tdsAmount: 0, accountCode: "2050_TDS_PAYABLE_194Q" };
     if (applyTds194Q) {
+        // Retrieve real cumulative amount from Firestore
+        const currentFY = getCurrentFinancialYear();
+        const realCumulativeAmount = await getFyCumulativeAmount(supplierPan, "SEC_194Q", currentFY);
+        
         tdsDeduction = calculateTdsDeduction({
             section: "194Q",
             amount: taxableAmount, // In India, TDS 194Q is deducted on invoice value excluding GST if GST is shown separately
             entityType,
             pan: supplierPan,
-            fyCumulativeAmount
+            fyCumulativeAmount: realCumulativeAmount
         });
     }
 
@@ -157,6 +181,7 @@ async function recordSupplierPurchaseInvoice(invoiceData) {
         entityType,
         grnId: grnId || null,
         periodId,
+        financialYear: getCurrentFinancialYear(),
         taxableAmount,
         cgstAmount,
         sgstAmount,

@@ -192,7 +192,7 @@ function computeCanonicalLinesHash(lines) {
  * @param {object} entryData
  * @returns {Promise<{ success: boolean, entryId: string, totalAmount: number }>}
  */
-async function postJournalEntry(entryData) {
+async function postJournalEntry(entryData, context = null) {
     // 1. Semantic and double-entry arithmetic validation
     const { totalDebit } = validateJournalEntry(entryData);
 
@@ -281,6 +281,18 @@ async function postJournalEntry(entryData) {
 
         const timestamp = entryData.date instanceof Date ? entryData.date : (entryData.date ? new Date(entryData.date) : new Date());
 
+        // Maker-Checker for manual entries
+        const isManualEntry = entryData.source === 'MANUAL' || entryData.isManual === true;
+        const isApproved = entryData.approvedBy && entryData.approvedBy !== entryData.createdBy;
+        let entryStatus = "POSTED";
+
+        if (isManualEntry && !isApproved) {
+            const userRole = context?.auth?.token?.role;
+            if (!['CFO', 'SUPER_ADMIN', 'SuperAdmin'].includes(userRole)) {
+                entryStatus = 'PENDING_APPROVAL';
+            }
+        }
+
         const journalDocPayload = {
             entryId,
             refType: entryData.refType,
@@ -291,10 +303,22 @@ async function postJournalEntry(entryData) {
             totalAmount: totalDebit,
             lineCount: entryData.lines.length,
             linesHash: proposedLinesHash,
-            createdBy: entryData.createdBy || "SYSTEM",
-            status: "POSTED",
+            createdBy: context?.auth?.uid || entryData.createdBy || "SYSTEM",
+            status: entryStatus,
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         };
+
+        if (entryStatus === 'PENDING_APPROVAL') {
+            const approvalRef = db.collection('approval_requests').doc();
+            transaction.set(approvalRef, {
+                type: 'MANUAL_JOURNAL_ENTRY',
+                referenceId: entryId,
+                requestedBy: context?.auth?.uid || entryData.createdBy,
+                requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+                status: 'PENDING',
+                notifyRoles: ['CFO', 'FINANCE_MANAGER']
+            });
+        }
 
         // Write header
         transaction.set(entryRef, journalDocPayload);

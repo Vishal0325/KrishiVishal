@@ -130,6 +130,13 @@ service cloud.firestore {
         allow write: if isAdmin();
       }
     }
+    
+    match /inventory_movements/{movementId} {
+      allow create: if isAuthenticated() && (isAdmin() || isHubManager());
+      allow read: if isAuthenticated() && (isFinanceRole() || isHubManager() || isAdmin());
+      allow update: if false; // IMMUTABLE
+      allow delete: if false; // IMMUTABLE
+    }
 
     match /master_data/{document=**} {
       allow read: if true;
@@ -410,7 +417,10 @@ service cloud.firestore {
 
     match /orders/{orderId} {
 
-      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager() ||
+      allow read: if isAdmin() || isViewer() || isDepartmentManager() ||
+        (
+          isHubManager() && resource.data.hubCode == request.auth.token.hubId
+        ) ||
         (
           isAuthenticated() &&
           resource.data.userId == request.auth.uid
@@ -868,8 +878,8 @@ service cloud.firestore {
     }
 
     match /warehouse_inventory/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
-      allow write: if isAdmin() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isDepartmentManager() || (isHubManager() && resource.data.hubCode == request.auth.token.hubId);
+      allow write: if isAdmin() || (isHubManager() && resource.data.hubCode == request.auth.token.hubId);
     }
 
 

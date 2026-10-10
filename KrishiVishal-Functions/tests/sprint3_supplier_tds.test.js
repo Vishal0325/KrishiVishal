@@ -66,6 +66,23 @@ async function runSprint3TestSuite() {
         }
 
         adminModule.db.collection = function (colName) {
+            const mockQuery = (conditions = []) => {
+                return {
+                    where: (field, op, value) => {
+                        return mockQuery([...conditions, { field, op, value }]);
+                    },
+                    get: async () => {
+                        const table = store[colName] || (store[colName] = new Map());
+                        let docs = Array.from(table.values());
+                        for (const cond of conditions) {
+                            docs = docs.filter(doc => doc[cond.field] === cond.value);
+                        }
+                        return {
+                            docs: docs.map(d => ({ data: () => d }))
+                        };
+                    }
+                };
+            };
             return {
                 doc: (id) => createMockDocRef(colName, id),
                 add: async (payload) => {
@@ -73,7 +90,8 @@ async function runSprint3TestSuite() {
                     const table = store[colName] || (store[colName] = new Map());
                     table.set(newId, payload);
                     return { id: newId };
-                }
+                },
+                where: (field, op, value) => mockQuery([{ field, op, value }])
             };
         };
 
@@ -200,6 +218,22 @@ async function runSprint3TestSuite() {
         // Purchase ₹1,00,000 Fertilizers (5% GST = ₹5,000 GST, Total ₹1,05,000)
         // TDS 194Q = 0.1% of ₹1,00,000 = ₹100
         // Net Payable to Vendor = ₹1,05,000 - ₹100 = ₹1,04,900
+        
+        // Seed the mock store with an existing invoice to breach the 50L threshold
+        const getCurrentFinancialYear = () => {
+            const d = new Date();
+            const month = d.getMonth() + 1;
+            const year = d.getFullYear();
+            return month >= 4 ? `${year}-${String(year+1).slice(2)}` : `${year-1}-${String(year).slice(2)}`;
+        };
+        const table = store['supplier_invoices'] || (store['supplier_invoices'] = new Map());
+        table.set("MOCK_INV_1", {
+            supplierPan: "AABCK9821M",
+            tdsSection: "SEC_194Q",
+            financialYear: getCurrentFinancialYear(),
+            status: "POSTED",
+            taxableAmount: 5500000
+        });
         const purchaseInvoicePayload = {
             supplierId: "SUPPLIER_IFFCO_PATNA",
             supplierInvoiceNo: "INV_IFFCO_2026_098",

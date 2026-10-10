@@ -402,26 +402,21 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                     }
                 }
 
-                const gstRate = Number(skuData?.tax?.gstRate || product.gstRate || 0);
                 const isTaxInclusive = product.isTaxInclusive !== false; // defaults to true
-                
                 const itemTotal = itemPrice * item.quantity;
-                let itemTax = 0;
-                let extraTax = 0;
                 
+                // We'll let calculateTaxForOrder handle the exact CGST/SGST/IGST breakdown later,
+                // but we need to pass the correct base taxable price per unit.
+                let unitTaxable = itemPrice;
                 if (isTaxInclusive) {
-                    const taxable = itemTotal / (1 + (gstRate / 100));
-                    itemTax = itemTotal - taxable;
+                    const gstRate = Number(skuData?.tax?.gstRate || product.gstRate || 18);
+                    unitTaxable = itemPrice / (1 + (gstRate / 100));
                 } else {
-                    itemTax = (itemTotal * gstRate) / 100;
-                    extraTax = itemTax;
+                    totalExtraTax += (itemPrice * 0.18) * item.quantity; // approximate for totalAmount calculation, exact in taxResult
                 }
                 
                 subtotal += itemMrp * item.quantity;
                 totalDiscount += (itemMrp - itemPrice) * item.quantity;
-                totalTax += itemTax;
-                totalExtraTax += extraTax;
-
 
                 items.push({
                     productId: productId,
@@ -430,15 +425,41 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                     imageUrl: product.imageUrl || (Array.isArray(product.images) && product.images[0]) || '',
                     quantity: item.quantity,
                     price: itemPrice,
+                    taxablePrice: unitTaxable,
                     mrp: itemMrp,
                     variantId: item.variantId || null,
                     variantLabel: item.variantLabel || null,
-                    hsnCode: skuData?.tax?.hsnCode || product.hsnCode || "31021010",
-                    gstRate: gstRate,
-                    gstAmount: itemTax,
+                    hsnCode: skuData?.tax?.hsnCode || product.hsnCode || "3808",
+                    category: product.category || "",
                     fulfillmentType,
                     batchAllocations: []
                 });
+            }
+
+            const { calculateTaxForOrder } = require("../tax/gstEngine");
+            const taxResult = calculateTaxForOrder({
+                shippingState: structuredAddress.state,
+                items: items.map(i => ({
+                    taxablePrice: i.taxablePrice,
+                    quantity: i.quantity,
+                    hsnCode: i.hsnCode,
+                    category: i.category
+                }))
+            });
+
+            // Update items with exact tax breakdown from engine
+            taxResult.items.forEach((taxLine, i) => {
+                items[i].gstRate = taxLine.taxRate;
+                items[i].gstAmount = taxLine.lineTax;
+                items[i].cgstAmount = taxLine.cgstAmount;
+                items[i].sgstAmount = taxLine.sgstAmount;
+                items[i].igstAmount = taxLine.igstAmount;
+            });
+
+            totalTax = taxResult.totalTax;
+            if (items.some(i => i.taxablePrice === i.price)) {
+                // Exclusive tax case: tax is extra
+                totalExtraTax = totalTax;
             }
 
             const settingsData = settingsSnap.exists ? settingsSnap.data() : {};
@@ -534,6 +555,9 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 items,
                 subtotal: netCartValue,
                 totalTax,
+                cgstAmount: taxResult.cgstAmount,
+                sgstAmount: taxResult.sgstAmount,
+                igstAmount: taxResult.igstAmount,
                 deliveryCharge,
                 deliveryCharges: deliveryCharge,
                 totalAmount,
@@ -559,7 +583,15 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 });
             }
 
-            // 2. Decrement inventory stock
+            // Helper to get FY string
+            const getFY = () => {
+                const d = new Date();
+                const m = d.getMonth() + 1;
+                const y = d.getFullYear();
+                return m >= 4 ? `${y}-${String(y+1).slice(2)}` : `${y-1}-${String(y).slice(2)}`;
+            };
+
+            // 2. Decrement inventory stock & append movement ledger
             for (const su of skuStockUpdates) {
                 if (su.type === 'SKU') {
                     transaction.update(su.ref, {
@@ -568,6 +600,23 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                         updatedAt: admin.firestore.FieldValue.serverTimestamp()
                     });
                 }
+            }
+
+            for (const item of items) {
+                if (item.fulfillmentType === 'ON_DEMAND') continue;
+                const movementRef = db.collection('inventory_movements').doc();
+                transaction.set(movementRef, {
+                    skuId: item.productId || item.skuCode,
+                    skuCode: item.skuCode,
+                    type: 'OUTWARD',
+                    qty: item.quantity,
+                    costPerUnit: item.price,
+                    orderId: orderId,
+                    hubCode: assignedWarehouseId,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    createdBy: 'SYSTEM_ORDER_FLOW',
+                    financialYear: getFY()
+                });
             }
 
             for (const [pId, pCached] of productDocMap.entries()) {
