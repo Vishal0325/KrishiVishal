@@ -79,7 +79,19 @@ exports.riderMutations = onCall({ region: REGION, invoker: 'public' }, async (re
         }
         
         if (Object.keys(safeUpdates).length > 0) {
-            await orderRef.update(safeUpdates);
+            const isCOD = String(orderData.paymentMethod).toUpperCase() === 'COD' && safeUpdates.status === 'DELIVERED';
+            const riderRef = db.collection('riders').doc(context.auth.uid);
+            
+            await db.runTransaction(async (t) => {
+                t.update(orderRef, safeUpdates);
+                if (isCOD) {
+                    const amount = Number(orderData.grandTotal || orderData.totalAmount || 0);
+                    t.set(riderRef, {
+                        cash_in_hand: admin.firestore.FieldValue.increment(amount),
+                        last_cod_delivery_at: admin.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
+                }
+            });
         }
         return { success: true };
 
@@ -375,4 +387,66 @@ exports.riderMutations = onCall({ region: REGION, invoker: 'public' }, async (re
     }
 
     throw new HttpsError('invalid-argument', 'Unknown action');
+});
+
+exports.settleRiderCash = onCall({ region: REGION, invoker: 'public' }, async (request) => {
+    const { riderId, amount, action, settlementId } = request.data || {};
+    const context = { auth: request.auth };
+    if (!context.auth) throw new HttpsError('unauthenticated', 'Login required.');
+
+    // 1. Rider initiates request
+    if (action === 'REQUEST_SETTLEMENT') {
+        const riderRef = db.collection('riders').doc(context.auth.uid);
+        const riderSnap = await riderRef.get();
+        if ((riderSnap.data()?.cash_in_hand || 0) < amount) throw new HttpsError('invalid-argument', 'Insufficient cash in hand to settle');
+        
+        const docRef = await db.collection('cash_settlements').add({
+            riderId: context.auth.uid,
+            amount: Number(amount),
+            status: "PENDING",
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        return { success: true, settlementId: docRef.id };
+    }
+
+    // 2. Hub Manager confirms
+    if (action === 'CONFIRM_SETTLEMENT') {
+        const role = context.auth.token?.role || '';
+        if (role !== 'HUB_MANAGER' && role !== 'SUPER_ADMIN' && role !== 'CFO') {
+            throw new HttpsError('permission-denied', 'Only Hub Manager can confirm settlement');
+        }
+        
+        const setRef = db.collection('cash_settlements').doc(settlementId);
+        await db.runTransaction(async (t) => {
+            const setSnap = await t.get(setRef);
+            if (!setSnap.exists || setSnap.data().status !== 'PENDING') throw new HttpsError('failed-precondition', 'Invalid or already settled');
+            
+            const rId = setSnap.data().riderId;
+            const amt = setSnap.data().amount;
+            
+            t.update(setRef, { status: "SETTLED", settledAt: admin.firestore.FieldValue.serverTimestamp(), settledBy: context.auth.uid });
+            t.set(db.collection('riders').doc(rId), { cash_in_hand: admin.firestore.FieldValue.increment(-amt) }, { merge: true });
+            
+            const { postJournalEntry } = require('../finance/generalLedger');
+            
+            const d = new Date();
+            const m = d.getMonth() + 1;
+            const y = d.getFullYear();
+            const periodId = m >= 4 ? `${y}-${String(y+1).slice(2)}` : `${y-1}-${String(y).slice(2)}`;
+
+            await postJournalEntry({
+                refType: 'CASH_SETTLEMENT', // Standardizing
+                refId: settlementId,
+                periodId: periodId,
+                date: new Date(),
+                memo: `Rider cash settlement confirmed by ${context.auth.uid}`,
+                lines: [
+                    { accountCode: '1020_HUB_CASH_VAULT', debit: amt, credit: 0 },
+                    { accountCode: '1010_CASH_IN_HAND_RIDERS', debit: 0, credit: amt }
+                ],
+                createdBy: context.auth.uid
+            }, t);
+        });
+        return { success: true };
+    }
 });

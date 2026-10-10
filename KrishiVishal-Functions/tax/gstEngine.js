@@ -27,6 +27,22 @@ const HSN_TAX_SLABS = {
     "8201": { rate: 0.00, category: "FARM_TOOLS", description: "Agricultural hand tools, spades, shovels, sickles, khurpi, kodali, mattocks, picks, hoes" }
 };
 
+const INDIAN_STATE_CODES = {
+  "01": "jammu and kashmir", "02": "himachal pradesh",
+  "03": "punjab", "04": "chandigarh", "05": "uttarakhand",
+  "06": "haryana", "07": "delhi", "08": "rajasthan",
+  "09": "uttar pradesh", "10": "bihar", "11": "sikkim",
+  "12": "arunachal pradesh", "13": "nagaland", "14": "manipur",
+  "15": "mizoram", "16": "tripura", "17": "meghalaya",
+  "18": "assam", "19": "west bengal", "20": "jharkhand",
+  "21": "odisha", "22": "chhattisgarh", "23": "madhya pradesh",
+  "24": "gujarat", "25": "daman and diu", "26": "dadra and nagar haveli",
+  "27": "maharashtra", "28": "andhra pradesh", "29": "karnataka",
+  "30": "goa", "31": "lakshadweep", "32": "kerala",
+  "33": "tamil nadu", "34": "puducherry", "35": "andaman and nicobar",
+  "36": "telangana", "37": "andhra pradesh new", "38": "ladakh"
+};
+
 /**
  * Normalizes state name to check for intra-state vs inter-state supply.
  * @param {string} stateName 
@@ -34,8 +50,28 @@ const HSN_TAX_SLABS = {
  */
 function isIntraStateSupply(stateName) {
     if (!stateName || typeof stateName !== "string") return true; // Default fallback to Intra-state
-    const normalized = stateName.trim().toLowerCase();
-    return normalized === ORIGIN_STATE || normalized === "10" || normalized === "10 (bihar)";
+    let normalized = stateName.trim().toLowerCase();
+    
+    // Find if it's a valid state name or code
+    let isValid = false;
+    if (INDIAN_STATE_CODES[normalized]) {
+        isValid = true;
+    } else {
+        // Remove state code prefix if present, e.g., "10 (bihar)" -> "bihar"
+        const nameMatch = Object.values(INDIAN_STATE_CODES).find(name => normalized.includes(name));
+        if (nameMatch) {
+            normalized = nameMatch;
+            isValid = true;
+        }
+    }
+
+    if (!isValid) {
+        const error = new Error(`INVALID_STATE_CODE: Unrecognized destination state '${stateName}'`);
+        error.code = 'INVALID_STATE_CODE';
+        throw error;
+    }
+
+    return normalized === "10" || normalized === "bihar" || normalized === "10 (bihar)";
 }
 
 /**

@@ -251,6 +251,20 @@ async function generateAndUploadInvoice(orderId, clearTaxPayload = null, options
         throw new Error(`Order not found: ${orderId}`);
     }
     const order = orderSnap.data() || {};
+    const isProvisional = Boolean(options && (options.isProvisional || options.documentType === 'PACKING_SLIP' || options.documentType === 'PROVISIONAL'));
+
+    // Idempotency: For official tax invoices, if valid official invoiceUrl already exists, reuse it without re-generating/re-uploading
+    if (!isProvisional && !options.forceRegenerate && (order.invoiceUrl || order.invoice?.pdfUrl)) {
+        const existingUrl = order.invoiceUrl || order.invoice?.pdfUrl;
+        const existingInvoiceNum = order.invoiceNumber || order.invoice?.invoiceNumber;
+        console.log(`[invoiceService] Order ${orderId} already possesses official invoice PDF: ${existingUrl}`);
+        return {
+            success: true,
+            alreadyGenerated: true,
+            invoiceNumber: existingInvoiceNum,
+            downloadUrl: existingUrl
+        };
+    }
 
     // 2. Hub Details
     const hub = {
@@ -268,7 +282,6 @@ async function generateAndUploadInvoice(orderId, clearTaxPayload = null, options
     };
 
     // 3. Order Metadata & Sequential Invoice Number Allocation
-    const isProvisional = Boolean(options && (options.isProvisional || options.documentType === 'PACKING_SLIP' || options.documentType === 'PROVISIONAL'));
     let invoiceNumber = order.invoiceNumber || (order.invoice && order.invoice.invoiceNumber);
 
     if (isProvisional) {

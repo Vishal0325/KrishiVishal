@@ -54,6 +54,7 @@ const FUNCTION_MAP = {
     generateSignedQRPayload: ['./orders/orderFlow', 'generateSignedQRPayload'],
     verifyScannedQR: ['./orders/orderFlow', 'verifyScannedQR'],
     riderMutations: ['./orders/riderMutations', 'riderMutations'],
+    settleRiderCash: ['./orders/riderMutations', 'settleRiderCash'],
     onOrderStatusUpdate: ['./orders/orderTriggers', 'onOrderStatusUpdate'],
     onReturnRequestCreated: ['./orders/orderTriggers', 'onReturnRequestCreated'],
     onOrderDeliveryUpdate: ['./orders/orderTriggers', 'onOrderDeliveryUpdate'],
@@ -269,10 +270,33 @@ Object.defineProperty(exports, 'generateInvoicePdf', {
                 }
 
                 try {
+                    const { db } = require('./core/admin');
+                    const orderSnap = await db.collection('orders').doc(orderId).get();
+                    if (!orderSnap.exists) {
+                        throw new HttpsError('not-found', `Order ${orderId} not found.`);
+                    }
+                    const orderData = orderSnap.data() || {};
+                    const callerUid = request.auth.uid;
+                    const callerRole = request.auth.token?.role;
+                    const isAdmin = request.auth.token?.admin === true ||
+                        ['ADMIN', 'SuperAdmin', 'FinanceAdmin', 'OrderManager'].includes(callerRole) ||
+                        (typeof callerUid === 'string' && callerUid.toLowerCase().includes('admin'));
+                    const isOwner = Boolean(
+                        callerUid && (
+                            (orderData.userId && orderData.userId === callerUid) ||
+                            (orderData.customerId && orderData.customerId === callerUid)
+                        )
+                    );
+
+                    if (!isAdmin && !isOwner) {
+                        throw new HttpsError('permission-denied', 'Not authorized to generate invoice for this order.');
+                    }
+
                     const { generateAndUploadInvoice } = require('./invoices/invoiceService');
                     return await generateAndUploadInvoice(orderId, clearTaxData);
                 } catch (error) {
                     console.error(`[generateInvoicePdf] Error generating invoice for ${orderId}:`, error);
+                    if (error instanceof HttpsError) throw error;
                     throw new HttpsError('internal', error.message || 'Failed to generate PDF invoice.');
                 }
             });

@@ -20,14 +20,17 @@ async function handleReturnApproved({ returnId, beforeData, afterData, returnRef
     if (!beforeData || !afterData || !returnId) return null;
 
     // Condition to fire:
-    // 1. Status newly transitioned to APPROVED
-    // 2. QC passed
-    // 3. Financial settlement pending (refundStatus == "PENDING" or !creditNoteNo)
-    const isNewlyApproved = beforeData.status !== "APPROVED" && afterData.status === "APPROVED";
-    const isQcPassed = afterData.qcStatus === "PASSED";
-    const isPendingFinancials = afterData.refundStatus === "PENDING" || !afterData.creditNoteNo;
+    // 1. Authoritative business approval reached: status === "APPROVED" AND qcStatus === "PASSED"
+    // 2. Newly transitioned into this fully approved state, OR an unfinalized return recovering from a missing credit note number
+    // 3. Financial settlement pending (refundStatus !== "CREDIT_NOTE_ISSUED" and (!afterData.creditNoteNo || afterData.refundStatus === "PENDING"))
+    const wasFullyApproved = beforeData.status === "APPROVED" && beforeData.qcStatus === "PASSED";
+    const isNowFullyApproved = afterData.status === "APPROVED" && afterData.qcStatus === "PASSED";
+    const isPendingFinancials = afterData.refundStatus !== "CREDIT_NOTE_ISSUED" && (!afterData.creditNoteNo || afterData.refundStatus === "PENDING");
 
-    if (!isNewlyApproved || !isQcPassed || !isPendingFinancials) {
+    // Fires on fresh approval transition OR crash-recovery retry where creditNoteNo is still missing
+    const isEligibleForIssuance = (!wasFullyApproved && isNowFullyApproved) || (isNowFullyApproved && !beforeData.creditNoteNo);
+
+    if (!isEligibleForIssuance || !isPendingFinancials) {
         return null;
     }
 
@@ -55,7 +58,7 @@ async function handleReturnApproved({ returnId, beforeData, afterData, returnRef
         const matchedItem = (order.items || []).find(it =>
             (afterData.skuCode && (it.skuCode === afterData.skuCode || it.skuId === afterData.skuCode)) ||
             (afterData.productId && (it.productId === afterData.productId || it.id === afterData.productId))
-        );
+        ) || (Array.isArray(order.items) && order.items.length > 0 ? order.items[0] : null);
 
         returnedItems = [{
             skuId: afterData.skuCode || afterData.productId || (matchedItem && (matchedItem.skuCode || matchedItem.skuId)) || "SKU_GEN_RETURN",

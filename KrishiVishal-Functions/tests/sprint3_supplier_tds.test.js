@@ -24,6 +24,7 @@ function fail(testName, err) {
 async function runSprint3TestSuite() {
     const originalCollection = adminModule.db.collection;
     const originalRunTransaction = adminModule.db.runTransaction;
+    const originalBatch = adminModule.db.batch;
 
     try {
         // Mock In-memory Firestore store
@@ -92,6 +93,26 @@ async function runSprint3TestSuite() {
                     return { id: newId };
                 },
                 where: (field, op, value) => mockQuery([{ field, op, value }])
+            };
+        };
+
+        adminModule.db.batch = function () {
+            const operations = [];
+            return {
+                set: (docRef, data, options) => {
+                    operations.push(() => docRef.set(data, options));
+                },
+                update: (docRef, data) => {
+                    operations.push(() => docRef.update(data));
+                },
+                delete: (docRef) => {
+                    operations.push(() => docRef.delete());
+                },
+                commit: async () => {
+                    for (const op of operations) {
+                        await op();
+                    }
+                }
             };
         };
 
@@ -251,7 +272,9 @@ async function runSprint3TestSuite() {
                     name: "Neem Coated Urea",
                     hsnCode: "3102",
                     quantity: 400,
-                    taxableAmount: 100000
+                    taxableAmount: 100000,
+                    batchNumber: "BATCH-IFFCO-2026-01",
+                    expiryDate: "2028-12-31"
                 }
             ],
             createdBy: "PROCUREMENT_MANAGER_SHARMA"
@@ -340,6 +363,7 @@ async function runSprint3TestSuite() {
     } finally {
         adminModule.db.collection = originalCollection;
         adminModule.db.runTransaction = originalRunTransaction;
+        adminModule.db.batch = originalBatch;
     }
 
     console.log("\n=================================================================");

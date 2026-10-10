@@ -52,7 +52,7 @@ function getTimestampMillis(ts) {
 /**
  * Concurrency-safe consecutive credit note number generator.
  * Format: KVCN/{FY}/{SEQUENCE_5_DIGITS} (e.g. KVCN/26-27/00001)
- * Statutory limit: <= 16 characters.
+ * Statutory limit: <= 16 characters (Rule 53 CGST).
  * 
  * @param {string} [financialYear] e.g. "26-27"
  * @param {string} [prefix] defaults to "KVCN"
@@ -389,7 +389,7 @@ async function generateCreditNoteForReturn({
                 if (existingJeSnap.exists) {
                     const existingJe = existingJeSnap.data();
                     journalEntryId = existingJe.entryId;
-                    if (existingJe.refId && existingJe.refId.startsWith("KVCN/")) {
+                    if (existingJe.refId && (existingJe.refId.startsWith("KVCN/") || existingJe.refId.startsWith("KV/CN/"))) {
                         creditNoteNumber = existingJe.refId;
                         creditNoteId = creditNoteNumber.replace(/\//g, "_");
                     }

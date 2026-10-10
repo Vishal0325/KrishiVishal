@@ -1292,6 +1292,18 @@ exports.verifyScannedQR = onCall({ region: REGION, secrets: [qrHmacSecret], invo
     const isRider = ['rider'].includes(role);
     if (isRider) {
         if (!orderData.riderId) {
+            // Check COD skimming rules
+            const riderDoc = await db.collection("riders").doc(context.auth.uid).get();
+            const rData = riderDoc.data() || {};
+            if (rData.cash_in_hand > 0 && rData.last_cod_delivery_at) {
+                const msSinceLast = Date.now() - rData.last_cod_delivery_at.toMillis();
+                if (msSinceLast > 24 * 60 * 60 * 1000) {
+                    const err = new HttpsError('failed-precondition', 'Rider must deposit COD cash to hub before new assignments');
+                    err.code = 'RIDER_CASH_SETTLEMENT_PENDING';
+                    throw err;
+                }
+            }
+
             await orderRef.update({
                 riderId: context.auth.uid,
                 status: 'ASSIGNED',

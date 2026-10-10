@@ -7,20 +7,31 @@ if (!admin.apps.length) {
 }
 const axios = require('axios');
 
-exports.orderDeliveryNotification = onDocumentUpdated({
-    document: 'orders/{orderId}',
-    region: 'asia-south1'
-}, async (event) => {
-    const orderId = event.params.orderId;
-    const beforeData = event.data.before.data() || {};
-    const afterData = event.data.after.data() || {};
+/**
+ * Core business handler for order delivery:
+ * 1. Revenue recognition & COGS matching (Ind AS 115 / Rule 46).
+ * 2. Automated Rule 46 Official Invoice PDF generation & storage upload.
+ * 3. WhatsApp customer invoice dispatch notification.
+ *
+ * @param {object} params
+ * @param {string} params.orderId
+ * @param {object} params.beforeData
+ * @param {object} params.afterData
+ * @param {FirebaseFirestore.DocumentReference} [params.orderRef]
+ * @returns {Promise<object|null>}
+ */
+async function handleOrderDelivery({ orderId, beforeData, afterData, orderRef = null }) {
+    if (!orderId || !beforeData || !afterData) return null;
 
     // Condition: Check if status changed TO 'DELIVERED'
     if (beforeData.status === 'DELIVERED' || afterData.status !== 'DELIVERED') {
         return null;
     }
 
-    // --- REVENUE RECOGNITION & COGS MATCHING (Sprint 4 CA Compliance) ---
+    const db = getFirestore();
+    const targetOrderRef = orderRef || db.collection('orders').doc(orderId);
+
+    // --- 1. REVENUE RECOGNITION & COGS MATCHING (Sprint 4 CA Compliance) ---
     try {
         if (!afterData.financialStatus || afterData.financialStatus !== 'RECOGNIZED') {
             const { recognizeOrderDeliveryFinancials } = require('../finance/salesLedger');
@@ -36,8 +47,33 @@ exports.orderDeliveryNotification = onDocumentUpdated({
         console.error(`[orderDeliveryNotification] Error recognizing financials for order ${orderId}:`, finErr);
     }
 
-    const db = getFirestore();
-    const invoicePdfUrl = afterData.invoiceUrl || afterData.invoice?.pdfUrl || afterData.invoicePdfUrl;
+    // --- 2. AUTOMATIC RULE 46 OFFICIAL INVOICE PDF GENERATION ---
+    let invoicePdfUrl = afterData.invoiceUrl || afterData.invoice?.pdfUrl || afterData.invoicePdfUrl;
+    if (!invoicePdfUrl) {
+        try {
+            const { generateAndUploadInvoice } = require('./invoiceService');
+            const pdfResult = await generateAndUploadInvoice(orderId);
+            if (pdfResult && pdfResult.downloadUrl) {
+                invoicePdfUrl = pdfResult.downloadUrl;
+                console.log(`[orderDeliveryNotification] Successfully generated official invoice PDF for delivered order ${orderId}: ${invoicePdfUrl}`);
+            }
+        } catch (pdfErr) {
+            console.error(`[orderDeliveryNotification] Failed to generate official invoice PDF for order ${orderId}:`, pdfErr);
+            // Record actionable error in order document while preserving financial recognition state
+            try {
+                await targetOrderRef.set({
+                    invoiceGenerationError: {
+                        message: pdfErr.message || 'PDF_GENERATION_FAILED',
+                        timestamp: admin.firestore.FieldValue.serverTimestamp()
+                    }
+                }, { merge: true });
+            } catch (setErr) {
+                console.error(`[orderDeliveryNotification] Failed to record invoice error on order ${orderId}:`, setErr);
+            }
+        }
+    }
+
+    // --- 3. WHATSAPP NOTIFICATION DISPATCH ---
     const farmerName = afterData.userName || afterData.customerName || afterData.address?.name || 'Kisan';
     const rawPhone = afterData.customerPhone 
         || afterData.shippingAddress?.phone 
@@ -63,7 +99,7 @@ exports.orderDeliveryNotification = onDocumentUpdated({
             createdAt: new Date(),
             reason: 'Invalid phone number'
         });
-        return null;
+        return { success: true, orderId, invoicePdfUrl, whatsappStatus: 'FAILED_INVALID_PHONE' };
     }
 
     const token = process.env.WHATSAPP_TOKEN;
@@ -131,5 +167,23 @@ exports.orderDeliveryNotification = onDocumentUpdated({
         });
     }
 
-    return null;
+    return { success: true, orderId, invoicePdfUrl };
+}
+
+exports.orderDeliveryNotification = onDocumentUpdated({
+    document: 'orders/{orderId}',
+    region: 'asia-south1'
+}, async (event) => {
+    const orderId = event.params.orderId;
+    const beforeData = event.data?.before?.data() || {};
+    const afterData = event.data?.after?.data() || {};
+
+    return await handleOrderDelivery({
+        orderId,
+        beforeData,
+        afterData,
+        orderRef: event.data?.after?.ref
+    });
 });
+
+exports.handleOrderDelivery = handleOrderDelivery;

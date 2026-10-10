@@ -85,7 +85,8 @@ function calculateTdsDeduction({
     entityType = "COMPANY",
     pan = null,
     fyCumulativeAmount = 0,
-    date = null
+    date = null,
+    vendorChargesTcs = false
 }) {
     const grossAmount = roundCurrency(Number(amount || 0));
     if (grossAmount <= 0) {
@@ -160,6 +161,18 @@ function calculateTdsDeduction({
             tdsApplicable = true;
         }
     } else if (secKey === "194Q") {
+        if (vendorChargesTcs) {
+            return {
+                section: "SEC_194Q",
+                grossAmount,
+                applicableRate: 0,
+                tdsAmount: 0,
+                netPayable: grossAmount,
+                isPanMissingPenalty: false,
+                reason: "194Q_NOT_APPLICABLE_VENDOR_CHARGES_TCS_206C1H"
+            };
+        }
+
         accountCode = TDS_SECTIONS.SEC_194Q.accountCode;
         applicableRate = TDS_SECTIONS.SEC_194Q.rate; // 0.001 (0.1%)
 

@@ -40,7 +40,8 @@ async function recordSupplierPurchaseInvoice(invoiceData) {
         shippingState = "Bihar",
         applyTds194Q = false,
         fyCumulativeAmount = 0,
-        createdBy = "PROCUREMENT_MANAGER"
+        createdBy = "PROCUREMENT_MANAGER",
+        vendorChargesTcs = false
     } = invoiceData;
 
     if (!supplierId) throw new Error("MISSING_SUPPLIER_ID: supplierId is required.");
@@ -48,6 +49,15 @@ async function recordSupplierPurchaseInvoice(invoiceData) {
     if (!Array.isArray(items) || items.length === 0) {
         throw new Error("EMPTY_PURCHASE_ITEMS: Purchase invoice must have at least one line item.");
     }
+
+    // Check mandatory batch and expiry for GRN items
+    items.forEach(item => {
+        if (!item.batchNumber || !item.expiryDate) {
+            const err = new Error("GRN_BATCH_REQUIRED: Batch number and expiry date are mandatory for all GRN line items");
+            err.code = "GRN_BATCH_REQUIRED";
+            throw err;
+        }
+    });
 
     // 1. Calculate Input GST on purchased goods (Intra-state vs Inter-state)
     const taxCalculation = calculateTaxForOrder({
@@ -96,7 +106,8 @@ async function recordSupplierPurchaseInvoice(invoiceData) {
             amount: taxableAmount, // In India, TDS 194Q is deducted on invoice value excluding GST if GST is shown separately
             entityType,
             pan: supplierPan,
-            fyCumulativeAmount: realCumulativeAmount
+            fyCumulativeAmount: realCumulativeAmount,
+            vendorChargesTcs
         });
     }
 
@@ -200,7 +211,31 @@ async function recordSupplierPurchaseInvoice(invoiceData) {
         createdBy
     };
 
-    await db.collection("supplier_invoices").doc(invoiceDocId).set(invoiceRecord);
+    const batch = db.batch();
+    const invoiceRef = db.collection("supplier_invoices").doc(invoiceDocId);
+    batch.set(invoiceRef, invoiceRecord);
+
+    items.forEach(item => {
+        const movementRef = db.collection("inventory_movements").doc();
+        batch.set(movementRef, {
+            skuId: item.skuCode || item.skuId,
+            skuCode: item.skuCode,
+            type: "INWARD",
+            qty: Number(item.quantity || 1),
+            remainingQty: Number(item.quantity || 1), // For FEFO
+            costPerUnit: Number(item.taxablePrice !== undefined ? (item.taxableAmount / (item.quantity || 1)) : item.unitPrice),
+            batchNumber: item.batchNumber,
+            expiryDate: item.expiryDate,
+            grnId: grnId || null,
+            supplierInvoiceNo,
+            supplierId,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            createdBy,
+            financialYear: getCurrentFinancialYear()
+        });
+    });
+
+    await batch.commit();
 
     return {
         success: true,

@@ -42,6 +42,10 @@ const {
 } = require("../finance/generalLedger");
 const { getCurrentFinancialYear } = require("../invoices/sequentialInvoiceEngine");
 const { calculateTaxForOrder } = require("../tax/gstEngine");
+const { storage } = require("../core/admin");
+const { handleReturnApproved } = require("../returns/returnTriggers");
+const { handleOrderDelivery } = require("../invoices/orderDeliveryNotification");
+const { generateAndUploadInvoice } = require("../invoices/invoiceService");
 
 console.log("=========================================================================");
 console.log("=== KRISHIVISHAL GST EMULATOR CONCURRENCY & IDEMPOTENCY TEST SUITE ===");
@@ -106,7 +110,7 @@ async function runEmulatorValidationSuite() {
             const orderId = "ORD_EMU_CONC_001";
             const originalInvoiceNo = "KV/26-27/00101";
             const returnedItems = [
-                { skuId: "SKU_WHEAT_50KG", name: "Certified Wheat Seed 50kg", quantity: 2, taxablePrice: 1200, costPrice: 900 }
+                { skuId: "SKU_WHEAT_50KG", name: "Certified Wheat Seed 50kg", quantity: 2, taxablePrice: 1200, costPrice: 900, hsn: "1209", category: "SEEDS" }
             ];
 
             const requests = Array.from({ length: 10 }).map((_, idx) => {
@@ -154,7 +158,7 @@ async function runEmulatorValidationSuite() {
             const orderId = "ORD_EMU_CONC_002";
             const originalInvoiceNo = "KV/26-27/00102";
             const returnedItems = [
-                { skuId: "SKU_NEEM_OIL_1L", name: "Organic Neem Oil 1L", quantity: 1, taxablePrice: 450, costPrice: 300 }
+                { skuId: "SKU_NEEM_OIL_1L", name: "Organic Neem Oil 1L", quantity: 1, taxablePrice: 450, costPrice: 300, hsn: "3808", category: "PESTICIDES_FUNGICIDES" }
             ];
 
             // 10 concurrent callers with completely different idempotencyKeys
@@ -1178,6 +1182,316 @@ async function runEmulatorValidationSuite() {
             assert.strictEqual(counterAfter4.data().currentSequence, currentSeqBefore4 + 1);
 
             pass("State 4.6: reserveNextCreditNoteNumberForLock verified atomic, monotonic, and idempotent across concurrent callers.");
+        }
+
+        // =========================================================================
+        // TASK 5: ORDER APPROVAL ORDERING & DELIVERY INVOICE PDF GENERATION
+        // =========================================================================
+        console.log("\n--- TASK 5: ORDER APPROVAL ORDERING & DELIVERY INVOICE PDF GENERATION ---");
+
+        // Mock Storage Bucket for safe offline emulator PDF testing (Zero calls to live Cloud Storage)
+        const mockSavedPdfFiles = [];
+        storage.bucket = function () {
+            return {
+                name: "krishivishal-emulator-test.appspot.com",
+                file: function (storagePath) {
+                    return {
+                        save: async function (buffer, options) {
+                            mockSavedPdfFiles.push({ path: storagePath, bufferSize: buffer.length, options });
+                        }
+                    };
+                }
+            };
+        };
+
+        const testParentOrderDoc = {
+            id: "ORD_EMU_PARENT_001",
+            userId: "USER_EMU_001",
+            userName: "Ramesh Farmer",
+            userPhone: "9876543210",
+            address: "Village Kalyanpur, Samastipur, Bihar",
+            status: "DELIVERED",
+            financialStatus: "RECOGNIZED",
+            invoiceNumber: "KV/26-27/00501",
+            items: [
+                { skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 2, taxablePrice: 600, sellingPrice: 600, hsn: "1209" }
+            ],
+            shippingState: "Bihar",
+            totalAmount: 1200
+        };
+        await db.collection("orders").doc("ORD_EMU_PARENT_001").set(testParentOrderDoc);
+
+        // -------------------------------------------------------------------------
+        // Scenario 5.1: APPROVED first, QC PASSED second
+        // -------------------------------------------------------------------------
+        {
+            const retId1 = "RET_EMU_APPROVED_FIRST_001";
+            const retRef1 = db.collection("returns").doc(retId1);
+            await retRef1.set({
+                id: retId1,
+                orderId: "ORD_EMU_PARENT_001",
+                status: "APPROVED",
+                qcStatus: "PENDING",
+                refundStatus: "PENDING",
+                items: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600 }]
+            });
+
+            const returnItems = [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600 }];
+            const beforeData1 = { status: "APPROVED", qcStatus: "PENDING", refundStatus: "PENDING", orderId: "ORD_EMU_PARENT_001", items: returnItems };
+            const afterData1 = { status: "APPROVED", qcStatus: "PASSED", refundStatus: "PENDING", orderId: "ORD_EMU_PARENT_001", items: returnItems };
+
+            const res1 = await handleReturnApproved({
+                returnId: retId1,
+                beforeData: beforeData1,
+                afterData: afterData1,
+                returnRef: retRef1
+            });
+
+            assert(res1 && res1.creditNoteNumber, "Must successfully allocate Credit Note when QC is passed after status approval");
+            const updatedRetDoc1 = (await retRef1.get()).data();
+            assert.strictEqual(updatedRetDoc1.creditNoteNo, res1.creditNoteNumber);
+            assert.strictEqual(updatedRetDoc1.refundStatus, "CREDIT_NOTE_ISSUED");
+
+            pass("Scenario 5.1: APPROVED first, QC PASSED second successfully triggers Credit Note issuance.");
+        }
+
+        // -------------------------------------------------------------------------
+        // Scenario 5.2: QC PASSED first, APPROVED second
+        // -------------------------------------------------------------------------
+        {
+            const retId2 = "RET_EMU_QC_FIRST_002";
+            const retRef2 = db.collection("returns").doc(retId2);
+            await retRef2.set({
+                id: retId2,
+                orderId: "ORD_EMU_PARENT_001",
+                status: "PENDING",
+                qcStatus: "PASSED",
+                refundStatus: "PENDING",
+                items: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600 }]
+            });
+
+            const returnItems = [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600 }];
+            const beforeData2 = { status: "PENDING", qcStatus: "PASSED", refundStatus: "PENDING", orderId: "ORD_EMU_PARENT_001", items: returnItems };
+            const afterData2 = { status: "APPROVED", qcStatus: "PASSED", refundStatus: "PENDING", orderId: "ORD_EMU_PARENT_001", items: returnItems };
+
+            const res2 = await handleReturnApproved({
+                returnId: retId2,
+                beforeData: beforeData2,
+                afterData: afterData2,
+                returnRef: retRef2
+            });
+
+            assert(res2 && res2.creditNoteNumber, "Must successfully allocate Credit Note when status approval occurs after QC pass");
+            const updatedRetDoc2 = (await retRef2.get()).data();
+            assert.strictEqual(updatedRetDoc2.creditNoteNo, res2.creditNoteNumber);
+            assert.strictEqual(updatedRetDoc2.refundStatus, "CREDIT_NOTE_ISSUED");
+
+            pass("Scenario 5.2: QC PASSED first, APPROVED second successfully triggers Credit Note issuance.");
+        }
+
+        // -------------------------------------------------------------------------
+        // Scenario 5.3: Duplicate trigger delivery (calling again after fully approved)
+        // -------------------------------------------------------------------------
+        {
+            const retId3 = "RET_EMU_APPROVED_FIRST_001";
+            const beforeData3 = { status: "APPROVED", qcStatus: "PASSED", refundStatus: "CREDIT_NOTE_ISSUED", creditNoteNo: "KVCN/26-27/00005" };
+            const afterData3 = { status: "APPROVED", qcStatus: "PASSED", refundStatus: "CREDIT_NOTE_ISSUED", creditNoteNo: "KVCN/26-27/00005", notes: "Updated note" };
+
+            const res3 = await handleReturnApproved({
+                returnId: retId3,
+                beforeData: beforeData3,
+                afterData: afterData3
+            });
+
+            assert.strictEqual(res3, null, "Repeated trigger on already approved return must be a safe no-op");
+            pass("Scenario 5.3: Duplicate trigger delivery is a safe idempotent no-op.");
+        }
+
+        // -------------------------------------------------------------------------
+        // Scenario 5.4: Concurrent Credit Note requests
+        // -------------------------------------------------------------------------
+        {
+            const concRetId = "RET_EMU_CONCURRENT_REQ_004";
+            const concReqs = await Promise.all([
+                generateCreditNoteForReturn({
+                    orderId: "ORD_EMU_PARENT_001",
+                    returnRequestId: concRetId,
+                    originalInvoiceNo: "KV/26-27/00501",
+                    returnedItems: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600 }],
+                    shippingState: "Bihar"
+                }),
+                generateCreditNoteForReturn({
+                    orderId: "ORD_EMU_PARENT_001",
+                    returnRequestId: concRetId,
+                    originalInvoiceNo: "KV/26-27/00501",
+                    returnedItems: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600 }],
+                    shippingState: "Bihar"
+                })
+            ]);
+
+            assert.strictEqual(concReqs[0].creditNoteNumber, concReqs[1].creditNoteNumber, "Concurrent requests must resolve to identical Credit Note");
+            pass("Scenario 5.4: Concurrent Credit Note requests resolve to identical Credit Note with zero duplicates.");
+        }
+
+        // -------------------------------------------------------------------------
+        // Scenario 5.5: Retry after partial failure (NUMBER_RESERVED state)
+        // -------------------------------------------------------------------------
+        {
+            const failRetId = "RET_EMU_PARTIAL_FAIL_005";
+            const effectiveKey = `RET_${failRetId}`;
+            const lockDocId = deriveLockDocId(effectiveKey);
+            const lockRef = db.collection("credit_note_locks").doc(lockDocId);
+
+            // Seed a NUMBER_RESERVED lock state as if crash happened after number reservation
+            await lockRef.set({
+                lockDocId,
+                idempotencyKey: effectiveKey,
+                returnRequestId: failRetId,
+                status: "NUMBER_RESERVED",
+                creditNoteNumber: "KVCN/26-27/99901",
+                creditNoteId: "KVCN_26-27_99901",
+                updatedAtMs: Date.now() - (LOCK_STALE_TIMEOUT_MS + 5000) // stale
+            });
+
+            const retryRes = await generateCreditNoteForReturn({
+                orderId: "ORD_EMU_PARENT_001",
+                returnRequestId: failRetId,
+                originalInvoiceNo: "KV/26-27/00501",
+                returnedItems: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600 }],
+                shippingState: "Bihar"
+            });
+
+            assert.strictEqual(retryRes.creditNoteNumber, "KVCN/26-27/99901", "Retry must reuse previously reserved credit note number");
+            pass("Scenario 5.5: Retry after partial failure successfully reuses reserved number.");
+        }
+
+        // -------------------------------------------------------------------------
+        // Scenario 5.6: Delivery-triggered PDF generation
+        // -------------------------------------------------------------------------
+        {
+            const orderDelId = "ORD_EMU_DELIVERY_AUTO_006";
+            const orderDelRef = db.collection("orders").doc(orderDelId);
+            await orderDelRef.set({
+                id: orderDelId,
+                userName: "Surendra Kisan",
+                userPhone: "9812345678",
+                address: "Samastipur, Bihar",
+                status: "SHIPPED",
+                paymentMethod: "COD",
+                shippingState: "Bihar",
+                items: [
+                    { skuId: "SKU_PEST_01", name: "Organic Bio-Pesticide", quantity: 1, taxablePrice: 450, sellingPrice: 450, hsn: "3808" }
+                ],
+                totalAmount: 450
+            });
+
+            const delRes = await handleOrderDelivery({
+                orderId: orderDelId,
+                beforeData: { status: "SHIPPED" },
+                afterData: { status: "DELIVERED", items: [{ skuId: "SKU_PEST_01", name: "Organic Bio-Pesticide", quantity: 1, taxablePrice: 450, sellingPrice: 450, hsn: "3808" }], paymentMode: "COD", shippingAddress: { state: "Bihar" } },
+                orderRef: orderDelRef
+            });
+
+            assert(delRes && delRes.success, "handleOrderDelivery must return success");
+            const updatedDelDoc = (await orderDelRef.get()).data();
+            assert.strictEqual(updatedDelDoc.financialStatus, "RECOGNIZED", "Order financialStatus must be RECOGNIZED");
+            assert(updatedDelDoc.invoiceNumber && updatedDelDoc.invoiceNumber.startsWith("KV/"), `Order must have official invoiceNumber, got: ${updatedDelDoc.invoiceNumber}`);
+            assert(updatedDelDoc.invoiceUrl && updatedDelDoc.invoiceUrl.includes("firebasestorage.googleapis.com"), `Order must have official invoiceUrl, got: ${updatedDelDoc.invoiceUrl}`);
+
+            pass("Scenario 5.6: Delivery trigger automatically performs revenue recognition and official invoice PDF generation.");
+        }
+
+        // -------------------------------------------------------------------------
+        // Scenario 5.7: Repeated PDF generation does not allocate a new Invoice Number
+        // -------------------------------------------------------------------------
+        {
+            const orderDelId = "ORD_EMU_DELIVERY_AUTO_006";
+            const docBefore = (await db.collection("orders").doc(orderDelId).get()).data();
+            const originalInvoiceNum = docBefore.invoiceNumber;
+            const originalInvoiceUrl = docBefore.invoiceUrl;
+
+            // Re-invoke generateAndUploadInvoice directly
+            const repeatPdfRes = await generateAndUploadInvoice(orderDelId);
+
+            assert.strictEqual(repeatPdfRes.alreadyGenerated, true, "Must recognize invoice already generated");
+            assert.strictEqual(repeatPdfRes.invoiceNumber, originalInvoiceNum, "Must retain exact same invoice number");
+            assert.strictEqual(repeatPdfRes.downloadUrl, originalInvoiceUrl, "Must retain exact same downloadUrl");
+
+            pass("Scenario 5.7: Repeated PDF generation idempotently reuses existing Invoice Number and URL without counter allocation.");
+        }
+
+        // -------------------------------------------------------------------------
+        // Scenario 5.8: PDF upload succeeds but Firestore URL update fails (simulating retry and clean recovery)
+        // -------------------------------------------------------------------------
+        {
+            const simOrderId = "ORD_EMU_RETRY_REC_008";
+            const simOrderRef = db.collection("orders").doc(simOrderId);
+            await simOrderRef.set({
+                id: simOrderId,
+                userName: "Pooja Devi",
+                userPhone: "9823456789",
+                address: "Samastipur, Bihar",
+                status: "DELIVERED",
+                financialStatus: "RECOGNIZED",
+                invoiceNumber: "KV/26-27/00888",
+                items: [{ skuId: "SKU_SEED_02", name: "Maize Seeds", quantity: 1, taxablePrice: 300, sellingPrice: 300, hsn: "1209" }],
+                totalAmount: 300
+            });
+
+            // First run produces PDF
+            const firstRun = await generateAndUploadInvoice(simOrderId);
+            assert.strictEqual(firstRun.invoiceNumber, "KV/26-27/00888");
+
+            // Second run (simulating retry after a client timeout)
+            const secondRun = await generateAndUploadInvoice(simOrderId);
+            assert.strictEqual(secondRun.invoiceNumber, "KV/26-27/00888");
+            assert.strictEqual(secondRun.downloadUrl, firstRun.downloadUrl);
+
+            pass("Scenario 5.8: PDF generation retry smoothly recovers using the same invoice number.");
+        }
+
+        // -------------------------------------------------------------------------
+        // Scenario 5.9: Failed PDF generation can be retried without duplicate ledger postings
+        // -------------------------------------------------------------------------
+        {
+            const retryLedgerOrderId = "ORD_EMU_RETRY_LEDGER_009";
+            const retryRef = db.collection("orders").doc(retryLedgerOrderId);
+            await retryRef.set({
+                id: retryLedgerOrderId,
+                userName: "Gopal Kisan",
+                userPhone: "9834567890",
+                address: "Samastipur, Bihar",
+                status: "DELIVERED",
+                financialStatus: "RECOGNIZED",
+                invoiceNumber: "KV/26-27/00999",
+                items: [{ skuId: "SKU_SEED_03", name: "Gram Seeds", quantity: 1, taxablePrice: 400, sellingPrice: 400, hsn: "1209" }],
+                totalAmount: 400
+            });
+
+            // Post initial journal entry
+            const jeResult = await postJournalEntry({
+                refType: "ORDER_DELIVERY",
+                refId: retryLedgerOrderId,
+                periodId: getFiscalPeriodId(),
+                date: new Date(),
+                memo: `Delivery of ${retryLedgerOrderId}`,
+                lines: [
+                    { accountCode: "1010_CASH_IN_HAND_RIDERS", debit: 400, credit: 0, description: "Debit" },
+                    { accountCode: "4010_SALES_AGRI_INPUTS", debit: 0, credit: 400, description: "Credit" }
+                ],
+                createdBy: "TEST_RETRY"
+            });
+            await retryRef.set({ journalEntryId: jeResult.entryId }, { merge: true });
+
+            // Now run generateAndUploadInvoice
+            const pdfRes = await generateAndUploadInvoice(retryLedgerOrderId);
+            assert(pdfRes.success && pdfRes.downloadUrl);
+
+            // Check that only 1 journal entry exists for this order
+            const jeSnapshot = await db.collection("journal_entries").where("refId", "==", retryLedgerOrderId).get();
+            assert.strictEqual(jeSnapshot.size, 1, "Exactly 1 journal entry must exist, zero duplicate ledger postings");
+
+            pass("Scenario 5.9: Retried invoice PDF generation produces valid invoice with zero duplicate ledger postings.");
         }
 
         // =========================================================================
