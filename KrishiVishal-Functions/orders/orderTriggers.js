@@ -63,6 +63,19 @@ exports.onOrderStatusUpdate = onDocumentUpdated({ document: "orders/{orderId}", 
         return null;
     }
 
+    // --- IND AS 115 REVENUE RECOGNITION ON DELIVERY ---
+    if (oldData.status !== 'DELIVERED' && newData.status === 'DELIVERED') {
+        try {
+            const { recognizeOrderDeliveryFinancials } = require('../finance/salesLedger');
+            await recognizeOrderDeliveryFinancials({
+                orderId: context.params.orderId,
+                ...newData
+            });
+        } catch (err) {
+            console.error(`[RevenueRecognition] Failed for order ${context.params.orderId}:`, err);
+        }
+    }
+
     // --- REFERRAL LOGIC START ---
     try {
         if (newData.status === 'DELIVERED') {

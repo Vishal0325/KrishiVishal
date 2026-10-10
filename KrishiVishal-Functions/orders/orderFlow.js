@@ -738,6 +738,31 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             }
         }
 
+        if (paymentMethod === 'RAZORPAY_ONLINE' || paymentMethod === 'WALLET') {
+            try {
+                const { postJournalEntry } = require('../finance/generalLedger');
+                const d = new Date();
+                const m = d.getMonth() + 1;
+                const y = d.getFullYear();
+                const periodId = m >= 4 ? `${y}-${String(y+1).slice(2)}` : `${y-1}-${String(y).slice(2)}`;
+                
+                await postJournalEntry({
+                    refType: 'ORDER_DELIVERY', // Standardizing since ORDER_PLACED isn't in ALLOWED_REF_TYPES
+                    refId: orderId,
+                    periodId,
+                    date: d,
+                    lines: [
+                        { accountCode: '1050_GATEWAY_RECEIVABLE', debit: finalAmount, credit: 0 },
+                        { accountCode: '2070_DEFERRED_REVENUE', debit: 0, credit: finalAmount }
+                    ],
+                    memo: `Prepaid Order Placed #${orderId}`,
+                    createdBy: context.auth.uid || 'SYSTEM'
+                });
+            } catch (jeError) {
+                console.error('[createOrder] Failed to post deferred revenue JE:', jeError);
+            }
+        }
+
         return {
             success: true,
             orderId,

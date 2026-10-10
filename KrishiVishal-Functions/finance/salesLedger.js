@@ -102,15 +102,15 @@ async function recognizeOrderDeliveryFinancials(orderData) {
 
     // 4. Construct Balanced Double-Entry Journal Lines
     const isCod = String(paymentMethod).toUpperCase() === "COD";
-    const debitAccount = isCod ? "1010_CASH_IN_HAND_RIDERS" : "1050_GATEWAY_RECEIVABLE";
+    const debitAccount = isCod ? "1010_CASH_IN_HAND_RIDERS" : "2070_DEFERRED_REVENUE";
 
     const journalLines = [
-        // Debit Asset: Rider Cash or Gateway Receivable for total order amount
+        // Debit Asset/Liability: Rider Cash or Clear Deferred Revenue
         {
             accountCode: debitAccount,
             debit: grandTotal,
             credit: 0,
-            description: `${isCod ? 'COD collected by Rider' : 'Gateway Receivable'} for Order ${orderId}`
+            description: `${isCod ? 'COD collected by Rider' : 'Clear Deferred Revenue'} for Order ${orderId}`
         },
         // Credit Operating Revenue for taxable base value
         {
