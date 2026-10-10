@@ -195,6 +195,8 @@
     <string name="continue_with_google">Google के साथ जारी रखें</string>
     <string name="or_divider">या</string>
     <string name="download_invoice">जीएसटी बिल डाउनलोड करें</string>
+    <string name="download_tax_invoice">टैक्स इनवॉइस डाउनलोड करें</string>
+    <string name="view_order_summary">ऑर्डर सारांश देखें</string>
     <string name="view_print_invoice">बिल देखें या प्रिंट करें</string>
     <string name="download_print_invoice">डाउनलोड / प्रिंट बिल</string>
     <string name="expert_help">विशेषज्ञ सहायता</string>

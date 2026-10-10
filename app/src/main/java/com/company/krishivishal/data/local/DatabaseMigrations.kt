@@ -498,6 +498,18 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * Migration from 60 to 61
+     * Adds invoiceNumber, invoiceUrl, and financialStatus columns to orders table for statutory GST invoice alignment.
+     */
+    val MIGRATION_60_61 = object : Migration(60, 61) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE orders ADD COLUMN invoiceNumber TEXT")
+            db.execSQL("ALTER TABLE orders ADD COLUMN invoiceUrl TEXT")
+            db.execSQL("ALTER TABLE orders ADD COLUMN financialStatus TEXT")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_33_34,
         MIGRATION_34_35,
@@ -517,7 +529,8 @@ object DatabaseMigrations {
         MIGRATION_55_56,
         MIGRATION_56_57,
         MIGRATION_58_59,
-        MIGRATION_59_60
+        MIGRATION_59_60,
+        MIGRATION_60_61
     )
 }
 

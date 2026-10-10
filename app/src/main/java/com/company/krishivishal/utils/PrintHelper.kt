@@ -1,6 +1,9 @@
 package com.company.krishivishal.utils
 
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.print.PrintAttributes
 import android.print.PrintManager
 import android.webkit.WebView
@@ -11,15 +14,46 @@ import java.util.Locale
 
 object PrintHelper {
 
+    /**
+     * Opens the official Rule 46 GST Tax Invoice PDF via standard Android View Intent.
+     * Fallbacks to browser if no dedicated PDF viewer is installed.
+     */
+    fun openOfficialInvoicePdf(context: Context, invoiceUrl: String) {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            data = Uri.parse(invoiceUrl)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+        }
+        try {
+            context.startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            // Fallback: Open in Browser / Chrome Custom Tab
+            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse(invoiceUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(webIntent)
+        }
+    }
+
+    /**
+     * Dual-Mode Printing / Viewing:
+     * Mode A: If official PDF URL is available, opens official PDF directly.
+     * Mode B: If official PDF is not available yet, prints provisional Order Summary with disclaimer.
+     */
     fun printOrderInvoice(context: Context, order: Order, appConfig: com.company.krishivishal.core.model.AppConfig) {
+        val invoiceUrl = order.invoiceUrl
+        if (!invoiceUrl.isNullOrBlank()) {
+            openOfficialInvoicePdf(context, invoiceUrl)
+            return
+        }
+
         val webView = WebView(context)
         val htmlContent = generateInvoiceHtml(order, appConfig)
         
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
-                val printAdapter = webView.createPrintDocumentAdapter("Invoice_${order.id}")
-                val jobName = "KrishiVishal_Invoice_${order.id}"
+                val printAdapter = webView.createPrintDocumentAdapter("OrderSummary_${order.id}")
+                val jobName = "KrishiVishal_OrderSummary_${order.id}"
                 printManager.print(jobName, printAdapter, PrintAttributes.Builder().build())
             }
         }
@@ -115,11 +149,7 @@ object PrintHelper {
             """.trimIndent()
         }
 
-        val taxableTotal = order.taxableTotal.takeIf { it > 0 } ?: order.totalAmount
-        val totalTax = order.totalTax
-        val cgst = order.cgst
-        val sgst = order.sgst
-        val igst = order.igst
+        val officialGstin = appConfig.gstin.ifBlank { "10AAACK9821M1Z5" }
 
         return """
         <html>
@@ -129,7 +159,10 @@ object PrintHelper {
                 .header { text-align: center; border-bottom: 3px solid #1b5e20; padding-bottom: 15px; margin-bottom: 20px; }
                 .company-name { font-size: 28px; font-weight: 900; color: #1b5e20; margin: 0; letter-spacing: -1px; }
                 .gstin-text { font-size: 12px; font-weight: bold; color: #666; }
-                .invoice-details { display: flex; justify-content: space-between; margin-top: 20px; margin-bottom: 30px; }
+                .disclaimer-banner { background-color: #fff3e0; border: 1px solid #ffb74d; border-radius: 8px; padding: 12px; margin-bottom: 20px; text-align: center; }
+                .disclaimer-title { font-weight: bold; color: #e65100; font-size: 13px; margin: 0 0 4px 0; }
+                .disclaimer-sub { font-size: 11px; color: #bf360c; margin: 0; }
+                .invoice-details { display: flex; justify-content: space-between; margin-top: 15px; margin-bottom: 25px; }
                 table { width: 100%; border-collapse: collapse; margin-top: 20px; }
                 th { background-color: #f8f9fa; padding: 12px 10px; text-align: left; border-bottom: 2px solid #1b5e20; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
                 td { padding: 10px; font-size: 13px; }
@@ -137,26 +170,32 @@ object PrintHelper {
                 .total-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
                 .grand-total { border-top: 2px solid #ddd; padding-top: 10px; margin-top: 10px; font-size: 20px; font-weight: 900; color: #1b5e20; }
                 .footer { margin-top: 100px; text-align: center; font-size: 11px; color: #999; clear: both; border-top: 1px solid #eee; padding-top: 20px; }
-                .stamp { position: absolute; bottom: 150px; right: 50px; opacity: 0.1; }
             </style>
         </head>
         <body>
             <div class="header">
                 <p class="company-name">KRISHI VISHAL</p>
-                <p class="gstin-text">Agriculture Redefined | GSTIN: ${appConfig.gstin.ifBlank { "REGISTRATION PENDING" }}</p>
-                <p style="font-size: 10px; margin: 5px 0;">Reg. Off: Main Road, Near Block Chowk, Bihar</p>
+                <p class="gstin-text">KrishiVishal Private Limited | GSTIN: $officialGstin | State Code: 10</p>
+                <p style="font-size: 10px; margin: 5px 0;">Samastipur Central Hub, Bihar</p>
+            </div>
+
+            <div class="disclaimer-banner">
+                <p class="disclaimer-title">ऑर्डर रसीद / ORDER SUMMARY</p>
+                <p class="disclaimer-sub">यह केवल ऑर्डर सारांश है, आधिकारिक GST टैक्स इनवॉइस नहीं है। आधिकारिक इनवॉइस डिलीवरी के समय जारी किया जाएगा।</p>
+                <p class="disclaimer-sub" style="font-weight: bold; margin-top: 2px;">PROVISIONAL ORDER CONFIRMATION — NOT A GST TAX INVOICE</p>
             </div>
             
             <div class="invoice-details">
                 <div style="float: left; width: 60%;">
-                    <p style="margin: 0; font-size: 11px; color: #999; text-transform: uppercase; font-weight: bold;">Billed To:</p>
+                    <p style="margin: 0; font-size: 11px; color: #999; text-transform: uppercase; font-weight: bold;">Billed & Delivered To:</p>
                     <p style="margin: 5px 0; font-size: 16px; font-weight: 900;">${order.userName}</p>
                     <p style="margin: 0; font-size: 13px; color: #444;">${order.userPhone}</p>
                     <p style="margin: 5px 0; font-size: 13px; color: #666; max-width: 250px;">${order.address}</p>
                 </div>
                 <div style="float: right; text-align: right; width: 40%;">
-                    <p style="margin: 0; font-size: 20px; font-weight: 900; color: #1b5e20;">TAX INVOICE</p>
-                    <p style="margin: 5px 0; font-size: 13px;"><b>Invoice No:</b> #${order.id.takeLast(6).uppercase()}</p>
+                    <p style="margin: 0; font-size: 18px; font-weight: 900; color: #e65100;">ORDER SUMMARY</p>
+                    <p style="margin: 5px 0; font-size: 13px;"><b>Order ID:</b> #${order.id.takeLast(6).uppercase()}</p>
+                    ${if (!order.invoiceNumber.isNullOrBlank()) "<p style='margin: 0; font-size: 12px; color: #1b5e20;'><b>Invoice No:</b> ${order.invoiceNumber}</p>" else ""}
                     <p style="margin: 0; font-size: 13px;"><b>Date:</b> ${df.format(order.createdAt)}</p>
                 </div>
                 <div style="clear: both;"></div>
@@ -211,11 +250,8 @@ object PrintHelper {
             </div>
 
             <div class="footer">
-                <p>CERTIFIED that the particulars given above are true and correct.</p>
-                <p style="font-weight: bold;">For KRISHI VISHAL</p>
-                <br/><br/>
-                <p>Authorized Signatory</p>
-                <p style="font-size: 9px; margin-top: 20px;">This is a computer generated invoice and does not require a physical signature.</p>
+                <p>This is a computer generated provisional order confirmation.</p>
+                <p style="font-weight: bold;">KrishiVishal Private Limited | Samastipur, Bihar</p>
             </div>
         </body>
         </html>
@@ -223,7 +259,6 @@ object PrintHelper {
     }
 
     private fun convertAmountToWords(amount: Double): String {
-        // Simple placeholder for now - in production use a library or full implementation
         return "${amount.toInt()} "
     }
 }

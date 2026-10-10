@@ -195,6 +195,8 @@
     <string name="continue_with_google">Continue with Google</string>
     <string name="or_divider">OR</string>
     <string name="download_invoice">Download GST Invoice</string>
+    <string name="download_tax_invoice">Download Tax Invoice</string>
+    <string name="view_order_summary">View Order Summary</string>
     <string name="view_print_invoice">View / Print Invoice</string>
     <string name="download_print_invoice">Download / Print Invoice</string>
     <string name="expert_help">Expert Help</string>

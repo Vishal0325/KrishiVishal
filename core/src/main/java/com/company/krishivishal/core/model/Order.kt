@@ -223,7 +223,20 @@ data class Order(
 
     @ColumnInfo(name = "isAccepted", defaultValue = "0")
     @SerializedName("isAccepted")
-    val isAccepted: Boolean = false
+    val isAccepted: Boolean = false,
+
+    // V5: Statutory GST Invoice Alignment
+    @ColumnInfo(name = "invoiceNumber")
+    @SerializedName("invoiceNumber")
+    val invoiceNumber: String? = null,
+
+    @ColumnInfo(name = "invoiceUrl")
+    @SerializedName("invoiceUrl")
+    val invoiceUrl: String? = null,
+
+    @ColumnInfo(name = "financialStatus")
+    @SerializedName("financialStatus")
+    val financialStatus: String? = null
 ) : Parcelable {
     @get:Exclude
     val orderStatus: OrderStatus 

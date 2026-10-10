@@ -679,27 +679,41 @@ fun ReferenceOrderItemCard(
 
                     // Action Buttons Row
                     Spacer(modifier = Modifier.height(16.dp))
+                    val hasOfficialInvoice = (order.orderStatus == OrderStatus.DELIVERED || order.status.equals("DELIVERED", ignoreCase = true)) && !order.invoiceUrl.isNullOrBlank()
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = { onViewBillClick(order) },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.view_print_invoice), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        if (hasOfficialInvoice) {
+                            Button(
+                                onClick = { onViewBillClick(order) },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(stringResource(R.string.view_print_invoice), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
 
-                        Button(
-                            onClick = { PrintHelper.printOrderInvoice(context, order, appConfig) },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.download_invoice), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Button(
+                                onClick = { PrintHelper.openOfficialInvoicePdf(context, order.invoiceUrl!!) },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(stringResource(R.string.download_tax_invoice), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            Button(
+                                onClick = { onViewBillClick(order) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(stringResource(R.string.view_order_summary), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
 

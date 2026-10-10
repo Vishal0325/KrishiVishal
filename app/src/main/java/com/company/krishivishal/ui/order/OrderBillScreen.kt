@@ -1,5 +1,6 @@
 package com.company.krishivishal.ui.order
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -41,18 +42,25 @@ fun OrderBillScreen(
 ) {
     val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.US) }
+    val isOfficialInvoice = !order.invoiceUrl.isNullOrBlank()
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Tax Invoice", fontWeight = FontWeight.Bold) },
+                title = { Text(if (isOfficialInvoice) "Tax Invoice" else "Order Summary", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
-                    IconButton(onClick = { PrintHelper.printOrderInvoice(context, order, appConfig) }) {
+                    IconButton(onClick = {
+                        if (isOfficialInvoice) {
+                            PrintHelper.openOfficialInvoicePdf(context, order.invoiceUrl!!)
+                        } else {
+                            PrintHelper.printOrderInvoice(context, order, appConfig)
+                        }
+                    }) {
                         Icon(Icons.Default.Share, contentDescription = "Share")
                     }
                 },
@@ -67,6 +75,41 @@ fun OrderBillScreen(
                 .background(if (template == "elegant") Color(0xFF1A1A1A) else MaterialTheme.colorScheme.surface)
                 .verticalScroll(rememberScrollState())
         ) {
+            // Statutory Disclaimer Banner if Official Invoice is not yet issued
+            if (!isOfficialInvoice) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                    border = BorderStroke(1.dp, Color(0xFFFFB74D)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "ऑर्डर रसीद / ORDER SUMMARY",
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFE65100),
+                            fontSize = 12.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "यह केवल ऑर्डर सारांश है, आधिकारिक GST टैक्स इनवॉइस नहीं है। आधिकारिक इनवॉइस डिलीवरी के समय जारी किया जाएगा।",
+                            fontSize = 11.sp,
+                            color = Color(0xFFBF360C),
+                            lineHeight = 15.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "PROVISIONAL ORDER CONFIRMATION — NOT A GST TAX INVOICE",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp,
+                            color = Color(0xFFE65100)
+                        )
+                    }
+                }
+            }
+
             when (template) {
                 "modern" -> ModernTemplate(order, appConfig)
                 "compact" -> CompactTemplate(order, appConfig)
@@ -78,17 +121,32 @@ fun OrderBillScreen(
             Spacer(modifier = Modifier.height(24.dp))
             
             Button(
-                onClick = { PrintHelper.printOrderInvoice(context, order, appConfig) },
+                onClick = {
+                    if (isOfficialInvoice) {
+                        PrintHelper.openOfficialInvoicePdf(context, order.invoiceUrl!!)
+                    } else {
+                        android.widget.Toast.makeText(
+                            context,
+                            "आधिकारिक GST टैक्स इनवॉइस डिलीवरी के बाद उपलब्ध होगा। (Official Invoice will be available upon delivery)",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                        // Also permit printing provisional order summary
+                        PrintHelper.printOrderInvoice(context, order, appConfig)
+                    }
+                },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (template == "elegant") Color.White else Color.Black,
-                    contentColor = if (template == "elegant") Color.Black else Color.White
+                    containerColor = if (isOfficialInvoice) PrimaryGreen else (if (template == "elegant") Color.White else Color.Black),
+                    contentColor = if (template == "elegant" && !isOfficialInvoice) Color.Black else Color.White
                 ),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(stringResource(R.string.download_print_invoice), fontWeight = FontWeight.Bold)
+                Text(
+                    text = if (isOfficialInvoice) "आधिकारिक टैक्स इनवॉइस देखें / डाउनलोड करें" else stringResource(R.string.download_print_invoice),
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
@@ -96,9 +154,10 @@ fun OrderBillScreen(
 
 @Composable
 fun StandardTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: com.company.krishivishal.core.model.AppConfig) {
+    val officialGstin = appConfig.gstin.ifBlank { "10AAACK9821M1Z5" }
     Column(modifier = Modifier.padding(24.dp)) {
         Text("KRISHI VISHAL", fontSize = 26.sp, fontWeight = FontWeight.Black, color = PrimaryGreen)
-        Text("GSTIN: ${appConfig.gstin.takeIf { it.isNotBlank() } ?: "PENDING"} | Bihar (10)", fontSize = 11.sp, color = Color.Gray)
+        Text("GSTIN: $officialGstin | Bihar (10)", fontSize = 11.sp, color = Color.Gray)
         
         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), thickness = 0.5.dp)
         
@@ -110,8 +169,14 @@ fun StandardTemplate(order: Order, dateFormat: SimpleDateFormat, appConfig: com.
             }
             Spacer(modifier = Modifier.width(24.dp))
             Column(horizontalAlignment = Alignment.End) {
-                Text("Invoice ID", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
-                Text("#${order.id.takeLast(6).uppercase()}", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                val invNum = order.invoiceNumber
+                if (!invNum.isNullOrBlank()) {
+                    Text("Invoice No", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = PrimaryGreen)
+                    Text(invNum, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = PrimaryGreen)
+                } else {
+                    Text("Order ID", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("#${order.id.takeLast(6).uppercase()}", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("Date", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
                 Text(dateFormat.format(order.createdAt), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -193,7 +193,20 @@ data class Order(
 
     @ColumnInfo(name = "packagingFee")
     @SerializedName("packagingFee")
-    val packagingFee: Double = 0.0
+    val packagingFee: Double = 0.0,
+
+    // V5: Statutory GST Invoice Alignment
+    @ColumnInfo(name = "invoiceNumber")
+    @SerializedName("invoiceNumber")
+    val invoiceNumber: String? = null,
+
+    @ColumnInfo(name = "invoiceUrl")
+    @SerializedName("invoiceUrl")
+    val invoiceUrl: String? = null,
+
+    @ColumnInfo(name = "financialStatus")
+    @SerializedName("financialStatus")
+    val financialStatus: String? = null
 ) : Parcelable {
     @get:Exclude
     val orderStatus: OrderStatus 
