@@ -55,15 +55,23 @@ function buildInvoicePdfBuffer({ hub, orderMeta, buyer, items, financials, clear
 
             // Document Meta in Header (Top Right)
             const metaX = 350;
-            doc.fontSize(16).font('Helvetica-Bold').fillColor('#1b5e20').text('TAX INVOICE', metaX, 36, { align: 'right', width: 209 });
+            const isProvisional = Boolean(orderMeta.isProvisional);
+            const docTitle = orderMeta.documentTitle || (isProvisional ? 'PACKING SLIP / CHALLAN' : 'TAX INVOICE');
+            const titleColor = isProvisional ? '#c62828' : '#1b5e20';
+
+            doc.fontSize(15).font('Helvetica-Bold').fillColor(titleColor).text(docTitle, metaX, 36, { align: 'right', width: 209 });
+            if (isProvisional) {
+                doc.fontSize(7).font('Helvetica-Bold').fillColor('#c62828').text('PROVISIONAL - NOT A GST TAX INVOICE', metaX, doc.y, { align: 'right', width: 209 });
+            }
             doc.fontSize(9).font('Helvetica').fillColor('#333333');
-            doc.text(`Invoice No: ${orderMeta.invoiceNumber}`, metaX, doc.y, { align: 'right', width: 209 });
+            const numLabel = isProvisional ? 'Challan No' : 'Invoice No';
+            doc.text(`${numLabel}: ${orderMeta.invoiceNumber}`, metaX, doc.y + (isProvisional ? 2 : 0), { align: 'right', width: 209 });
             doc.text(`Order ID: #${orderMeta.orderId}`, metaX, doc.y, { align: 'right', width: 209 });
             doc.text(`Date: ${orderMeta.dateStr}`, metaX, doc.y, { align: 'right', width: 209 });
             doc.text(`Payment: ${orderMeta.paymentMethod} (${orderMeta.paymentStatus})`, metaX, doc.y, { align: 'right', width: 209 });
 
             doc.y = 125;
-            doc.strokeColor('#1b5e20').lineWidth(2).moveTo(leftMargin, doc.y).lineTo(leftMargin + contentWidth, doc.y).stroke();
+            doc.strokeColor(titleColor).lineWidth(2).moveTo(leftMargin, doc.y).lineTo(leftMargin + contentWidth, doc.y).stroke();
             doc.y += 10;
 
             // 2. ClearTax E-Invoice Details & QR Code (if present)
@@ -221,9 +229,10 @@ function buildInvoicePdfBuffer({ hub, orderMeta, buyer, items, financials, clear
  *
  * @param {string} orderId
  * @param {object|null} clearTaxPayload
+ * @param {object} [options] Optional configuration: { isProvisional, documentType }
  * @returns {Promise<{ success: boolean, invoiceNumber: string, downloadUrl: string }>}
  */
-async function generateAndUploadInvoice(orderId, clearTaxPayload = null) {
+async function generateAndUploadInvoice(orderId, clearTaxPayload = null, options = {}) {
     if (!orderId) {
         throw new Error('Missing orderId for invoice generation.');
     }
@@ -251,17 +260,37 @@ async function generateAndUploadInvoice(orderId, clearTaxPayload = null) {
         fertilizerRegNo: order.hub?.fertilizerRegNo || 'BR-SAM-FERT-2024-112'
     };
 
-    // 3. Order Metadata
-    const year = new Date().getFullYear();
-    const fallbackInvoiceNumber = `KV/SAM/${year}/${orderId.slice(-8).toUpperCase()}`;
-    const invoiceNumber = order.invoiceNumber || order.invoice?.invoiceNumber || fallbackInvoiceNumber;
+    // 3. Order Metadata & Sequential Invoice Number Allocation
+    const isProvisional = Boolean(options && (options.isProvisional || options.documentType === 'PACKING_SLIP' || options.documentType === 'PROVISIONAL'));
+    let invoiceNumber = order.invoiceNumber || (order.invoice && order.invoice.invoiceNumber);
+
+    if (isProvisional) {
+        // Packing Slip / Dispatch Challan: does NOT consume official Rule 46 sequential invoice sequence
+        invoiceNumber = `CHALLAN/${orderId.slice(-8).toUpperCase()}`;
+    } else {
+        // Official Statutory Tax Invoice: Must have official sequential Rule 46 number
+        if (!invoiceNumber || String(invoiceNumber).startsWith('KV/SAM/')) {
+            try {
+                const { getOrCreateInvoiceNumberForOrder } = require('./sequentialInvoiceEngine');
+                const alloc = await getOrCreateInvoiceNumberForOrder(orderId);
+                invoiceNumber = alloc.invoiceNumber;
+            } catch (allocErr) {
+                // Fallback for mock environments without counters
+                const year = new Date().getFullYear();
+                invoiceNumber = `KV/SAM/${year}/${orderId.slice(-8).toUpperCase()}`;
+            }
+        }
+    }
+
     const cleanInvoiceNumber = String(invoiceNumber).replace(/[^a-zA-Z0-9_-]/g, '_');
     const orderMeta = {
         invoiceNumber,
         orderId,
         dateStr: formatDate(order.createdAt),
         paymentMethod: (order.paymentMethod || 'COD').toUpperCase(),
-        paymentStatus: order.paymentStatus || (order.isPaid ? 'PAID' : 'Pending')
+        paymentStatus: order.paymentStatus || (order.isPaid ? 'PAID' : 'Pending'),
+        isProvisional,
+        documentTitle: isProvisional ? 'PACKING SLIP / CHALLAN' : 'TAX INVOICE'
     };
 
     // 4. Buyer Details
@@ -388,17 +417,23 @@ async function generateAndUploadInvoice(orderId, clearTaxPayload = null) {
 
     // 10. Update Firestore Document
     const irnVal = clearTaxPayload?.data?.irn || clearTaxPayload?.providerReferenceId || null;
-    await orderRef.update({
+    const updatePayload = {
         invoiceUrl: downloadUrl,
         invoice: {
-            status: 'GENERATED',
+            status: isProvisional ? 'PROVISIONAL_GENERATED' : 'GENERATED',
             invoiceNumber: invoiceNumber,
             pdfUrl: downloadUrl,
             storagePath: storagePath,
             generatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            irn: irnVal
+            irn: irnVal,
+            isProvisional
         }
-    });
+    };
+    if (!isProvisional) {
+        // Explicitly set root-level invoiceNumber for canonical reference across GSTR-1, GL & UI
+        updatePayload.invoiceNumber = invoiceNumber;
+    }
+    await orderRef.update(updatePayload);
 
     console.log(`[invoiceService] Successfully generated and uploaded invoice for ${orderId}: ${downloadUrl}`);
 

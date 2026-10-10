@@ -8,7 +8,7 @@
 const { db, admin } = require("../core/admin");
 const { postJournalEntry } = require("./generalLedger");
 const { calculateTaxForOrder, roundCurrency } = require("../tax/gstEngine");
-const { getNextInvoiceNumber, getCurrentFinancialYear } = require("../invoices/sequentialInvoiceEngine");
+const { getNextInvoiceNumber, getOrCreateInvoiceNumberForOrder, getCurrentFinancialYear } = require("../invoices/sequentialInvoiceEngine");
 
 /**
  * Derives current fiscal period in 'YYYY-MM' format.
@@ -48,6 +48,26 @@ async function recognizeOrderDeliveryFinancials(orderData) {
         throw new Error("EMPTY_ORDER_ITEMS: Order must contain at least one line item to recognize revenue.");
     }
 
+    // 0. Idempotency Check: Guard against duplicate delivery recognition
+    const orderRef = db.collection("orders").doc(orderId);
+    const orderSnap = await orderRef.get();
+    const existingOrder = orderSnap.exists ? (orderSnap.data() || {}) : {};
+
+    if (existingOrder.financialStatus === "RECOGNIZED") {
+        console.log(`[salesLedger] Order ${orderId} already financially recognized with Invoice #${existingOrder.invoiceNumber}. Returning existing record.`);
+        return {
+            success: true,
+            alreadyRecognized: true,
+            orderId,
+            invoiceNumber: existingOrder.invoiceNumber,
+            totalSales: existingOrder.totalSales,
+            taxableAmount: existingOrder.taxableAmount,
+            totalTax: existingOrder.totalTax,
+            totalCogs: existingOrder.totalCogs,
+            journalEntryId: existingOrder.journalEntryId
+        };
+    }
+
     // 1. Calculate statutory GST breakdown (Intra-State vs Inter-State)
     const taxCalculation = calculateTaxForOrder({
         shippingState,
@@ -63,8 +83,13 @@ async function recognizeOrderDeliveryFinancials(orderData) {
 
     const { taxableAmount, cgstAmount, sgstAmount, igstAmount, totalTax, grandTotal } = taxCalculation;
 
-    // 2. Generate Consecutive Tax Invoice Number (Rule 46 CGST)
-    const { invoiceNumber } = await getNextInvoiceNumber(financialYear);
+    // 2. Obtain Official Consecutive Tax Invoice Number (Rule 46 CGST)
+    // Reuse existing official invoiceNumber if already allocated (e.g. at dispatch/packaging)
+    let invoiceNumber = existingOrder.invoiceNumber || (existingOrder.invoice && existingOrder.invoice.invoiceNumber);
+    if (!invoiceNumber || String(invoiceNumber).startsWith("KV/SAM/")) {
+        const alloc = await getOrCreateInvoiceNumberForOrder(orderId, financialYear);
+        invoiceNumber = alloc.invoiceNumber;
+    }
 
     // 3. Compute Cost of Goods Sold (COGS) matching
     let totalCogs = 0;
@@ -150,7 +175,6 @@ async function recognizeOrderDeliveryFinancials(orderData) {
     });
 
     // 6. Update order document with recognized financial metadata
-    const orderRef = db.collection("orders").doc(orderId);
     await orderRef.set({
         invoiceNumber,
         financialStatus: "RECOGNIZED",

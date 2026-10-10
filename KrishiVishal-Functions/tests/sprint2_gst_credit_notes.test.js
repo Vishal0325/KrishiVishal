@@ -52,6 +52,15 @@ async function runSprint2TestSuite() {
                     table.set(docId, merged);
                     return true;
                 },
+                update: async (patch) => {
+                    const existing = table.get(docId) || {};
+                    table.set(docId, { ...existing, ...patch });
+                    return true;
+                },
+                delete: async () => {
+                    table.delete(docId);
+                    return true;
+                },
                 collection: (subCol) => {
                     return {
                         doc: (subId) => createMockDocRef(`${collectionName}/${docId}/${subCol}`, subId)
@@ -207,13 +216,13 @@ async function runSprint2TestSuite() {
         console.log("Generated Credit Note Sequence:", cnNumbers.join(", "));
 
         assert.deepStrictEqual(cnNumbers, [
-            "KV/CN/26-27/00001",
-            "KV/CN/26-27/00002",
-            "KV/CN/26-27/00003",
-            "KV/CN/26-27/00004"
+            "KVCN/26-27/00001",
+            "KVCN/26-27/00002",
+            "KVCN/26-27/00003",
+            "KVCN/26-27/00004"
         ]);
-        assert(cnNumbers.every(n => n.length <= 18), "Credit note numbers must be within valid length");
-        pass("4.1 4 parallel concurrent credit note generations produce consecutive numbers (KV/CN/26-27/00001 to 00004)");
+        assert(cnNumbers.every(n => n.length <= 16), "Credit note numbers must not exceed statutory limit of 16 characters (Rule 53 CGST)");
+        pass("4.1 4 parallel concurrent credit note generations produce consecutive numbers (KVCN/26-27/00001 to 00004)");
 
         // =================================================================
         // PART 5: CREDIT NOTE GENERATION & BALANCED JOURNAL REVERSAL
@@ -222,6 +231,7 @@ async function runSprint2TestSuite() {
 
         const returnPayload = {
             orderId: "ORD_RET_101",
+            returnRequestId: "RET_SPRINT2_101",
             originalInvoiceNo: "KV/26-27/00042",
             returnReason: "RTO_FAILED_DELIVERY",
             shippingState: "Bihar",

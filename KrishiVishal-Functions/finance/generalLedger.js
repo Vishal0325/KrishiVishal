@@ -164,6 +164,28 @@ function validateJournalEntry(entryData) {
     };
 }
 
+const crypto = require("crypto");
+
+/**
+ * Computes a deterministic canonical hash of journal lines.
+ * Normalizes numbers to 2 decimal places, trims account codes,
+ * and sorts lines by accountCode, debit, credit to ensure line order
+ * invariance while strictly validating accounting equivalence.
+ *
+ * @param {Array<object>} lines
+ * @returns {string} SHA-256 hex digest (first 32 chars)
+ */
+function computeCanonicalLinesHash(lines) {
+    if (!Array.isArray(lines)) return "";
+    const canonical = lines.map(l => {
+        const acc = String(l.accountCode || "").trim();
+        const dr = (Number(l.debit || 0)).toFixed(2);
+        const cr = (Number(l.credit || 0)).toFixed(2);
+        return `${acc}|${dr}|${cr}`;
+    }).sort().join(";");
+    return crypto.createHash("sha256").update(canonical).digest("hex").slice(0, 32);
+}
+
 /**
  * Posts an immutable double-entry journal entry to Firestore atomically.
  * 
@@ -176,6 +198,7 @@ async function postJournalEntry(entryData) {
 
     const periodId = entryData.periodId;
     const entryId = entryData.entryId || `JE_${periodId.replace('-', '')}_${Date.now()}_${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    const proposedLinesHash = computeCanonicalLinesHash(entryData.lines);
 
     // 2. Atomic Firestore transaction execution
     const result = await db.runTransaction(async (transaction) => {
@@ -185,7 +208,75 @@ async function postJournalEntry(entryData) {
         const entryRef = db.collection("journal_entries").doc(entryId);
         const existingDoc = await transaction.get(entryRef);
         if (existingDoc.exists) {
-            throw new Error(`DUPLICATE_JOURNAL_ENTRY: Journal entry ${entryId} already exists.`);
+            const existing = existingDoc.data() || {};
+            const amountDiff = Math.abs((Number(existing.totalAmount) || 0) - totalDebit);
+
+            // Canonical lines verification
+            let linesMatch = false;
+            if (existing.linesHash) {
+                linesMatch = existing.linesHash === proposedLinesHash;
+            } else {
+                // Legacy Journal verification (Pre-dating linesHash):
+                // Read persisted lines subcollection and calculate canonical hash from actual stored records.
+                const linesColRef = entryRef.collection("lines");
+                let linesSnap = null;
+                try {
+                    linesSnap = (typeof transaction.get === "function")
+                        ? await transaction.get(linesColRef).catch(() => linesColRef.get())
+                        : await linesColRef.get();
+                } catch (readErr) {
+                    linesSnap = null;
+                }
+
+                if (!linesSnap || linesSnap.empty || (typeof linesSnap.size === "number" && linesSnap.size === 0)) {
+                    const err = new Error(`JOURNAL_ENTRY_CONFLICT: Legacy journal entry ${entryId} lacks linesHash and persisted lines subcollection is missing or empty.`);
+                    err.code = "JOURNAL_ENTRY_CONFLICT";
+                    err.reason = "LEGACY_JOURNAL_LINES_UNAVAILABLE";
+                    err.existingEntry = existing;
+                    throw err;
+                }
+
+                const persistedLines = [];
+                if (Array.isArray(linesSnap.docs)) {
+                    linesSnap.docs.forEach(docSnap => persistedLines.push(docSnap.data() || {}));
+                } else if (typeof linesSnap.forEach === "function") {
+                    linesSnap.forEach(docSnap => persistedLines.push(docSnap.data() || {}));
+                }
+
+                if (persistedLines.length !== entryData.lines.length) {
+                    const err = new Error(`JOURNAL_ENTRY_CONFLICT: Legacy journal entry ${entryId} line count mismatch (Persisted: ${persistedLines.length}, Proposed: ${entryData.lines.length}).`);
+                    err.code = "JOURNAL_ENTRY_CONFLICT";
+                    err.reason = "LINE_COUNT_MISMATCH";
+                    err.existingEntry = existing;
+                    throw err;
+                }
+
+                const persistedLinesHash = computeCanonicalLinesHash(persistedLines);
+                linesMatch = (persistedLinesHash === proposedLinesHash);
+            }
+
+            const matches = (
+                existing.refType === entryData.refType &&
+                existing.refId === entryData.refId &&
+                existing.periodId === periodId &&
+                amountDiff < 0.001 &&
+                Number(existing.lineCount) === entryData.lines.length &&
+                linesMatch
+            );
+
+            if (!matches) {
+                const err = new Error(`JOURNAL_ENTRY_CONFLICT: Journal entry ${entryId} already exists with different financial contents or references.`);
+                err.code = "JOURNAL_ENTRY_CONFLICT";
+                err.existingEntry = existing;
+                throw err;
+            }
+
+            return {
+                success: true,
+                entryId,
+                totalAmount: Number(existing.totalAmount || totalDebit),
+                alreadyExists: true
+            };
         }
 
         const timestamp = entryData.date instanceof Date ? entryData.date : (entryData.date ? new Date(entryData.date) : new Date());
@@ -199,6 +290,7 @@ async function postJournalEntry(entryData) {
             memo: entryData.memo || "",
             totalAmount: totalDebit,
             lineCount: entryData.lines.length,
+            linesHash: proposedLinesHash,
             createdBy: entryData.createdBy || "SYSTEM",
             status: "POSTED",
             createdAt: admin.firestore.FieldValue.serverTimestamp()
@@ -249,5 +341,6 @@ module.exports = {
     assertFiscalPeriodUnlocked,
     validateJournalEntry,
     postJournalEntry,
-    findAccountName
+    findAccountName,
+    computeCanonicalLinesHash
 };

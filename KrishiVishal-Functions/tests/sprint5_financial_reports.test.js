@@ -293,7 +293,7 @@ async function runSprint5TestSuite() {
 
         // Seed Credit Note
         store.credit_notes.set("CN_GSTR_1", {
-            creditNoteNo: "KV/CN/26-27/00001",
+            creditNoteNo: "KVCN/26-27/00001",
             status: "ISSUED"
         });
 
@@ -305,7 +305,7 @@ async function runSprint5TestSuite() {
         assert.strictEqual(gstr1.table13Documents.invoices.fromSerial, "KV/26-27/00001");
         assert.strictEqual(gstr1.table13Documents.invoices.toSerial, "KV/26-27/00002");
         assert.strictEqual(gstr1.table13Documents.creditNotes.totalIssued, 1);
-        assert.strictEqual(gstr1.table13Documents.creditNotes.fromSerial, "KV/CN/26-27/00001");
+        assert.strictEqual(gstr1.table13Documents.creditNotes.fromSerial, "KVCN/26-27/00001");
 
         pass("4.1 GSTR-1 Summary Tables 7, 12, 13 perfectly formatted for GST Portal / ClearTax export");
 

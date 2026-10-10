@@ -86,7 +86,88 @@ async function getNextInvoiceNumber(financialYear = null, prefix = "KV") {
     return result;
 }
 
+/**
+ * Concurrency-safe atomic invoice number retrieval or generation for an order.
+ * Ensures strict Rule 46 compliance and 1-to-1 bijection: exactly ONE official invoice number per order.
+ *
+ * If order already has an official invoiceNumber (or nested invoice.invoiceNumber),
+ * returns it immediately without incrementing the sequence counter.
+ * Otherwise, increments the sequence counter atomically in a Firestore transaction,
+ * attaches invoiceNumber to the order doc, and returns the newly generated number.
+ *
+ * @param {string} orderId
+ * @param {string} [financialYear]
+ * @param {string} [prefix]
+ * @returns {Promise<{ invoiceNumber: string, sequence: number|null, financialYear: string, isExisting: boolean }>}
+ */
+async function getOrCreateInvoiceNumberForOrder(orderId, financialYear = null, prefix = "KV") {
+    if (!orderId) throw new Error("MISSING_ORDER_ID: orderId is required.");
+
+    const fy = financialYear || getCurrentFinancialYear();
+    const counterRef = db.collection("invoice_counters").doc(fy);
+    const orderRef = db.collection("orders").doc(orderId);
+
+    const result = await db.runTransaction(async (transaction) => {
+        // Read order first
+        const orderDoc = await transaction.get(orderRef);
+        const orderData = orderDoc.exists ? (orderDoc.data() || {}) : {};
+
+        // Check if an official sequential invoiceNumber already exists on order or nested invoice
+        const existingInvoiceNumber = orderData.invoiceNumber || (orderData.invoice && orderData.invoice.invoiceNumber);
+
+        // If an official invoice number already exists (not fallback KV/SAM/), return it immediately!
+        if (existingInvoiceNumber && !String(existingInvoiceNumber).startsWith("KV/SAM/")) {
+            return {
+                invoiceNumber: existingInvoiceNumber,
+                sequence: null,
+                financialYear: fy,
+                isExisting: true
+            };
+        }
+
+        // Read and increment counter
+        const counterDoc = await transaction.get(counterRef);
+        let currentSequence = 0;
+        if (counterDoc.exists) {
+            currentSequence = Number(counterDoc.data()?.currentSequence) || 0;
+        }
+
+        const nextSequence = currentSequence + 1;
+        const paddedSequence = String(nextSequence).padStart(5, '0');
+        const invoiceNumber = `${prefix}/${fy}/${paddedSequence}`;
+
+        if (invoiceNumber.length > 16) {
+            throw new Error(`GST_RULE_46_VIOLATION: Generated invoice number '${invoiceNumber}' exceeds maximum statutory limit of 16 characters.`);
+        }
+
+        // Update counter atomically
+        transaction.set(counterRef, {
+            financialYear: fy,
+            prefix: prefix,
+            currentSequence: nextSequence,
+            lastGeneratedInvoiceNumber: invoiceNumber,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        // Update order doc with official invoiceNumber atomically
+        transaction.set(orderRef, {
+            invoiceNumber: invoiceNumber,
+            invoiceAllocatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        return {
+            invoiceNumber,
+            sequence: nextSequence,
+            financialYear: fy,
+            isExisting: false
+        };
+    });
+
+    return result;
+}
+
 module.exports = {
     getCurrentFinancialYear,
-    getNextInvoiceNumber
+    getNextInvoiceNumber,
+    getOrCreateInvoiceNumberForOrder
 };
