@@ -70,6 +70,7 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
       roles: ["SuperAdmin", "FinanceAdmin", "OrderManager", "Viewer"],
       subItems: [
         { label: "Finance & Accounts Hub", path: "/finance-desk" },
+        { label: "🧾 Invoice Management", path: "/finance/invoices" },
         { label: "CA Statutory Reports", path: "/finance/reports" },
         { label: "Rider COD Settlement", path: "/finance/cod-desk" },
         { label: "Supplier AP & TDS Desk", path: "/finance/supplier-ap" },

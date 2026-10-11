@@ -542,3 +542,34 @@ export function downloadXmlFile(filename, xmlString) {
   URL.revokeObjectURL(url);
 }
 
+// --- 6. LEDGER DRILL-DOWN EXTRACT & VAULT BANK DEPOSIT ---
+
+export async function fetchLedgerExtract({ accountCode, periodStart, periodEnd }) {
+  const fn = httpsCallable(functions, "getLedgerExtract");
+  const res = await fn({ accountCode, periodStart, periodEnd });
+  return res.data;
+}
+
+export async function recordVaultBankDepositService({
+  amount,
+  depositDate,
+  bankName,
+  depositSlipNumber,
+  cmsAgency,
+  remarks,
+  hubCode
+}) {
+  const fn = httpsCallable(functions, "recordVaultBankDeposit");
+  const res = await fn({
+    amount,
+    depositDate,
+    bankName,
+    depositSlipNumber,
+    cmsAgency,
+    remarks,
+    hubCode
+  });
+  return res.data;
+}
+
+

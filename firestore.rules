@@ -64,7 +64,9 @@ service cloud.firestore {
     }
 
     function isRider() {
-      return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role == "Rider";
+      return isAuthenticated() && ('role' in request.auth.token) && (
+        request.auth.token.role in ["Rider", "rider", "Serviceman", "serviceman", "Partner", "partner", "DELIVERY"]
+      );
     }
 
     function isAuditor() {
@@ -129,6 +131,13 @@ service cloud.firestore {
         allow read: if isAdmin() || isViewer() || isHubManager();
         allow write: if isAdmin();
       }
+    }
+    
+    match /inventory_movements/{movementId} {
+      allow create: if isAuthenticated() && (isAdmin() || isHubManager());
+      allow read: if isAuthenticated() && (isFinanceRole() || isHubManager() || isAdmin());
+      allow update: if false; // IMMUTABLE
+      allow delete: if false; // IMMUTABLE
     }
 
     match /master_data/{document=**} {
@@ -264,7 +273,11 @@ service cloud.firestore {
     }
 
     match /fiscal_periods/{periodId} {
-      allow read, write: if isFinanceRole();
+      allow read:  if isAuthenticated() && isFinanceRole();
+      allow write: if isAuthenticated() &&
+        (request.auth.token.role == 'CFO' ||
+         request.auth.token.role == 'SUPER_ADMIN' ||
+         request.auth.token.role == 'SuperAdmin');
     }
 
     match /approval_requests/{requestId} {
@@ -410,7 +423,10 @@ service cloud.firestore {
 
     match /orders/{orderId} {
 
-      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager() ||
+      allow read: if isAdmin() || isViewer() || isDepartmentManager() ||
+        (
+          isHubManager() && resource.data.hubCode == request.auth.token.hubId
+        ) ||
         (
           isAuthenticated() &&
           resource.data.userId == request.auth.uid
@@ -460,16 +476,12 @@ service cloud.firestore {
                 'lastAttemptAt',
                 'attemptHistory'
               ])
-        ) ||
-        (
-          // Blocker 7: allow rider to self-assign unassigned orders
-          isRider() &&
-          resource.data.riderId == "" &&
-          resource.data.status in ['READY_FOR_PICKUP', 'PACKED'] &&
-          (request.resource.data.status in ["ASSIGNED", "RIDER_ASSIGNED"]) &&
-          request.resource.data.riderId == request.auth.uid &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'riderId', 'updatedAt'])
         );
+      // Riders CANNOT self-assign orders.
+      // Order assignment is exclusively done by:
+      // - Hub Manager via Admin Dashboard
+      // - Cloud Function automated dispatch
+      // Rider can only update status, proof, coordinates, etc. via updateOrderStatus and riderMutations Cloud Functions.
 
       allow delete: if isSuperAdmin();
 
@@ -652,19 +664,26 @@ service cloud.firestore {
       allow create: if isAdmin();
       // Rider self-updates restricted to non-sensitive profile fields
       allow update: if isAdmin() || (
-        isRider() && isOwner(riderId) &&
+        isOwner(riderId) &&
         (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['kycStatus']) ||
           request.resource.data.kycStatus == 'PENDING_VERIFICATION'
         ) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'name', 'phone', 'address', 'vehicleDetails', 'isAvailable', 'currentLocation', 'location', 'fcmToken', 'updatedAt',
           'currentLat', 'currentLng', 'lastLocationUpdate',
-          'online', 'shiftStartTime', 'shiftEndTime',
+          'online', 'isOnline', 'shiftStartTime', 'shiftEndTime',
           'bankAccount', 'bankName', 'ifscCode', 'vehicleNumber', 'vehicleType',
           'documents', 'kycStatus', 'lastKycSubmissionAt'
         ])
       );
       allow delete: if isAdmin();
+
+      // Attendance subcollection for daily shift logs
+      match /attendance/{attendanceId} {
+        allow read: if isAdmin() || isViewer() || isOwner(riderId) || isHubManager();
+        allow create, update: if isAdmin() || isOwner(riderId);
+        allow delete: if isAdmin();
+      }
     }
 
 
@@ -868,8 +887,8 @@ service cloud.firestore {
     }
 
     match /warehouse_inventory/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
-      allow write: if isAdmin() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isDepartmentManager() || (isHubManager() && resource.data.hubCode == request.auth.token.hubId);
+      allow write: if isAdmin() || (isHubManager() && resource.data.hubCode == request.auth.token.hubId);
     }
 
 
