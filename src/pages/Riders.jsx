@@ -215,7 +215,16 @@ const Riders = () => {
   };
 
   const filteredRiders = ridersList.filter((s) => {
-    const matchesHub = selectedHub === "ALL" || s.warehouseId === selectedHub || s.assignedWarehouse === selectedHub;
+    const selectedWh = warehouses.find(w => w.id === selectedHub || w.code === selectedHub);
+    const selectedHubId = selectedWh?.id || selectedHub;
+    const selectedHubCode = selectedWh?.code || selectedHub;
+
+    const riderHub = s.warehouseId || s.assignedWarehouse || s.hubCode || "";
+    const matchesHub = selectedHub === "ALL" ||
+      riderHub === selectedHub ||
+      riderHub === selectedHubId ||
+      riderHub === selectedHubCode;
+
     const matchesSearch =
       (s.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (s.phone || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -224,7 +233,16 @@ const Riders = () => {
   });
 
   const filteredWhitelist = whitelistedList.filter((w) => {
-    const matchesHub = selectedHub === "ALL" || w.warehouseId === selectedHub;
+    const selectedWh = warehouses.find(w => w.id === selectedHub || w.code === selectedHub);
+    const selectedHubId = selectedWh?.id || selectedHub;
+    const selectedHubCode = selectedWh?.code || selectedHub;
+
+    const riderHub = w.warehouseId || w.assignedWarehouse || w.hubCode || "";
+    const matchesHub = selectedHub === "ALL" ||
+      riderHub === selectedHub ||
+      riderHub === selectedHubId ||
+      riderHub === selectedHubCode;
+
     const matchesSearch =
       (w.name || "").toLowerCase().includes(whitelistSearchTerm.toLowerCase()) ||
       (w.phone || "").toLowerCase().includes(whitelistSearchTerm.toLowerCase()) ||
