@@ -238,6 +238,15 @@ data class Order(
     @SerializedName("financialStatus")
     val financialStatus: String? = null
 ) : Parcelable {
+    @androidx.room.Ignore
+    @kotlinx.parcelize.IgnoredOnParcel
+    @SerializedName("creditNoteNumber")
+    var creditNoteNumber: String? = null
+
+    @androidx.room.Ignore
+    @kotlinx.parcelize.IgnoredOnParcel
+    @SerializedName("creditNotePdfUrl")
+    var creditNotePdfUrl: String? = null
     @get:Exclude
     val orderStatus: OrderStatus 
         get() = OrderStatus.fromString(status)

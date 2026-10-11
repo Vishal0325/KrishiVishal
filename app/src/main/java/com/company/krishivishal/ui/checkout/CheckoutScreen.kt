@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -322,16 +323,52 @@ fun CheckoutScreen(
                         item {
                             SectionHeader("Payment Method")
                             Spacer(modifier = Modifier.height(8.dp))
+
+                            if (uiState.hasPendingCodOverdue) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                                    border = BorderStroke(1.dp, Color(0xFFD32F2F)),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Warning,
+                                            contentDescription = "COD Overdue Warning",
+                                            tint = Color(0xFFD32F2F),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Text(
+                                            text = "COD order pending for more than 24 hours. Please contact support or wait for delivery before placing a new COD order.",
+                                            color = Color(0xFFD32F2F),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            }
                             
                             if (uiState.paymentOptions.size > 1) {
                                 uiState.paymentOptions.forEach { option ->
+                                    val isCodLocked = option.method == PaymentMethod.COD && uiState.hasPendingCodOverdue
                                     PaymentMethodItem(
                                         title = option.title,
-                                        subtitle = option.subtitle,
+                                        subtitle = if (isCodLocked) "Unavailable (Pending COD > 24 hrs)" else option.subtitle,
                                         icon = option.icon,
                                         iconColor = option.iconColor,
-                                        isSelected = uiState.selectedPaymentMethod == option.method,
-                                        onSelect = { viewModel.updatePaymentMethod(option.method) }
+                                        isSelected = uiState.selectedPaymentMethod == option.method && !isCodLocked,
+                                        enabled = !isCodLocked,
+                                        isLocked = isCodLocked,
+                                        lockReason = "Locked due to pending COD > 24 hrs",
+                                        onSelect = { 
+                                            if (!isCodLocked) {
+                                                viewModel.updatePaymentMethod(option.method) 
+                                            }
+                                        }
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
                                 }
@@ -344,12 +381,16 @@ fun CheckoutScreen(
                                     icon = Icons.Default.Payments,
                                     iconColor = Color(0xFFFF9800)
                                 )
+                                val isCodLocked = option.method == PaymentMethod.COD && uiState.hasPendingCodOverdue
                                 PaymentMethodItem(
                                     title = option.title,
-                                    subtitle = option.subtitle,
+                                    subtitle = if (isCodLocked) "Unavailable (Pending COD > 24 hrs)" else option.subtitle,
                                     icon = option.icon,
                                     iconColor = option.iconColor,
-                                    isSelected = true,
+                                    isSelected = !isCodLocked,
+                                    enabled = !isCodLocked,
+                                    isLocked = isCodLocked,
+                                    lockReason = "Locked due to pending COD > 24 hrs",
                                     onSelect = {}
                                 )
                             }
@@ -531,17 +572,22 @@ fun PaymentMethodItem(
     icon: ImageVector,
     iconColor: Color,
     isSelected: Boolean,
+    enabled: Boolean = true,
+    isLocked: Boolean = false,
+    lockReason: String? = null,
     onSelect: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onSelect() },
+            .then(if (enabled && !isLocked) Modifier.clickable { onSelect() } else Modifier),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, if (isSelected) PrimaryGreen else MaterialTheme.colorScheme.outlineVariant)
+        border = BorderStroke(1.dp, if (isSelected && enabled && !isLocked) PrimaryGreen else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .padding(16.dp)
+                .alpha(if (!enabled || isLocked) 0.4f else 1f),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -551,16 +597,40 @@ fun PaymentMethodItem(
                 modifier = Modifier.size(24.dp)
             )
             Spacer(modifier = Modifier.width(12.dp))
-            Column {
-                Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Text(subtitle, fontSize = 12.sp, color = Color.Gray)
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    if (isLocked) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            Icons.Default.Lock,
+                            contentDescription = "Locked",
+                            tint = Color(0xFFD32F2F),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+                Text(
+                    text = if (isLocked && lockReason != null) lockReason else subtitle,
+                    fontSize = 12.sp,
+                    color = if (isLocked) Color(0xFFD32F2F) else Color.Gray
+                )
             }
-            Spacer(modifier = Modifier.weight(1f))
-            RadioButton(
-                selected = isSelected, 
-                onClick = onSelect, 
-                colors = RadioButtonDefaults.colors(selectedColor = PrimaryGreen)
-            )
+            if (isLocked) {
+                Icon(
+                    Icons.Default.Lock,
+                    contentDescription = "Locked",
+                    tint = Color(0xFFD32F2F),
+                    modifier = Modifier.size(20.dp)
+                )
+            } else {
+                RadioButton(
+                    selected = isSelected && enabled, 
+                    onClick = if (enabled) onSelect else null,
+                    enabled = enabled,
+                    colors = RadioButtonDefaults.colors(selectedColor = PrimaryGreen)
+                )
+            }
         }
     }
 }

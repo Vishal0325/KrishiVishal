@@ -96,6 +96,19 @@ class DashboardViewModel @Inject constructor(
         list.firstOrNull()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    private val _cashInHand = MutableStateFlow(0.0)
+    val cashInHand: StateFlow<Double> = _cashInHand.asStateFlow()
+
+    private val _lastCodDeliveryAt = MutableStateFlow<com.google.firebase.Timestamp?>(null)
+    val lastCodDeliveryAt: StateFlow<com.google.firebase.Timestamp?> = _lastCodDeliveryAt.asStateFlow()
+
+    private val _uiErrorMessage = MutableStateFlow<String?>(null)
+    val uiErrorMessage: StateFlow<String?> = _uiErrorMessage.asStateFlow()
+
+    fun clearUiErrorMessage() {
+        _uiErrorMessage.value = null
+    }
+
     fun acceptIncomingOrder(orderId: String) {
         viewModelScope.launch {
             try {
@@ -103,6 +116,7 @@ class DashboardViewModel @Inject constructor(
                 syncData(currentRiderId)
             } catch (e: Exception) {
                 timber.log.Timber.e(e, "Failed to accept incoming order $orderId")
+                _uiErrorMessage.value = e.message ?: "Status update failed. Please retry or contact Hub Manager."
             }
         }
     }
@@ -114,18 +128,13 @@ class DashboardViewModel @Inject constructor(
                 syncData(currentRiderId)
             } catch (e: Exception) {
                 timber.log.Timber.e(e, "Failed to decline incoming order $orderId")
+                _uiErrorMessage.value = e.message ?: "Status update failed. Please retry or contact Hub Manager."
             }
         }
     }
 
-
-    // COD Vault Limit State
-    val codCashInHand: StateFlow<Double> = orders.map { res ->
-        if (res is Resource.Success) {
-            res.data?.filter { it.isCOD && it.status == OrderStatus.DELIVERED.name && !it.isCashDeposited }
-                ?.sumOf { it.collectedCash } ?: 0.0
-        } else 0.0
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    // COD Vault Limit State (bound to real-time cashInHand)
+    val codCashInHand: StateFlow<Double> = _cashInHand.asStateFlow()
 
     val isCodVaultLimitExceeded: StateFlow<Boolean> = codCashInHand.map { it >= COD_VAULT_LIMIT }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -251,7 +260,11 @@ class DashboardViewModel @Inject constructor(
         viewModelScope.launch {
             riderRepository.getRiderProfile(riderId)
                 .catch { e -> _riderProfile.value = Resource.Error(e.message ?: "Profile error") }
-                .collectLatest { _riderProfile.value = Resource.Success(it) }
+                .collectLatest { rider ->
+                    _riderProfile.value = Resource.Success(rider)
+                    _cashInHand.value = rider?.cashInHand ?: 0.0
+                    _lastCodDeliveryAt.value = rider?.lastCodDeliveryAt
+                }
         }
     }
 

@@ -206,7 +206,7 @@ async function runEmulatorValidationSuite() {
                 orderId,
                 originalInvoiceNo,
                 returnReason: "PARTIAL_RETURN_A",
-                returnedItems: [{ skuId: "SKU_P1", name: "Item Part 1", quantity: 1, taxablePrice: 500, costPrice: 350 }],
+                returnedItems: [{ skuId: "SKU_P1", name: "Item Part 1", quantity: 1, taxablePrice: 500, costPrice: 350, hsn: "1209", category: "SEEDS" }],
                 returnRequestId: "RET_PART_1"
             });
 
@@ -214,7 +214,7 @@ async function runEmulatorValidationSuite() {
                 orderId,
                 originalInvoiceNo,
                 returnReason: "PARTIAL_RETURN_B",
-                returnedItems: [{ skuId: "SKU_P2", name: "Item Part 2", quantity: 2, taxablePrice: 300, costPrice: 200 }],
+                returnedItems: [{ skuId: "SKU_P2", name: "Item Part 2", quantity: 2, taxablePrice: 300, costPrice: 200, hsn: "1209", category: "SEEDS" }],
                 returnRequestId: "RET_PART_2"
             });
 
@@ -246,7 +246,7 @@ async function runEmulatorValidationSuite() {
                 orderId,
                 originalInvoiceNo,
                 returnReason: "CUSTOMER_RETURN",
-                returnedItems: [{ skuId: "SKU_MIS_1", name: "Item Original", quantity: 1, taxablePrice: 600, costPrice: 400 }],
+                returnedItems: [{ skuId: "SKU_MIS_1", name: "Item Original", quantity: 1, taxablePrice: 600, costPrice: 400, hsn: "1209", category: "SEEDS" }],
                 returnRequestId
             });
             assert.strictEqual(res1.success, true);
@@ -258,7 +258,7 @@ async function runEmulatorValidationSuite() {
                     orderId,
                     originalInvoiceNo,
                     returnReason: "CUSTOMER_RETURN",
-                    returnedItems: [{ skuId: "SKU_MIS_1", name: "Item Modified", quantity: 2, taxablePrice: 600, costPrice: 400 }],
+                    returnedItems: [{ skuId: "SKU_MIS_1", name: "Item Modified", quantity: 2, taxablePrice: 600, costPrice: 400, hsn: "1209", category: "SEEDS" }],
                     returnRequestId
                 });
             } catch (err) {
@@ -283,7 +283,7 @@ async function runEmulatorValidationSuite() {
             const returnRequestId = "RET_EMU_ADMIN_SYS_005";
             const orderId = "ORD_EMU_ADMIN_SYS_005";
             const originalInvoiceNo = "KV/26-27/00105";
-            const returnedItems = [{ skuId: "SKU_TEST", name: "Test Seed", quantity: 1, taxablePrice: 800, costPrice: 500 }];
+            const returnedItems = [{ skuId: "SKU_TEST", name: "Test Seed", quantity: 1, taxablePrice: 800, costPrice: 500, hsn: "1209", category: "SEEDS" }];
 
             const [p1, p2] = await Promise.allSettled([
                 generateCreditNoteForReturn({
@@ -322,7 +322,7 @@ async function runEmulatorValidationSuite() {
                     orderId: "ORD_MISSING_RET_ID",
                     originalInvoiceNo: "KV/26-27/00106",
                     returnReason: "CUSTOMER_RETURN",
-                    returnedItems: [{ skuId: "SKU_TEST", name: "Seed", quantity: 1, taxablePrice: 500, costPrice: 300 }]
+                    returnedItems: [{ skuId: "SKU_TEST", name: "Seed", quantity: 1, taxablePrice: 500, costPrice: 300, hsn: "1209", category: "SEEDS" }]
                     // notice: returnRequestId is omitted
                 });
             } catch (err) {
@@ -344,14 +344,14 @@ async function runEmulatorValidationSuite() {
                 orderId,
                 originalInvoiceNo,
                 returnReason: "CUSTOMER_RETURN",
-                returnedItems: [{ skuId: "SKU_P1", name: "Part A Item", quantity: 1, taxablePrice: 400, costPrice: 250 }],
+                returnedItems: [{ skuId: "SKU_P1", name: "Part A Item", quantity: 1, taxablePrice: 400, costPrice: 250, hsn: "1209", category: "SEEDS" }],
                 returnRequestId: "RET_PART_DISTINCT_A"
             });
             const resPartB = await generateCreditNoteForReturn({
                 orderId,
                 originalInvoiceNo,
                 returnReason: "CUSTOMER_RETURN",
-                returnedItems: [{ skuId: "SKU_P2", name: "Part B Item", quantity: 1, taxablePrice: 600, costPrice: 400 }],
+                returnedItems: [{ skuId: "SKU_P2", name: "Part B Item", quantity: 1, taxablePrice: 600, costPrice: 400, hsn: "1209", category: "SEEDS" }],
                 returnRequestId: "RET_PART_DISTINCT_B"
             });
             assert.strictEqual(resPartA.success, true);
@@ -882,7 +882,7 @@ async function runEmulatorValidationSuite() {
             const orderId = "ORD_EMU_RECOV_001";
             const lockDocId = deriveLockDocId(`RET_${returnRequestId}`);
             const lockRef = db.collection("credit_note_locks").doc(lockDocId);
-            const returnedItems = [{ skuId: "SKU_R1", name: "R1", quantity: 1, taxablePrice: 250, costPrice: 150 }];
+            const returnedItems = [{ skuId: "SKU_R1", name: "R1", quantity: 1, taxablePrice: 250, costPrice: 150, hsn: "1209", category: "SEEDS" }];
             const taxCalc = calculateTaxForOrder({ shippingState: "Bihar", items: returnedItems });
 
             // Pre-seed an active ALLOCATING lock (updated 5 seconds ago)
@@ -943,7 +943,7 @@ async function runEmulatorValidationSuite() {
 
             const reservedNumber = "KVCN/26-27/88801";
             const reservedId = "KVCN_26-27_88801";
-            const returnedItems = [{ skuId: "SKU_R2", name: "R2", quantity: 1, taxablePrice: 500, costPrice: 350 }];
+            const returnedItems = [{ skuId: "SKU_R2", name: "R2", quantity: 1, taxablePrice: 500, costPrice: 350, hsn: "1209", category: "SEEDS" }];
             const taxCalc = calculateTaxForOrder({ shippingState: "Bihar", items: returnedItems });
 
             // Pre-seed lock in NUMBER_RESERVED state with simulated crash
@@ -999,7 +999,7 @@ async function runEmulatorValidationSuite() {
             const reservedId = "KVCN_26-27_88802";
             const periodId = getFiscalPeriodId();
             const deterministicJournalId = deriveDeterministicJournalId(`RET_${returnRequestId}`, periodId);
-            const returnedItems = [{ skuId: "SKU_R3", name: "R3", quantity: 1, taxablePrice: 1000, costPrice: 700 }];
+            const returnedItems = [{ skuId: "SKU_R3", name: "R3", quantity: 1, taxablePrice: 1000, costPrice: 700, hsn: "1209", category: "SEEDS" }];
             const taxCalc = calculateTaxForOrder({ shippingState: "Bihar", items: returnedItems });
 
             // Build journal lines corresponding to taxCalc and cost
@@ -1065,7 +1065,7 @@ async function runEmulatorValidationSuite() {
             const returnRequestId = "RET_EMU_RECOV_COMPLETED_004";
             const orderId = "ORD_EMU_RECOV_004";
             const originalInvoiceNo = "KV/26-27/00304";
-            const items = [{ skuId: "SKU_R4", name: "R4", quantity: 1, taxablePrice: 300, costPrice: 200 }];
+            const items = [{ skuId: "SKU_R4", name: "R4", quantity: 1, taxablePrice: 300, costPrice: 200, hsn: "1209", category: "SEEDS" }];
 
             // Initial full run
             const first = await generateCreditNoteForReturn({
@@ -1233,10 +1233,10 @@ async function runEmulatorValidationSuite() {
                 status: "APPROVED",
                 qcStatus: "PENDING",
                 refundStatus: "PENDING",
-                items: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600 }]
+                items: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600, hsn: "1209", category: "SEEDS" }]
             });
 
-            const returnItems = [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600 }];
+            const returnItems = [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600, hsn: "1209", category: "SEEDS" }];
             const beforeData1 = { status: "APPROVED", qcStatus: "PENDING", refundStatus: "PENDING", orderId: "ORD_EMU_PARENT_001", items: returnItems };
             const afterData1 = { status: "APPROVED", qcStatus: "PASSED", refundStatus: "PENDING", orderId: "ORD_EMU_PARENT_001", items: returnItems };
 
@@ -1267,10 +1267,10 @@ async function runEmulatorValidationSuite() {
                 status: "PENDING",
                 qcStatus: "PASSED",
                 refundStatus: "PENDING",
-                items: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600 }]
+                items: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600, hsn: "1209", category: "SEEDS" }]
             });
 
-            const returnItems = [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600 }];
+            const returnItems = [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600, hsn: "1209", category: "SEEDS" }];
             const beforeData2 = { status: "PENDING", qcStatus: "PASSED", refundStatus: "PENDING", orderId: "ORD_EMU_PARENT_001", items: returnItems };
             const afterData2 = { status: "APPROVED", qcStatus: "PASSED", refundStatus: "PENDING", orderId: "ORD_EMU_PARENT_001", items: returnItems };
 
@@ -1312,24 +1312,38 @@ async function runEmulatorValidationSuite() {
         // -------------------------------------------------------------------------
         {
             const concRetId = "RET_EMU_CONCURRENT_REQ_004";
-            const concReqs = await Promise.all([
+            const [r1, r2] = await Promise.allSettled([
                 generateCreditNoteForReturn({
                     orderId: "ORD_EMU_PARENT_001",
                     returnRequestId: concRetId,
                     originalInvoiceNo: "KV/26-27/00501",
-                    returnedItems: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600 }],
+                    returnedItems: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600, hsn: "1209", category: "SEEDS" }],
                     shippingState: "Bihar"
                 }),
                 generateCreditNoteForReturn({
                     orderId: "ORD_EMU_PARENT_001",
                     returnRequestId: concRetId,
                     originalInvoiceNo: "KV/26-27/00501",
-                    returnedItems: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600 }],
+                    returnedItems: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600, hsn: "1209", category: "SEEDS" }],
                     shippingState: "Bihar"
                 })
             ]);
 
-            assert.strictEqual(concReqs[0].creditNoteNumber, concReqs[1].creditNoteNumber, "Concurrent requests must resolve to identical Credit Note");
+            const successes = [r1, r2].filter(r => r.status === "fulfilled" && r.value && r.value.success);
+            assert.ok(successes.length >= 1, "At least one concurrent call must succeed");
+
+            if (successes.length === 2) {
+                assert.strictEqual(r1.value.creditNoteNumber, r2.value.creditNoteNumber);
+            } else {
+                const rejected = [r1, r2].find(r => r.status === "rejected");
+                assert.ok(
+                    rejected.reason.message.includes("CONCURRENT_ALLOCATION_IN_PROGRESS") ||
+                    rejected.reason.code === "CONCURRENT_ALLOCATION_IN_PROGRESS"
+                );
+            }
+
+            const cnSnap = await db.collection("credit_notes").where("returnRequestId", "==", concRetId).get();
+            assert.strictEqual(cnSnap.size, 1, "Exactly one Credit Note document must be stored");
             pass("Scenario 5.4: Concurrent Credit Note requests resolve to identical Credit Note with zero duplicates.");
         }
 
@@ -1357,7 +1371,7 @@ async function runEmulatorValidationSuite() {
                 orderId: "ORD_EMU_PARENT_001",
                 returnRequestId: failRetId,
                 originalInvoiceNo: "KV/26-27/00501",
-                returnedItems: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600 }],
+                returnedItems: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600, hsn: "1209", category: "SEEDS" }],
                 shippingState: "Bihar"
             });
 

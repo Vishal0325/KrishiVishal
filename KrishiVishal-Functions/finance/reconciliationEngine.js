@@ -217,8 +217,104 @@ async function reconcileRiderCashBankDeposit({
     };
 }
 
+/**
+ * Records physical cash deposit from Hub Cash Vault to company Bank Account.
+ * Double-Entry Posting:
+ * Dr 1030_BANK_CURRENT_HDFC
+ * Cr 1020_HUB_CASH_VAULT
+ * 
+ * Saves record into `vault_deposits` collection.
+ */
+async function recordVaultBankDepositCore({
+    amount,
+    depositDate = new Date(),
+    bankName = "HDFC",
+    depositSlipNumber,
+    cmsAgency = "Manual",
+    remarks = "",
+    hubCode = "MAIN_HUB",
+    userRef = null,
+    bankAccountCode = "1030_BANK_CURRENT_HDFC"
+}) {
+    const depositAmount = roundCurrency(Number(amount || 0));
+    if (depositAmount <= 0) {
+        throw new Error("INVALID_AMOUNT: Deposit amount must be greater than zero.");
+    }
+    if (!depositSlipNumber) {
+        throw new Error("MISSING_DEPOSIT_SLIP: Deposit slip number is required.");
+    }
+
+    const slipId = String(depositSlipNumber).trim();
+    const periodId = getFiscalPeriodId(depositDate);
+
+    const journalLines = [
+        {
+            accountCode: bankAccountCode || "1030_BANK_CURRENT_HDFC",
+            debit: depositAmount,
+            credit: 0,
+            description: `Vault Cash Bank Deposit to ${bankName} (${slipId})`
+        },
+        {
+            accountCode: "1020_HUB_CASH_VAULT",
+            debit: 0,
+            credit: depositAmount,
+            description: `Vault Cash Reduction on Bank Deposit to ${bankName} by ${hubCode}`
+        }
+    ];
+
+    const journalResult = await postJournalEntry({
+        refType: "BANK_RECONCILIATION",
+        refId: slipId,
+        periodId,
+        date: depositDate instanceof Date ? depositDate : new Date(depositDate),
+        memo: remarks || `EOD Vault Deposit of ₹${depositAmount} to ${bankName} (Slip #${slipId})`,
+        lines: journalLines,
+        createdBy: userRef || "HUB_MANAGER"
+    });
+
+    const depositDoc = {
+        amount: depositAmount,
+        depositDate: admin.firestore.Timestamp.fromDate(depositDate instanceof Date ? depositDate : new Date(depositDate)),
+        bankName: bankName || "HDFC",
+        depositSlipNumber: slipId,
+        cmsAgency: cmsAgency || "Manual",
+        remarks: remarks || "",
+        hubCode: hubCode || "MAIN_HUB",
+        journalEntryId: journalResult.entryId,
+        status: "RECORDED",
+        depositedBy: userRef || "HUB_MANAGER",
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    const docRef = await db.collection("vault_deposits").add(depositDoc);
+
+    return {
+        success: true,
+        id: docRef.id,
+        amount: depositAmount,
+        journalEntryId: journalResult.entryId,
+        ...depositDoc
+    };
+}
+
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
+
+const recordVaultBankDeposit = onCall({ region: "asia-south1" }, async (request) => {
+    try {
+        const data = (request && request.data) ? request.data : request;
+        const userRef = request?.auth?.uid || data?.userRef || "HUB_MANAGER";
+        return await recordVaultBankDepositCore({ ...data, userRef });
+    } catch (err) {
+        console.error("[recordVaultBankDeposit] Error:", err);
+        throw new HttpsError("internal", err.message);
+    }
+});
+recordVaultBankDeposit.core = recordVaultBankDepositCore;
+
 module.exports = {
     roundCurrency,
     reconcileGatewaySettlement,
-    reconcileRiderCashBankDeposit
+    reconcileRiderCashBankDeposit,
+    recordVaultBankDeposit,
+    recordVaultBankDepositCore
 };

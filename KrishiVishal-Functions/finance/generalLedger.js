@@ -14,6 +14,7 @@ const CHART_OF_ACCOUNTS = {
         "1010_CASH_IN_HAND_RIDERS": { name: "Cash in Hand - Riders", category: "CURRENT_ASSET", normalBalance: "DEBIT" },
         "1020_HUB_CASH_VAULT": { name: "Hub Cash Vault / Safe", category: "CURRENT_ASSET", normalBalance: "DEBIT" },
         "1030_BANK_CURRENT_HDFC": { name: "HDFC Current Account (Main Op)", category: "BANK_ACCOUNT", normalBalance: "DEBIT" },
+        "1030_BANK_CURRENT_ACCOUNT": { name: "Bank Current Account", category: "BANK_ACCOUNT", normalBalance: "DEBIT" },
         "1040_INVENTORY_MAIN_HUB": { name: "Inventory Stock - Main Hub", category: "INVENTORY", normalBalance: "DEBIT" },
         "1050_GATEWAY_RECEIVABLE": { name: "Payment Gateway Receivable (Razorpay)", category: "CURRENT_ASSET", normalBalance: "DEBIT" },
         "1060_INPUT_CGST": { name: "Input Tax Credit - CGST", category: "TAX_ASSET", normalBalance: "DEBIT" },
@@ -360,6 +361,138 @@ function findAccountName(accountCode) {
     return accountCode;
 }
 
+/**
+ * Core implementation of chronological ledger drilldown extract
+ * @param {object} param0 
+ * @param {string} param0.accountCode
+ * @param {string|Date} [param0.periodStart]
+ * @param {string|Date} [param0.periodEnd]
+ */
+async function getLedgerExtractCore(args) {
+    let accountCode, periodStart, periodEnd;
+    if (typeof args === "string") {
+        accountCode = arguments[0];
+        periodStart = arguments[1];
+        periodEnd = arguments[2];
+    } else if (args && typeof args === "object") {
+        accountCode = args.accountCode;
+        periodStart = args.periodStart;
+        periodEnd = args.periodEnd;
+    }
+
+    if (!accountCode) {
+        throw new Error("MISSING_ACCOUNT_CODE: accountCode is required");
+    }
+
+    const startDate = periodStart ? new Date(periodStart) : new Date("2020-01-01");
+    startDate.setHours(0, 0, 0, 0);
+
+    const endDate = periodEnd ? new Date(periodEnd) : new Date();
+    endDate.setHours(23, 59, 59, 999);
+
+    const isCreditNormal = accountCode.startsWith("2") || accountCode.startsWith("3") || accountCode.startsWith("4");
+    const normalBalance = isCreditNormal ? "CREDIT" : "DEBIT";
+
+    const entriesSnapshot = await db.collection("journal_entries").get();
+
+    let openingDebit = 0;
+    let openingCredit = 0;
+    const inPeriodEntries = [];
+
+    for (const entryDoc of entriesSnapshot.docs) {
+        const entryData = entryDoc.data() || {};
+        if (entryData.status && entryData.status !== "POSTED") continue;
+
+        let entryDate = entryData.date?.toDate ? entryData.date.toDate() : (entryData.date ? new Date(entryData.date) : (entryData.createdAt?.toDate ? entryData.createdAt.toDate() : new Date()));
+
+        let lines = [];
+        if (Array.isArray(entryData.lines) && entryData.lines.length > 0) {
+            lines = entryData.lines;
+        } else {
+            const linesSnapshot = await entryDoc.ref.collection("lines").get();
+            lines = linesSnapshot.docs.map(d => d.data());
+        }
+
+        for (const line of lines) {
+            if (line.accountCode === accountCode) {
+                const dr = Number(line.debit || 0);
+                const cr = Number(line.credit || 0);
+
+                if (entryDate < startDate) {
+                    openingDebit += dr;
+                    openingCredit += cr;
+                } else if (entryDate >= startDate && entryDate <= endDate) {
+                    inPeriodEntries.push({
+                        date: entryDate.toISOString().split("T")[0],
+                        timestamp: entryDate.getTime(),
+                        narration: line.description || entryData.memo || entryData.refType || "Journal Entry",
+                        refNo: entryData.refId || entryData.entryId || entryDoc.id,
+                        drAmount: Math.round((dr + Number.EPSILON) * 100) / 100,
+                        crAmount: Math.round((cr + Number.EPSILON) * 100) / 100
+                    });
+                }
+            }
+        }
+    }
+
+    inPeriodEntries.sort((a, b) => a.timestamp - b.timestamp);
+
+    let openingBalance = isCreditNormal ? (openingCredit - openingDebit) : (openingDebit - openingCredit);
+    openingBalance = Math.round((openingBalance + Number.EPSILON) * 100) / 100;
+
+    let currentBalance = openingBalance;
+    let totalDr = 0;
+    let totalCr = 0;
+
+    const entries = inPeriodEntries.map(e => {
+        totalDr += e.drAmount;
+        totalCr += e.crAmount;
+
+        if (isCreditNormal) {
+            currentBalance += (e.crAmount - e.drAmount);
+        } else {
+            currentBalance += (e.drAmount - e.crAmount);
+        }
+
+        return {
+            date: e.date,
+            narration: e.narration,
+            refNo: e.refNo,
+            drAmount: e.drAmount,
+            crAmount: e.crAmount,
+            runningBalance: Math.round((currentBalance + Number.EPSILON) * 100) / 100
+        };
+    });
+
+    totalDr = Math.round((totalDr + Number.EPSILON) * 100) / 100;
+    totalCr = Math.round((totalCr + Number.EPSILON) * 100) / 100;
+    const closingBalance = Math.round((currentBalance + Number.EPSILON) * 100) / 100;
+
+    return {
+        accountCode,
+        accountName: findAccountName(accountCode),
+        normalBalance,
+        openingBalance,
+        entries,
+        totalDr,
+        totalCr,
+        closingBalance
+    };
+}
+
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
+
+const getLedgerExtract = onCall({ region: "asia-south1" }, async (request) => {
+    try {
+        const payload = (request && request.data) ? request.data : request;
+        return await getLedgerExtractCore(payload);
+    } catch (err) {
+        console.error("[getLedgerExtract] Error:", err);
+        throw new HttpsError("internal", err.message);
+    }
+});
+getLedgerExtract.core = getLedgerExtractCore;
+
 module.exports = {
     CHART_OF_ACCOUNTS,
     VALID_ACCOUNT_CODES,
@@ -367,5 +500,7 @@ module.exports = {
     validateJournalEntry,
     postJournalEntry,
     findAccountName,
-    computeCanonicalLinesHash
+    computeCanonicalLinesHash,
+    getLedgerExtract,
+    getLedgerExtractCore
 };

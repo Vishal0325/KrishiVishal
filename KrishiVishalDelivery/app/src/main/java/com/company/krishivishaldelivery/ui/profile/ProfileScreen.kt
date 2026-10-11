@@ -40,6 +40,7 @@ fun ProfileScreen(
     onPartnerWalletClick: () -> Unit = {},
     onPartnerSkillsClick: () -> Unit = {},
     onReconciliationClick: () -> Unit = {},
+    onAttendanceClick: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val auth = FirebaseAuth.getInstance()
@@ -154,6 +155,7 @@ fun ProfileScreen(
                 }
                 ProfileOption(Icons.Default.VerifiedUser, "KYC & Verification Docs", "${rider?.documents?.size ?: 0} Uploaded • Tap to update", iconBgColor = Color(0xFFDBEAFE), iconColor = Color(0xFF2563EB)) { showKycDialog = true }
                 ProfileOption(Icons.Default.AccountBalance, "Bank Details", rider?.bankAccount?.ifBlank { "Add Account" } ?: "Add Account", iconBgColor = Color(0xFFF3E8FF), iconColor = Color(0xFF9333EA)) { showEditDialog = true }
+                ProfileOption(Icons.Default.AccessTime, "उपस्थिति व शिफ्ट (Attendance & Shift)", "Daily check-in / check-out with GPS", iconBgColor = Color(0xFFFEF3C7), iconColor = Color(0xFFD97706)) { onAttendanceClick() }
                 if (!isServiceMan) {
                     ProfileOption(Icons.Default.ReceiptLong, "नकद तिजोरी और रसीदें (Cash Vault & Receipts)", "View cash in hand, deposit history & slips", iconBgColor = Color(0xFFDCFCE7), iconColor = Color(0xFF16A34A)) { onReconciliationClick() }
                     ProfileOption(Icons.AutoMirrored.Filled.DirectionsBike, "Vehicle Details", "${rider?.vehicleType ?: "BIKE"}: ${rider?.vehicleNumber?.ifBlank { "Add Number" } ?: "Add Number"}", iconBgColor = Color(0xFFFFEDD5), iconColor = Color(0xFFEA580C)) { showEditDialog = true }

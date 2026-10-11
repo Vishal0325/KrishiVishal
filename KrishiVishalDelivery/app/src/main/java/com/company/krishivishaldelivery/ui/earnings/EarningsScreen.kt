@@ -31,6 +31,7 @@ import com.company.krishivishal.core.util.Resource
 import com.company.krishivishaldelivery.data.model.IncentiveSlab
 import com.company.krishivishaldelivery.data.model.PayoutRequest
 import com.company.krishivishaldelivery.data.model.Rider
+import com.company.krishivishaldelivery.data.model.RiderPayout
 import java.util.Calendar
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -46,6 +47,7 @@ fun EarningsScreen(
     val returnsResource by viewModel.returns.collectAsState()
     val appConfigResource by viewModel.appConfig.collectAsState()
     val payoutsResource by viewModel.payouts.collectAsState()
+    val riderPayouts by viewModel.riderPayouts.collectAsState()
     val payoutRequestsResource by viewModel.payoutRequests.collectAsState()
     val riderProfile by viewModel.riderProfile.collectAsState()
     val isSubmittingPayout by viewModel.isSubmittingPayout.collectAsState()
@@ -196,6 +198,37 @@ fun EarningsScreen(
                 }
             }
 
+            // ── FY 2026-27 Statutory Payout Summary Card ──
+            if (riderPayouts.isNotEmpty()) {
+                val fyGross = riderPayouts.sumOf { it.grossAmount }
+                val fyTds = riderPayouts.sumOf { it.tdsAmount }
+                val fyNet = riderPayouts.sumOf { it.netPayable }
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFFBFDBFE))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text(
+                                "FY 2026-27 Statutory Payout Summary",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color(0xFF1E40AF)
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                "This FY Total Gross: ₹${fyGross.toInt()}  |  TDS Paid: ₹${fyTds.toInt()}  |  Net Received: ₹${fyNet.toInt()}",
+                                fontSize = 12.sp,
+                                color = Color(0xFF1E3A8A),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+
             // In-Bag Returns Alert Card (if items need to be deposited at hub)
             if (inBagReturnsCount > 0) {
                 item {
@@ -340,7 +373,16 @@ fun EarningsScreen(
                 }
             }
 
-            if (payoutLogs.isNotEmpty()) {
+            if (riderPayouts.isNotEmpty()) {
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Statutory Weekly Payouts (साप्ताहिक भुगतान)", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
+
+                items(riderPayouts.size) { index ->
+                    RiderPayoutCard(riderPayouts[index])
+                }
+            } else if (payoutLogs.isNotEmpty()) {
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
                     Text("Settlement History (खाते में जमा)", fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -662,6 +704,8 @@ fun WithdrawalRequestDialog(
     }
 }
 
+private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
 /**
  * Item showing past withdrawal request status
  */
@@ -767,7 +811,122 @@ fun WithdrawalRequestItem(request: PayoutRequest) {
     }
 }
 
-private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+@Composable
+fun RiderPayoutCard(payout: RiderPayout) {
+    val context = LocalContext.current
+    val sdf = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+    val startStr = payout.periodStart?.toDate()?.let { sdf.format(it) } ?: "Start"
+    val endStr = payout.periodEnd?.toDate()?.let { sdf.format(it) } ?: "End"
+
+    val (badgeBg, badgeText, badgeColor) = when (payout.status.uppercase()) {
+        "PAID" -> Triple(Color(0xFFDCFCE7), "PAID", Color(0xFF16A34A))
+        "APPROVED" -> Triple(Color(0xFFFEF3C7), "APPROVED", Color(0xFFD97706))
+        else -> Triple(Color(0xFFF3F4F6), "PENDING", Color(0xFF6B7280))
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(2.dp),
+        border = BorderStroke(1.dp, Color(0xFFE5E7EB))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Week: $startStr — $endStr",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                Surface(
+                    color = badgeBg,
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = badgeText,
+                        color = badgeColor,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Deliveries: ${payout.totalDeliveries}",
+                color = Color.Gray,
+                fontSize = 12.sp
+            )
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 10.dp),
+                thickness = 0.5.dp,
+                color = Color(0xFFE5E7EB)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Gross Earnings:", fontSize = 13.sp, color = Color(0xFF374151))
+                Text("₹${payout.grossAmount.toInt()}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("TDS (Sec 194C @ 1%):", fontSize = 13.sp, color = Color(0xFFD97706))
+                Text("-₹${payout.tdsAmount.toInt()}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color(0xFFD97706))
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Net Payable:", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF16A34A))
+                Text("₹${payout.netPayable.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = Color(0xFF16A34A))
+            }
+            if (payout.status.uppercase() == "PAID" && !payout.bankReferenceNumber.isNullOrBlank()) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    thickness = 0.5.dp,
+                    color = Color(0xFFE5E7EB)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                            clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("UTR", payout.bankReferenceNumber))
+                            Toast.makeText(context, "UTR copied: ${payout.bankReferenceNumber}", Toast.LENGTH_SHORT).show()
+                        },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("UTR / Bank Ref:", fontSize = 12.sp, color = Color.Gray)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = payout.bankReferenceNumber,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF2563EB)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy UTR",
+                            tint = Color(0xFF2563EB),
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun PayoutLogItem(log: Map<String, Any>) {

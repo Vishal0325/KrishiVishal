@@ -33,8 +33,11 @@ import com.company.krishivishal.core.model.OrderStatus
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.functions.FirebaseFunctions
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -52,44 +55,21 @@ fun CashReconciliationScreen(
 
     val orders = (ordersResource as? Resource.Success)?.data ?: emptyList()
     val depositHistory = (depositHistoryResource as? Resource.Success)?.data ?: emptyList()
+    val riderProfileResource by viewModel.riderProfile.collectAsState()
+    val currentRider = (riderProfileResource as? Resource.Success)?.data
+    val riderCashInHand by viewModel.cashInHand.collectAsState()
 
     val pendingCashOrders = orders.filter { it.isCOD && it.status == OrderStatus.DELIVERED.name && !it.isCashDeposited }
-    val totalPendingAmount = pendingCashOrders.sumOf { if (it.codAmount > 0) it.codAmount else it.totalAmount }
+    val totalPendingAmount = if (riderCashInHand > 0.0) riderCashInHand else pendingCashOrders.sumOf { if (it.codAmount > 0) it.codAmount else it.totalAmount }
     val pendingOrderIds = pendingCashOrders.map { it.id }
-    val riderHubId = "HUB_CENTRAL"
+    val riderHubId = currentRider?.hubCode?.ifBlank { "HUB_CENTRAL" } ?: "HUB_CENTRAL"
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     var isLoading by remember { mutableStateOf(false) }
     var activeDepositSlipRecord by remember { mutableStateOf<CashDepositRecord?>(null) }
     var activeSettlementId by remember { mutableStateOf<String?>(null) }
     var showSettlementQrDialog by remember { mutableStateOf(false) }
-
-    // Real-time listener for Hub Cash Settlement Confirmation
-    DisposableEffect(activeSettlementId) {
-        val sId = activeSettlementId
-        if (sId.isNullOrBlank()) {
-            return@DisposableEffect onDispose {}
-        }
-        val registration = FirebaseFirestore.getInstance()
-            .collection("cash_settlements")
-            .document(sId)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) return@addSnapshotListener
-                if (snapshot != null && snapshot.exists()) {
-                    val status = snapshot.getString("status")
-                    if (status == "CONFIRMED") {
-                        showSettlementQrDialog = false
-                        activeSettlementId = null
-                        viewModel.onSettlementConfirmed {
-                            Toast.makeText(context, "हब मैनेजर द्वारा नकद जमा स्वीकृत! (Settlement Confirmed)", Toast.LENGTH_LONG).show()
-                        }
-                    }
-                }
-            }
-        onDispose {
-            registration.remove()
-        }
-    }
+    val coroutineScope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -178,26 +158,27 @@ fun CashReconciliationScreen(
                                 onClick = {
                                     if (totalPendingAmount <= 0) return@Button
                                     isLoading = true
-                                    val settlementData = hashMapOf(
-                                        "riderId" to currentRiderId,
-                                        "hubId" to riderHubId,
-                                        "totalAmount" to totalPendingAmount,
-                                        "pendingOrderIds" to pendingOrderIds,
-                                        "status" to "PENDING_VERIFICATION",
-                                        "createdAt" to FieldValue.serverTimestamp()
-                                    )
-                                    FirebaseFirestore.getInstance()
-                                        .collection("cash_settlements")
-                                        .add(settlementData)
-                                        .addOnSuccessListener { docRef ->
+                                    coroutineScope.launch {
+                                        try {
+                                            val functions = FirebaseFunctions.getInstance("asia-south1")
+                                            val result = functions
+                                                .getHttpsCallable("settleRiderCash")
+                                                .call(mapOf(
+                                                    "action" to "REQUEST_SETTLEMENT",
+                                                    "amount" to totalPendingAmount,
+                                                    "hubCode" to riderHubId
+                                                ))
+                                                .await()
+
                                             isLoading = false
-                                            activeSettlementId = docRef.id
-                                            showSettlementQrDialog = true
-                                        }
-                                        .addOnFailureListener { e ->
+                                            Toast.makeText(context, "✅ ₹${totalPendingAmount.toInt()} submitted to Hub Manager", Toast.LENGTH_LONG).show()
+                                            viewModel.onSettlementConfirmed {}
+                                            onNavigateBack()
+                                        } catch (e: Exception) {
                                             isLoading = false
-                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Settlement failed: ${e.message}. Try again.", Toast.LENGTH_LONG).show()
                                         }
+                                    }
                                 },
                                 enabled = totalPendingAmount > 0 && !isLoading,
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),

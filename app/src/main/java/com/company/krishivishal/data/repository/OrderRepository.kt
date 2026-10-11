@@ -467,12 +467,21 @@ private fun com.google.firebase.firestore.DocumentSnapshot.toOrderSafe(): Order?
             targetLng = (data["targetLng"] as? Number)?.toDouble() ?: 0.0,
             customerOTP = data["customerOTP"] as? String ?: "",
             userName = data["userName"] as? String ?: "",
-            userPhone = data["userPhone"] as? String ?: "",
             totalTax = (data["totalTax"] as? Number)?.toDouble() ?: 0.0,
             subtotal = (data["subtotal"] as? Number)?.toDouble() ?: 0.0,
             totalDiscount = (data["totalDiscount"] as? Number)?.toDouble() ?: 0.0,
-            deliveryCharges = (data["deliveryCharges"] as? Number)?.toDouble() ?: ((data["deliveryCharge"] as? Number)?.toDouble() ?: 0.0)
-        )
+            deliveryCharges = (data["deliveryCharges"] as? Number)?.toDouble() ?: ((data["deliveryCharge"] as? Number)?.toDouble() ?: 0.0),
+            returnStatus = data["returnStatus"] as? String ?: "",
+            returnId = data["returnId"] as? String ?: "",
+            refundStatus = data["refundStatus"] as? String ?: "",
+            refundAmount = (data["refundAmount"] as? Number)?.toDouble() ?: 0.0,
+            invoiceNumber = data["invoiceNumber"] as? String,
+            invoiceUrl = (data["invoiceUrl"] ?: data["invoicePdfUrl"]) as? String,
+            financialStatus = data["financialStatus"] as? String
+        ).apply {
+            creditNoteNumber = (data["creditNoteNumber"] ?: data["creditNoteNo"]) as? String
+            creditNotePdfUrl = (data["creditNotePdfUrl"] ?: data["creditNoteUrl"]) as? String
+        }
     } catch (e: Exception) {
         Timber.e(e, "Error parsing order document ${this.id}")
         null

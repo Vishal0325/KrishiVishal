@@ -19,9 +19,17 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.company.krishivishal.core.model.ReturnRequest
 import com.company.krishivishal.ui.theme.PrimaryGreen
+import com.company.krishivishal.ui.theme.DarkGreen
 import com.company.krishivishal.ui.components.EmptyState
 import java.text.SimpleDateFormat
 import java.util.Locale
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Receipt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -123,18 +131,74 @@ fun ReturnItemCard(returnRequest: ReturnRequest) {
 
             if (returnRequest.status == "COMPLETED") {
                 Spacer(modifier = Modifier.height(12.dp))
+                val context = LocalContext.current
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    PaddingValues(8.dp)
-                    Text(
-                        text = "Refund Processed: ₹${returnRequest.refundAmount.toInt()}",
-                        color = PrimaryGreen,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(12.dp),
-                        fontSize = 13.sp
-                    )
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "Refund Processed: ₹${returnRequest.refundAmount.toInt()}",
+                            color = PrimaryGreen,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+
+                        if (!returnRequest.creditNoteNumber.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFFC8E6C9),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, PrimaryGreen)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Receipt,
+                                        contentDescription = null,
+                                        tint = DarkGreen,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Credit Note: ${returnRequest.creditNoteNumber}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = DarkGreen
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    val pdf = returnRequest.pdfUrl
+                                    if (!pdf.isNullOrBlank()) {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(pdf)).apply {
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Cannot open PDF viewer", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else {
+                                        Toast.makeText(context, "PDF generating, try again in a moment", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("📄 Download Credit Note", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             } else if (returnRequest.qcStatus == "FAILED") {
                 Spacer(modifier = Modifier.height(12.dp))

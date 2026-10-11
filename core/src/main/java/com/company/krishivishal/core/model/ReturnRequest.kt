@@ -129,4 +129,14 @@ data class ReturnRequest(
     
     @SerializedName("updatedAt")
     val updatedAt: Date = Date()
-) : Parcelable
+) : Parcelable {
+    @androidx.room.Ignore
+    @kotlinx.parcelize.IgnoredOnParcel
+    @SerializedName("creditNoteNumber")
+    var creditNoteNumber: String? = null
+
+    @androidx.room.Ignore
+    @kotlinx.parcelize.IgnoredOnParcel
+    @SerializedName("pdfUrl")
+    var pdfUrl: String? = null
+}

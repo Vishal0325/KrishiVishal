@@ -437,15 +437,8 @@ class OrderRepository @Inject constructor(
         try {
             functions.getHttpsCallable("updateOrderStatus").call(data).await()
         } catch (e: Exception) {
-            Timber.w(e, "updateOrderStatus failed for acceptAssignedOrder, updating firestore directly")
-            firestore.collection("orders").document(orderId).update(
-                mapOf(
-                    "status" to "RIDER_ACCEPTED",
-                    "isAccepted" to true,
-                    "acceptedAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
+            Timber.e(e, "updateOrderStatus failed for acceptAssignedOrder")
+            throw Exception("Status update failed. Please retry or contact Hub Manager.", e)
         }
         deliveryDao.updateOrderStatus(orderId, "RIDER_ACCEPTED", false)
     }
@@ -485,15 +478,8 @@ class OrderRepository @Inject constructor(
         try {
             functions.getHttpsCallable("updateOrderStatus").call(data).await()
         } catch (e: Exception) {
-            Timber.w(e, "updateOrderStatus failed during acceptOrderByScan, performing direct firestore update")
-            firestore.collection("orders").document(orderId).update(
-                mapOf(
-                    "riderId" to riderId,
-                    "status" to targetStatus,
-                    "isAccepted" to true,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
+            Timber.e(e, "updateOrderStatus failed during acceptOrderByScan")
+            throw Exception("Status update failed. Please retry or contact Hub Manager.", e)
         }
 
         val updatedOrder = order.copy(riderId = riderId, status = targetStatus, isAccepted = true)
@@ -513,16 +499,8 @@ class OrderRepository @Inject constructor(
         try {
             functions.getHttpsCallable("riderMutations").call(requestData).await()
         } catch (e: Exception) {
-            Timber.w(e, "riderMutations REJECT_ORDER failed, updating firestore directly")
-            firestore.collection("orders").document(orderId).update(
-                mapOf(
-                    "status" to "ASSIGNED",
-                    "riderId" to "",
-                    "isAccepted" to false,
-                    "rejectionReason" to reason,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
+            Timber.e(e, "riderMutations REJECT_ORDER failed")
+            throw Exception("Status update failed. Please retry or contact Hub Manager.", e)
         }
         deliveryDao.deleteOrderById(orderId)
     }

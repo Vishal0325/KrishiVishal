@@ -64,6 +64,13 @@ fun ProductDetailScreen(
     val context = LocalContext.current
     var quantity by remember { mutableIntStateOf(1) }
 
+    val currentMaxStock = (uiState.selectedVariant?.stock ?: uiState.product?.stockQuantity ?: 0).coerceAtLeast(0)
+    LaunchedEffect(currentMaxStock) {
+        if (currentMaxStock in 1 until quantity) {
+            quantity = currentMaxStock
+        }
+    }
+
     LaunchedEffect(productId) {
         viewModel.loadProduct(productId)
     }
@@ -149,14 +156,14 @@ fun ProductDetailScreen(
                     (uiState.selectedVariant?.stock ?: product.stockQuantity) <= 0
                 val maxStock = (uiState.selectedVariant?.stock ?: product.stockQuantity).coerceAtLeast(0)
                 BottomActions(
-                    quantity = quantity,
+                    quantity = quantity.coerceIn(1, maxStock.coerceAtLeast(1)),
                     maxStock = maxStock,
                     isOutOfStock = isOutOfStock,
                     isNotifyMeLoading = uiState.isNotifyMeLoading,
                     notifyMeSuccess = uiState.notifyMeSuccess,
                     onQuantityChange = { if (it in 1..maxStock) quantity = it },
-                    onAddToCart = { viewModel.addToCart(quantity) },
-                    onBuyNow = { viewModel.buyNow(quantity) },
+                    onAddToCart = { viewModel.addToCart(quantity.coerceIn(1, maxStock.coerceAtLeast(1))) },
+                    onBuyNow = { viewModel.buyNow(quantity.coerceIn(1, maxStock.coerceAtLeast(1))) },
                     onNotifyMe = { viewModel.requestStockNotification() }
                 )
             }
@@ -230,6 +237,40 @@ fun ProductDetailScreen(
                                     label = "product_info_anim"
                                 ) { variant ->
                                     ProductInfoSection(product, variant)
+                                }
+                            }
+                        }
+                    }
+
+                    // Low Stock Scarcity Badge (Stock <= 5)
+                    val stockQty = (uiState.selectedVariant?.stock ?: uiState.product?.stockQuantity ?: 0).coerceAtLeast(0)
+                    if (stockQty in 1..5) {
+                        item {
+                            Surface(
+                                color = Color(0xFFFFF3E0),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFFFF6B00).copy(alpha = 0.5f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Warning,
+                                        contentDescription = "Low Stock Warning",
+                                        tint = Color(0xFFFF6B00),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Only $stockQty left in stock!",
+                                        color = Color(0xFFFF6B00),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
                                 }
                             }
                         }

@@ -1,5 +1,8 @@
 package com.company.krishivishal.data.repository
 
+// Customer-facing SKU operations ONLY.
+// Admin mutations (receiveGrn, adjustInventory) are in Admin Dashboard only.
+
 import com.company.krishivishal.core.model.Batch
 import com.company.krishivishal.core.model.Sku
 import com.company.krishivishal.core.util.Resource
@@ -8,7 +11,6 @@ import com.company.krishivishal.data.local.SkuDao
 import com.company.krishivishal.di.IoDispatcher
 import com.company.krishivishal.utils.networkBoundResource
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -24,17 +26,11 @@ interface SkuRepository {
     fun getLowStockSkus(): Flow<Resource<List<Sku>>>
     fun getBatchesBySku(skuCode: String): Flow<Resource<List<Batch>>>
     fun getExpiringBatches(thresholdDays: Int = 30): Flow<Resource<List<Batch>>>
-
-    // Mutations strictly via authenticated Cloud Functions
-    suspend fun adjustInventory(skuCode: String, adjustment: Int, reason: String): Flow<Resource<Unit>>
-    suspend fun receiveGrn(payload: Map<String, Any?>): Flow<Resource<Unit>>
-    suspend fun writeOffStock(skuCode: String, quantity: Int, type: String, reason: String): Flow<Resource<Unit>>
 }
 
 @Singleton
 class SkuRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
-    private val functions: FirebaseFunctions,
     private val skuDao: SkuDao,
     private val batchDao: BatchDao,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
@@ -175,62 +171,6 @@ class SkuRepositoryImpl @Inject constructor(
             emit(Resource.Success(batches))
         } catch (e: Exception) {
             emit(Resource.Error(e.message ?: "Failed to load expiring batches"))
-        }
-    }.flowOn(ioDispatcher)
-
-    override suspend fun adjustInventory(
-        skuCode: String,
-        adjustment: Int,
-        reason: String
-    ): Flow<Resource<Unit>> = flow {
-        emit(Resource.Loading())
-        try {
-            functions.getHttpsCallable("adjustInventory")
-                .call(
-                    mapOf(
-                        "skuCode" to skuCode,
-                        "adjustment" to adjustment,
-                        "reason" to reason
-                    )
-                ).await()
-            emit(Resource.Success(Unit))
-        } catch (e: Exception) {
-            emit(Resource.Error(e.message ?: "Inventory adjustment failed"))
-        }
-    }.flowOn(ioDispatcher)
-
-    override suspend fun receiveGrn(payload: Map<String, Any?>): Flow<Resource<Unit>> = flow {
-        emit(Resource.Loading())
-        try {
-            functions.getHttpsCallable("receiveGrn")
-                .call(payload)
-                .await()
-            emit(Resource.Success(Unit))
-        } catch (e: Exception) {
-            emit(Resource.Error(e.message ?: "GRN receipt failed"))
-        }
-    }.flowOn(ioDispatcher)
-
-    override suspend fun writeOffStock(
-        skuCode: String,
-        quantity: Int,
-        type: String,
-        reason: String
-    ): Flow<Resource<Unit>> = flow {
-        emit(Resource.Loading())
-        try {
-            functions.getHttpsCallable("writeOffStock")
-                .call(
-                    mapOf(
-                        "skuCode" to skuCode,
-                        "quantity" to quantity,
-                        "type" to type,
-                        "reason" to reason
-                    )
-                ).await()
-            emit(Resource.Success(Unit))
-        } catch (e: Exception) {
-            emit(Resource.Error(e.message ?: "Stock write-off failed"))
         }
     }.flowOn(ioDispatcher)
 }

@@ -72,6 +72,9 @@ fun DashboardScreen(
     val incentiveProgress by viewModel.incentiveProgress.collectAsState()
     val codCashInHand by viewModel.codCashInHand.collectAsState()
     val isCodVaultLimitExceeded by viewModel.isCodVaultLimitExceeded.collectAsState()
+    val cashInHand by viewModel.cashInHand.collectAsState()
+    val lastCodDeliveryAt by viewModel.lastCodDeliveryAt.collectAsState()
+    val uiErrorMessage by viewModel.uiErrorMessage.collectAsState()
     val appConfigResource by viewModel.appConfig.collectAsState()
     
     val partnerRole by viewModel.partnerRole.collectAsState()
@@ -81,6 +84,19 @@ fun DashboardScreen(
 
     val isServiceMan = partnerRole == "service_man"
     val isBoth = partnerRole == "both"
+
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(uiErrorMessage) {
+        uiErrorMessage?.let { msg ->
+            snackbarHostState.showSnackbar(
+                message = msg,
+                actionLabel = "Retry",
+                duration = SnackbarDuration.Long
+            )
+            viewModel.clearUiErrorMessage()
+        }
+    }
 
     val tabs = remember(partnerRole) {
         when {
@@ -140,6 +156,7 @@ fun DashboardScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             Column {
                 TopAppBar(
@@ -346,15 +363,13 @@ fun DashboardScreen(
                                 }
                             }
 
-                            // 1. Cash Limit Security (COD Vault Limit) Banner
-                            if (codCashInHand > 0.0) {
-                                item {
-                                    CodVaultSecurityBanner(
-                                        cashInHand = codCashInHand,
-                                        isExceeded = isCodVaultLimitExceeded,
-                                        onDepositClick = onReconciliationClick
-                                    )
-                                }
+                            // 1. Statutory COD Vault Settlement & Security Banner (3-State: Green / Amber / Red)
+                            item {
+                                CodVaultSecurityBanner(
+                                    cashInHand = cashInHand,
+                                    lastCodDeliveryAt = lastCodDeliveryAt,
+                                    onSettleClick = onReconciliationClick
+                                )
                             }
 
                             // 2. Rider Live Incentive & Earnings Progress Card
@@ -739,66 +754,7 @@ fun DashboardScreen(
     }
 }
 
-/**
- * Cash Limit Security (COD Vault Limit) Banner
- * Enforces ₹15,000 threshold to protect riders and warehouse capital
- */
-@Composable
-fun CodVaultSecurityBanner(
-    cashInHand: Double,
-    isExceeded: Boolean,
-    onDepositClick: () -> Unit
-) {
-    val containerColor = if (isExceeded) Color(0xFFFFEBEE) else Color(0xFFFFF3E0)
-    val contentColor = if (isExceeded) Color(0xFFC62828) else Color(0xFFE65100)
-    val borderColor = if (isExceeded) Color(0xFFEF5350) else Color(0xFFFFB74D)
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        border = BorderStroke(1.5.dp, borderColor)
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = if (isExceeded) Icons.Default.Shield else Icons.Default.AccountBalanceWallet,
-                    contentDescription = null,
-                    tint = contentColor,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (isExceeded) "कैश लिमिट सुरक्षा (COD Vault Limit Exceeded)" else "हाथ में नकद (COD Cash in Hand)",
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 15.sp,
-                    color = contentColor
-                )
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = if (isExceeded)
-                    "आपके पास ₹${cashInHand.toInt()} नकद जमा है। ₹15,000 की सुरक्षा सीमा पार हो गई है! नया ऑर्डर तब तक नहीं मिलेगा जब तक आप वेयरहाउस में कैश जमा न कर दें।"
-                else
-                    "आपके पास ₹${cashInHand.toInt()} नकद जमा है। वेयरहाउस में जमा करके रसीद प्राप्त करें।",
-                fontSize = 13.sp,
-                color = contentColor.copy(alpha = 0.9f),
-                lineHeight = 18.sp
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            Button(
-                onClick = onDepositClick,
-                colors = ButtonDefaults.buttonColors(containerColor = contentColor),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.align(Alignment.End).height(38.dp)
-            ) {
-                Icon(Icons.Default.Warehouse, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("जमा करें व रसीदें देखें", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-    }
-}
 
 /**
  * Rider Live Incentive & Earnings Card

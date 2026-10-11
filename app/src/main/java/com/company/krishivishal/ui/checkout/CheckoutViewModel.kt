@@ -87,6 +87,9 @@ class CheckoutViewModel @Inject constructor(
     ))
     val uiState: StateFlow<CheckoutUiState> = _uiState.asStateFlow()
 
+    private val _hasPendingCodOverdue = MutableStateFlow(false)
+    val hasPendingCodOverdue: StateFlow<Boolean> = _hasPendingCodOverdue.asStateFlow()
+
     private val _uiEvent = MutableSharedFlow<CheckoutUiEvent>()
     val uiEvent = _uiEvent.asSharedFlow()
 
@@ -179,17 +182,19 @@ class CheckoutViewModel @Inject constructor(
         ))
 
         val currentMethod = _uiState.value.selectedPaymentMethod
+        val hasOverdue = _hasPendingCodOverdue.value
         val defaultMethod = when {
             walletBalance >= grandTotal && grandTotal > 0 -> PaymentMethod.WALLET
             isOnlineEnabled -> PaymentMethod.ONLINE
+            hasOverdue -> PaymentMethod.ONLINE
             else -> PaymentMethod.COD
         }
 
         _uiState.update {
             it.copy(
                 paymentOptions = options,
-                // Only change default if current method is no longer available
-                selectedPaymentMethod = if (options.any { opt -> opt.method == currentMethod }) currentMethod else defaultMethod
+                // Only change default if current method is no longer available or COD is locked
+                selectedPaymentMethod = if (options.any { opt -> opt.method == currentMethod } && !(currentMethod == PaymentMethod.COD && hasOverdue)) currentMethod else defaultMethod
             )
         }
     }
@@ -199,12 +204,64 @@ class CheckoutViewModel @Inject constructor(
         loadData()
     }
 
+    private fun checkPendingCodOverdue(uid: String) {
+        viewModelScope.launch {
+            try {
+                val snapshot = firestore.collection("orders")
+                    .whereEqualTo("userId", uid)
+                    .get()
+                    .await()
+
+                val cutoff = System.currentTimeMillis() - 86400000L // 24 hours ago
+                val terminalStatuses = listOf("DELIVERED", "CANCELLED", "RETURNED")
+
+                val isOverdue = snapshot.documents.any { doc ->
+                    val paymentMethod = doc.getString("paymentMethod") 
+                        ?: doc.getString("paymentMode") 
+                        ?: ""
+                    val isCod = paymentMethod.equals("COD", ignoreCase = true) || (doc.getBoolean("isCOD") == true)
+                    val status = (doc.getString("status") ?: "").uppercase()
+
+                    val createdAtDate = doc.getTimestamp("createdAt")?.toDate()
+                        ?: doc.getDate("createdAt")
+                    val createdAtMillis = createdAtDate?.time ?: 0L
+
+                    isCod && status !in terminalStatuses && createdAtMillis > 0L && createdAtMillis < cutoff
+                }
+
+                _hasPendingCodOverdue.value = isOverdue
+                _uiState.update { state ->
+                    val newState = state.copy(hasPendingCodOverdue = isOverdue)
+                    if (isOverdue && state.selectedPaymentMethod == PaymentMethod.COD) {
+                        val isOnline = BuildConfig.IS_ONLINE_PAYMENT_ENABLED
+                        val fallback = when {
+                            state.walletBalance > 0 -> PaymentMethod.WALLET
+                            isOnline -> PaymentMethod.ONLINE
+                            else -> PaymentMethod.ONLINE
+                        }
+                        newState.copy(selectedPaymentMethod = fallback)
+                    } else {
+                        newState
+                    }
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Error checking overdue COD orders for user: $uid")
+                _hasPendingCodOverdue.value = false
+                _uiState.update { it.copy(hasPendingCodOverdue = false) }
+            }
+        }
+    }
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private fun loadData() {
         viewModelScope.launch {
             getCurrentUserUseCase().collectLatest { user ->
                 userId = user?.id ?: "guest_user"
                 _uiState.update { it.copy(userEmail = user?.email, userPhone = user?.phone) }
+
+                if (userId.isNotBlank() && userId != "guest_user") {
+                    checkPendingCodOverdue(userId)
+                }
 
                 launch {
                     addressRepository.getAddresses(userId).collectLatest { resource ->
@@ -335,6 +392,10 @@ class CheckoutViewModel @Inject constructor(
     }
 
     fun updatePaymentMethod(method: PaymentMethod) {
+        if (method == PaymentMethod.COD && _hasPendingCodOverdue.value) {
+            _uiState.update { it.copy(error = "COD is unavailable due to an overdue pending order. Please choose an alternate payment method.") }
+            return
+        }
         _uiState.update { it.copy(selectedPaymentMethod = method) }
     }
 
@@ -388,6 +449,11 @@ class CheckoutViewModel @Inject constructor(
 
         if (currentState.isWeightLimitExceeded) {
             _uiState.update { it.copy(error = "Cart weight exceeds maximum allowed capacity (50 kg). Please reduce items.") }
+            return
+        }
+
+        if (currentState.selectedPaymentMethod == PaymentMethod.COD && currentState.hasPendingCodOverdue) {
+            _uiState.update { it.copy(error = "COD order pending for more than 24 hours. Please pay online or contact support.") }
             return
         }
 
@@ -688,5 +754,6 @@ data class CheckoutUiState(
     val appliedVleCode: String? = null,
     val isVleVerifying: Boolean = false,
     val vleMessage: String? = null,
-    val vleError: String? = null
+    val vleError: String? = null,
+    val hasPendingCodOverdue: Boolean = false
 )

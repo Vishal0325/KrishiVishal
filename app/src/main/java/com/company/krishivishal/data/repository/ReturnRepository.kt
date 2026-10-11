@@ -78,18 +78,25 @@ class ReturnRepositoryImpl @Inject constructor(
             
             val networkData = networkSnapshot.documents.mapNotNull { doc ->
                 runCatching {
-                    doc.toObject(ReturnRequest::class.java)?.copy(id = doc.id)
+                    val obj = doc.toObject(ReturnRequest::class.java) ?: return@mapNotNull null
+                    val cnNumber = (doc.getString("creditNoteNumber") ?: doc.getString("creditNoteNo"))
+                    val pdf = (doc.getString("pdfUrl") ?: doc.getString("creditNotePdfUrl"))
+                    obj.copy(id = doc.id).apply {
+                        creditNoteNumber = cnNumber ?: obj.creditNoteNumber
+                        pdfUrl = pdf ?: obj.pdfUrl
+                    }
                 }.getOrNull()
             }
             
             if (networkData.isNotEmpty()) {
                 // Update local database with fresh server data
                 returnDao.insertReturns(networkData)
-            }
-            
-            // Now collect from DAO (Room) as the single source of truth
-            returnDao.getReturnsByUserId(userId).collect { localData ->
-                emit(Resource.Success(localData))
+                emit(Resource.Success(networkData))
+            } else {
+                // Now collect from DAO (Room) as fallback / local source
+                returnDao.getReturnsByUserId(userId).collect { localData ->
+                    emit(Resource.Success(localData))
+                }
             }
         } catch (e: Exception) {
             // Fallback: If network fails, still try to show local data

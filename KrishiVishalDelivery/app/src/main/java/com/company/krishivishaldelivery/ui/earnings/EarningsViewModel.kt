@@ -8,6 +8,7 @@ import com.company.krishivishal.core.util.Resource
 import com.company.krishivishaldelivery.data.model.IncentiveSlab
 import com.company.krishivishaldelivery.data.model.PayoutRequest
 import com.company.krishivishaldelivery.data.model.Rider
+import com.company.krishivishaldelivery.data.model.RiderPayout
 import com.company.krishivishaldelivery.data.repository.ConfigRepository
 import com.company.krishivishaldelivery.data.repository.OrderRepository
 import com.company.krishivishaldelivery.data.repository.RiderRepository
@@ -30,6 +31,9 @@ class EarningsViewModel @Inject constructor(
 
     private val _payouts = MutableStateFlow<Resource<List<Map<String, Any>>>>(Resource.Loading())
     val payouts: StateFlow<Resource<List<Map<String, Any>>>> = _payouts.asStateFlow()
+
+    private val _riderPayouts = MutableStateFlow<List<RiderPayout>>(emptyList())
+    val riderPayouts: StateFlow<List<RiderPayout>> = _riderPayouts.asStateFlow()
 
     private val _payoutRequests = MutableStateFlow<Resource<List<PayoutRequest>>>(Resource.Loading())
     val payoutRequests: StateFlow<Resource<List<PayoutRequest>>> = _payoutRequests.asStateFlow()
@@ -61,10 +65,19 @@ class EarningsViewModel @Inject constructor(
             loadOrders(riderId)
             loadReturns(riderId)
             loadPayouts(riderId)
+            loadRiderPayouts(riderId)
             loadPayoutRequests(riderId)
             loadRiderProfile(riderId)
             loadConfig()
             loadIncentives()
+        }
+    }
+
+    private fun loadRiderPayouts(riderId: String) {
+        viewModelScope.launch {
+            riderRepository.observeRiderPayouts(riderId)
+                .catch { /* ignore */ }
+                .collectLatest { _riderPayouts.value = it }
         }
     }
 

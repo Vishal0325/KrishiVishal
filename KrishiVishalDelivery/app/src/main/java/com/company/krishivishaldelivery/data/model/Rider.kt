@@ -35,6 +35,9 @@ data class Rider(
     val serviceSkills: List<String> = emptyList(),
     val serviceEquipment: List<String> = emptyList(),
     val role: String = "rider",
-    val partnerRole: String = "rider"
+    val partnerRole: String = "rider",
+    val hubCode: String = "",
+    val cashInHand: Double = 0.0,
+    val lastCodDeliveryAt: com.google.firebase.Timestamp? = null
 )
 

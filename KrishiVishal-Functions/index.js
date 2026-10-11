@@ -102,6 +102,8 @@ const FUNCTION_MAP = {
     reviewApprovalRequest: ['./finance/financeCallables', 'reviewApprovalRequest'],
     getApprovalRequests: ['./finance/financeCallables', 'getApprovalRequests'],
     exportTallyXml: ['./finance/financeCallables', 'exportTallyXml'],
+    getLedgerExtract: ['./finance/generalLedger', 'getLedgerExtract'],
+    recordVaultBankDeposit: ['./finance/reconciliationEngine', 'recordVaultBankDeposit'],
 
     // --- INVOICES & NOTIFICATIONS (5) ---
     orderDeliveryNotification: ['./invoices/orderDeliveryNotification', 'orderDeliveryNotification'],

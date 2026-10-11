@@ -42,6 +42,7 @@ fun CartScreen(
     viewModel: CartViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Scaffold(
         topBar = {
@@ -162,7 +163,14 @@ fun CartScreen(
                             CartListItem(
                                 item = item,
                                 onClick = { item.product?.id?.let { onNavigateToProduct(it) } },
-                                onIncrease = { viewModel.updateQuantity(item.cartItem, item.cartItem.quantity + 1) },
+                                onIncrease = { 
+                                    val maxStock = item.availableStock()
+                                    if (item.cartItem.quantity < maxStock) {
+                                        viewModel.updateQuantity(item.cartItem, item.cartItem.quantity + 1)
+                                    } else {
+                                        android.widget.Toast.makeText(context, "Only $maxStock units available in stock", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                },
                                 onDecrease = { viewModel.updateQuantity(item.cartItem, item.cartItem.quantity - 1) },
                                 onRemove = { viewModel.removeFromCart(item.cartItem) },
                                 onSelectionChange = { viewModel.toggleSelection(item.cartItem.id, it) }
@@ -308,6 +316,29 @@ fun CartListItem(
                     if (mrp > sellingPrice) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("₹${mrp.toInt()}", color = Color.Gray, fontSize = 12.sp, textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough)
+                    }
+                }
+                
+                val currentMaxStock = item.availableStock()
+                if (currentMaxStock in 1..5) {
+                    Surface(
+                        color = Color(0xFFFFF3E0),
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFF6B00), modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                "Only $currentMaxStock left in stock!",
+                                color = Color(0xFFFF6B00),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
                 

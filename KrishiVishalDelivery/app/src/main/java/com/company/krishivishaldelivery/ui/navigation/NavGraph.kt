@@ -127,7 +127,15 @@ fun AppNavGraph(
                 },
                 onReconciliationClick = {
                     navController.navigate("reconciliation")
+                },
+                onAttendanceClick = {
+                    navController.navigate("attendance")
                 }
+            )
+        }
+        composable("attendance") {
+            com.company.krishivishaldelivery.ui.attendance.AttendanceScreen(
+                onNavigateBack = { navController.popBackStack() }
             )
         }
         composable("settings") {

@@ -761,16 +761,70 @@ fun ReferenceOrderItemCard(
                             color = Color(0xFFE8F5E9),
                             border = BorderStroke(1.dp, Color(0xFFA5D6A7))
                         ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text("Return & Refund Completed", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF1B5E20))
-                                    val amt = if (order.refundAmount > 0) "₹${order.refundAmount.toInt()}" else "₹${order.totalAmount.toInt()}"
-                                    Text("$amt has been credited to your Wallet.", fontSize = 12.sp, color = Color(0xFF2E7D32))
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text("Return & Refund Completed", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF1B5E20))
+                                        val amt = if (order.refundAmount > 0) "₹${order.refundAmount.toInt()}" else "₹${order.totalAmount.toInt()}"
+                                        Text("$amt has been credited to your Wallet.", fontSize = 12.sp, color = Color(0xFF2E7D32))
+                                    }
+                                }
+
+                                if (!order.creditNoteNumber.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFFC8E6C9),
+                                        border = BorderStroke(1.dp, PrimaryGreen)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Receipt,
+                                                contentDescription = null,
+                                                tint = Color(0xFF1B5E20),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Credit Note: ${order.creditNoteNumber}",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF1B5E20)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Button(
+                                        onClick = {
+                                            val pdf = order.creditNotePdfUrl
+                                            if (!pdf.isNullOrBlank()) {
+                                                try {
+                                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(pdf)).apply {
+                                                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                    }
+                                                    context.startActivity(intent)
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(context, "Cannot open PDF viewer", Toast.LENGTH_SHORT).show()
+                                                }
+                                            } else {
+                                                Toast.makeText(context, "PDF generating, try again in a moment", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("📄 Download Credit Note", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }

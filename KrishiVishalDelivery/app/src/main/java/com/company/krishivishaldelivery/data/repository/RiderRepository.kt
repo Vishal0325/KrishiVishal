@@ -5,6 +5,7 @@ import com.company.krishivishaldelivery.data.local.DeliveryDao
 import com.company.krishivishaldelivery.data.local.GPSLogEntity
 import com.company.krishivishaldelivery.data.model.IncentiveSlab
 import com.company.krishivishaldelivery.data.model.Rider
+import com.company.krishivishaldelivery.data.model.RiderPayout
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
 import kotlinx.coroutines.channels.awaitClose
@@ -27,10 +28,18 @@ class RiderRepository @Inject constructor(
                     close(error)
                     return@addSnapshotListener
                 }
-                trySend(snapshot?.toObject(Rider::class.java))
+                val rider = snapshot?.toObject(Rider::class.java)?.copy(
+                    id = snapshot.id,
+                    cashInHand = snapshot.getDouble("cash_in_hand") ?: snapshot.getDouble("cashInHand") ?: 0.0,
+                    lastCodDeliveryAt = snapshot.getTimestamp("last_cod_delivery_at") ?: snapshot.getTimestamp("lastCodDeliveryAt"),
+                    hubCode = snapshot.getString("hub_code") ?: snapshot.getString("hubCode") ?: ""
+                )
+                trySend(rider)
             }
         awaitClose { listener.remove() }
     }
+
+    fun observeRiderById(riderId: String): Flow<Rider?> = getRiderProfile(riderId)
 
     suspend fun getIncentiveSlabs(): List<IncentiveSlab> {
         return try {
@@ -119,6 +128,26 @@ class RiderRepository @Inject constructor(
 
     suspend fun deleteRiderAccount(riderId: String) {
         firestore.collection("riders").document(riderId).delete().await()
+    }
+
+    fun observeRiderPayouts(riderId: String): Flow<List<RiderPayout>> = callbackFlow {
+        val listener = firestore.collection("rider_payouts")
+            .whereEqualTo("riderId", riderId)
+            .orderBy("periodEnd", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .limit(12) // Last 12 weeks
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                val payouts = snapshot?.documents?.mapNotNull { doc ->
+                    runCatching {
+                        doc.toObject(RiderPayout::class.java)?.copy(payoutId = doc.id)
+                    }.getOrNull()
+                } ?: emptyList()
+                trySend(payouts)
+            }
+        awaitClose { listener.remove() }
     }
 
     fun getRiderPayouts(riderId: String): Flow<Resource<List<Map<String, Any>>>> = callbackFlow {
