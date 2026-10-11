@@ -93,11 +93,30 @@ async function recognizeOrderDeliveryFinancials(orderData) {
 
     // 3. Compute Cost of Goods Sold (COGS) matching
     let totalCogs = 0;
-    items.forEach(item => {
+    for (const item of items) {
         const qty = Number(item.quantity || 1);
-        const unitCost = Number(item.unitCost !== undefined ? item.unitCost : (item.costPrice !== undefined ? item.costPrice : (item.sellingPrice || item.price || 0) * 0.7));
+        let unitCost = null;
+
+        if (item.unitCost !== undefined && item.unitCost !== null && !isNaN(Number(item.unitCost)) && Number(item.unitCost) > 0) {
+            unitCost = Number(item.unitCost);
+        } else if (item.costPrice !== undefined && item.costPrice !== null && !isNaN(Number(item.costPrice)) && Number(item.costPrice) > 0) {
+            unitCost = Number(item.costPrice);
+        } else if (item.landingCost !== undefined && item.landingCost !== null && !isNaN(Number(item.landingCost)) && Number(item.landingCost) > 0) {
+            unitCost = Number(item.landingCost);
+        } else if (item.batchAllocations && Array.isArray(item.batchAllocations) && item.batchAllocations.length > 0) {
+            const batchCost = item.batchAllocations[0].landingCost || item.batchAllocations[0].costPrice;
+            if (batchCost && !isNaN(Number(batchCost)) && Number(batchCost) > 0) {
+                unitCost = Number(batchCost);
+            }
+        }
+
+        if (unitCost === null || isNaN(unitCost) || unitCost <= 0) {
+            const skuId = item.skuCode || item.skuId || item.productId || 'UNKNOWN_ITEM';
+            throw new Error(`MISSING_COST_PRICE: Line item '${skuId}' is missing valid statutory purchase/cost price. Heuristic estimation is strictly prohibited.`);
+        }
+
         totalCogs += roundCurrency(unitCost * qty);
-    });
+    }
     totalCogs = roundCurrency(totalCogs);
 
     // 4. Construct Balanced Double-Entry Journal Lines
@@ -160,6 +179,24 @@ async function recognizeOrderDeliveryFinancials(orderData) {
             debit: 0,
             credit: totalCogs,
             description: `Inventory reduction on sale for Order ${orderId}`
+        });
+    }
+
+    // Operating Expense Accrual: Rider Delivery Expense Matching
+    // Calculate rider delivery earning for this delivered order if rider is assigned
+    const riderDeliveryEarning = Number(orderData.riderEarning || orderData.deliveryEarning || (orderData.assignedRiderId || orderData.riderId ? 30 : 0));
+    if (riderDeliveryEarning > 0) {
+        journalLines.push({
+            accountCode: "6010_RIDER_DELIVERY_PAYOUTS",
+            debit: riderDeliveryEarning,
+            credit: 0,
+            description: `Rider delivery expense accrued for Order ${orderId}`
+        });
+        journalLines.push({
+            accountCode: "2010_ACCOUNTS_PAYABLE_SUPPLIERS",
+            debit: 0,
+            credit: riderDeliveryEarning,
+            description: `Rider payable accrued for Order ${orderId}`
         });
     }
 

@@ -201,7 +201,7 @@ async function runPhase1TestSuite() {
             userPhone: "9876543210",
             address: "Samastipur, Bihar",
             items: [
-                { skuId: "PEST_01", name: "Confidor 100ml", hsn: "3808", quantity: 2, sellingPrice: 500, price: 500 }
+                { skuId: "PEST_01", name: "Confidor 100ml", hsn: "3808", quantity: 2, sellingPrice: 500, price: 500, costPrice: 350 }
             ],
             totalAmount: 1180,
             paymentMethod: "COD"

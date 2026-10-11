@@ -268,6 +268,16 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                     }
                 }
 
+                // 3b. Read private product_costs document for statutory purchase cost
+                let costData = null;
+                if (productId) {
+                    const costRef = db.collection("product_costs").doc(productId);
+                    const costSnap = await transaction.get(costRef);
+                    if (costSnap.exists) {
+                        costData = costSnap.data();
+                    }
+                }
+
                 fetchedProducts.push({
                     item,
                     productId,
@@ -275,7 +285,8 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                     product: productData,
                     skuCode,
                     skuRef,
-                    skuData
+                    skuData,
+                    costData
                 });
             }
 
@@ -316,13 +327,15 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             let hasOnDemandItems = false;
 
             for (const fp of fetchedProducts) {
-                const { item, productId, productRef, product, skuCode, skuRef, skuData } = fp;
+                const { item, productId, productRef, product, skuCode, skuRef, skuData, costData } = fp;
 
                 let matchingVariant = null;
+                let matchingVariantIndex = -1;
                 if (Array.isArray(product.variants) && product.variants.length > 0) {
                     const vIdx = findVariantIndex(product.variants, item);
                     if (vIdx !== -1) {
                         matchingVariant = product.variants[vIdx];
+                        matchingVariantIndex = vIdx;
                     }
                 }
 
@@ -418,6 +431,45 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 subtotal += itemMrp * item.quantity;
                 totalDiscount += (itemMrp - itemPrice) * item.quantity;
 
+                // ── RESOLVE STATUTORY PURCHASE / COST PRICE ──
+                // 1. Check matching variant explicit cost fields
+                let resolvedVariantCost = Number(
+                    matchingVariant?.costPrice ||
+                    matchingVariant?.unitCost ||
+                    matchingVariant?.landingCost ||
+                    0
+                );
+
+                // 2. Check private product_costs document for variant-specific cost
+                if (resolvedVariantCost <= 0 && costData && costData.variantsCost && matchingVariant) {
+                    const vc = costData.variantsCost;
+                    const vIdKey = matchingVariant.id ? String(matchingVariant.id) : null;
+                    const vSkuKey = matchingVariant.skuCode ? String(matchingVariant.skuCode) : null;
+                    const vLabelKey = matchingVariant.label ? `label_${String(matchingVariant.label).trim().toLowerCase().replace(/\s+/g, '_')}` : null;
+                    const vIdxKey = matchingVariantIndex !== -1 ? `var_${matchingVariantIndex}` : null;
+
+                    const matchedCost = (vIdKey && vc[vIdKey]) ??
+                                        (vSkuKey && vc[vSkuKey]) ??
+                                        (vLabelKey && vc[vLabelKey]) ??
+                                        (vIdxKey && vc[vIdxKey]);
+
+                    if (matchedCost !== undefined && matchedCost !== null && Number(matchedCost) > 0) {
+                        resolvedVariantCost = Number(matchedCost);
+                    }
+                }
+
+                // 3. Fallbacks: SKU doc pricing -> product-level cost (ONLY if product has no variants, or single-variant match)
+                const isMultiVariantProduct = Array.isArray(product.variants) && product.variants.length > 1;
+                const canUseProductLevelFallback = !isMultiVariantProduct || (isMultiVariantProduct && matchingVariantIndex !== -1 && resolvedVariantCost > 0);
+
+                const itemCost = Number(
+                    (resolvedVariantCost > 0 ? resolvedVariantCost : 0) ||
+                    skuData?.pricing?.landingCost ||
+                    skuData?.costPrice ||
+                    (canUseProductLevelFallback ? (costData?.costPrice || product.costPrice || product.landingCost || product.purchasePrice) : 0) ||
+                    0
+                );
+
                 items.push({
                     productId: productId,
                     skuCode: skuCode,
@@ -427,6 +479,8 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                     price: itemPrice,
                     taxablePrice: unitTaxable,
                     mrp: itemMrp,
+                    costPrice: itemCost > 0 ? itemCost : undefined,
+                    unitCost: itemCost > 0 ? itemCost : undefined,
                     variantId: item.variantId || null,
                     variantLabel: item.variantLabel || null,
                     hsnCode: skuData?.tax?.hsnCode || product.hsnCode || "3808",

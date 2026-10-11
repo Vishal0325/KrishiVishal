@@ -25,6 +25,18 @@ function assertAuth(request) {
 }
 
 // 1. FINANCIAL REPORTING
+function resolveIncludeSimulations(request) {
+    const data = request.data || {};
+    if (data.includeSimulations === true) {
+        const role = request.auth?.token?.role;
+        // Strictly restricted to Internal Auditors / CFO / SuperAdmin for simulation review
+        if (['CFO', 'SUPER_ADMIN', 'SuperAdmin', 'AUDITOR'].includes(role)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 exports.generateTrialBalance = onCall({ region: REGION }, async (request) => {
     assertAuth(request);
     try {
@@ -32,7 +44,8 @@ exports.generateTrialBalance = onCall({ region: REGION }, async (request) => {
         return await generateTrialBalance({
             periodId: data.periodId || null,
             startDate: data.startDate ? new Date(data.startDate) : null,
-            endDate: data.endDate ? new Date(data.endDate) : null
+            endDate: data.endDate ? new Date(data.endDate) : null,
+            includeSimulations: resolveIncludeSimulations(request)
         });
     } catch (err) {
         console.error("[generateTrialBalance] Error:", err);
@@ -47,7 +60,8 @@ exports.generateProfitAndLoss = onCall({ region: REGION }, async (request) => {
         return await generateProfitAndLoss({
             periodId: data.periodId || null,
             startDate: data.startDate ? new Date(data.startDate) : null,
-            endDate: data.endDate ? new Date(data.endDate) : null
+            endDate: data.endDate ? new Date(data.endDate) : null,
+            includeSimulations: resolveIncludeSimulations(request)
         });
     } catch (err) {
         console.error("[generateProfitAndLoss] Error:", err);
@@ -61,7 +75,8 @@ exports.generateBalanceSheet = onCall({ region: REGION }, async (request) => {
         const data = request.data || {};
         return await generateBalanceSheet({
             periodId: data.periodId || null,
-            asOfDate: data.asOfDate ? new Date(data.asOfDate) : new Date()
+            asOfDate: data.asOfDate ? new Date(data.asOfDate) : new Date(),
+            includeSimulations: resolveIncludeSimulations(request)
         });
     } catch (err) {
         console.error("[generateBalanceSheet] Error:", err);
@@ -75,7 +90,8 @@ exports.generateGstr1Summary = onCall({ region: REGION }, async (request) => {
         const data = request.data || {};
         return await generateGstr1Summary({
             periodId: data.periodId || "2026-10",
-            financialYear: data.financialYear || "26-27"
+            financialYear: data.financialYear || "26-27",
+            includeSimulations: resolveIncludeSimulations(request)
         });
     } catch (err) {
         console.error("[generateGstr1Summary] Error:", err);

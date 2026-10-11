@@ -8,16 +8,22 @@
 
 const { db } = require("../core/admin");
 const { roundCurrency } = require("../finance/financialReports");
+const { isSimulationOrder, isSimulationCreditNote } = require("../finance/simulationClassifier");
 
 /**
- * Aggregates GSTR-1 tables for a specific fiscal period.
+ * Aggregates B2C orders and issued credit notes for a given fiscal period into GSTR-1 summary.
+ * Conforms to statutory GSTR-1 format:
+ * - Table 7: B2C (Small) Invoices by Place of Supply & Tax Rate (Net of Credit Notes)
+ * - Table 12: HSN Summary of Outward Supplies (Net Quantity & Net Taxable Value)
+ * - Table 13: Documents Issued (Tax Invoices: KV/YY-YY/XXXXX, Credit Notes: KVCN/YY-YY/XXXXX)
  * 
  * @param {object} param0
  * @param {string} param0.periodId e.g. "2026-10"
  * @param {string} [param0.financialYear] e.g. "26-27"
+ * @param {boolean} [param0.includeSimulations=false] Whether to include CA mock audit simulation pack fixtures
  * @returns {Promise<object>}
  */
-async function generateGstr1Summary({ periodId, financialYear = "26-27" }) {
+async function generateGstr1Summary({ periodId, financialYear = "26-27", includeSimulations = false }) {
     if (!periodId) throw new Error("MISSING_PERIOD_ID: periodId is required (e.g. '2026-10')");
 
     // 1. Fetch all recognized orders (Invoices) for this period
@@ -53,6 +59,12 @@ async function generateGstr1Summary({ periodId, financialYear = "26-27" }) {
     // Process Orders (Tax Invoices)
     for (const doc of ordersSnap.docs) {
         const order = doc.data() || {};
+
+        // Simulation / CA Mock Audit isolation
+        if (!includeSimulations && isSimulationOrder(order, doc.id)) {
+            continue;
+        }
+
         const invoiceNo = order.invoiceNumber;
         if (invoiceNo) invoiceSerials.push(invoiceNo);
 
@@ -118,6 +130,12 @@ async function generateGstr1Summary({ periodId, financialYear = "26-27" }) {
     // Process Credit Notes for Table 7 netting, Table 12 reduction, Table 13 serials, and totals
     for (const doc of creditNotesSnap.docs) {
         const cn = doc.data() || {};
+
+        // Simulation / CA Mock Audit isolation
+        if (!includeSimulations && isSimulationCreditNote(cn, doc.id)) {
+            continue;
+        }
+
         if (cn.creditNoteNo) creditNoteSerials.push(cn.creditNoteNo);
 
         const cnState = cn.shippingState || "Bihar";

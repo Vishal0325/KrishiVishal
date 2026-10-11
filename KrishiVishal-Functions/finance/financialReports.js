@@ -33,6 +33,8 @@ function getAccountType(accountCode) {
     return "UNKNOWN";
 }
 
+const { isSimulationJournalEntry } = require("./simulationClassifier");
+
 /**
  * Aggregates all journal entries for a given period or date range into a verified Trial Balance.
  * 
@@ -40,9 +42,10 @@ function getAccountType(accountCode) {
  * @param {string} [param0.periodId] e.g. "2026-10"
  * @param {Date} [param0.startDate]
  * @param {Date} [param0.endDate]
+ * @param {boolean} [param0.includeSimulations=false] Whether to include CA mock audit simulation pack fixtures
  * @returns {Promise<object>}
  */
-async function generateTrialBalance({ periodId = null, startDate = null, endDate = null } = {}) {
+async function generateTrialBalance({ periodId = null, startDate = null, endDate = null, includeSimulations = false } = {}) {
     let query = db.collection("journal_entries");
 
     if (periodId) {
@@ -55,15 +58,23 @@ async function generateTrialBalance({ periodId = null, startDate = null, endDate
     // Loop through journal entry docs and read their line items
     for (const entryDoc of entriesSnapshot.docs) {
         const entryData = entryDoc.data() || {};
-        
+
+        // Simulation / CA Mock Audit isolation
+        if (!includeSimulations && isSimulationJournalEntry(entryData, entryDoc.id)) {
+            continue;
+        }
+
         // Date range filtering if specified
         if (startDate && entryData.date && entryData.date.toDate() < startDate) continue;
         if (endDate && entryData.date && entryData.date.toDate() > endDate) continue;
 
-        // Fetch subcollection lines
+        // Fetch subcollection lines (or fallback to embedded lines array if stored on document)
         const linesSnapshot = await entryDoc.ref.collection("lines").get();
-        for (const lineDoc of linesSnapshot.docs) {
-            const line = lineDoc.data() || {};
+        const lineItems = (linesSnapshot && !linesSnapshot.empty)
+            ? linesSnapshot.docs.map(d => d.data() || {})
+            : (Array.isArray(entryData.lines) ? entryData.lines : []);
+
+        for (const line of lineItems) {
             const code = line.accountCode;
             if (!code) continue;
 
@@ -125,10 +136,11 @@ async function generateTrialBalance({ periodId = null, startDate = null, endDate
  * 
  * @param {object} param0
  * @param {string} [param0.periodId]
+ * @param {boolean} [param0.includeSimulations=false]
  * @returns {Promise<object>}
  */
-async function generateProfitAndLoss({ periodId = null, startDate = null, endDate = null } = {}) {
-    const trialBalance = await generateTrialBalance({ periodId, startDate, endDate });
+async function generateProfitAndLoss({ periodId = null, startDate = null, endDate = null, includeSimulations = false } = {}) {
+    const trialBalance = await generateTrialBalance({ periodId, startDate, endDate, includeSimulations });
 
     let grossRevenue = 0;
     let cogs = 0;
@@ -174,11 +186,12 @@ async function generateProfitAndLoss({ periodId = null, startDate = null, endDat
  * @param {object} param0
  * @param {string} [param0.periodId]
  * @param {Date} [param0.asOfDate]
+ * @param {boolean} [param0.includeSimulations=false]
  * @returns {Promise<object>}
  */
-async function generateBalanceSheet({ periodId = null, asOfDate = new Date() } = {}) {
-    const trialBalance = await generateTrialBalance({ periodId });
-    const pnl = await generateProfitAndLoss({ periodId });
+async function generateBalanceSheet({ periodId = null, asOfDate = new Date(), includeSimulations = false } = {}) {
+    const trialBalance = await generateTrialBalance({ periodId, includeSimulations });
+    const pnl = await generateProfitAndLoss({ periodId, includeSimulations });
 
     let totalAssets = 0;
     let totalLiabilities = 0;
