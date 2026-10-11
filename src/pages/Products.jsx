@@ -503,6 +503,16 @@ const Products = () => {
         ...(data.associatedCropNames || []).map(n => n.toLowerCase())
       ].filter((v, i, a) => v && a.indexOf(v) === i); // Unique non-empty keywords
 
+      // Helper to generate consistent variant keys for private cost mapping
+      const getVariantCostKey = (v, idx) => {
+        if (!v) return `var_${idx}`;
+        if (v.id) return String(v.id);
+        if (v.skuCode) return String(v.skuCode);
+        if (v.sku) return String(v.sku);
+        if (v.label) return `label_${String(v.label).trim().toLowerCase().replace(/\s+/g, '_')}`;
+        return `var_${idx}`;
+      };
+
       if (editingProduct) {
         // 1. Update Public Product Data (Strictly exclude costPrice)
         const publicData = { ...data };
@@ -528,8 +538,15 @@ const Products = () => {
         const costData = {
            productId: editingProduct.id,
            costPrice: data.costPrice,
-           variantsCost: (data.variants || []).reduce((acc, v) => {
-              if (v.id) acc[v.id] = v.costPrice;
+           variantsCost: (data.variants || []).reduce((acc, v, idx) => {
+              const key = getVariantCostKey(v, idx);
+              if (v.costPrice !== undefined && v.costPrice !== "") {
+                acc[key] = Number(v.costPrice) || 0;
+              }
+              // Also index by SKU code if available for bidirectional lookup
+              if (v.skuCode && key !== String(v.skuCode)) {
+                acc[String(v.skuCode)] = Number(v.costPrice) || 0;
+              }
               return acc;
            }, {}),
            updatedAt: Timestamp.now()
@@ -564,8 +581,14 @@ const Products = () => {
         const costData = {
            productId: docRef.id,
            costPrice: data.costPrice,
-           variantsCost: (data.variants || []).reduce((acc, v) => {
-              if (v.id) acc[v.id] = v.costPrice;
+           variantsCost: (data.variants || []).reduce((acc, v, idx) => {
+              const key = getVariantCostKey(v, idx);
+              if (v.costPrice !== undefined && v.costPrice !== "") {
+                acc[key] = Number(v.costPrice) || 0;
+              }
+              if (v.skuCode && key !== String(v.skuCode)) {
+                acc[String(v.skuCode)] = Number(v.costPrice) || 0;
+              }
               return acc;
            }, {}),
            createdAt: Timestamp.now()
@@ -609,51 +632,58 @@ const Products = () => {
             unit: data.unit
           });
 
-          // 1. Direct Firestore write to 'skus' collection so it always updates immediately in real-time
-          await setDoc(doc(db, "skus", finalSku), {
-            skuCode: finalSku,
-            name: `${data.name} (${v.label || data.quantity || ''} ${data.unit || ''})`.trim(),
-            productName: data.name,
-            brand: data.brand || "",
-            category: data.category || "",
-            subCategory: data.subCategory || "",
-            segments: validateSku(finalSku)?.segments || { category: 'OT' },
-            pricing: {
-              mrp: Number(v.mrp || data.mrp || 0),
-              consumerPrice: Number(v.price || data.price || 0),
-              landingCost: Number(v.costPrice || data.costPrice || 0),
-              dealerPrice: Number(v.costPrice || data.costPrice || 0)
-            },
-            inventory: {
-              availableStock: Number(v.stock !== undefined ? v.stock : data.stock || 0),
-              allocatedStock: 0,
-              quarantineStock: 0
-            },
-            tax: {
-              hsnCode: data.hsnCode || "31021010",
-              gstRate: Number(data.gstRate || 5)
-            },
-            reorderLevel: Number(v.reorderLevel || data.reorderLevel || 10),
-            isActive: true,
-            updatedAt: Timestamp.now(),
-            createdAt: Timestamp.now()
-          }, { merge: true });
-
-          // 2. Cloud Function fallback (if backend is active)
-          callUpsertSku(finalSku, {
-            name: `${data.name} (${v.label || data.quantity || ''})`.trim(),
-            pricing: {
-              mrp: Number(v.mrp || data.mrp || 0),
-              consumerPrice: Number(v.price || data.price || 0),
-              landingCost: Number(v.costPrice || data.costPrice || 0),
-              dealerPrice: Number(v.costPrice || data.costPrice || 0)
-            },
-            tax: {
-              hsnCode: data.hsnCode || "31021010",
-              gstRate: Number(data.gstRate || 5)
-            },
-            reorderLevel: Number(v.reorderLevel || data.reorderLevel || 10)
-          }).catch(() => {});
+          // 1. Provision SKU via Cloud Function (Admin SDK bypasses client write: if false rule)
+          try {
+            await callUpsertSku(finalSku, {
+              name: `${data.name} (${v.label || data.quantity || ''} ${data.unit || ''})`.trim(),
+              pricing: {
+                mrp: Number(v.mrp || data.mrp || 0),
+                consumerPrice: Number(v.price || data.price || 0),
+                landingCost: Number(v.costPrice || data.costPrice || 0),
+                dealerPrice: Number(v.costPrice || data.costPrice || 0)
+              },
+              tax: {
+                hsnCode: data.hsnCode || "3808",
+                gstRate: Number(data.gstRate || 18)
+              },
+              reorderLevel: Number(v.reorderLevel || data.reorderLevel || 10)
+            });
+          } catch (cfErr) {
+            console.warn(`callUpsertSku warning for ${finalSku}:`, cfErr.message);
+            // Fallback direct write in case rules allow it in other environments
+            try {
+              await setDoc(doc(db, "skus", finalSku), {
+                skuCode: finalSku,
+                name: `${data.name} (${v.label || data.quantity || ''} ${data.unit || ''})`.trim(),
+                productName: data.name,
+                brand: data.brand || "",
+                category: data.category || "",
+                subCategory: data.subCategory || "",
+                segments: validateSku(finalSku)?.segments || { category: 'OT' },
+                pricing: {
+                  mrp: Number(v.mrp || data.mrp || 0),
+                  consumerPrice: Number(v.price || data.price || 0),
+                  landingCost: Number(v.costPrice || data.costPrice || 0),
+                  dealerPrice: Number(v.costPrice || data.costPrice || 0)
+                },
+                inventory: {
+                  availableStock: Number(v.stock !== undefined ? v.stock : data.stock || 0),
+                  allocatedStock: 0,
+                  quarantineStock: 0
+                },
+                tax: {
+                  hsnCode: data.hsnCode || "3808",
+                  gstRate: Number(data.gstRate || 18)
+                },
+                reorderLevel: Number(v.reorderLevel || data.reorderLevel || 10),
+                isActive: true,
+                updatedAt: Timestamp.now(),
+                createdAt: Timestamp.now()
+              }, { merge: true });
+            } catch (directErr) {
+              // Ignore direct write failure if Cloud Function already handled or rules block
+            }
+          }
 
           // If initial stock provided (>0), provision initial batch & ledger
           if (Number(v.stock || 0) > 0) {
@@ -724,26 +754,37 @@ const Products = () => {
       : "";
 
     // Parse variants if they exist, converting Timestamps back to YYYY-MM-DD strings
-    const processedVariants = (product.variants || []).map((v) => ({
-      ...v,
-      mrp: v.mrp ?? "",
-      price: v.price ?? "",
-      stock: v.stock ?? "",
-      quantity: v.quantity ?? "",
-      reorderLevel: v.reorderLevel ?? 10,
-      costPrice: variantsCosts[v.id] || "",
-      batchNumber: v.batchNumber ?? "",
-      mfgDate: v.mfgDate
-        ? v.mfgDate.seconds
-          ? new Date(v.mfgDate.seconds * 1000).toISOString().split("T")[0]
-          : v.mfgDate
-        : "",
-      expiryDate: v.expiryDate
-        ? v.expiryDate.seconds
-          ? new Date(v.expiryDate.seconds * 1000).toISOString().split("T")[0]
-          : v.expiryDate
-        : "",
-    }));
+    const processedVariants = (product.variants || []).map((v, idx) => {
+      const vKey = v.id
+        ? String(v.id)
+        : (v.skuCode
+          ? String(v.skuCode)
+          : (v.label
+            ? `label_${String(v.label).trim().toLowerCase().replace(/\s+/g, '_')}`
+            : `var_${idx}`));
+      const loadedCost = variantsCosts[vKey] ?? (v.skuCode ? variantsCosts[String(v.skuCode)] : undefined) ?? variantsCosts[`var_${idx}`] ?? "";
+
+      return {
+        ...v,
+        mrp: v.mrp ?? "",
+        price: v.price ?? "",
+        stock: v.stock ?? "",
+        quantity: v.quantity ?? "",
+        reorderLevel: v.reorderLevel ?? 10,
+        costPrice: loadedCost,
+        batchNumber: v.batchNumber ?? "",
+        mfgDate: v.mfgDate
+          ? v.mfgDate.seconds
+            ? new Date(v.mfgDate.seconds * 1000).toISOString().split("T")[0]
+            : v.mfgDate
+          : "",
+        expiryDate: v.expiryDate
+          ? v.expiryDate.seconds
+            ? new Date(v.expiryDate.seconds * 1000).toISOString().split("T")[0]
+            : v.expiryDate
+          : "",
+      };
+    });
 
     setFormData({
       ...initialFormState,
