@@ -443,8 +443,8 @@ const GoodsReceipt = () => {
 
       {/* CREATE GRN MODAL */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-gray-900/60 backdrop-blur-md p-4 sm:p-6 animate-in fade-in duration-300 overflow-y-auto">
-          <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl animate-in zoom-in duration-300 relative border border-white/20 my-8 overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-gray-900/60 backdrop-blur-md p-3 sm:p-6 animate-in fade-in duration-300 overflow-y-auto">
+          <div className="bg-white w-full max-w-7xl rounded-3xl shadow-2xl animate-in zoom-in duration-300 relative border border-white/20 my-6 overflow-hidden">
             {/* Modal Header */}
             <div className="p-6 border-b border-gray-50 flex items-center justify-between bg-white sticky top-0 z-10">
               <div>
@@ -577,26 +577,26 @@ const GoodsReceipt = () => {
                     <span className="text-xs text-gray-500 font-bold">{receiptItems.length} Products</span>
                   </div>
 
-                  <div className="overflow-x-auto rounded-2xl border border-gray-200">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-gray-50 text-gray-500 font-black uppercase text-[10px] tracking-wider border-b border-gray-200">
+                  <div className="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">
+                    <table className="min-w-[1320px] w-full text-left text-xs divide-y divide-gray-200">
+                      <thead className="bg-gray-50 text-gray-600 font-black uppercase text-[10px] tracking-wider border-b border-gray-200">
                         <tr>
-                          <th className="py-3 px-3">Product Name</th>
-                          <th className="py-3 px-3 text-center">Ordered</th>
-                          <th className="py-3 px-3">Recv Qty *</th>
-                          <th className="py-3 px-3">Accepted Qty *</th>
-                          <th className="py-3 px-3">Damaged / Rejected</th>
-                          <th className="py-3 px-3">Damage Reason</th>
-                          <th className="py-3 px-3">Actual Cost (₹) *</th>
-                          <th className="py-3 px-3">Batch Number</th>
-                          <th className="py-3 px-3">Expiry Date</th>
-                          <th className="py-3 px-3">Rack/Bin</th>
+                          <th className="py-3.5 px-3 min-w-[170px]">Product Name</th>
+                          <th className="py-3.5 px-3 text-center min-w-[75px]">Ordered</th>
+                          <th className="py-3.5 px-3 text-center min-w-[100px]">Recv Qty *</th>
+                          <th className="py-3.5 px-3 text-center min-w-[105px]">Accepted Qty *</th>
+                          <th className="py-3.5 px-3 text-center min-w-[110px]">Damaged / Rejected</th>
+                          <th className="py-3.5 px-3 min-w-[160px]">Damage Reason</th>
+                          <th className="py-3.5 px-3 text-right min-w-[125px]">Actual Cost (₹) *</th>
+                          <th className="py-3.5 px-3 min-w-[160px]">Batch Number</th>
+                          <th className="py-3.5 px-3 min-w-[160px]">Expiry Date</th>
+                          <th className="py-3.5 px-3 min-w-[145px]">Rack/Bin</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 font-bold text-gray-900">
                         {receiptItems.map((item, idx) => (
                           <tr key={idx} className={`hover:bg-gray-50/50 ${getLineError(item) ? 'bg-red-50/60' : ''}`}>
-                            <td className="py-3 px-3 font-black">
+                            <td className="py-3.5 px-3 font-black min-w-[170px]">
                               {item.productName}
                               {item.alreadyReceived > 0 && (
                                 <p className="text-[10px] text-amber-600 font-normal">
@@ -609,10 +609,10 @@ const GoodsReceipt = () => {
                                 </p>
                               )}
                             </td>
-                            <td className="py-3 px-3 text-center text-gray-500">
+                            <td className="py-3.5 px-3 text-center text-gray-500 min-w-[75px]">
                               {item.orderedQuantity}
                             </td>
-                            <td className="py-3 px-3 w-28">
+                            <td className="py-3.5 px-3 min-w-[100px]">
                               <input
                                 type="number"
                                 required
@@ -620,37 +620,37 @@ const GoodsReceipt = () => {
                                 max={item.orderedQuantity}
                                 value={item.receivedQuantity}
                                 onChange={(e) => updateLine(idx, 'receivedQuantity', e.target.value)}
-                                className="w-full px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-lg text-sm font-black text-gray-900 text-center outline-none focus:border-[#1b5e20]"
+                                className="w-full min-w-[80px] px-2.5 py-2 bg-green-50 border border-green-300 rounded-lg text-sm font-black text-gray-900 text-center outline-none focus:border-[#1b5e20] focus:ring-1 focus:ring-[#1b5e20]"
                               />
                             </td>
-                            <td className="py-3 px-3 w-28">
+                            <td className="py-3.5 px-3 min-w-[105px]">
                               <input
                                 type="number"
                                 required
                                 min="0"
                                 value={item.acceptedQty}
                                 onChange={(e) => updateLine(idx, 'acceptedQty', e.target.value)}
-                                className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-sm font-black text-gray-900 text-center outline-none focus:border-[#1b5e20]"
+                                className="w-full min-w-[80px] px-2.5 py-2 bg-white border border-gray-300 rounded-lg text-sm font-black text-gray-900 text-center outline-none focus:border-[#1b5e20] focus:ring-1 focus:ring-[#1b5e20]"
                               />
                             </td>
-                            <td className="py-3 px-3 w-28">
+                            <td className="py-3.5 px-3 min-w-[110px]">
                               <input
                                 type="number"
                                 min="0"
                                 value={item.damagedQty}
                                 onChange={(e) => updateLine(idx, 'damagedQty', e.target.value)}
-                                className={`w-full px-2.5 py-1.5 border rounded-lg text-sm font-black text-center outline-none ${
-                                  Number(item.damagedQty) > 0 ? 'bg-red-50 border-red-300 text-red-700 focus:border-red-500' : 'bg-white border-gray-200 text-gray-900 focus:border-[#1b5e20]'
+                                className={`w-full min-w-[80px] px-2.5 py-2 border rounded-lg text-sm font-black text-center outline-none ${
+                                  Number(item.damagedQty) > 0 ? 'bg-red-50 border-red-300 text-red-700 focus:border-red-500' : 'bg-white border-gray-300 text-gray-900 focus:border-[#1b5e20]'
                                 }`}
                               />
                             </td>
-                            <td className="py-3 px-3 w-48">
+                            <td className="py-3.5 px-3 min-w-[160px]">
                               <select
                                 value={item.damageReason}
                                 required={Number(item.damagedQty) > 0}
                                 disabled={!(Number(item.damagedQty) > 0)}
                                 onChange={(e) => updateLine(idx, 'damageReason', e.target.value)}
-                                className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-[11px] font-bold text-gray-900 outline-none focus:border-red-500 disabled:bg-gray-50 disabled:text-gray-300"
+                                className="w-full min-w-[145px] px-2.5 py-2 bg-white border border-gray-300 rounded-lg text-xs font-bold text-gray-900 outline-none focus:border-red-500 disabled:bg-gray-50 disabled:text-gray-300"
                               >
                                 <option value="">{Number(item.damagedQty) > 0 ? 'Select reason *' : '—'}</option>
                                 {DAMAGE_REASONS.map(r => (
@@ -658,7 +658,7 @@ const GoodsReceipt = () => {
                                 ))}
                               </select>
                             </td>
-                            <td className="py-3 px-3 w-32">
+                            <td className="py-3.5 px-3 min-w-[125px]">
                               <input
                                 type="number"
                                 required
@@ -669,22 +669,23 @@ const GoodsReceipt = () => {
                                   updated[idx].actualUnitCost = e.target.value;
                                   setReceiptItems(updated);
                                 }}
-                                className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-mono font-bold text-gray-900 text-right outline-none focus:border-[#1b5e20]"
+                                className="w-full min-w-[95px] px-2.5 py-2 bg-white border border-gray-300 rounded-lg text-xs font-mono font-bold text-gray-900 text-right outline-none focus:border-[#1b5e20] focus:ring-1 focus:ring-[#1b5e20]"
                               />
                             </td>
-                            <td className="py-3 px-3">
+                            <td className="py-3.5 px-3 min-w-[160px]">
                               <input
                                 type="text"
                                 value={item.batchNumber}
+                                placeholder="BAT-2026-..."
                                 onChange={(e) => {
                                   const updated = [...receiptItems];
                                   updated[idx].batchNumber = e.target.value;
                                   setReceiptItems(updated);
                                 }}
-                                className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-mono text-gray-900 outline-none focus:border-[#1b5e20]"
+                                className="w-full min-w-[140px] px-2.5 py-2 bg-white border border-gray-300 rounded-lg text-xs font-mono font-bold text-gray-900 outline-none focus:border-[#1b5e20] focus:ring-1 focus:ring-[#1b5e20]"
                               />
                             </td>
-                            <td className="py-3 px-3">
+                            <td className="py-3.5 px-3 min-w-[160px]">
                               <input
                                 type="date"
                                 value={item.expiryDate}
@@ -693,19 +694,20 @@ const GoodsReceipt = () => {
                                   updated[idx].expiryDate = e.target.value;
                                   setReceiptItems(updated);
                                 }}
-                                className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 outline-none focus:border-[#1b5e20]"
+                                className="w-full min-w-[140px] px-2 py-2 bg-white border border-gray-300 rounded-lg text-xs font-bold text-gray-900 outline-none focus:border-[#1b5e20] focus:ring-1 focus:ring-[#1b5e20]"
                               />
                             </td>
-                            <td className="py-3 px-3">
+                            <td className="py-3.5 px-3 min-w-[145px]">
                               <input
                                 type="text"
                                 value={item.rackBin}
+                                placeholder="RACK_A1_BIN_01"
                                 onChange={(e) => {
                                   const updated = [...receiptItems];
                                   updated[idx].rackBin = e.target.value;
                                   setReceiptItems(updated);
                                 }}
-                                className="w-24 px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-[11px] font-mono text-gray-700 outline-none focus:border-[#1b5e20]"
+                                className="w-full min-w-[125px] px-2.5 py-2 bg-white border border-gray-300 rounded-lg text-xs font-mono font-bold text-gray-700 outline-none focus:border-[#1b5e20] focus:ring-1 focus:ring-[#1b5e20]"
                               />
                             </td>
                           </tr>
