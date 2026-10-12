@@ -1029,6 +1029,19 @@ async function receiveGrn(transaction, {
                 if (skuSnap.exists) {
                     skuData = skuSnap.data();
                 } else {
+                    const legacyStock = Math.max(0, Number(pData.stockQuantity || pData.stock || pData.quantity || 0));
+                    let openingLegacyBatch = null;
+                    if (legacyStock > 0) {
+                        const legacyBatchId = (pData.batchNumber || "OPENING-STOCK").trim().toUpperCase();
+                        openingLegacyBatch = {
+                            batchId: legacyBatchId,
+                            stock: legacyStock,
+                            mfgDate: pData.mfgDate || null,
+                            expiryDate: pData.expiryDate || null,
+                            landingCost: Number(pData.costPrice || pData.purchasePrice || pData.price || 0)
+                        };
+                    }
+
                     shouldProvisionSku = true;
                     provisionSkuData = {
                         skuCode: effectiveSkuCode,
@@ -1041,9 +1054,9 @@ async function receiveGrn(transaction, {
                             landingCost: Number(landingCost || pData.costPrice || 0)
                         },
                         inventory: {
-                            availableStock: finalAccepted,
+                            availableStock: finalAccepted + (openingLegacyBatch ? openingLegacyBatch.stock : 0),
                             committedStock: 0,
-                            totalStock: finalAccepted + finalDamaged,
+                            totalStock: finalAccepted + finalDamaged + (openingLegacyBatch ? openingLegacyBatch.stock : 0),
                             quarantinedStock: finalDamaged
                         },
                         tax: {
@@ -1053,6 +1066,7 @@ async function receiveGrn(transaction, {
                         createdAt: admin.firestore.FieldValue.serverTimestamp(),
                         updatedAt: admin.firestore.FieldValue.serverTimestamp()
                     };
+                    provisionSkuData._openingLegacyBatch = openingLegacyBatch;
                     skuData = provisionSkuData;
                 }
             } else {
@@ -1077,6 +1091,14 @@ async function receiveGrn(transaction, {
     const wsSnap = await transaction.get(wsRef);
     const wsData = wsSnap.exists ? wsSnap.data() : { availableStock: 0, committedStock: 0, quarantinedQty: 0 };
 
+    const openingBatchInfo = provisionSkuData?._openingLegacyBatch || null;
+    let openingBatchRef = null;
+    let openingWsRef = null;
+    if (openingBatchInfo && openingBatchInfo.batchId !== batchId) {
+        openingBatchRef = skuRef.collection("batches").doc(openingBatchInfo.batchId);
+        openingWsRef = getWarehouseStockRef(effectiveSkuCode, openingBatchInfo.batchId, warehouseId);
+    }
+
     // ── ALL READS FINISHED. WRITE PHASE STARTS HERE ──
     const availBefore = wsData.availableStock || 0;
     const availAfter = availBefore + finalAccepted;
@@ -1084,7 +1106,9 @@ async function receiveGrn(transaction, {
     const quarantinedAfter = quarantinedBefore + finalDamaged;
 
     if (shouldProvisionSku && provisionSkuData) {
-        transaction.set(skuRef, provisionSkuData);
+        const skuToSave = { ...provisionSkuData };
+        delete skuToSave._openingLegacyBatch;
+        transaction.set(skuRef, skuToSave);
     } else {
         const skuUpdate = {
             "inventory.availableStock": admin.firestore.FieldValue.increment(finalAccepted),
@@ -1129,6 +1153,56 @@ async function receiveGrn(transaction, {
         quarantinedQty: quarantinedAfter,
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
+
+    // If opening legacy batch was identified during provisioning, persist it
+    if (openingBatchInfo && openingBatchRef && openingWsRef) {
+        const opMfg = openingBatchInfo.mfgDate ? (openingBatchInfo.mfgDate.toDate ? openingBatchInfo.mfgDate : admin.firestore.Timestamp.fromDate(new Date(openingBatchInfo.mfgDate))) : null;
+        const opExp = openingBatchInfo.expiryDate ? (openingBatchInfo.expiryDate.toDate ? openingBatchInfo.expiryDate : admin.firestore.Timestamp.fromDate(new Date(openingBatchInfo.expiryDate))) : null;
+
+        transaction.set(openingBatchRef, {
+            batchId: openingBatchInfo.batchId,
+            batchNumber: openingBatchInfo.batchId,
+            mfgDate: opMfg,
+            expiryDate: opExp,
+            stock: openingBatchInfo.stock,
+            warehouseId,
+            binLocation: binLocation || "RACK_A1_BIN_01",
+            landingCost: openingBatchInfo.landingCost,
+            qualityStatus: "PASSED",
+            isActive: true,
+            isOpeningStock: true,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        transaction.set(openingWsRef, {
+            skuCode: effectiveSkuCode,
+            batchId: openingBatchInfo.batchId,
+            warehouseId,
+            binLocation: binLocation || "RACK_A1_BIN_01",
+            availableStock: openingBatchInfo.stock,
+            quarantinedQty: 0,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        recordMovement(transaction, {
+            movementType: "OPENING_STOCK",
+            skuCode: effectiveSkuCode,
+            batchId: openingBatchInfo.batchId,
+            batchNumber: openingBatchInfo.batchId,
+            warehouseId,
+            quantity: openingBatchInfo.stock,
+            availableBefore: 0,
+            availableAfter: openingBatchInfo.stock,
+            committedBefore: 0,
+            committedAfter: 0,
+            referenceId: "AUTO_ONBOARD_LEGACY",
+            actorId: actorId || "SYSTEM",
+            actorRole: "SYSTEM",
+            reason: "Automatic onboarding of legacy product stock into WMS",
+            idempotencyKey: `OPENING:${effectiveSkuCode}:${openingBatchInfo.batchId}`
+        });
+    }
 
     // Update product stock directly
     if (prodRef && prodSnap && prodSnap.exists) {
