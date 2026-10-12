@@ -1,5 +1,6 @@
 const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { db, admin } = require("../core/admin");
+const { releaseOrderStock } = require("../inventory/inventoryEngine");
 
 const REGION = 'asia-south1';
 
@@ -283,50 +284,39 @@ exports.onOrderStatusUpdate = onDocumentUpdated({ document: "orders/{orderId}", 
                             return;
                         }
 
-                        // PHASE 1: READS
-                        const skuStockUpdates = [];
+                        // PHASE 1: READS FOR PRODUCT VARIANTS (Must execute before any writes)
                         const productDocMap = new Map(); // productId -> { ref, data, modified }
 
                         for (const item of items) {
-                            if (item.fulfillmentType === 'ON_DEMAND') {
-                                continue;
-                            }
-
+                            if (item.fulfillmentType === 'ON_DEMAND') continue;
                             const qty = Number(item.quantity) || 0;
                             if (qty <= 0) continue;
 
                             const productId = item.productId || item.id;
-                            const skuCode = item.skuCode && item.skuCode.trim().length > 0 ? item.skuCode.trim() : null;
-
-                            let isSku = false;
-                            if (skuCode && skuCode !== productId) {
-                                const skuRef = db.collection("skus").doc(skuCode);
-                                const skuSnap = await transaction.get(skuRef);
-                                if (skuSnap.exists) {
-                                    isSku = true;
-                                    skuStockUpdates.push({
-                                        ref: skuRef,
-                                        quantity: qty
+                            if (productId && !productDocMap.has(productId)) {
+                                const prodRef = db.collection("products").doc(productId);
+                                const prodSnap = await transaction.get(prodRef);
+                                if (prodSnap.exists) {
+                                    productDocMap.set(productId, {
+                                        ref: prodRef,
+                                        data: prodSnap.data() || {},
+                                        modified: false
                                     });
-                                }
-                            }
-
-                            if (!isSku && productId) {
-                                if (!productDocMap.has(productId)) {
-                                    const prodRef = db.collection("products").doc(productId);
-                                    const prodSnap = await transaction.get(prodRef);
-                                    if (prodSnap.exists) {
-                                        productDocMap.set(productId, {
-                                            ref: prodRef,
-                                            data: prodSnap.data() || {},
-                                            modified: false
-                                        });
-                                    }
                                 }
                             }
                         }
 
-                        // IN-MEMORY RESTORATION CALCULATIONS
+                        // Authoritative Inventory Engine Stock Release (Restores warehouse_stock, SKU aggregates, and marks order.stockRestored = true)
+                        const cancelActorId = newData.cancelledBy || newData.userId || newData.customerId || oldData?.userId || oldData?.customerId || "SYSTEM";
+                        await releaseOrderStock(transaction, {
+                            orderId: context.params.orderId,
+                            items,
+                            actorId: cancelActorId,
+                            reason: newData.cancellationReason || 'Order Cancelled',
+                            idempotencyKey: `release_${context.params.orderId}`
+                        });
+
+                        // IN-MEMORY VARIANT RESTORATION CALCULATIONS
                         for (const item of items) {
                             if (item.fulfillmentType === 'ON_DEMAND') continue;
                             const qty = Number(item.quantity) || 0;
@@ -357,15 +347,7 @@ exports.onOrderStatusUpdate = onDocumentUpdated({ document: "orders/{orderId}", 
                             }
                         }
 
-                        // PHASE 2: WRITES
-                        for (const update of skuStockUpdates) {
-                            transaction.update(update.ref, {
-                                "inventory.availableStock": admin.firestore.FieldValue.increment(update.quantity),
-                                "inventory.committedStock": admin.firestore.FieldValue.increment(-update.quantity),
-                                updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                            });
-                        }
-
+                        // PHASE 2: WRITES FOR PRODUCT VARIANTS (order.stockRestored is handled authoritatively by releaseOrderStock)
                         for (const [pId, pCached] of productDocMap.entries()) {
                             if (pCached.modified) {
                                 const pUpdates = {
@@ -380,13 +362,8 @@ exports.onOrderStatusUpdate = onDocumentUpdated({ document: "orders/{orderId}", 
                                 transaction.update(pCached.ref, pUpdates);
                             }
                         }
-
-                        transaction.update(orderRef, {
-                            stockRestored: true,
-                            stockRestoredAt: admin.firestore.FieldValue.serverTimestamp()
-                        });
                     });
-                    console.log(`[Stock Restoration] Successfully restored stock (including variants) for CANCELLED order ${context.params.orderId}`);
+                    console.log(`[Stock Restoration] Successfully restored stock (FEFO warehouse_stock + SKU aggregate + variants) for CANCELLED order ${context.params.orderId}`);
                 } else {
                     // No items to restore, but mark flag
                     await db.collection("orders").doc(context.params.orderId).update({

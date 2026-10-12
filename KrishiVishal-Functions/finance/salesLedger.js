@@ -5,10 +5,14 @@
  * Part of CA-Ready Financial Architecture (Sprint 4).
  */
 
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db, admin } = require("../core/admin");
+const { isAdminRequest } = require("../core/utils");
 const { postJournalEntry } = require("./generalLedger");
 const { calculateTaxForOrder, roundCurrency } = require("../tax/gstEngine");
 const { getNextInvoiceNumber, getOrCreateInvoiceNumberForOrder, getCurrentFinancialYear } = require("../invoices/sequentialInvoiceEngine");
+
+const REGION = 'asia-south1';
 
 /**
  * Derives current fiscal period in 'YYYY-MM' format.
@@ -92,30 +96,74 @@ async function recognizeOrderDeliveryFinancials(orderData) {
     }
 
     // 3. Compute Cost of Goods Sold (COGS) matching
+    const settingsSnap = await db.collection("settings").doc("config").get();
+    const settingsData = settingsSnap.exists ? settingsSnap.data() : {};
+    const useBatchCogs = Boolean(settingsData.USE_BATCH_COGS || settingsData.useBatchCogs || false);
+
     let totalCogs = 0;
     for (const item of items) {
         const qty = Number(item.quantity || 1);
-        let unitCost = null;
+        let itemCogs = null;
 
-        if (item.unitCost !== undefined && item.unitCost !== null && !isNaN(Number(item.unitCost)) && Number(item.unitCost) > 0) {
-            unitCost = Number(item.unitCost);
-        } else if (item.costPrice !== undefined && item.costPrice !== null && !isNaN(Number(item.costPrice)) && Number(item.costPrice) > 0) {
-            unitCost = Number(item.costPrice);
-        } else if (item.landingCost !== undefined && item.landingCost !== null && !isNaN(Number(item.landingCost)) && Number(item.landingCost) > 0) {
-            unitCost = Number(item.landingCost);
-        } else if (item.batchAllocations && Array.isArray(item.batchAllocations) && item.batchAllocations.length > 0) {
-            const batchCost = item.batchAllocations[0].landingCost || item.batchAllocations[0].costPrice;
-            if (batchCost && !isNaN(Number(batchCost)) && Number(batchCost) > 0) {
-                unitCost = Number(batchCost);
+        if (useBatchCogs) {
+            // New Mode: Exact per-batch sum
+            if (Array.isArray(item.batchAllocations) && item.batchAllocations.length > 0) {
+                let batchAllocSum = 0;
+                let allocatedTotalQty = 0;
+                for (const alloc of item.batchAllocations) {
+                    const aQty = Number(alloc.allocatedQty !== undefined ? alloc.allocatedQty : (alloc.quantity || 0));
+                    const aCost = Number(alloc.landingCost !== undefined ? alloc.landingCost : (alloc.costPrice || 0));
+                    if (aQty > 0 && aCost > 0) {
+                        batchAllocSum += roundCurrency(aQty * aCost);
+                        allocatedTotalQty += aQty;
+                    }
+                }
+                if (allocatedTotalQty > 0 && batchAllocSum > 0) {
+                    if (allocatedTotalQty === qty) {
+                        itemCogs = batchAllocSum;
+                    } else {
+                        const weightedAvg = batchAllocSum / allocatedTotalQty;
+                        itemCogs = roundCurrency(weightedAvg * qty);
+                    }
+                }
             }
         }
 
-        if (unitCost === null || isNaN(unitCost) || unitCost <= 0) {
-            const skuId = item.skuCode || item.skuId || item.productId || 'UNKNOWN_ITEM';
-            throw new Error(`MISSING_COST_PRICE: Line item '${skuId}' is missing valid statutory purchase/cost price. Heuristic estimation is strictly prohibited.`);
+        // Fallback to legacy calculation (if useBatchCogs is false or legacy order without batch allocations)
+        if (itemCogs === null) {
+            let unitCost = null;
+
+            if (item.unitCost !== undefined && item.unitCost !== null && !isNaN(Number(item.unitCost)) && Number(item.unitCost) > 0) {
+                unitCost = Number(item.unitCost);
+            } else if (item.costPrice !== undefined && item.costPrice !== null && !isNaN(Number(item.costPrice)) && Number(item.costPrice) > 0) {
+                unitCost = Number(item.costPrice);
+            } else if (item.landingCost !== undefined && item.landingCost !== null && !isNaN(Number(item.landingCost)) && Number(item.landingCost) > 0) {
+                unitCost = Number(item.landingCost);
+            } else if (item.batchAllocations && Array.isArray(item.batchAllocations) && item.batchAllocations.length > 0) {
+                const batchCost = item.batchAllocations[0].landingCost || item.batchAllocations[0].costPrice;
+                if (batchCost && !isNaN(Number(batchCost)) && Number(batchCost) > 0) {
+                    unitCost = Number(batchCost);
+                }
+            }
+
+            if (unitCost === null || isNaN(unitCost) || unitCost <= 0) {
+                const skuId = item.skuCode || item.skuId || item.productId || 'UNKNOWN_ITEM';
+                throw new Error(`MISSING_COST_PRICE: Line item '${skuId}' is missing valid statutory purchase/cost price. Heuristic estimation is strictly prohibited.`);
+            }
+
+            itemCogs = roundCurrency(unitCost * qty);
         }
 
-        totalCogs += roundCurrency(unitCost * qty);
+        // Non-persisted Reconciliation logging: compare catalog vs batch COGS
+        const catalogCost = Number(item.catalogCost || item.unitCost || 0);
+        const catalogCogs = roundCurrency(catalogCost * qty);
+        if (catalogCogs > 0 && itemCogs > 0) {
+            const variance = roundCurrency(itemCogs - catalogCogs);
+            const skuId = item.skuCode || item.skuId || item.productId || 'UNKNOWN_ITEM';
+            console.log(`[COGS Reconciliation] Order ${orderId} Line '${skuId}': Qty ${qty} | Batch COGS: ₹${itemCogs} vs Catalog COGS: ₹${catalogCogs} | Variance: ${variance >= 0 ? '+' : ''}₹${variance}`);
+        }
+
+        totalCogs += itemCogs;
     }
     totalCogs = roundCurrency(totalCogs);
 
@@ -239,7 +287,91 @@ async function recognizeOrderDeliveryFinancials(orderData) {
     };
 }
 
+/**
+ * In-memory reconciliation helper: computes line-wise COGS comparison
+ * between catalogCost (standard price list) and batchCost (FEFO actuals)
+ * without performing any production writes.
+ */
+function computeCogsReconciliationBreakdown(orderData) {
+    const items = orderData.items || [];
+    const breakdown = [];
+    let totalCatalogCogs = 0;
+    let totalBatchCogs = 0;
+
+    for (const item of items) {
+        const qty = Number(item.quantity || 1);
+        const skuCode = item.skuCode || item.productId || 'UNKNOWN_ITEM';
+        const catalogCost = Number(item.catalogCost || item.unitCost || 0);
+        const catalogCogs = roundCurrency(catalogCost * qty);
+
+        let batchCogs = null;
+        if (Array.isArray(item.batchAllocations) && item.batchAllocations.length > 0) {
+            let sum = 0;
+            let aQtyTotal = 0;
+            for (const alloc of item.batchAllocations) {
+                const aQty = Number(alloc.allocatedQty !== undefined ? alloc.allocatedQty : (alloc.quantity || 0));
+                const aCost = Number(alloc.landingCost !== undefined ? alloc.landingCost : (alloc.costPrice || 0));
+                if (aQty > 0 && aCost > 0) {
+                    sum += roundCurrency(aQty * aCost);
+                    aQtyTotal += aQty;
+                }
+            }
+            if (aQtyTotal > 0 && sum > 0) {
+                batchCogs = (aQtyTotal === qty) ? sum : roundCurrency((sum / aQtyTotal) * qty);
+            }
+        }
+        if (batchCogs === null) {
+            batchCogs = catalogCogs;
+        }
+
+        const variance = roundCurrency(batchCogs - catalogCogs);
+        totalCatalogCogs += catalogCogs;
+        totalBatchCogs += batchCogs;
+
+        breakdown.push({
+            skuCode,
+            quantity: qty,
+            catalogCost,
+            catalogCogs,
+            batchCogs,
+            variance
+        });
+    }
+
+    return {
+        orderId: orderData.orderId || orderData.id,
+        items: breakdown,
+        totalCatalogCogs: roundCurrency(totalCatalogCogs),
+        totalBatchCogs: roundCurrency(totalBatchCogs),
+        totalVariance: roundCurrency(totalBatchCogs - totalCatalogCogs)
+    };
+}
+
+/**
+ * Admin-only read-only Cloud Function: computes line-wise COGS comparison
+ * between catalogCost (standard price list) and batchCost (FEFO actuals) with ZERO database writes.
+ * Allows administrators and accountants to audit variance before enabling USE_BATCH_COGS.
+ */
+const reconcileOrderCogs = onCall({ region: REGION }, async (request) => {
+    const isAdmin = await isAdminRequest(request);
+    if (!isAdmin) {
+        throw new HttpsError('permission-denied', 'Only administrators can inspect COGS reconciliation.');
+    }
+    const orderId = request.data?.orderId;
+    if (!orderId || typeof orderId !== 'string') {
+        throw new HttpsError('invalid-argument', 'orderId string is required.');
+    }
+    const orderSnap = await db.collection('orders').doc(orderId).get();
+    if (!orderSnap.exists) {
+        throw new HttpsError('not-found', `Order ${orderId} not found.`);
+    }
+    return computeCogsReconciliationBreakdown(orderSnap.data());
+});
+
 module.exports = {
     getFiscalPeriodId,
-    recognizeOrderDeliveryFinancials
+    recognizeOrderDeliveryFinancials,
+    computeCogsReconciliationBreakdown,
+    reconcileOrderCogs
 };
+

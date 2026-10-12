@@ -4,6 +4,8 @@ const crypto = require("crypto");
 const { db, admin } = require("../core/admin");
 const { checkFeatureFlag, addToOutbox, isAdminRequest } = require("../core/utils");
 const {
+    planOrderStockReservation,
+    applyOrderStockReservation,
     reserveOrderStock,
     releaseOrderStock,
     completeOrderStock,
@@ -95,9 +97,11 @@ function findVariantIndex(variants, item) {
  */
 exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, async (request) => {
     const data = request.data || {};
+    if (!request.auth || !request.auth.uid) {
+        throw new HttpsError('unauthenticated', 'Login required.');
+    }
+    const userId = request.auth.uid;
     const context = { auth: request.auth };
-
-    if (!context.auth) throw new HttpsError('unauthenticated', 'Login required.');
     const {
         idempotencyKey,
         cartItems,
@@ -123,16 +127,43 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
     }
 
     // Check for existing order with this idempotency key before starting transaction
-    const idemSnap = await db.collection('idempotency_keys').doc(cleanIdempotencyKey).get();
-    if (idemSnap.exists) {
-        const existingData = idemSnap.data() || {};
+    const preIdemSnap = await db.collection('idempotency_keys').doc(cleanIdempotencyKey).get();
+    if (preIdemSnap.exists) {
+        const existingData = preIdemSnap.data() || {};
+        if (existingData.userId && existingData.userId !== userId) {
+            throw new HttpsError('permission-denied', 'Idempotency key belongs to another user.');
+        }
         console.log(`[createOrder] Idempotent request detected for key: ${cleanIdempotencyKey}. Returning existing order.`);
+        
+        let existingRzpOrderId = existingData.razorpayOrderId || null;
+        if (paymentMethod === 'RAZORPAY_ONLINE' && !existingRzpOrderId && existingData.orderId) {
+            try {
+                const totalAmt = Number(existingData.totalAmount) || 0;
+                existingRzpOrderId = await createRazorpayOrder(existingData.orderId, totalAmt);
+                await db.collection("orders").doc(existingData.orderId).update({
+                    razorpayOrderId: existingRzpOrderId,
+                    paymentStatus: 'PENDING',
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                await db.collection("idempotency_keys").doc(cleanIdempotencyKey).update({
+                    razorpayOrderId: existingRzpOrderId
+                }).catch(() => {});
+            } catch (err) {
+                console.error("[createOrder] Duplicate path Razorpay order generation failed:", err);
+                throw new HttpsError('internal', `Order was created earlier but Razorpay order initialization failed: ${err.message}`);
+            }
+        }
+
+        if (paymentMethod === 'RAZORPAY_ONLINE' && !existingRzpOrderId) {
+            throw new HttpsError('unavailable', 'Payment initialization is currently in progress. Please retry in a moment.');
+        }
+
         return {
             success: true,
             orderId: existingData.orderId,
             totalAmount: existingData.totalAmount || 0,
             customerOTP: existingData.customerOTP || "",
-            razorpayOrderId: existingData.razorpayOrderId || null,
+            razorpayOrderId: existingRzpOrderId,
             isDuplicate: true,
             message: "Order already processed"
         };
@@ -212,11 +243,32 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
         let subtotal = 0, totalDiscount = 0, totalTax = 0, totalExtraTax = 0;
         let orderOtp = "";
 
-        await db.runTransaction(async (transaction) => {
+        let txnResult = null;
+        txnResult = await db.runTransaction(async (transaction) => {
             // ── PHASE 1: ALL READS FIRST (Strict Firestore Transaction Rule) ──
+
+            // 0. Atomic in-transaction idempotency check
+            const idemRef = db.collection('idempotency_keys').doc(cleanIdempotencyKey);
+            const idemSnap = await transaction.get(idemRef);
+            if (idemSnap.exists) {
+                const existingData = idemSnap.data() || {};
+                if (existingData.userId && existingData.userId !== userId) {
+                    throw new HttpsError('permission-denied', 'Idempotency key belongs to another user.');
+                }
+                return {
+                    isDuplicate: true,
+                    orderId: existingData.orderId,
+                    totalAmount: existingData.totalAmount || 0,
+                    customerOTP: existingData.customerOTP || "",
+                    razorpayOrderId: existingData.razorpayOrderId || null,
+                    message: "Order already processed"
+                };
+            }
 
             // 1. Read settings/config
             const settingsSnap = await transaction.get(db.collection("settings").doc("config"));
+            const settingsData = settingsSnap.exists ? settingsSnap.data() : {};
+            const USE_BATCH_COGS = Boolean(settingsData.USE_BATCH_COGS || settingsData.useBatchCogs || false);
 
             // 1b. Read active warehouses for dynamic routing
             const warehousesSnap = await transaction.get(db.collection("warehouses"));
@@ -291,8 +343,24 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             }
 
             // 4. Read user document (for WALLET validation and customer profile)
-            const userRef = db.collection("users").doc(context.auth.uid);
+            const userRef = db.collection("users").doc(userId);
             const userSnap = await transaction.get(userRef);
+
+            // 5. Plan FEFO stock reservation (reads idempotency, queries batches, reads warehouse_stock & skus)
+            const reservationKey = `reserve_${orderId}`;
+            const reservationPlanResult = await planOrderStockReservation(transaction, {
+                orderId,
+                items: cartItems.map((ci, idx) => ({
+                    ...ci,
+                    lineIndex: idx,
+                    productId: ci.productId || ci.skuCode || ci.id,
+                    skuCode: ci.skuCode,
+                    quantity: ci.quantity
+                })),
+                userId,
+                idempotencyKey: reservationKey,
+                destinationHubId: resolvedDestinationHub
+            });
 
             // ── PHASE 2: IN-MEMORY CALCULATIONS & VALIDATIONS (No Firestore I/O) ──
 
@@ -326,7 +394,15 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             const skuStockUpdates = [];
             let hasOnDemandItems = false;
 
-            for (const fp of fetchedProducts) {
+            const allocSummaryMap = new Map();
+            for (const alloc of (reservationPlanResult.allocationsSummary || [])) {
+                if (alloc.lineIndex !== undefined && alloc.lineIndex !== null) {
+                    allocSummaryMap.set(alloc.lineIndex, alloc);
+                }
+            }
+
+            for (let fpIndex = 0; fpIndex < fetchedProducts.length; fpIndex++) {
+                const fp = fetchedProducts[fpIndex];
                 const { item, productId, productRef, product, skuCode, skuRef, skuData, costData } = fp;
 
                 let matchingVariant = null;
@@ -381,10 +457,14 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                         }
                         skuStockUpdates.push({
                             type: 'SKU',
+                            skuCode,
                             ref: skuRef,
                             quantity: item.quantity
                         });
-                    } else if (Array.isArray(product.variants) && product.variants.length > 0) {
+                    }
+
+                    // Decrement variant stock or product stock
+                    if (Array.isArray(product.variants) && product.variants.length > 0) {
                         const vIdx = findVariantIndex(product.variants, item);
                         if (vIdx !== -1) {
                             const vStock = Number(product.variants[vIdx].stock) || 0;
@@ -397,7 +477,7 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                             }
                             const cached = productDocMap.get(productId);
                             if (cached) cached.modified = true;
-                        } else if (product.stock !== undefined && typeof product.stock === 'number') {
+                        } else if (!skuData && product.stock !== undefined && typeof product.stock === 'number') {
                             if (product.stock < item.quantity) {
                                 throw new Error(`Insufficient stock for ${product.name || productId}. Available: ${product.stock}, Requested: ${item.quantity}`);
                             }
@@ -405,7 +485,7 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                             const cached = productDocMap.get(productId);
                             if (cached) cached.modified = true;
                         }
-                    } else if (product.stock !== undefined && typeof product.stock === 'number') {
+                    } else if (!skuData && product.stock !== undefined && typeof product.stock === 'number') {
                         if (product.stock < item.quantity) {
                             throw new Error(`Insufficient stock for ${product.name || productId}. Available: ${product.stock}, Requested: ${item.quantity}`);
                         }
@@ -470,6 +550,14 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                     0
                 );
 
+                const lineAllocInfo = allocSummaryMap.get(fpIndex);
+                const lineBatchAllocs = lineAllocInfo?.batchAllocations || [];
+                const lineBatchCost = lineAllocInfo?.batchCost ?? null;
+                const lineCatalogCost = resolvedVariantCost > 0 ? resolvedVariantCost : (costData?.costPrice || null);
+
+                const legacyUnitCost = itemCost > 0 ? itemCost : null;
+                const resolvedUnitCost = (USE_BATCH_COGS && lineBatchCost !== null) ? lineBatchCost : legacyUnitCost;
+
                 items.push({
                     productId: productId,
                     skuCode: skuCode,
@@ -479,14 +567,16 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                     price: itemPrice,
                     taxablePrice: unitTaxable,
                     mrp: itemMrp,
-                    costPrice: itemCost > 0 ? itemCost : undefined,
-                    unitCost: itemCost > 0 ? itemCost : undefined,
+                    costPrice: resolvedUnitCost,
+                    unitCost: resolvedUnitCost,
+                    catalogCost: lineCatalogCost,
+                    batchCost: lineBatchCost,
                     variantId: item.variantId || null,
                     variantLabel: item.variantLabel || null,
                     hsnCode: skuData?.tax?.hsnCode || product.hsnCode || "3808",
                     category: product.category || "",
                     fulfillmentType,
-                    batchAllocations: []
+                    batchAllocations: lineBatchAllocs
                 });
             }
 
@@ -516,7 +606,6 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 totalExtraTax = totalTax;
             }
 
-            const settingsData = settingsSnap.exists ? settingsSnap.data() : {};
             const configuredDeliveryCharge = Number(settingsData.deliveryCharge) || 50;
             const freeDeliveryAbove = Number(settingsData.freeDeliveryAbove) || 0;
             const netCartValue = subtotal - totalDiscount;
@@ -637,6 +726,11 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 });
             }
 
+            // 1b. Apply stock reservation writes
+            if (!reservationPlanResult.alreadyProcessed) {
+                applyOrderStockReservation(transaction, reservationPlanResult.reservationPlan);
+            }
+
             // Helper to get FY string
             const getFY = () => {
                 const d = new Date();
@@ -645,9 +739,14 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 return m >= 4 ? `${y}-${String(y+1).slice(2)}` : `${y-1}-${String(y).slice(2)}`;
             };
 
-            // 2. Decrement inventory stock & append movement ledger
+            // 2. Decrement inventory stock for non-FEFO legacy items
+            const fefoHandledSkus = new Set(
+                (reservationPlanResult.allocationsSummary || [])
+                    .filter(a => a.batchAllocations && a.batchAllocations.length > 0)
+                    .map(a => a.skuCode)
+            );
             for (const su of skuStockUpdates) {
-                if (su.type === 'SKU') {
+                if (su.type === 'SKU' && !fefoHandledSkus.has(su.skuCode)) {
                     transaction.update(su.ref, {
                         "inventory.availableStock": admin.firestore.FieldValue.increment(-su.quantity),
                         "inventory.committedStock": admin.firestore.FieldValue.increment(su.quantity),
@@ -658,6 +757,7 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
 
             for (const item of items) {
                 if (item.fulfillmentType === 'ON_DEMAND') continue;
+                if (item.batchAllocations && item.batchAllocations.length > 0) continue;
                 const movementRef = db.collection('inventory_movements').doc();
                 transaction.set(movementRef, {
                     skuId: item.productId || item.skuCode,
@@ -700,7 +800,7 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                     lastWalletTransactionAt: admin.firestore.FieldValue.serverTimestamp()
                 });
 
-                const walletLogRef = db.collection("users").doc(context.auth.uid).collection("wallet_history").doc();
+                const walletLogRef = db.collection("users").doc(userId).collection("wallet_history").doc();
                 transaction.set(walletLogRef, {
                     id: walletLogRef.id,
                     type: "ORDER_PAYMENT",
@@ -713,8 +813,8 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 const wtRef = db.collection("wallet_transactions").doc();
                 transaction.set(wtRef, {
                     id: wtRef.id,
-                    uid: context.auth.uid,
-                    userId: context.auth.uid,
+                    uid: userId,
+                    userId: userId,
                     type: "ORDER_PAYMENT",
                     amount: totalAmount,
                     orderId: orderId,
@@ -729,6 +829,7 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             // 4b. Store idempotency key mapping atomically inside transaction
             transaction.set(db.collection("idempotency_keys").doc(cleanIdempotencyKey), {
                 orderId: orderId,
+                userId: userId,
                 totalAmount: totalAmount,
                 customerOTP: otp,
                 // TODO (Vishal — manual GCP step): Enable TTL policy on idempotency_keys
@@ -749,9 +850,90 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             });
 
             // 6. Outbox notification
-            addToOutbox(transaction, "ORDER_CREATED", { orderId, userId: context.auth.uid, status: initialStatus });
+            addToOutbox(transaction, "ORDER_CREATED", { orderId, userId: userId, status: initialStatus });
             orderOtp = otp;
+            return {
+                isDuplicate: false,
+                orderId,
+                totalAmount,
+                otp
+            };
         });
+
+        if (txnResult && txnResult.isDuplicate) {
+            let rzpOrderId = txnResult.razorpayOrderId || null;
+            if (paymentMethod === 'RAZORPAY_ONLINE' && !rzpOrderId && txnResult.orderId) {
+                try {
+                    const orderRef = db.collection("orders").doc(txnResult.orderId);
+                    const idemRef = db.collection("idempotency_keys").doc(cleanIdempotencyKey);
+
+                    // Multi-instance safe claim on order document using Firestore transaction check-and-set
+                    let shouldCreateRzp = false;
+                    await db.runTransaction(async (t) => {
+                        const oSnap = await t.get(orderRef);
+                        const oData = oSnap.data() || {};
+                        if (oData.razorpayOrderId) {
+                            rzpOrderId = oData.razorpayOrderId;
+                        } else if (oData.razorpayClaimAt && (Date.now() - (oData.razorpayClaimAt.toMillis?.() || 0)) < 15000) {
+                            // Another distributed instance claimed creation within last 15 seconds
+                            shouldCreateRzp = false;
+                        } else {
+                            // Atomically claim right to create Razorpay order
+                            t.update(orderRef, {
+                                razorpayClaimAt: admin.firestore.FieldValue.serverTimestamp()
+                            });
+                            shouldCreateRzp = true;
+                        }
+                    });
+
+                    if (!rzpOrderId && shouldCreateRzp) {
+                        const totalAmt = Number(txnResult.totalAmount) || 0;
+                        const createdRzpId = await createRazorpayOrder(txnResult.orderId, totalAmt);
+
+                        // Atomically persist razorpayOrderId and clear claim
+                        await db.runTransaction(async (t) => {
+                            const oSnap = await t.get(orderRef);
+                            const oData = oSnap.data() || {};
+                            if (oData.razorpayOrderId) {
+                                rzpOrderId = oData.razorpayOrderId;
+                            } else {
+                                rzpOrderId = createdRzpId;
+                                t.update(orderRef, {
+                                    razorpayOrderId: createdRzpId,
+                                    paymentStatus: 'PENDING',
+                                    razorpayClaimAt: admin.firestore.FieldValue.delete(),
+                                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                                });
+                                t.set(idemRef, { razorpayOrderId: createdRzpId }, { merge: true });
+                            }
+                        });
+                    } else if (!rzpOrderId) {
+                        // Another instance claimed creation: wait briefly and re-read
+                        await new Promise(resolve => setTimeout(resolve, 1500));
+                        const freshSnap = await orderRef.get();
+                        const freshData = freshSnap.data() || {};
+                        rzpOrderId = freshData.razorpayOrderId || null;
+                    }
+
+                    if (paymentMethod === 'RAZORPAY_ONLINE' && !rzpOrderId) {
+                        throw new HttpsError('unavailable', 'Payment initialization is currently in progress. Please retry in a moment.');
+                    }
+                } catch (err) {
+                    console.error("[createOrder] Duplicate in-txn Razorpay order generation failed:", err);
+                    throw new HttpsError('internal', `Order was created earlier but Razorpay order initialization failed: ${err.message}`);
+                }
+            }
+
+            return {
+                success: true,
+                orderId: txnResult.orderId,
+                totalAmount: txnResult.totalAmount,
+                customerOTP: txnResult.customerOTP,
+                razorpayOrderId: rzpOrderId,
+                isDuplicate: true,
+                message: txnResult.message
+            };
+        }
 
         // Recalculate for Razorpay (reads from same settings snap — use cached values)
         const settingsForRzp = await db.collection("settings").doc("config").get();
