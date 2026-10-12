@@ -30,10 +30,20 @@ import {
   UserCheck,
   ShieldCheck,
   ArrowDownCircle,
-  Loader2
+  Loader2,
+  CheckSquare,
+  Square,
+  ClipboardList
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { printShippingLabel, printThermalShippingLabel, printInvoice } from '../utils/PrintService';
+import { 
+  printShippingLabel, 
+  printThermalShippingLabel, 
+  printInvoice,
+  printBulkThermalShippingLabels,
+  printBulkInvoices,
+  printConsolidatedPickList
+} from '../utils/PrintService';
 import { sendOrderConfirmationWhatsApp, sendOutForDeliveryWhatsApp } from '../services/whatsappService';
 import StatusTimeline from '../components/common/StatusTimeline';
 import ProofOfDeliveryModal from '../components/orders/ProofOfDeliveryModal';
@@ -59,6 +69,7 @@ const Orders = () => {
   const [hubFilter, setHubFilter] = useState('All');
   const [warehouses, setWarehouses] = useState([]);
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(false);
+  const [selectedOrderIds, setSelectedOrderIds] = useState([]);
   const [podModalOrder, setPodModalOrder] = useState(null);
   const [isPodModalOpen, setIsPodModalOpen] = useState(false);
 
@@ -262,7 +273,92 @@ const Orders = () => {
     toast.success("Orders exported to CSV");
   };
 
+  const isAllFilteredSelected = filteredOrders.length > 0 && filteredOrders.every(o => selectedOrderIds.includes(o.id));
+
+  const toggleSelectAll = (e) => {
+    e.stopPropagation();
+    if (isAllFilteredSelected) {
+      const filteredIdSet = new Set(filteredOrders.map(o => o.id));
+      setSelectedOrderIds(prev => prev.filter(id => !filteredIdSet.has(id)));
+    } else {
+      const newIds = new Set([...selectedOrderIds, ...filteredOrders.map(o => o.id)]);
+      setSelectedOrderIds(Array.from(newIds));
+    }
+  };
+
+  const toggleSelectOrder = (orderId, e) => {
+    if (e) e.stopPropagation();
+    setSelectedOrderIds(prev => 
+      prev.includes(orderId) ? prev.filter(id => id !== orderId) : [...prev, orderId]
+    );
+  };
+
+  const handleBulkPrintLabels = () => {
+    const selectedOrders = orders.filter(o => selectedOrderIds.includes(o.id));
+    if (selectedOrders.length === 0) {
+      toast.error('Please select at least one order to print labels');
+      return;
+    }
+    toast.success(`Printing ${selectedOrders.length} thermal shipping labels...`);
+    printBulkThermalShippingLabels(selectedOrders);
+  };
+
+  const handleBulkPrintInvoices = () => {
+    const selectedOrders = orders.filter(o => selectedOrderIds.includes(o.id));
+    if (selectedOrders.length === 0) {
+      toast.error('Please select at least one order to print invoices');
+      return;
+    }
+    toast.success(`Printing ${selectedOrders.length} invoices...`);
+    printBulkInvoices(selectedOrders);
+  };
+
+  const handleBulkPrintPickList = () => {
+    const selectedOrders = orders.filter(o => selectedOrderIds.includes(o.id));
+    if (selectedOrders.length === 0) {
+      toast.error('Please select at least one order to generate Pick-List');
+      return;
+    }
+    const currentHub = warehouses.find(w => w.id === hubFilter)?.name || (hubFilter !== 'All' ? hubFilter : 'Central Warehouse Bihar');
+    toast.success(`Generating Consolidated Pick-List for ${selectedOrders.length} orders...`);
+    printConsolidatedPickList(selectedOrders, { hubName: currentHub });
+  };
+
   const columns = [
+    {
+      header: (
+        <button
+          type="button"
+          onClick={toggleSelectAll}
+          className="p-1 text-gray-500 hover:text-[#1b5e20] transition-colors"
+          title={isAllFilteredSelected ? "Deselect All" : "Select All Filtered"}
+        >
+          {isAllFilteredSelected ? (
+            <CheckSquare size={16} className="text-[#1b5e20]" />
+          ) : (
+            <Square size={16} className="text-gray-400" />
+          )}
+        </button>
+      ),
+      render: (o) => {
+        const isChecked = selectedOrderIds.includes(o.id);
+        return (
+          <div onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={(e) => toggleSelectOrder(o.id, e)}
+              className="p-1 text-gray-500 hover:text-[#1b5e20] transition-colors"
+            >
+              {isChecked ? (
+                <CheckSquare size={16} className="text-[#1b5e20]" />
+              ) : (
+                <Square size={16} className="text-gray-300" />
+              )}
+            </button>
+          </div>
+        );
+      }
+    },
     {
       header: 'Order ID & Hub',
       render: (o) => {
@@ -503,6 +599,51 @@ const Orders = () => {
           </div>
         </div>
       </div>
+
+      {/* Bulk Action Floating Bar */}
+      {selectedOrderIds.length > 0 && (
+        <div className="bg-gradient-to-r from-emerald-900 to-green-900 text-white p-4 rounded-2xl shadow-lg border border-emerald-700 flex flex-wrap items-center justify-between gap-4 animate-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center space-x-3">
+            <span className="bg-white/20 text-white text-xs font-black px-3 py-1.5 rounded-xl">
+              {selectedOrderIds.length} Selected
+            </span>
+            <p className="text-xs font-medium text-emerald-100">
+              Bulk actions ready for selected orders ({selectedOrderIds.length} of {filteredOrders.length} filtered).
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={handleBulkPrintPickList}
+              className="flex items-center space-x-2 bg-amber-400 hover:bg-amber-300 text-gray-950 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm active:scale-95"
+              title="Print Consolidated Warehouse Pick-List"
+            >
+              <ClipboardList size={15} />
+              <span>Warehouse Pick-List</span>
+            </button>
+            <button
+              onClick={handleBulkPrintLabels}
+              className="flex items-center space-x-2 bg-white text-[#1b5e20] hover:bg-emerald-50 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm active:scale-95"
+            >
+              <Printer size={15} />
+              <span>Bulk 4x6 Labels ({selectedOrderIds.length})</span>
+            </button>
+            <button
+              onClick={handleBulkPrintInvoices}
+              className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm active:scale-95"
+            >
+              <Printer size={15} />
+              <span>Bulk Invoices ({selectedOrderIds.length})</span>
+            </button>
+            <button
+              onClick={() => setSelectedOrderIds([])}
+              className="text-xs font-bold text-emerald-200 hover:text-white underline px-2 py-1"
+            >
+              Clear Selection
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Orders Table */}
       <DataTable

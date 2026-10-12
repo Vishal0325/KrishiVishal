@@ -189,6 +189,7 @@ const Products = () => {
     costPrice: "",
     isTaxInclusive: true,
     fulfillmentType: "SELF_STOCK", // "SELF_STOCK" | "ON_DEMAND"
+    maxDailyProcureLimit: "",
     primarySupplierId: "",
     estimatedCostPrice: "",
     variants: [], // Added for multiple pack sizes
@@ -446,6 +447,9 @@ const Products = () => {
         batchNumber: processedVariants.length
           ? combinedBatchNumbers
           : formData.batchNumber || "",
+        maxDailyProcureLimit: formData.fulfillmentType === "ON_DEMAND" && formData.maxDailyProcureLimit !== "" && !isNaN(Number(formData.maxDailyProcureLimit))
+          ? Number(formData.maxDailyProcureLimit)
+          : null,
         costPrice: processedVariants.length
           ? Math.min(...processedVariants.map((v) => v.costPrice))
           : Number(formData.costPrice || 0),
@@ -799,6 +803,7 @@ const Products = () => {
       expiryDate: expiryValue,
       mfgDate: mfgValue,
       batchNumber: product.batchNumber || "",
+      maxDailyProcureLimit: product.maxDailyProcureLimit ?? "",
       hsnCode: product.hsnCode || "",
       gstRate: Number(product.gstRate) || 18,
       isTaxInclusive: product.isTaxInclusive ?? true,
@@ -1900,6 +1905,33 @@ const Products = () => {
                       placeholder="e.g. 350.00"
                     />
                   </div>
+
+                  {/* Max Daily Procure Limit (Visible only if ON_DEMAND) */}
+                  {formData.fulfillmentType === "ON_DEMAND" && (
+                    <div className="space-y-2 md:col-span-3 bg-amber-50/50 p-4 rounded-2xl border border-amber-200/60">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-black text-amber-900 uppercase tracking-widest">
+                          Max Daily Procure Limit (दैनिक सीमा - Units)
+                        </label>
+                        <span className="text-[10px] font-semibold text-amber-700 bg-amber-100/80 px-2.5 py-0.5 rounded-full">
+                          On-Demand Cap
+                        </span>
+                      </div>
+                      <input
+                        type="number"
+                        min="0"
+                        value={formData.maxDailyProcureLimit || ""}
+                        onChange={(e) =>
+                          setFormData({ ...formData, maxDailyProcureLimit: e.target.value })
+                        }
+                        className="w-full px-6 py-4 bg-white border border-amber-200 rounded-2xl focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 outline-none transition-all font-bold text-gray-900"
+                        placeholder="e.g. 10 (Leave empty or 0 for unlimited daily orders)"
+                      />
+                      <p className="text-xs text-amber-800">
+                        प्रतिदिन अधिकतम कितने यूनिट्स का ऑर्डर कस्टमर ऐप से स्वीकार किया जा सकता है। सीमा पूरी होने पर ऐप में उस दिन के लिए स्वतः आउट ऑफ स्टॉक हो जाएगा।
+                      </p>
+                    </div>
+                  )}
                 </div>
               </section>
 

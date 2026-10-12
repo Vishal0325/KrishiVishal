@@ -15,7 +15,13 @@ import { db, functions } from '../firebase/config';
 import { addAuditLog } from '../services/logger';
 import PageHeader from '../components/common/PageHeader';
 import { formatCurrency } from '../utils/formatters';
-import { printShippingLabel, printThermalShippingLabel } from '../utils/PrintService';
+import { 
+  printShippingLabel, 
+  printThermalShippingLabel,
+  printBulkThermalShippingLabels,
+  printBulkInvoices,
+  printConsolidatedPickList
+} from '../utils/PrintService';
 import ScanToDispatchModal from '../components/packing/ScanToDispatchModal';
 import MultiParcelModal from '../components/packing/MultiParcelModal';
 import {
@@ -24,6 +30,7 @@ import {
   CheckSquare,
   Square,
   Printer,
+  ClipboardList,
   QrCode,
   Truck,
   Building2,
@@ -60,6 +67,7 @@ const PackingStation = () => {
   const [isScanToDispatchOpen, setIsScanToDispatchOpen] = useState(false);
   const [isMultiParcelOpen, setIsMultiParcelOpen] = useState(false);
   const [multiParcelOrder, setMultiParcelOrder] = useState(null);
+  const [selectedPackingOrderIds, setSelectedPackingOrderIds] = useState([]);
 
   // Listen to orders
   useEffect(() => {
@@ -263,6 +271,56 @@ const PackingStation = () => {
     setIsLabelModalOpen(true);
   };
 
+  const isAllFilteredSelected = filteredOrders.length > 0 && filteredOrders.every(o => selectedPackingOrderIds.includes(o.id));
+
+  const toggleSelectAllPacking = () => {
+    if (isAllFilteredSelected) {
+      const filteredIdSet = new Set(filteredOrders.map(o => o.id));
+      setSelectedPackingOrderIds(prev => prev.filter(id => !filteredIdSet.has(id)));
+    } else {
+      const newIds = new Set([...selectedPackingOrderIds, ...filteredOrders.map(o => o.id)]);
+      setSelectedPackingOrderIds(Array.from(newIds));
+    }
+  };
+
+  const toggleSelectPackingOrder = (orderId, e) => {
+    if (e) e.stopPropagation();
+    setSelectedPackingOrderIds(prev =>
+      prev.includes(orderId) ? prev.filter(id => id !== orderId) : [...prev, orderId]
+    );
+  };
+
+  const handleBulkPrintPackingLabels = () => {
+    const selectedOrders = orders.filter(o => selectedPackingOrderIds.includes(o.id));
+    if (selectedOrders.length === 0) {
+      toast.error('Select at least one order to print labels');
+      return;
+    }
+    toast.success(`Printing ${selectedOrders.length} thermal labels...`);
+    printBulkThermalShippingLabels(selectedOrders);
+  };
+
+  const handleBulkPrintPackingInvoices = () => {
+    const selectedOrders = orders.filter(o => selectedPackingOrderIds.includes(o.id));
+    if (selectedOrders.length === 0) {
+      toast.error('Select at least one order to print invoices');
+      return;
+    }
+    toast.success(`Printing ${selectedOrders.length} invoices...`);
+    printBulkInvoices(selectedOrders);
+  };
+
+  const handleBulkPrintPackingPickList = () => {
+    const selectedOrders = orders.filter(o => selectedPackingOrderIds.includes(o.id));
+    if (selectedOrders.length === 0) {
+      toast.error('Select at least one order to generate Pick-List');
+      return;
+    }
+    const currentHub = warehouses.find(w => w.id === hubFilter)?.name || (hubFilter !== 'All' ? hubFilter : 'Central Warehouse Bihar');
+    toast.success(`Generating Pick-List for ${selectedOrders.length} orders...`);
+    printConsolidatedPickList(selectedOrders, { hubName: currentHub });
+  };
+
   return (
     <div className="space-y-6 pb-10 animate-in fade-in duration-300">
       <div className="print:hidden flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -341,7 +399,51 @@ const PackingStation = () => {
             />
           </div>
 
-          <div className="space-y-3 max-h-[calc(100vh-280px)] overflow-y-auto pr-1">
+          {/* Bulk Selection Header */}
+          <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-gray-100 shadow-sm">
+            <button
+              onClick={toggleSelectAllPacking}
+              className="flex items-center gap-2 text-xs font-bold text-gray-700 hover:text-[#1b5e20] transition-colors"
+            >
+              {isAllFilteredSelected ? (
+                <CheckSquare size={16} className="text-[#1b5e20]" />
+              ) : (
+                <Square size={16} className="text-gray-400" />
+              )}
+              <span>{isAllFilteredSelected ? 'Deselect All' : `Select All (${filteredOrders.length})`}</span>
+            </button>
+
+            {selectedPackingOrderIds.length > 0 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleBulkPrintPackingPickList}
+                  className="bg-amber-400 hover:bg-amber-300 text-gray-950 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 shadow-sm"
+                  title="Print Consolidated Warehouse Pick-List"
+                >
+                  <ClipboardList size={12} />
+                  <span>Pick-List</span>
+                </button>
+                <button
+                  onClick={handleBulkPrintPackingLabels}
+                  className="bg-[#1b5e20] text-white px-2.5 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 shadow-sm hover:bg-[#2e7d32]"
+                  title="Bulk Print 4x6 Thermal Labels"
+                >
+                  <Printer size={12} />
+                  <span>Labels ({selectedPackingOrderIds.length})</span>
+                </button>
+                <button
+                  onClick={handleBulkPrintPackingInvoices}
+                  className="bg-gray-800 text-white px-2.5 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 shadow-sm hover:bg-black"
+                  title="Bulk Print Invoices"
+                >
+                  <Printer size={12} />
+                  <span>Invoices</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
             {loading ? (
               <div className="bg-white p-8 rounded-2xl text-center border border-gray-100">
                 <Loader2 className="animate-spin text-[#1b5e20] mx-auto mb-2" size={24} />
@@ -355,6 +457,7 @@ const PackingStation = () => {
             ) : (
               filteredOrders.map(order => {
                 const isSelected = selectedOrder?.id === order.id;
+                const isChecked = selectedPackingOrderIds.includes(order.id);
                 const itemCount = (order.items || []).reduce((sum, i) => sum + (i.quantity || 1), 0);
 
                 return (
@@ -368,22 +471,35 @@ const PackingStation = () => {
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs font-black text-gray-900">
-                            #{order.id.slice(0, 8).toUpperCase()}
-                          </span>
-                          <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider ${
-                            order.paymentMethod === 'ONLINE' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'
-                          }`}>
-                            {order.paymentMethod || 'COD'}
-                          </span>
+                      <div className="flex items-start gap-2.5">
+                        <button
+                          type="button"
+                          onClick={(e) => toggleSelectPackingOrder(order.id, e)}
+                          className="mt-0.5 text-gray-400 hover:text-[#1b5e20] transition-colors"
+                        >
+                          {isChecked ? (
+                            <CheckSquare size={16} className="text-[#1b5e20]" />
+                          ) : (
+                            <Square size={16} className="text-gray-300" />
+                          )}
+                        </button>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs font-black text-gray-900">
+                              #{order.id.slice(0, 8).toUpperCase()}
+                            </span>
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider ${
+                              order.paymentMethod === 'ONLINE' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'
+                            }`}>
+                              {order.paymentMethod || 'COD'}
+                            </span>
+                          </div>
+                          <p className="font-bold text-sm text-gray-900 mt-1">{order.userName || 'Customer'}</p>
+                          <p className="text-[11px] text-gray-400">
+                            {order.userPhone || 'No Phone'}
+                            {order.fulfillmentWarehouseId && <span className="ml-2 text-blue-600 font-bold bg-blue-50 px-1 rounded">{warehouses.find(w=>w.id===order.fulfillmentWarehouseId)?.code || order.fulfillmentWarehouseId}</span>}
+                          </p>
                         </div>
-                        <p className="font-bold text-sm text-gray-900 mt-1">{order.userName || 'Customer'}</p>
-                        <p className="text-[11px] text-gray-400">
-                          {order.userPhone || 'No Phone'}
-                          {order.fulfillmentWarehouseId && <span className="ml-2 text-blue-600 font-bold bg-blue-50 px-1 rounded">{warehouses.find(w=>w.id===order.fulfillmentWarehouseId)?.code || order.fulfillmentWarehouseId}</span>}
-                        </p>
                       </div>
 
                       <div className="text-right">
