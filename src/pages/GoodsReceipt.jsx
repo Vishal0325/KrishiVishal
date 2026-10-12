@@ -148,6 +148,7 @@ const GoodsReceipt = () => {
       return {
         productId: item.productId,
         productName: item.productName || 'Product',
+        skuCode: item.skuCode || item.productId,
         orderedQuantity: item.quantity || 0,
         alreadyReceived,
         receivedQuantity: remaining,

@@ -294,10 +294,15 @@ const ProcurementQueue = () => {
         totalEstimatedAmount += lineTotal;
         totalUnitsCount += qty;
 
+        const matchedProd = products.find(p => p.id === item.productId);
+        const resolvedSku = (item.skuCode && item.skuCode !== item.productId)
+          ? item.skuCode
+          : (matchedProd?.skuCode || item.skuCode || item.productId);
+
         return {
           productId: item.productId,
-          productName: item.productName || 'Product',
-          skuCode: item.skuCode || item.productId,
+          productName: item.productName || matchedProd?.name || 'Product',
+          skuCode: resolvedSku,
           unit: item.unit || 'Pcs',
           quantity: qty,
           estimatedCostPrice: costPrice,
