@@ -997,15 +997,105 @@ async function receiveGrn(transaction, {
     const { alreadyProcessed, cachedResult, keyRef } = await checkIdempotency(transaction, idempotencyKey);
     if (alreadyProcessed) return cachedResult;
 
-    const skuRef = db.collection("skus").doc(skuCode);
-    const skuSnap = await transaction.get(skuRef);
+    // ── READ PHASE ──
+    let effectiveSkuCode = skuCode;
+    let skuRef = db.collection("skus").doc(effectiveSkuCode);
+    let skuSnap = await transaction.get(skuRef);
+    let skuData = null;
+    let shouldProvisionSku = false;
+    let provisionSkuData = null;
+    let prodRef = null;
+    let prodSnap = null;
+
     if (!skuSnap.exists) {
-        throw new Error(`SKU ${skuCode} does not exist in master catalog.`);
+        // Fallback 1: Query by productId == effectiveSkuCode
+        const skusByProd = await transaction.get(
+            db.collection("skus").where("productId", "==", effectiveSkuCode).limit(1)
+        );
+        if (!skusByProd.empty) {
+            effectiveSkuCode = skusByProd.docs[0].id;
+            skuRef = db.collection("skus").doc(effectiveSkuCode);
+            skuSnap = await transaction.get(skuRef);
+            skuData = skuSnap.data();
+        } else {
+            // Fallback 2: Check products collection directly
+            prodRef = db.collection("products").doc(effectiveSkuCode);
+            prodSnap = await transaction.get(prodRef);
+            if (prodSnap.exists) {
+                const pData = prodSnap.data() || {};
+                effectiveSkuCode = pData.skuCode || effectiveSkuCode;
+                skuRef = db.collection("skus").doc(effectiveSkuCode);
+                skuSnap = await transaction.get(skuRef);
+                if (skuSnap.exists) {
+                    skuData = skuSnap.data();
+                } else {
+                    shouldProvisionSku = true;
+                    provisionSkuData = {
+                        skuCode: effectiveSkuCode,
+                        productId: prodRef.id,
+                        name: pData.name || effectiveSkuCode,
+                        isActive: pData.isActive !== false,
+                        pricing: {
+                            consumerPrice: Number(pData.price || 0),
+                            mrp: Number(pData.mrp || 0),
+                            landingCost: Number(landingCost || pData.costPrice || 0)
+                        },
+                        inventory: {
+                            availableStock: finalAccepted,
+                            committedStock: 0,
+                            totalStock: finalAccepted + finalDamaged,
+                            quarantinedStock: finalDamaged
+                        },
+                        tax: {
+                            gstRate: Number(pData.gstRate || 18),
+                            hsnCode: pData.hsnCode || "3808"
+                        },
+                        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    };
+                    skuData = provisionSkuData;
+                }
+            } else {
+                throw new Error(`SKU ${skuCode} does not exist in master catalog or product database.`);
+            }
+        }
+    } else {
+        skuData = skuSnap.data();
+    }
+
+    if (!prodRef && skuData && skuData.productId) {
+        prodRef = db.collection("products").doc(skuData.productId);
+        prodSnap = await transaction.get(prodRef);
     }
 
     const cleanBatchNumber = (batchNumber || "GEN-" + Date.now()).trim().toUpperCase();
     const batchId = `${cleanBatchNumber}`;
     const batchRef = skuRef.collection("batches").doc(batchId);
+
+    // Read warehouse stock
+    const wsRef = getWarehouseStockRef(effectiveSkuCode, batchId, warehouseId);
+    const wsSnap = await transaction.get(wsRef);
+    const wsData = wsSnap.exists ? wsSnap.data() : { availableStock: 0, committedStock: 0, quarantinedQty: 0 };
+
+    // ── ALL READS FINISHED. WRITE PHASE STARTS HERE ──
+    const availBefore = wsData.availableStock || 0;
+    const availAfter = availBefore + finalAccepted;
+    const quarantinedBefore = wsData.quarantinedQty || 0;
+    const quarantinedAfter = quarantinedBefore + finalDamaged;
+
+    if (shouldProvisionSku && provisionSkuData) {
+        transaction.set(skuRef, provisionSkuData);
+    } else {
+        const skuUpdate = {
+            "inventory.availableStock": admin.firestore.FieldValue.increment(finalAccepted),
+            "inventory.totalStock": admin.firestore.FieldValue.increment(finalAccepted + finalDamaged),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+        if (finalDamaged > 0) {
+            skuUpdate["inventory.quarantinedStock"] = admin.firestore.FieldValue.increment(finalDamaged);
+        }
+        transaction.update(skuRef, skuUpdate);
+    }
 
     const mfgTimestamp = mfgDate ? admin.firestore.Timestamp.fromDate(new Date(mfgDate)) : null;
     const expTimestamp = expiryDate ? admin.firestore.Timestamp.fromDate(new Date(expiryDate)) : null;
@@ -1030,17 +1120,8 @@ async function receiveGrn(transaction, {
     }, { merge: true });
 
     // Upsert warehouse stock
-    const wsRef = getWarehouseStockRef(skuCode, batchId, warehouseId);
-    const wsSnap = await transaction.get(wsRef);
-    const wsData = wsSnap.exists ? wsSnap.data() : { availableStock: 0, committedStock: 0, quarantinedQty: 0 };
-
-    const availBefore = wsData.availableStock || 0;
-    const availAfter = availBefore + finalAccepted;
-    const quarantinedBefore = wsData.quarantinedQty || 0;
-    const quarantinedAfter = quarantinedBefore + finalDamaged;
-
     transaction.set(wsRef, {
-        skuCode,
+        skuCode: effectiveSkuCode,
         batchId,
         warehouseId,
         binLocation,
@@ -1049,21 +1130,19 @@ async function receiveGrn(transaction, {
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 
-    // Update SKU aggregate
-    const skuUpdate = {
-        "inventory.availableStock": admin.firestore.FieldValue.increment(finalAccepted),
-        "inventory.totalStock": admin.firestore.FieldValue.increment(finalAccepted + finalDamaged),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    };
-    if (finalDamaged > 0) {
-        skuUpdate["inventory.quarantinedStock"] = admin.firestore.FieldValue.increment(finalDamaged);
+    // Update product stock directly
+    if (prodRef && prodSnap && prodSnap.exists) {
+        transaction.update(prodRef, {
+            stock: admin.firestore.FieldValue.increment(finalAccepted),
+            stockQuantity: admin.firestore.FieldValue.increment(finalAccepted),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
     }
-    transaction.update(skuRef, skuUpdate);
 
     if (finalDamaged > 0) {
         const quarantineRef = db.collection("inventory_quarantine").doc();
         transaction.set(quarantineRef, {
-            skuCode,
+            skuCode: effectiveSkuCode,
             batchId,
             hubId: warehouseId,
             damagedQty: finalDamaged,
@@ -1077,7 +1156,7 @@ async function receiveGrn(transaction, {
     if (finalAccepted > 0) {
         recordMovement(transaction, {
             movementType: "PURCHASE_RECEIPT_AVAILABLE",
-            skuCode,
+            skuCode: effectiveSkuCode,
             batchId,
             batchNumber: cleanBatchNumber,
             warehouseId,
@@ -1097,7 +1176,7 @@ async function receiveGrn(transaction, {
     if (finalDamaged > 0) {
         recordMovement(transaction, {
             movementType: "PURCHASE_RECEIPT_QUARANTINE",
-            skuCode,
+            skuCode: effectiveSkuCode,
             batchId,
             batchNumber: cleanBatchNumber,
             warehouseId,
@@ -1114,7 +1193,7 @@ async function receiveGrn(transaction, {
         });
     }
 
-    const result = { success: true, skuCode, batchId, receivedQty: finalReceived, acceptedQty: finalAccepted, damagedQty: finalDamaged, availableStock: availAfter };
+    const result = { success: true, skuCode: effectiveSkuCode, batchId, receivedQty: finalReceived, acceptedQty: finalAccepted, damagedQty: finalDamaged, availableStock: availAfter };
     recordIdempotencySuccess(transaction, keyRef, result);
     return result;
 }

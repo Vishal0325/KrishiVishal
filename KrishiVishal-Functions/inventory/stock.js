@@ -150,7 +150,11 @@ exports.onSkuWrite = onDocumentWritten({ document: "skus/{skuId}", region: REGIO
                 label: data.name || `${data.segments?.pack || ''}`,
                 price: Number(data.pricing?.consumerPrice || 0),
                 mrp: Number(data.pricing?.mrp || 0),
-                stock: Number(data.inventory?.availableStock || 0),
+                stock: Number(
+                    (data.inventory && data.inventory.availableStock !== undefined)
+                        ? data.inventory.availableStock
+                        : (data['inventory.availableStock'] !== undefined ? data['inventory.availableStock'] : 0)
+                ),
                 unit: data.segments?.unit || "",
                 size: `${data.segments?.size || ''}`,
                 reorderLevel: Number(data.reorderLevel || 50),
