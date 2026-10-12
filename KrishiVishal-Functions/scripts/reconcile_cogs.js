@@ -14,8 +14,16 @@ const { computeCogsReconciliationBreakdown } = require('../finance/salesLedger')
 
 async function main() {
     const args = process.argv.slice(2);
-    const targetOrderId = args.find(a => !a.startsWith('--'));
-    const limitArg = args.indexOf('--limit') !== -1 ? Number(args[args.indexOf('--limit') + 1]) || 10 : 10;
+    let targetOrderId = null;
+    let limitArg = 10;
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--limit' && args[i + 1]) {
+            limitArg = Number(args[i + 1]) || 10;
+            i++;
+        } else if (!args[i].startsWith('--')) {
+            targetOrderId = args[i];
+        }
+    }
 
     console.log("=== KRISHIVISHAL COGS RECONCILIATION AUDIT (READ-ONLY) ===");
     console.log("Mode: In-Memory Calculation (Strictly ZERO database mutations)\n");
