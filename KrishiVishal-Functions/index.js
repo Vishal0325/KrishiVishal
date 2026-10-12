@@ -88,6 +88,7 @@ const FUNCTION_MAP = {
     recordSupplierPurchaseInvoice: ['./finance/supplierLedger', 'recordSupplierPurchaseInvoice'],
     recordSupplierPayment: ['./finance/supplierLedger', 'recordSupplierPayment'],
     recognizeOrderDeliveryFinancials: ['./finance/salesLedger', 'recognizeOrderDeliveryFinancials'],
+    reconcileOrderCogs: ['./finance/salesLedger', 'reconcileOrderCogs'],
     generateTrialBalance: ['./finance/financeCallables', 'generateTrialBalance'],
     generateProfitAndLoss: ['./finance/financeCallables', 'generateProfitAndLoss'],
     generateBalanceSheet: ['./finance/financeCallables', 'generateBalanceSheet'],
