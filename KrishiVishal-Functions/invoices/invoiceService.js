@@ -291,13 +291,14 @@ async function generateAndUploadInvoice(orderId, clearTaxPayload = null, options
         // Official Statutory Tax Invoice: Must have official sequential Rule 46 number
         if (!invoiceNumber || String(invoiceNumber).startsWith('KV/SAM/')) {
             try {
-                const { getOrCreateInvoiceNumberForOrder } = require('./sequentialInvoiceEngine');
-                const alloc = await getOrCreateInvoiceNumberForOrder(orderId);
+                const { getOrCreateInvoiceNumberForOrder, extractHubCode, getShortFinancialYear } = require('./sequentialInvoiceEngine');
+                const alloc = await getOrCreateInvoiceNumberForOrder(orderId, hub.code);
                 invoiceNumber = alloc.invoiceNumber;
             } catch (allocErr) {
                 // Fallback for mock environments without counters
-                const year = new Date().getFullYear();
-                invoiceNumber = `KV/SAM/${year}/${orderId.slice(-8).toUpperCase()}`;
+                const shortFy = String(new Date().getFullYear()).slice(-2);
+                const hubPrefix = (hub.code || 'SAM').slice(0, 3).toUpperCase();
+                invoiceNumber = `${hubPrefix}-${shortFy}-${orderId.slice(-9).padStart(9, '0').toUpperCase()}`;
             }
         }
     }

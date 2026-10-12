@@ -17,41 +17,84 @@ const { db, admin } = require("../core/admin");
  * @param {Date} [date] Optional date object (defaults to current date)
  * @returns {string} e.g. "26-27"
  */
-function getCurrentFinancialYear(date = new Date()) {
+/**
+ * Derives current Indian Financial Year 2-digit starting year string (e.g. "26" for FY 2026-2027).
+ * Indian FY starts 1st April and ends 31st March.
+ *
+ * @param {Date} [date] Optional date object (defaults to current date)
+ * @returns {string} e.g. "26"
+ */
+function getShortFinancialYear(date = new Date()) {
     const d = date instanceof Date ? date : new Date(date);
     const month = d.getMonth() + 1; // 1 to 12
     const fullYear = d.getFullYear(); // e.g. 2026
-
-    let startYear;
-    let endYear;
-
-    if (month >= 4) {
-        startYear = fullYear;
-        endYear = fullYear + 1;
-    } else {
-        startYear = fullYear - 1;
-        endYear = fullYear;
-    }
-
-    const startShort = String(startYear).slice(-2);
-    const endShort = String(endYear).slice(-2);
-    return `${startShort}-${endShort}`;
+    const startYear = month >= 4 ? fullYear : fullYear - 1;
+    return String(startYear).slice(-2);
 }
 
 /**
- * Concurrency-safe atomic generation of the next consecutive tax invoice number.
- * Uses Firestore transaction on `invoice_counters/{financialYear}`.
- * 
- * @param {string} [financialYear] Optional FY string (e.g. "26-27"). Defaults to current FY.
- * @param {string} [prefix] Optional prefix (defaults to "KV").
- * @returns {Promise<{ invoiceNumber: string, sequence: number, financialYear: string }>}
+ * Normalizes hub identifier to clean 3-character uppercase Hub prefix.
+ * e.g. "HUB-SAM-001" -> "SAM", "REG-TAJ-004" -> "TAJ", "KHA" -> "KHA", fallback "SAM".
  */
-async function getNextInvoiceNumber(financialYear = null, prefix = "KV") {
-    const fy = financialYear || getCurrentFinancialYear();
-    const counterDocId = fy;
-    const counterRef = db.collection("invoice_counters").doc(counterDocId);
+function extractHubCode(hubIdOrCode = "SAM") {
+    if (!hubIdOrCode) return "SAM";
+    const str = String(hubIdOrCode).trim().toUpperCase();
+    if (str.includes("-")) {
+        const parts = str.split("-");
+        // Look for 3-character code that is not a generic prefix ('HUB', 'REG', 'WHS', 'LOC')
+        const specificCode = parts.find(p => p.length === 3 && isNaN(Number(p)) && !['HUB', 'REG', 'WHS', 'LOC'].includes(p));
+        if (specificCode) return specificCode.slice(0, 3);
+        const code = parts.find(p => p.length === 3 && isNaN(Number(p)));
+        if (code) return code.slice(0, 3);
+    }
+    const alphanumeric = str.replace(/[^A-Z]/g, '');
+    return (alphanumeric.slice(0, 3) || "SAM").padEnd(3, 'X');
+}
 
-    const result = await db.runTransaction(async (transaction) => {
+/**
+ * Backwards compatible full Financial Year string (e.g. "2026-2027" or "26-27").
+ */
+function getCurrentFinancialYear(date = new Date()) {
+    const d = date instanceof Date ? date : new Date(date);
+    const month = d.getMonth() + 1;
+    const fullYear = d.getFullYear();
+    const startYear = month >= 4 ? fullYear : fullYear - 1;
+    return `${startYear}-${startYear + 1}`;
+}
+
+/**
+ * Formats and validates GST Rule 46 compliant 16-character invoice number.
+ * Format: [HUB_CODE_3]-[SHORT_FY_2]-[9_DIGIT_SEQUENCE] (e.g. SAM-26-000000001)
+ */
+function formatInvoiceNumber(hubCode, shortFy, sequence) {
+    const hub = extractHubCode(hubCode);
+    const fy = String(shortFy).slice(-2);
+    const paddedSequence = String(sequence).padStart(9, '0');
+    const invoiceNumber = `${hub}-${fy}-${paddedSequence}`;
+
+    if (invoiceNumber.length > 16) {
+        throw new Error(`GST_RULE_46_VIOLATION: Generated invoice number '${invoiceNumber}' exceeds maximum allowed length of 16 characters.`);
+    }
+    return invoiceNumber;
+}
+
+/**
+ * Concurrency-safe atomic generation of the next consecutive tax invoice number for a specific hub.
+ * Format: [HUB]-[FY]-[9_DIGITS] (e.g. SAM-26-000000001) -> Exactly 16 characters!
+ *
+ * @param {string} [hubCode] Hub prefix (e.g. "SAM")
+ * @param {string} [financialYear] Optional 2-digit FY string (e.g. "26")
+ * @param {object} [customDb] Optional custom Firestore instance for testing
+ * @returns {Promise<{ invoiceNumber: string, sequence: number, financialYear: string, hubCode: string }>}
+ */
+async function getNextInvoiceNumber(hubCode = "SAM", financialYear = null, customDb = null) {
+    const firestore = customDb || db;
+    const hub = extractHubCode(hubCode);
+    const fy = financialYear || getShortFinancialYear();
+    const counterDocId = `${hub}_${fy}`;
+    const counterRef = firestore.collection("invoice_counters").doc(counterDocId);
+
+    const result = await firestore.runTransaction(async (transaction) => {
         const counterDoc = await transaction.get(counterRef);
 
         let currentSequence = 0;
@@ -60,26 +103,21 @@ async function getNextInvoiceNumber(financialYear = null, prefix = "KV") {
         }
 
         const nextSequence = currentSequence + 1;
-        const paddedSequence = String(nextSequence).padStart(5, '0');
-        const invoiceNumber = `${prefix}/${fy}/${paddedSequence}`;
-
-        // Ensure total length complies with GST Rule 46 (<= 16 characters)
-        if (invoiceNumber.length > 16) {
-            throw new Error(`GST_RULE_46_VIOLATION: Generated invoice number '${invoiceNumber}' exceeds maximum statutory limit of 16 characters.`);
-        }
+        const invoiceNumber = formatInvoiceNumber(hub, fy, nextSequence);
 
         transaction.set(counterRef, {
+            hubCode: hub,
             financialYear: fy,
-            prefix: prefix,
             currentSequence: nextSequence,
             lastGeneratedInvoiceNumber: invoiceNumber,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            updatedAt: admin?.firestore?.FieldValue?.serverTimestamp ? admin.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
         }, { merge: true });
 
         return {
             invoiceNumber,
             sequence: nextSequence,
-            financialYear: fy
+            financialYear: fy,
+            hubCode: hub
         };
     });
 
@@ -89,25 +127,21 @@ async function getNextInvoiceNumber(financialYear = null, prefix = "KV") {
 /**
  * Concurrency-safe atomic invoice number retrieval or generation for an order.
  * Ensures strict Rule 46 compliance and 1-to-1 bijection: exactly ONE official invoice number per order.
- *
- * If order already has an official invoiceNumber (or nested invoice.invoiceNumber),
- * returns it immediately without incrementing the sequence counter.
- * Otherwise, increments the sequence counter atomically in a Firestore transaction,
- * attaches invoiceNumber to the order doc, and returns the newly generated number.
+ * Format: SAM-26-000000001 (16 chars max, 100 crore capacity per hub per year).
  *
  * @param {string} orderId
+ * @param {string} [hubCode]
  * @param {string} [financialYear]
- * @param {string} [prefix]
- * @returns {Promise<{ invoiceNumber: string, sequence: number|null, financialYear: string, isExisting: boolean }>}
+ * @param {object} [customDb] Optional custom Firestore instance for testing
+ * @returns {Promise<{ invoiceNumber: string, sequence: number|null, financialYear: string, hubCode: string, isExisting: boolean }>}
  */
-async function getOrCreateInvoiceNumberForOrder(orderId, financialYear = null, prefix = "KV") {
+async function getOrCreateInvoiceNumberForOrder(orderId, hubCode = null, financialYear = null, customDb = null) {
     if (!orderId) throw new Error("MISSING_ORDER_ID: orderId is required.");
 
-    const fy = financialYear || getCurrentFinancialYear();
-    const counterRef = db.collection("invoice_counters").doc(fy);
-    const orderRef = db.collection("orders").doc(orderId);
+    const firestore = customDb || db;
+    const orderRef = firestore.collection("orders").doc(orderId);
 
-    const result = await db.runTransaction(async (transaction) => {
+    const result = await firestore.runTransaction(async (transaction) => {
         // Read order first
         const orderDoc = await transaction.get(orderRef);
         const orderData = orderDoc.exists ? (orderDoc.data() || {}) : {};
@@ -116,14 +150,21 @@ async function getOrCreateInvoiceNumberForOrder(orderId, financialYear = null, p
         const existingInvoiceNumber = orderData.invoiceNumber || (orderData.invoice && orderData.invoice.invoiceNumber);
 
         // If an official invoice number already exists (not fallback KV/SAM/), return it immediately!
-        if (existingInvoiceNumber && !String(existingInvoiceNumber).startsWith("KV/SAM/")) {
+        if (existingInvoiceNumber && !String(existingInvoiceNumber).startsWith("KV/SAM/") && !String(existingInvoiceNumber).startsWith("CHALLAN/")) {
             return {
                 invoiceNumber: existingInvoiceNumber,
                 sequence: null,
-                financialYear: fy,
+                financialYear: financialYear || getShortFinancialYear(),
+                hubCode: hubCode || "SAM",
                 isExisting: true
             };
         }
+
+        const resolvedHubRaw = hubCode || orderData.hubCode || orderData.fulfillmentWarehouseId || orderData.warehouseId || "SAM";
+        const hub = extractHubCode(resolvedHubRaw);
+        const fy = financialYear || getShortFinancialYear();
+        const counterDocId = `${hub}_${fy}`;
+        const counterRef = firestore.collection("invoice_counters").doc(counterDocId);
 
         // Read and increment counter
         const counterDoc = await transaction.get(counterRef);
@@ -133,32 +174,28 @@ async function getOrCreateInvoiceNumberForOrder(orderId, financialYear = null, p
         }
 
         const nextSequence = currentSequence + 1;
-        const paddedSequence = String(nextSequence).padStart(5, '0');
-        const invoiceNumber = `${prefix}/${fy}/${paddedSequence}`;
-
-        if (invoiceNumber.length > 16) {
-            throw new Error(`GST_RULE_46_VIOLATION: Generated invoice number '${invoiceNumber}' exceeds maximum statutory limit of 16 characters.`);
-        }
+        const invoiceNumber = formatInvoiceNumber(hub, fy, nextSequence);
 
         // Update counter atomically
         transaction.set(counterRef, {
+            hubCode: hub,
             financialYear: fy,
-            prefix: prefix,
             currentSequence: nextSequence,
             lastGeneratedInvoiceNumber: invoiceNumber,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            updatedAt: admin?.firestore?.FieldValue?.serverTimestamp ? admin.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
         }, { merge: true });
 
         // Update order doc with official invoiceNumber atomically
         transaction.set(orderRef, {
             invoiceNumber: invoiceNumber,
-            invoiceAllocatedAt: admin.firestore.FieldValue.serverTimestamp()
+            invoiceAllocatedAt: admin?.firestore?.FieldValue?.serverTimestamp ? admin.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
         }, { merge: true });
 
         return {
             invoiceNumber,
             sequence: nextSequence,
             financialYear: fy,
+            hubCode: hub,
             isExisting: false
         };
     });
@@ -167,7 +204,10 @@ async function getOrCreateInvoiceNumberForOrder(orderId, financialYear = null, p
 }
 
 module.exports = {
+    getShortFinancialYear,
     getCurrentFinancialYear,
+    extractHubCode,
+    formatInvoiceNumber,
     getNextInvoiceNumber,
     getOrCreateInvoiceNumberForOrder
 };

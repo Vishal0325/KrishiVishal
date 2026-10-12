@@ -347,16 +347,27 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             const userSnap = await transaction.get(userRef);
 
             // 5. Plan FEFO stock reservation (reads idempotency, queries batches, reads warehouse_stock & skus)
+            // Exclude ON_DEMAND items so that items procured on-demand without prior physical stock do not fail FEFO reservation
+            const reservationItems = [];
+            cartItems.forEach((ci, idx) => {
+                const pId = ci.productId || ci.id;
+                const pData = productDocMap.get(pId)?.data;
+                const fulfillmentType = pData?.fulfillmentType || 'SELF_STOCK';
+                if (fulfillmentType !== 'ON_DEMAND') {
+                    reservationItems.push({
+                        ...ci,
+                        lineIndex: idx,
+                        productId: ci.productId || ci.skuCode || ci.id,
+                        skuCode: ci.skuCode,
+                        quantity: ci.quantity
+                    });
+                }
+            });
+
             const reservationKey = `reserve_${orderId}`;
             const reservationPlanResult = await planOrderStockReservation(transaction, {
                 orderId,
-                items: cartItems.map((ci, idx) => ({
-                    ...ci,
-                    lineIndex: idx,
-                    productId: ci.productId || ci.skuCode || ci.id,
-                    skuCode: ci.skuCode,
-                    quantity: ci.quantity
-                })),
+                items: reservationItems,
                 userId,
                 idempotencyKey: reservationKey,
                 destinationHubId: resolvedDestinationHub
@@ -433,6 +444,23 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 const fulfillmentType = product.fulfillmentType || 'SELF_STOCK';
 
                 if (fulfillmentType === 'ON_DEMAND') {
+                    // Check Max Daily Procure Limit
+                    const maxLimit = Number(product.maxDailyProcureLimit) || 0;
+                    if (maxLimit > 0) {
+                        const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+                        const isSameDay = product.dailyProcuredDate === todayStr;
+                        const alreadyProcured = isSameDay ? (Number(product.dailyProcuredCount) || 0) : 0;
+                        const newProcured = alreadyProcured + item.quantity;
+                        if (newProcured > maxLimit) {
+                            throw new Error(`Today's procurement quota for "${product.name || productId}" is full (${alreadyProcured}/${maxLimit} units). Please reduce quantity or order tomorrow.`);
+                        }
+                        // Update in-memory product so subsequent items or retry in tx reflect it
+                        product.dailyProcuredCount = newProcured;
+                        product.dailyProcuredDate = todayStr;
+                        const cached = productDocMap.get(productId);
+                        if (cached) cached.modified = true;
+                    }
+
                     hasOnDemandItems = true;
                     const queueRef = db.collection("procurement_queue").doc();
                     onDemandQueueEntries.push({
@@ -783,6 +811,12 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                     }
                     if (typeof pCached.data.stock === 'number') {
                         pUpdates.stock = pCached.data.stock;
+                    }
+                    if (pCached.data.dailyProcuredCount !== undefined) {
+                        pUpdates.dailyProcuredCount = pCached.data.dailyProcuredCount;
+                    }
+                    if (pCached.data.dailyProcuredDate !== undefined) {
+                        pUpdates.dailyProcuredDate = pCached.data.dailyProcuredDate;
                     }
                     transaction.update(pCached.ref, pUpdates);
                 }
