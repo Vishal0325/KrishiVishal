@@ -509,3 +509,4 @@ module.exports.validateCampaignInput = validateCampaignInput;
 module.exports.isQuietHoursIST = isQuietHoursIST;
 module.exports.verifyMarketingAdmin = verifyMarketingAdmin;
 module.exports.checkDailyBroadcastRateLimit = checkDailyBroadcastRateLimit;
+module.exports.checkAdminRateLimit = checkAdminRateLimit;
