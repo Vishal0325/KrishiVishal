@@ -113,7 +113,7 @@ async function checkDailyBroadcastRateLimit() {
 /**
  * 1. createCampaign
  */
-exports.createCampaign = onCall({ region: ACTIVE_REGION }, async (request) => {
+exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
     await checkAdminRateLimit(caller.uid);
 
@@ -166,7 +166,7 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION }, async (request) => {
  * 2. sendTestNotification
  * Sends to caller's registered device tokens, or staging test topic 'test_all'.
  */
-exports.sendTestNotification = onCall({ region: ACTIVE_REGION }, async (request) => {
+exports.sendTestNotification = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
     const { title, body, imageUrl, deepLink } = validateCampaignInput(request.data);
     const useTestTopic = request.data.useTestTopic === true;
@@ -254,7 +254,7 @@ exports.sendTestNotification = onCall({ region: ACTIVE_REGION }, async (request)
  * 3. sendCampaign
  * Sends HTTP v1 topic message to 'all_customers' with strict Firestore Transaction & Idempotency.
  */
-exports.sendCampaign = onCall({ region: ACTIVE_REGION }, async (request) => {
+exports.sendCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
     const { campaignId } = request.data || {};
 
@@ -374,7 +374,7 @@ exports.sendCampaign = onCall({ region: ACTIVE_REGION }, async (request) => {
 /**
  * 4. cancelCampaign
  */
-exports.cancelCampaign = onCall({ region: ACTIVE_REGION }, async (request) => {
+exports.cancelCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
     const { campaignId } = request.data || {};
 
@@ -417,7 +417,7 @@ exports.cancelCampaign = onCall({ region: ACTIVE_REGION }, async (request) => {
  * 5. resetStuckCampaign
  * Recovers campaigns stuck in 'SENDING' status for > 15 minutes by marking them FAILED or allowing retry.
  */
-exports.resetStuckCampaign = onCall({ region: ACTIVE_REGION }, async (request) => {
+exports.resetStuckCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
     const { campaignId, newStatus = 'FAILED' } = request.data || {};
 
