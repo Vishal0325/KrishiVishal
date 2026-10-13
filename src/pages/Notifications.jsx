@@ -108,7 +108,35 @@ const Notifications = () => {
     toast.success(`Template applied: ${tpl.label}`);
   };
 
-  // 1. Send Test Notification (Caller's own device or safe test_all topic)
+  const formatNotificationError = (err, isTestUser = false) => {
+    const code = (err?.code || '').toLowerCase();
+    const msg = err?.message || '';
+    const lower = msg.toLowerCase();
+
+    if (code.includes('permission-denied') || lower.includes('permission-denied') || lower.includes('allow-list') || lower.includes('not in the test allow-list')) {
+      if (isTestUser) {
+        return '❌ Ye UID notification_test_users allow-list mein nahi hai / UID is not in the test allow-list';
+      }
+      return '❌ Unauthorized: Kripya SuperAdmin ya Marketing permissions verify karein.';
+    }
+
+    if (code.includes('not-found') || lower.includes('not-found') || lower.includes('no valid fcm token') || lower.includes('no fcm tokens')) {
+      return '❌ Is user ke koi FCM tokens nahi mile / No FCM tokens for this user';
+    }
+
+    if (code.includes('resource-exhausted') || lower.includes('resource-exhausted') || lower.includes('rate limit')) {
+      return '⏳ Hourly test rate limit poori ho gayi (Max 30/hr). Kripya thodi der baad prayas karein.';
+    }
+
+    if (code.includes('failed-precondition') || lower.includes('failed-precondition')) {
+      // Server ka asli message dikhao (quiet hours/state errors), generic error nahi
+      return `⚠️ ${msg}`;
+    }
+
+    return msg || 'An unexpected error occurred.';
+  };
+
+  // 1a. Send Test Notification (Caller's own device or safe test_all topic)
   const handleTestSend = async (useTestTopic = false) => {
     if (!formData.title || !formData.body) {
       return toast.error('Pehle Title aur Message Body enter karein / Please enter title and body first');
@@ -134,12 +162,7 @@ const Notifications = () => {
       }
     } catch (err) {
       console.error("Test send failed:", err);
-      const msg = (err.message || '').toLowerCase();
-      if (msg.includes("rate limit") || err.code === 'resource-exhausted') {
-        toast.error('⏳ Hourly test rate limit poori ho gayi (Max 30/hr). Kripya thodi der baad prayas karein.');
-      } else {
-        toast.error('Test Send Failed: ' + (err.message || 'Unknown error'));
-      }
+      toast.error(formatNotificationError(err, false));
     } finally {
       setTesting(false);
     }
@@ -172,16 +195,7 @@ const Notifications = () => {
       }
     } catch (err) {
       console.error("Test user send failed:", err);
-      const msg = (err.message || '').toLowerCase();
-      if (msg.includes("not registered in notification_test_users") || err.code === 'permission-denied') {
-        toast.error("❌ Target UID allow-list mein nahi hai / Not in allow-list (Pehle notification_test_users collection me register karein).");
-      } else if (msg.includes("no active fcm tokens") || err.code === 'not-found') {
-        toast.error("❌ Is user ke paas active FCM device tokens nahi hain / No active FCM tokens found in users/{uid}/fcm_tokens.");
-      } else if (msg.includes("rate limit") || err.code === 'resource-exhausted') {
-        toast.error("⏳ Hourly test rate limit poori ho gayi (Max 30/hr). Kripya thodi der baad prayas karein.");
-      } else {
-        toast.error("❌ Test Send Failed: " + (err.message || 'Unknown error'));
-      }
+      toast.error(formatNotificationError(err, true));
     } finally {
       setTestingUser(false);
     }
@@ -263,7 +277,7 @@ const Notifications = () => {
       }
     } catch (err) {
       console.error("Broadcast failed:", err);
-      toast.error('Broadcast failed: ' + err.message);
+      toast.error('Broadcast failed: ' + formatNotificationError(err, false));
     } finally {
       setSubmitting(false);
     }
@@ -279,7 +293,7 @@ const Notifications = () => {
         toast.success('Campaign cancelled successfully');
       }
     } catch (err) {
-      toast.error('Failed to cancel campaign: ' + err.message);
+      toast.error('Failed to cancel campaign: ' + formatNotificationError(err, false));
     } finally {
       setCancellingId(null);
     }
@@ -292,10 +306,23 @@ const Notifications = () => {
       const resetFn = httpsCallable(functions, 'resetStuckCampaign');
       const res = await resetFn({ campaignId, newStatus: 'FAILED' });
       if (res.data?.success) {
-        toast.success(`Stuck campaign marked as FAILED (${res.data?.elapsedMinutes} mins elapsed). Warning: ${res.data?.warning || 'Review before retrying.'}`);
+        toast.success(`Stuck campaign marked as FAILED (${res.data?.elapsedMinutes} mins elapsed).`, { duration: 5000 });
+        if (res.data?.warning) {
+          toast(res.data.warning, {
+            icon: '⚠️',
+            duration: 9000,
+            style: {
+              background: '#fffbeb',
+              color: '#92400e',
+              border: '1px solid #fde68a',
+              fontSize: '12px',
+              fontWeight: '600'
+            }
+          });
+        }
       }
     } catch (err) {
-      toast.error('Failed to reset stuck campaign: ' + err.message);
+      toast.error('Failed to reset stuck campaign: ' + formatNotificationError(err, false));
     } finally {
       setCancellingId(null);
     }
