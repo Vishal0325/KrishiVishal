@@ -74,38 +74,19 @@ exports.processOutbox = onDocumentCreated({ document: "outbox/{eventId}", region
 });
 
 /**
- * Triggered when a new document is added to 'broadcast_notifications'.
+ * [PHASE 1 DEPRECATED] sendBroadcastNotification:
+ * Disabled to prevent duplicate sends and unmetered writes.
+ * All broadcast campaigns are now handled by the enterprise v2 callable workflow in campaigns.js.
  */
 exports.sendBroadcastNotification = onDocumentCreated({ document: "broadcast_notifications/{id}", region: REGION }, async (event) => {
     const snap = event.data;
     if (!snap) return null;
-    const data = snap.data();
-    const title = data.title;
-    const body = data.body;
-    const topic = data.topic || "all";
-
-    const message = {
-        notification: {
-            title: title,
-            body: body,
-        },
-        topic: topic,
-        android: {
-            notification: {
-                icon: "ic_home",
-                color: "#2E7D32",
-            },
-        },
-    };
-
-    try {
-        await admin.messaging().send(message);
-        console.log(`Successfully sent broadcast: ${title}`);
-        return snap.ref.update({ sent: true, sentAt: admin.firestore.FieldValue.serverTimestamp() });
-    } catch (error) {
-        console.error("Error sending broadcast:", error);
-        return snap.ref.update({ error: error.message });
-    }
+    console.log(`[DEPRECATED] broadcast_notifications trigger invoked for ${event.params.id}. Legacy trigger disabled; no message dispatched.`);
+    return snap.ref.update({
+        deprecated: true,
+        dispatched: false,
+        note: "Legacy broadcast trigger disabled. Use notification_campaigns workflow."
+    });
 });
 
 /**

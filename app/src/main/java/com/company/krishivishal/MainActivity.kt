@@ -124,9 +124,41 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                 }
             }
 
+            // Request Notification Permission on Android 13+ (TIRAMISU)
+            val notificationPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+            ) { isGranted ->
+                if (isGranted) {
+                    Timber.d("POST_NOTIFICATIONS permission granted")
+                } else {
+                    Timber.w("POST_NOTIFICATIONS permission denied")
+                }
+            }
+
             LaunchedEffect(Unit) {
+                // 1. Android 13+ POST_NOTIFICATIONS check & request
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    val hasNotifPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                        this@MainActivity,
+                        android.Manifest.permission.POST_NOTIFICATIONS
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    if (!hasNotifPermission) {
+                        notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+
                 val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
                 if (user != null && !user.isAnonymous) {
+                    // Idempotent Topic Subscription strictly for logged-in customers
+                    try {
+                        com.google.firebase.messaging.FirebaseMessaging.getInstance()
+                            .subscribeToTopic("all_customers")
+                            .await()
+                        Timber.d("Successfully ensured subscription to topic: all_customers for user ${user.uid}")
+                    } catch (subEx: Exception) {
+                        Timber.w("Failed to ensure subscription to all_customers: ${subEx.message}")
+                    }
+
                     try {
                         val token = com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()
                         if (token.isNotBlank()) {

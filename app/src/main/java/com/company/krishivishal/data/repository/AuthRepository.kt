@@ -194,6 +194,8 @@ class AuthRepositoryImpl @Inject constructor(
                 val currentUid = auth.currentUser?.uid
                 if (currentUid != null) {
                     try {
+                        // Unsubscribe from broadcast topic on logout
+                        com.google.firebase.messaging.FirebaseMessaging.getInstance().unsubscribeFromTopic("all_customers")
                         val fcmToken = com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()
                         if (!fcmToken.isNullOrBlank()) {
                             val md = java.security.MessageDigest.getInstance("SHA-256")
@@ -287,6 +289,11 @@ class AuthRepositoryImpl @Inject constructor(
 
         userDao.insertUser(user)
         sessionManager.startSession(firebaseUser.uid)
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic("all_customers")
+        } catch (subErr: Exception) {
+            Timber.w("Failed to subscribe all_customers topic: ${subErr.message}")
+        }
         user
     }
 

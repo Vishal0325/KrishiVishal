@@ -172,11 +172,16 @@ const FUNCTION_MAP = {
     // --- COMPLIANCE CRON (1) ---
     licenseExpiryCron: ['./compliance/licenseExpiryCron', 'licenseExpiryCron'],
 
-    // --- MESSAGING & ADVISORY (6) ---
+    // --- MESSAGING & ADVISORY (10) ---
     processOutbox: ['./messaging/notifications', 'processOutbox'],
     registerFcmToken: ['./messaging/notifications', 'registerFcmToken'],
     deleteFcmToken: ['./messaging/notifications', 'deleteFcmToken'],
     sendBroadcastNotification: ['./messaging/notifications', 'sendBroadcastNotification'],
+    createCampaign: ['./messaging/campaigns', 'createCampaign'],
+    sendTestNotification: ['./messaging/campaigns', 'sendTestNotification'],
+    sendCampaign: ['./messaging/campaigns', 'sendCampaign'],
+    cancelCampaign: ['./messaging/campaigns', 'cancelCampaign'],
+    resetStuckCampaign: ['./messaging/campaigns', 'resetStuckCampaign'],
     cronCropAdvisory: ['./messaging/cropAdvisory', 'cronCropAdvisory'],
     runCropAdvisoryEngine: ['./messaging/cropAdvisory', 'runCropAdvisoryEngine'],
 

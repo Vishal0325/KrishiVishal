@@ -1168,6 +1168,89 @@ async function runEmulatorRulesTests() {
     });
 
 
+    // ============================================================
+    // 14. PHASE 1 NOTIFICATION BROADCAST & CAMPAIGN RULES
+    // ============================================================
+
+    // 14.1 Customer CANNOT read or write notification_campaigns
+    await testRule("14.1 Customer CANNOT read or write notification_campaigns", async (env) => {
+        const alice = env.authenticatedContext('alice_notif_cust');
+        await assertFails(alice.firestore().collection('notification_campaigns').doc('camp_1').get());
+        await assertFails(alice.firestore().collection('notification_campaigns').doc('camp_1').set({
+            title: "Hacked",
+            body: "Hacked"
+        }));
+    });
+
+    // 14.2 Customer CANNOT write to broadcast_notifications (Client write blocked)
+    await testRule("14.2 Customer CANNOT write to legacy broadcast_notifications", async (env) => {
+        const alice = env.authenticatedContext('alice_notif_cust');
+        await assertFails(alice.firestore().collection('broadcast_notifications').doc('b_1').set({
+            title: "Hacked Broadcast",
+            body: "Hacked Body"
+        }));
+    });
+
+    // 14.3 SuperAdmin / Marketing CAN read notification_campaigns, write blocked from client
+    await testRule("14.3 SuperAdmin / Marketing CAN read notification_campaigns, write blocked from client", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            await context.firestore().collection('notification_campaigns').doc('camp_official').set({
+                title: "Official Campaign",
+                body: "Official Body",
+                status: "COMPLETED"
+            });
+        });
+
+        const superAdmin = env.authenticatedContext('super_admin_user', { role: 'SuperAdmin' });
+        const marketingUser = env.authenticatedContext('marketing_user', { role: 'Marketing' });
+
+        await assertSucceeds(superAdmin.firestore().collection('notification_campaigns').doc('camp_official').get());
+        await assertSucceeds(marketingUser.firestore().collection('notification_campaigns').doc('camp_official').get());
+
+        // Client writes must fail even for SuperAdmin (all mutations must go through v2 callables)
+        await assertFails(superAdmin.firestore().collection('notification_campaigns').doc('camp_hack').set({ title: "Hack" }));
+        await assertFails(marketingUser.firestore().collection('notification_campaigns').doc('camp_hack').set({ title: "Hack" }));
+    });
+
+    // 14.4 Missing role claim or null token user does not crash rules and is denied
+    await testRule("14.4 Missing role claim user does not crash rules and is strictly denied", async (env) => {
+        const unauth = env.unauthenticatedContext();
+        const bareUser = env.authenticatedContext('bare_user_no_claims'); // auth.token has no role field
+
+        await assertFails(unauth.firestore().collection('notification_campaigns').doc('camp_official').get());
+        await assertFails(bareUser.firestore().collection('notification_campaigns').doc('camp_official').get());
+    });
+
+    // 14.5 Rider spoofing: Rider CANNOT create notification on unassigned order
+    await testRule("14.5 Rider CANNOT send notification for an order not assigned to them", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            await context.firestore().collection('orders').doc('ord_assigned_to_bob').set({
+                userId: 'customer_dave',
+                riderId: 'rider_bob',
+                status: 'OUT_FOR_DELIVERY'
+            });
+        });
+
+        const riderEve = env.authenticatedContext('rider_eve', { role: 'Rider' });
+        await assertFails(riderEve.firestore().collection('users').doc('customer_dave').collection('notifications').doc('spoofed_notif').set({
+            orderId: 'ord_assigned_to_bob',
+            type: 'DELIVERY_STARTED',
+            message: 'Your delivery has started',
+            createdAt: '2026-10-13T10:00:00Z'
+        }));
+    });
+
+    // 14.6 Assigned Rider CAN create delivery notification on own assigned order
+    await testRule("14.6 Assigned Rider CAN create delivery notification on own assigned order", async (env) => {
+        const riderBob = env.authenticatedContext('rider_bob', { role: 'Rider' });
+        await assertSucceeds(riderBob.firestore().collection('users').doc('customer_dave').collection('notifications').doc('bob_notif').set({
+            orderId: 'ord_assigned_to_bob',
+            type: 'DELIVERY_STARTED',
+            message: 'Rider Bob is out for delivery',
+            createdAt: '2026-10-13T10:00:00Z'
+        }));
+    });
+
     await env.cleanup();
 
     console.log(`\n==========================================`);
