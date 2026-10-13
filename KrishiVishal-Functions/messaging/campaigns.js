@@ -272,20 +272,23 @@ exports.sendTestNotification = onCall({ region: ACTIVE_REGION, invoker: 'public'
             throw new HttpsError('permission-denied', `Target UID '${testUserUid}' is not registered in notification_test_users allow-list.`);
         }
 
-        // 2. Fetch tokens strictly from users/{uid}/fcm_tokens subcollection (no root fallback, strictly d.data().token)
+        // 2. Fetch tokens from users/{uid}/fcm_tokens subcollection, fallback to root fcmToken
         const tokensSnap = await db.collection("users").doc(testUserUid).collection("fcm_tokens").get();
-        if (tokensSnap.empty) {
-            throw new HttpsError('not-found', `No active FCM tokens found in users/${testUserUid}/fcm_tokens.`);
+        let rawTokens = [];
+        if (!tokensSnap.empty) {
+            rawTokens = tokensSnap.docs
+                .map(d => d.data() && d.data().token)
+                .filter(t => typeof t === 'string' && t.trim().length > 0);
+        }
+        if (rawTokens.length === 0) {
+            const userDoc = await db.collection("users").doc(testUserUid).get();
+            const rootToken = (userDoc.exists && typeof userDoc.data().fcmToken === 'string') ? userDoc.data().fcmToken.trim() : null;
+            if (rootToken) rawTokens.push(rootToken);
         }
 
-        // 3. Extract tokens, limit to max 10 (no d.id fallback!)
-        const rawTokens = tokensSnap.docs
-            .map(d => d.data() && d.data().token)
-            .filter(t => typeof t === 'string' && t.trim().length > 0);
-        
         const tokens = Array.from(new Set(rawTokens)).slice(0, 10);
         if (tokens.length === 0) {
-            throw new HttpsError('not-found', `No valid FCM token strings found for test user ${testUserUid}.`);
+            throw new HttpsError('not-found', `No active FCM tokens found for test user ${testUserUid}.`);
         }
 
         // Consume test rate limit budget (30/hr) only after validation passes
