@@ -56,6 +56,18 @@ class AddressViewModel @Inject constructor(
                 }
                 .collect { resource ->
                     _addresses.value = resource
+                    if (resource is Resource.Success) {
+                        try {
+                            val list = resource.data ?: emptyList()
+                            val defaultOrFirst = list.find { it.isDefault } ?: list.firstOrNull()
+                            val pin = defaultOrFirst?.pincode?.trim()
+                            if (pin != null && pin.matches(Regex("^[1-9][0-9]{5}$"))) {
+                                com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic("pin_$pin")
+                            }
+                        } catch (e: Exception) {
+                            timber.log.Timber.w("Failed to subscribe to pincode topic: ${e.message}")
+                        }
+                    }
                 }
         }
     }
@@ -102,6 +114,15 @@ class AddressViewModel @Inject constructor(
             addressRepository.addAddress(newAddress).collectLatest { resource ->
                 when (resource) {
                     is Resource.Success -> {
+                        try {
+                            val pin = newAddress.pincode.trim()
+                            if (pin.matches(Regex("^[1-9][0-9]{5}$"))) {
+                                com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic("pin_$pin")
+                                timber.log.Timber.d("Subscribed to pincode topic: pin_$pin")
+                            }
+                        } catch (e: Exception) {
+                            timber.log.Timber.w("Failed to subscribe to pincode topic: ${e.message}")
+                        }
                         _uiEvent.emit(AddressUiEvent.AddressSaved)
                         _uiEvent.emit(AddressUiEvent.ShowSnackbar("Address successfully save ho gaya."))
                         loadAddresses()

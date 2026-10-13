@@ -208,7 +208,10 @@ const FUNCTION_MAP = {
     createStaffMember: ['./admin/adminServices', 'createStaffMember'],
     generateWorkforceId: ['./admin/adminServices', 'generateWorkforceId'],
     getFinanceSummary: ['./admin/adminServices', 'getFinanceSummary'],
-    saveExpense: ['./admin/adminServices', 'saveExpense']
+    saveExpense: ['./admin/adminServices', 'saveExpense'],
+
+    // --- FEATURE FLAGS / KILL SWITCHES (TypeScript build output) ---
+    updateFeatureFlag: ['./featureFlags/dist/updateFeatureFlag', 'updateFeatureFlag']
 };
 
 // Register all modular exports on exports object

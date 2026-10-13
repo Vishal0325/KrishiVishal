@@ -47,7 +47,38 @@ function validateCampaignInput(data) {
         deepLink = dl;
     }
 
-    return { title, body, imageUrl, deepLink };
+    let audience = { type: 'ALL', topic: 'all_customers' };
+    if (data.audience && typeof data.audience === 'object') {
+        const audType = (data.audience.type || 'ALL').toUpperCase();
+        if (audType === 'CROP') {
+            const crop = (data.audience.crop || '').trim();
+            if (!crop || crop.length > 50) {
+                throw new HttpsError('invalid-argument', 'Valid crop name is required for CROP audience.');
+            }
+            const safeCrop = crop.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+            audience = {
+                type: 'CROP',
+                crop,
+                topic: `crop_${safeCrop}`
+            };
+        } else if (audType === 'PINCODE') {
+            const pincode = String(data.audience.pincode || '').trim();
+            if (!/^\d{6}$/.test(pincode)) {
+                throw new HttpsError('invalid-argument', 'Valid 6-digit Indian pincode is required for PINCODE audience.');
+            }
+            audience = {
+                type: 'PINCODE',
+                pincode,
+                topic: `pin_${pincode}`
+            };
+        } else if (audType === 'ALL') {
+            audience = { type: 'ALL', topic: 'all_customers' };
+        } else {
+            throw new HttpsError('invalid-argument', `Unsupported audience type: ${audType}. Must be ALL, CROP, or PINCODE.`);
+        }
+    }
+
+    return { title, body, imageUrl, deepLink, audience };
 }
 
 /**
@@ -246,7 +277,7 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
         throw new HttpsError('invalid-argument', 'Scheduling is not enabled yet.');
     }
 
-    const { title, body, imageUrl, deepLink } = validateCampaignInput(request.data);
+    const { title, body, imageUrl, deepLink, audience } = validateCampaignInput(request.data);
 
     // Consume management rate limit budget (15/hr) only after input/role validation
     await checkAdminRateLimit(caller.uid, 'mgmt');
@@ -263,7 +294,7 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
         body,
         imageUrl,
         deepLink,
-        audience: { type: 'ALL', topic: 'all_customers' },
+        audience,
         status: initialStatus,
         scheduledAt: null,
         createdBy: caller.uid,

@@ -7,6 +7,9 @@
     {
       "source": "KrishiVishal-Functions",
       "codebase": "default",
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run build:flags"
+      ],
       "ignore": [
         "node_modules",
         ".git",

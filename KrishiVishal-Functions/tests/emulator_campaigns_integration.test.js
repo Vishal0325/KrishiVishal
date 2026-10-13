@@ -258,6 +258,46 @@ async function runIntegrationSuite() {
         }
     }
 
+    // 2.5a Valid CROP audience creates campaign with formatted crop topic
+    try {
+        const cropRes = await campaigns.createCampaign.run({
+            data: {
+                title: 'Dhan Crop Advisory',
+                body: 'Kitnashak offer for paddy farmers',
+                deepLink: '/product/123',
+                audience: { type: 'CROP', crop: 'धान (Paddy)' }
+            },
+            auth: superAdminContext
+        });
+        const cropSnap = await db.collection("notification_campaigns").doc(cropRes.campaignId).get();
+        assert.strictEqual(cropSnap.data().audience.type, 'CROP');
+        assert.strictEqual(cropSnap.data().audience.crop, 'धान (Paddy)');
+        assert.strictEqual(cropSnap.data().audience.topic, 'crop_paddy');
+        reportPass("2.5a createCampaign: Successfully formats and sets CROP topic 'crop_paddy'");
+    } catch (e) {
+        reportFail("2.5a createCampaign CROP audience failed", e);
+    }
+
+    // 2.5b Valid PINCODE audience creates campaign with pin topic
+    try {
+        const pinRes = await campaigns.createCampaign.run({
+            data: {
+                title: 'Vaishali Special Offer',
+                body: 'Free delivery for 844101',
+                deepLink: '/order',
+                audience: { type: 'PINCODE', pincode: '844101' }
+            },
+            auth: superAdminContext
+        });
+        const pinSnap = await db.collection("notification_campaigns").doc(pinRes.campaignId).get();
+        assert.strictEqual(pinSnap.data().audience.type, 'PINCODE');
+        assert.strictEqual(pinSnap.data().audience.pincode, '844101');
+        assert.strictEqual(pinSnap.data().audience.topic, 'pin_844101');
+        reportPass("2.5b createCampaign: Successfully formats and sets PINCODE topic 'pin_844101'");
+    } catch (e) {
+        reportFail("2.5b createCampaign PINCODE audience failed", e);
+    }
+
     // 2.6 isQuietHoursIST verification with clean getNowIST clock injection
     try {
         const morningTime = new Date('2026-10-13T04:30:00Z'); // 10:00 AM IST -> Not quiet

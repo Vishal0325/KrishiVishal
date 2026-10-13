@@ -73,6 +73,21 @@ class ProfileViewModel @Inject constructor(
             authRepository.getCurrentUser().collectLatest { currentUser ->
                 _userProfile.value = currentUser
                 currentUser?.let { user ->
+                    try {
+                        val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
+                        user.cropAllocations.forEach { allocation ->
+                            val cleanCrop = allocation.cropName.lowercase(java.util.Locale.ROOT)
+                                .replace(Regex("[^a-z0-9]"), "_")
+                                .replace(Regex("_+"), "_")
+                                .trim('_')
+                            if (cleanCrop.isNotBlank()) {
+                                messaging.subscribeToTopic("crop_$cleanCrop")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        timber.log.Timber.w("Failed to subscribe to existing crop topics: ${e.message}")
+                    }
+
                     coroutineScope {
                         val walletDeferred = async { try { referralRepository.getWalletBalance(user.id).first() } catch (e: Exception) { null } }
                         val ordersDeferred = async { try { orderRepository.getOrders(user.id).first() } catch (e: Exception) { null } }
@@ -218,6 +233,23 @@ class ProfileViewModel @Inject constructor(
                         _userProfile.value = updatedUser
                         _farmProfileSaveStatus.emit(Resource.Success(Unit))
                         onResult?.invoke(true, null)
+
+                        // Auto-subscribe to FCM crop topics for targeted advisory broadcasts
+                        try {
+                            val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
+                            cropAllocations.forEach { allocation ->
+                                val cleanCrop = allocation.cropName.lowercase(java.util.Locale.ROOT)
+                                    .replace(Regex("[^a-z0-9]"), "_")
+                                    .replace(Regex("_+"), "_")
+                                    .trim('_')
+                                if (cleanCrop.isNotBlank()) {
+                                    messaging.subscribeToTopic("crop_$cleanCrop")
+                                    timber.log.Timber.d("Subscribed to crop topic: crop_$cleanCrop")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            timber.log.Timber.w("Failed to subscribe to crop topics: ${e.message}")
+                        }
                     }
                     is Resource.Error -> {
                         _isSavingFarmProfile.value = false

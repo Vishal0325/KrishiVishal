@@ -3,6 +3,7 @@ const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const crypto = require("crypto");
 const { db, admin } = require("../core/admin");
 const { checkFeatureFlag, addToOutbox, isAdminRequest } = require("../core/utils");
+const { assertCheckoutAllowed } = require("../featureFlags/dist/enforcement");
 const {
     planOrderStockReservation,
     applyOrderStockReservation,
@@ -125,6 +126,9 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
     if (!resolvedDestinationHub) {
         throw new HttpsError('invalid-argument', 'Missing destination hub ID for inventory reservation');
     }
+
+    // KILL SWITCHES (backend-enforced, 10s cached): maintenance / checkoutFrozen / hub lockdown / COD & online-pay gates.
+    await assertCheckoutAllowed({ hubId: resolvedDestinationHub, paymentMethod });
 
     // Check for existing order with this idempotency key before starting transaction
     const preIdemSnap = await db.collection('idempotency_keys').doc(cleanIdempotencyKey).get();
