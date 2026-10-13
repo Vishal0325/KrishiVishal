@@ -397,13 +397,40 @@ service cloud.firestore {
 
 
     // ============================================================
-    // BROADCAST NOTIFICATIONS
+    // BROADCAST NOTIFICATIONS (LEGACY - CLIENT WRITE BLOCKED)
     // ============================================================
 
     match /broadcast_notifications/{id} {
       allow read: if isAuthenticated();
-      allow create: if isAdmin();
-      allow update, delete: if false;
+      allow write: if false;
+    }
+
+
+    // ============================================================
+    // NOTIFICATION CAMPAIGNS (ENTERPRISE BROADCAST)
+    // ============================================================
+
+    match /notification_campaigns/{id} {
+      // Client writes strictly blocked - all mutations managed via v2 Cloud Functions callables
+      allow write: if false;
+      // Read allowed only for SuperAdmin, Marketing, or full Admin custom claims
+      allow read: if isAuthenticated() && (
+        (('role' in request.auth.token) && request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN", "Marketing", "MarketingManager", "MARKETING_ADMIN", "Admin", "ADMIN"]) ||
+        (('admin' in request.auth.token) && request.auth.token.admin == true) ||
+        (('isAdmin' in request.auth.token) && request.auth.token.isAdmin == true)
+      );
+    }
+
+
+    // ============================================================
+    // BROADCAST INBOX (CUSTOMER IN-APP PROMOTIONAL FEED)
+    // ============================================================
+
+    match /broadcast_inbox/{id} {
+      // All authenticated customers can view public broadcasts
+      allow read: if isAuthenticated();
+      // Only server functions can write broadcast inbox
+      allow write: if false;
     }
 
 
@@ -609,12 +636,16 @@ service cloud.firestore {
         allow read, write: if isOwner(uId) || isAdmin();
       }
 
-      // Blocker 7 & H3: allow riders and admin to send delivery/promotional notifications
+      // User Notifications: Restricted to Admin or Verified Rider for assigned delivery updates
       match /notifications/{notifId} {
         allow create: if isAdmin() || (
           isRider() &&
           request.resource.data.keys().hasOnly(['orderId', 'type', 'message', 'createdAt']) &&
-          request.resource.data.type in ['DELIVERY_STARTED', 'DELIVERY_NEAR', 'DELIVERY_COMPLETED', 'RIDER_ASSIGNED']
+          request.resource.data.type in ['DELIVERY_STARTED', 'DELIVERY_NEAR', 'DELIVERY_COMPLETED', 'RIDER_ASSIGNED'] &&
+          request.resource.data.orderId is string &&
+          request.resource.data.orderId.size() > 0 &&
+          exists(/databases/$(database)/documents/orders/$(request.resource.data.orderId)) &&
+          get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.riderId == request.auth.uid
         );
         allow read, update, delete: if isOwner(uId) || isAdmin();
       }
