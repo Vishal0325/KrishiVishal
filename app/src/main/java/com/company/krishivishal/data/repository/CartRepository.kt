@@ -40,6 +40,7 @@ interface CartRepository {
 class CartRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val cartDao: CartDao,
+    private val productDao: com.company.krishivishal.data.local.ProductDao,
     private val syncManager: SyncManager,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : CartRepository {
@@ -52,7 +53,41 @@ class CartRepositoryImpl @Inject constructor(
         fetch = {
             // Also sync from Firestore to handle cross-device cart
             val snapshot = firestore.collection("users").document(userId).collection("cart").get().await()
-            snapshot.toObjects(CartItem::class.java)
+            val remoteItems = snapshot.toObjects(CartItem::class.java)
+
+            // Ensure Product and Variant exist locally in Room for all cart items
+            for (item in remoteItems) {
+                if (item.productId.isNotBlank()) {
+                    val localProd = productDao.getProductById(item.productId)
+                    if (localProd == null) {
+                        try {
+                            val prodDoc = firestore.collection("products").document(item.productId).get().await()
+                            val remoteProd = prodDoc.toObject(Product::class.java)
+                            if (remoteProd != null) {
+                                productDao.insertProduct(remoteProd)
+                            }
+                        } catch (e: Exception) {
+                            Timber.w("Failed to fetch product ${item.productId} for cart: ${e.message}")
+                        }
+                    }
+                }
+                if (!item.variantId.isNullOrBlank() && item.productId.isNotBlank()) {
+                    val localVariants = productDao.getVariantsByProductIdOnce(item.productId)
+                    if (localVariants.none { it.id == item.variantId }) {
+                        try {
+                            val varDoc = firestore.collection("products").document(item.productId)
+                                .collection("variants").document(item.variantId!!).get().await()
+                            val remoteVar = varDoc.toObject(com.company.krishivishal.core.model.Variant::class.java)
+                            if (remoteVar != null) {
+                                productDao.insertVariants(listOf(remoteVar))
+                            }
+                        } catch (e: Exception) {
+                            Timber.w("Failed to fetch variant ${item.variantId} for cart: ${e.message}")
+                        }
+                    }
+                }
+            }
+            remoteItems
         },
         saveFetchResult = { remoteItems ->
             if (remoteItems.isNotEmpty()) {

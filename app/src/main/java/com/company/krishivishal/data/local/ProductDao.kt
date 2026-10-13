@@ -11,6 +11,9 @@ interface ProductDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProducts(products: List<Product>)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertProduct(product: Product)
+
     @RewriteQueriesToDropUnusedColumns
     @Query("SELECT * FROM products")
     fun getAllProducts(): Flow<List<Product>>

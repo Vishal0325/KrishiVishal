@@ -76,7 +76,21 @@ class CartViewModel @Inject constructor(
                         }
                     }
                     is Resource.Error -> {
-                        _uiState.update { it.copy(isLoading = false, error = resource.message) }
+                        val cachedItems = resource.data ?: emptyList()
+                        if (cachedItems.isNotEmpty()) {
+                            val totals = calculateCartTotalsUseCase(cachedItems, appConfig)
+                            _uiState.update {
+                                it.copy(
+                                    isLoading = false,
+                                    cartItems = cachedItems,
+                                    totals = totals,
+                                    isAllSelected = cachedItems.all { item -> item.cartItem.isSelected },
+                                    error = resource.message
+                                )
+                            }
+                        } else {
+                            _uiState.update { it.copy(isLoading = false, error = resource.message) }
+                        }
                     }
                     else -> {}
                 }
