@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, onSnapshot, orderBy } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '../firebase/config';
+import { useAuth } from '../hooks/useAuth';
 import DataTable from '../components/common/DataTable';
 import PageHeader from '../components/common/PageHeader';
-import ConfirmDialog from '../components/common/ConfirmDialog';
 import { 
   Bell, 
   Send, 
@@ -20,7 +20,8 @@ import {
   FlaskConical,
   Smartphone,
   ShieldCheck,
-  Ban
+  Ban,
+  UserCheck
 } from 'lucide-react';
 import { formatDateTime } from '../utils/formatters';
 import toast from 'react-hot-toast';
@@ -47,10 +48,14 @@ const PRESET_TEMPLATES = [
 ];
 
 const Notifications = () => {
+  const { isSuperAdmin, role } = useAuth();
+  const canOverrideQuietHours = isSuperAdmin || role === 'SuperAdmin' || role === 'SUPER_ADMIN';
+
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [testingUser, setTestingUser] = useState(false);
   const [cancellingId, setCancellingId] = useState(null);
 
   // Form State
@@ -58,22 +63,23 @@ const Notifications = () => {
     title: '', 
     body: '', 
     imageUrl: '',
-    deepLink: '/product',
-    scheduledAt: ''
+    deepLink: '/product'
   });
 
-  // Dialog State
-  const [confirmDialog, setConfirmDialog] = useState({
-    isOpen: false,
-    title: '',
-    message: '',
-    onConfirm: null
-  });
+  // Direct test user targeting
+  const [testUserUid, setTestUserUid] = useState('');
+
+  // Quiet Hours & Override Controls
+  const [overrideQuietHours, setOverrideQuietHours] = useState(false);
+
+  // Broadcast Confirmation Modal with 'SEND' type requirement
+  const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
+  const [confirmInputText, setConfirmInputText] = useState('');
 
   // Preview language switcher
   const [previewLang, setPreviewLang] = useState('hi'); // 'hi' | 'en'
 
-  // Quiet Hours check helper
+  // Quiet Hours check helper (IST 22:00 PM to 07:00 AM)
   const isQuietHoursNow = useMemo(() => {
     const istHours = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCHours();
     return istHours >= 22 || istHours < 7;
@@ -105,7 +111,7 @@ const Notifications = () => {
   // 1. Send Test Notification (Caller's own device or safe test_all topic)
   const handleTestSend = async (useTestTopic = false) => {
     if (!formData.title || !formData.body) {
-      return toast.error('Please enter title and message body first');
+      return toast.error('Pehle Title aur Message Body enter karein / Please enter title and body first');
     }
 
     setTesting(true);
@@ -128,9 +134,56 @@ const Notifications = () => {
       }
     } catch (err) {
       console.error("Test send failed:", err);
-      toast.error('Test Send Failed: ' + (err.message || 'Unknown error'));
+      const msg = (err.message || '').toLowerCase();
+      if (msg.includes("rate limit") || err.code === 'resource-exhausted') {
+        toast.error('⏳ Hourly test rate limit poori ho gayi (Max 30/hr). Kripya thodi der baad prayas karein.');
+      } else {
+        toast.error('Test Send Failed: ' + (err.message || 'Unknown error'));
+      }
     } finally {
       setTesting(false);
+    }
+  };
+
+  // 1b. Test on Specific Tester UID (Task D direct user targeting)
+  const handleTestOnUser = async () => {
+    if (!formData.title || !formData.body) {
+      return toast.error('Pehle Title aur Message Body enter karein / Please enter title and body first');
+    }
+    if (!testUserUid || !testUserUid.trim()) {
+      return toast.error('Target tester UID enter karein / Please enter target tester UID');
+    }
+
+    setTestingUser(true);
+    try {
+      const sendTestFn = httpsCallable(functions, 'sendTestNotification');
+      const res = await sendTestFn({
+        title: formData.title,
+        body: formData.body,
+        imageUrl: formData.imageUrl || null,
+        deepLink: formData.deepLink || null,
+        testUserUid: testUserUid.trim()
+      });
+
+      if (res.data?.success) {
+        toast.success(
+          `✅ Test notification safalta se bheja gaya! (${res.data.tokensAttempted} tokens targeted, ${res.data.successCount} delivered)`
+        );
+      }
+    } catch (err) {
+      console.error("Test user send failed:", err);
+      const msg = (err.message || '').toLowerCase();
+      if (msg.includes("not registered in notification_test_users") || err.code === 'permission-denied') {
+        toast.error("❌ Target UID allow-list mein nahi hai / Not in allow-list (Pehle notification_test_users collection me register karein).");
+      } else if (msg.includes("no active fcm tokens") || err.code === 'not-found') {
+        toast.error("❌ Is user ke paas active FCM device tokens nahi hain / No active FCM tokens found in users/{uid}/fcm_tokens.");
+      } else if (msg.includes("rate limit") || err.code === 'resource-exhausted') {
+        toast.error("⏳ Hourly test rate limit poori ho gayi (Max 30/hr). Kripya thodi der baad prayas karein.");
+      } else {
+        toast.error("❌ Test Send Failed: " + (err.message || 'Unknown error'));
+      }
+    } finally {
+      setTestingUser(false);
     }
   };
 
@@ -147,13 +200,12 @@ const Notifications = () => {
         title: formData.title,
         body: formData.body,
         imageUrl: formData.imageUrl || null,
-        deepLink: formData.deepLink || null,
-        scheduledAt: formData.scheduledAt || null
+        deepLink: formData.deepLink || null
       });
 
       if (res.data?.success) {
         toast.success(`Campaign created as ${res.data.status}! ID: ${res.data.campaignId.substring(0, 8)}...`);
-        setFormData({ title: '', body: '', imageUrl: '', deepLink: '/product', scheduledAt: '' });
+        setFormData({ title: '', body: '', imageUrl: '', deepLink: '/product' });
       }
     } catch (err) {
       console.error("Create campaign failed:", err);
@@ -163,30 +215,26 @@ const Notifications = () => {
     }
   };
 
-  // 3. Dispatch Live Broadcast with Confirmation
+  // 3. Dispatch Live Broadcast with 'SEND' confirmation
   const promptBroadcastConfirm = () => {
     if (!formData.title || !formData.body) {
       return toast.error('Please enter title and body for the broadcast');
     }
 
-    if (isQuietHoursNow) {
-      toast((t) => (
-        <span>
-          ⚠️ <b>Quiet Hours Warning (IST 10 PM - 7 AM):</b> Customer notifications sent right now might disturb farmers. Please schedule for morning or confirm override.
-        </span>
-      ), { duration: 5000 });
+    if (isQuietHoursNow && !overrideQuietHours && !canOverrideQuietHours) {
+      return toast.error('🌙 Quiet Hours Active (10:00 PM - 07:00 AM IST): Push broadcasting is restricted for Marketing role.');
     }
 
-    setConfirmDialog({
-      isOpen: true,
-      title: 'Broadcast to ALL Customers?',
-      message: `Are you sure you want to broadcast this message to topic "all_customers"? Every registered customer with notifications enabled will receive this alert immediately.`,
-      onConfirm: executeBroadcastImmediately
-    });
+    setConfirmInputText('');
+    setBroadcastModalOpen(true);
   };
 
   const executeBroadcastImmediately = async () => {
-    setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+    if (confirmInputText.trim().toUpperCase() !== 'SEND') {
+      return toast.error('Please type SEND to confirm');
+    }
+
+    setBroadcastModalOpen(false);
     setSubmitting(true);
     try {
       // Step A: Create the campaign first
@@ -205,12 +253,13 @@ const Notifications = () => {
       const sendCampaignFn = httpsCallable(functions, 'sendCampaign');
       const sendRes = await sendCampaignFn({
         campaignId,
-        overrideQuietHours: isQuietHoursNow
+        overrideQuietHours: isQuietHoursNow && canOverrideQuietHours && overrideQuietHours
       });
 
       if (sendRes.data?.success) {
         toast.success('🚀 Broadcast successfully dispatched to topic all_customers!');
-        setFormData({ title: '', body: '', imageUrl: '', deepLink: '/product', scheduledAt: '' });
+        setFormData({ title: '', body: '', imageUrl: '', deepLink: '/product' });
+        setConfirmInputText('');
       }
     } catch (err) {
       console.error("Broadcast failed:", err);
@@ -243,7 +292,7 @@ const Notifications = () => {
       const resetFn = httpsCallable(functions, 'resetStuckCampaign');
       const res = await resetFn({ campaignId, newStatus: 'FAILED' });
       if (res.data?.success) {
-        toast.success(`Stuck campaign safely marked as FAILED (${res.data?.elapsedMinutes} mins elapsed). You can retry.`);
+        toast.success(`Stuck campaign marked as FAILED (${res.data?.elapsedMinutes} mins elapsed). Warning: ${res.data?.warning || 'Review before retrying.'}`);
       }
     } catch (err) {
       toast.error('Failed to reset stuck campaign: ' + err.message);
@@ -277,16 +326,21 @@ const Notifications = () => {
             <Target size={11} /> {c.audience?.topic || 'all_customers'}
           </span>
           <p className="text-[10px] text-gray-400 font-mono mt-0.5">Topic Broadcast (All Customers)</p>
+          {c.quietHoursOverridden && (
+            <span className="inline-block mt-1 text-[9px] bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded font-bold">
+              ⚡ Quiet Hours Overridden
+            </span>
+          )}
         </div>
       )
     },
     { 
-      header: 'Created & Scheduled', 
+      header: 'Created & Timing', 
       render: (c) => (
         <div className="space-y-0.5 text-xs text-gray-500">
           <div><span className="font-bold">Created:</span> {formatDateTime(c.createdAt)}</div>
-          {c.scheduledAt && (
-            <div className="text-amber-600 font-semibold"><span className="font-bold">Scheduled:</span> {formatDateTime(c.scheduledAt)}</div>
+          {c.completedAt && (
+            <div className="text-emerald-700 font-semibold"><span className="font-bold">Completed:</span> {formatDateTime(c.completedAt)}</div>
           )}
         </div>
       )
@@ -297,7 +351,6 @@ const Notifications = () => {
         const statusColors = {
           COMPLETED: 'text-emerald-700 bg-emerald-50 border-emerald-200',
           SENDING: 'text-blue-700 bg-blue-50 border-blue-200',
-          SCHEDULED: 'text-amber-700 bg-amber-50 border-amber-200',
           DRAFT: 'text-gray-700 bg-gray-50 border-gray-200',
           FAILED: 'text-red-700 bg-red-50 border-red-200',
           CANCELLED: 'text-gray-400 bg-gray-100 border-gray-200'
@@ -319,7 +372,7 @@ const Notifications = () => {
                 <span>Reset Stuck</span>
               </button>
             )}
-            {(c.status === 'SCHEDULED' || c.status === 'DRAFT') && (
+            {(c.status === 'DRAFT') && (
               <button
                 type="button"
                 onClick={() => handleCancelCampaign(c.id)}
@@ -344,13 +397,39 @@ const Notifications = () => {
         subtitle="Scale push notifications to all registered farmers via FCM Topic broadcast with idempotency and quiet hours protection"
       />
 
-      {/* Quiet Hours Banner */}
+      {/* Quiet Hours Alert Banner */}
       {isQuietHoursNow && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center gap-3 text-amber-800 text-xs font-medium">
-          <Clock className="text-amber-600 flex-shrink-0" size={18} />
-          <div>
-            <span className="font-black uppercase tracking-wide">Quiet Hours Active in India (10:00 PM - 07:00 AM IST):</span> Direct customer pushes are restricted during night hours to avoid disturbing farmers. Please save as Draft or schedule for tomorrow morning.
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900 text-xs">
+          <div className="flex items-center gap-3">
+            <Clock className="text-amber-600 flex-shrink-0" size={20} />
+            <div>
+              <p className="font-black uppercase tracking-wide">
+                Quiet Hours Active in India (10:00 PM - 07:00 AM IST)
+              </p>
+              <p className="text-amber-800 text-[11px] mt-0.5">
+                Farmers ko disturb karne se bachne ke liye push broadcasting restricted hai.
+                {!canOverrideQuietHours && " Marketing managers subah 7:00 AM ke baad bhej sakte hain ya Draft save karein."}
+              </p>
+            </div>
           </div>
+
+          {canOverrideQuietHours ? (
+            <label className="flex items-center gap-2 bg-amber-100/70 border border-amber-300/80 px-3.5 py-2 rounded-xl cursor-pointer hover:bg-amber-100 transition-colors flex-shrink-0">
+              <input
+                type="checkbox"
+                checked={overrideQuietHours}
+                onChange={(e) => setOverrideQuietHours(e.target.checked)}
+                className="w-4 h-4 text-emerald-700 rounded border-amber-400 focus:ring-emerald-600"
+              />
+              <span className="font-black text-amber-950 text-[11px]">
+                Override Quiet Hours (SuperAdmin Emergency)
+              </span>
+            </label>
+          ) : (
+            <span className="text-[10px] bg-amber-200/60 text-amber-900 px-2 py-1 rounded-md font-bold uppercase">
+              Marketing Role (No Override)
+            </span>
+          )}
         </div>
       )}
 
@@ -473,34 +552,63 @@ const Notifications = () => {
                 </div>
               </div>
 
+              {/* Staging & Direct Test Options */}
+              <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200/80 space-y-3">
+                <div className="flex items-center gap-2">
+                  <FlaskConical size={14} className="text-emerald-700" />
+                  <span className="text-[11px] font-black uppercase tracking-wider text-gray-700">Pre-Broadcast Testing Tools</span>
+                </div>
+
+                {/* Test on User UID Input */}
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={testUserUid}
+                    onChange={(e) => setTestUserUid(e.target.value)}
+                    placeholder="Target Tester UID (e.g. 0Qdt0MYazN...)"
+                    className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-mono outline-none focus:ring-1 focus:ring-emerald-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleTestOnUser}
+                    disabled={testingUser || !formData.title || !formData.body || !testUserUid.trim()}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    <UserCheck size={13} />
+                    <span>{testingUser ? 'Sending...' : 'Test on User Device'}</span>
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleTestSend(false)}
+                    disabled={testing || !formData.title || !formData.body}
+                    className="px-3.5 py-2 bg-white hover:bg-emerald-50 text-emerald-900 border border-emerald-200 rounded-xl text-[11px] font-black transition-all flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Smartphone size={13} />
+                    <span>{testing ? 'Sending...' : 'Test on My Device'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleTestSend(true)}
+                    disabled={testing || !formData.title || !formData.body}
+                    className="px-3.5 py-2 bg-white hover:bg-blue-50 text-blue-900 border border-blue-200 rounded-xl text-[11px] font-black transition-all flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Target size={13} />
+                    <span>Test Topic (test_all)</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Action Buttons */}
               <div className="pt-2 flex flex-wrap gap-3">
                 <button
                   type="button"
-                  onClick={() => handleTestSend(false)}
-                  disabled={testing || !formData.title || !formData.body}
-                  className="flex-1 min-w-[140px] px-4 py-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
-                  title="Sends push strictly to your admin registered devices"
-                >
-                  <FlaskConical size={14} />
-                  <span>{testing ? 'Sending...' : 'Test on My Device'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleTestSend(true)}
-                  disabled={testing || !formData.title || !formData.body}
-                  className="px-4 py-3 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
-                  title="Sends push to safe test topic: test_all"
-                >
-                  <span>Test Topic (test_all)</span>
-                </button>
-
-                <button
-                  type="button"
                   onClick={handleSaveDraft}
                   disabled={submitting || !formData.title || !formData.body}
-                  className="px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-black transition-all disabled:opacity-50"
+                  className="px-5 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-black transition-all disabled:opacity-50"
                 >
                   Save Draft
                 </button>
@@ -508,8 +616,8 @@ const Notifications = () => {
                 <button
                   type="button"
                   onClick={promptBroadcastConfirm}
-                  disabled={submitting || !formData.title || !formData.body}
-                  className="w-full bg-[#1b5e20] text-white py-3.5 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-900/20 hover:bg-[#2e7d32] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  disabled={submitting || !formData.title || !formData.body || (isQuietHoursNow && !overrideQuietHours && !canOverrideQuietHours)}
+                  className="flex-1 bg-[#1b5e20] text-white py-3.5 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-900/20 hover:bg-[#2e7d32] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   <Send size={15} />
                   <span>Broadcast to ALL Customers Now</span>
@@ -605,16 +713,67 @@ const Notifications = () => {
         />
       </div>
 
-      {/* Confirmation Modal */}
-      <ConfirmDialog
-        isOpen={confirmDialog.isOpen}
-        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
-        onConfirm={confirmDialog.onConfirm}
-        title={confirmDialog.title}
-        message={confirmDialog.message}
-        confirmText="Confirm Broadcast"
-        cancelText="Review Again"
-      />
+      {/* Broadcast Modal with 'SEND' confirmation requirement */}
+      {broadcastModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-300 border border-gray-100">
+            <div className="p-6 text-center space-y-4">
+              <div className="mx-auto h-14 w-14 rounded-2xl flex items-center justify-center bg-red-50 text-red-600">
+                <AlertCircle size={30} />
+              </div>
+
+              <h2 className="text-lg font-black text-gray-900 tracking-tight">
+                Broadcast to ALL Customers?
+              </h2>
+
+              <div className="text-left bg-amber-50 border border-amber-200/80 rounded-xl p-3.5 space-y-1.5 text-xs text-amber-950">
+                <p className="font-bold">⚠️ Critical Action Warning:</p>
+                <p className="text-[11px] leading-relaxed">
+                  Ye push notification topic <b>all_customers</b> par turant deliver hoga. Sabhi customers jinka app notification on hai, unhe alert milega. Ise cancel ya undo nahi kiya ja sakta.
+                </p>
+                {isQuietHoursNow && overrideQuietHours && (
+                  <p className="text-[11px] font-bold text-red-700 pt-1 border-t border-amber-200">
+                    ⚡ SuperAdmin Quiet Hours Override enable hai! Push raat ke samay bhej di jayegi.
+                  </p>
+                )}
+              </div>
+
+              <div className="text-left space-y-2 pt-2">
+                <label className="text-[11px] font-black text-gray-700 block">
+                  Confirm karne ke liye <span className="text-red-600 font-mono font-bold">SEND</span> type karein:
+                </label>
+                <input
+                  type="text"
+                  value={confirmInputText}
+                  onChange={(e) => setConfirmInputText(e.target.value)}
+                  placeholder="Type SEND to confirm"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl font-mono font-black text-xs text-center uppercase tracking-widest focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className="flex p-4 gap-3 bg-gray-50/70 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setBroadcastModalOpen(false)}
+                className="flex-1 px-5 py-3 rounded-xl font-bold text-xs text-gray-600 hover:bg-gray-100 transition-all"
+              >
+                Review Again
+              </button>
+
+              <button
+                type="button"
+                onClick={executeBroadcastImmediately}
+                disabled={confirmInputText.trim().toUpperCase() !== 'SEND' || submitting}
+                className="flex-1 px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-200 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {submitting ? 'Broadcasting...' : 'Confirm & Broadcast'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
