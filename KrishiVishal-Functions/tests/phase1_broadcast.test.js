@@ -227,6 +227,19 @@ async function runPhase1Tests() {
         }
     }
 
+    // 8.7 completedAt field & Timestamp verification
+    try {
+        const campaignsCode = fs.readFileSync(path.join(__dirname, '../messaging/campaigns.js'), 'utf8');
+        const writesCompletedAt = campaignsCode.includes("completedAt: admin.firestore.FieldValue.serverTimestamp()");
+        const queriesCompletedAt = campaignsCode.includes(".where(\"completedAt\", \">=\", startOfDay)");
+        if (!writesCompletedAt || !queriesCompletedAt) {
+            throw new Error(`completedAt mismatch: write=${writesCompletedAt}, query=${queriesCompletedAt}`);
+        }
+        recordPass("8.7 sendCampaign writes Firestore Timestamp to completedAt and query matches exact field name");
+    } catch (e) {
+        recordFail("8.7 completedAt field verification failed", e);
+    }
+
     console.log(`\n======================================================`);
     console.log(`PHASE 1 BROADCAST TEST SUMMARY: ${passed} PASSED, ${failed} FAILED`);
     console.log(`======================================================\n`);
