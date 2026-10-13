@@ -13,6 +13,7 @@ import {
   CheckCircle2, 
   AlertCircle,
   Clock,
+  Calendar,
   Info, 
   Target, 
   Sparkles, 
@@ -82,6 +83,10 @@ const Notifications = () => {
     imageUrl: '',
     deepLink: '/product'
   });
+
+  // Scheduling State
+  const [isScheduled, setIsScheduled] = useState(false);
+  const [scheduledDateTime, setScheduledDateTime] = useState('');
 
   // Real Firestore Master Data for Crops & Pincodes
   const [realCrops, setRealCrops] = useState([]);
@@ -164,6 +169,47 @@ const Notifications = () => {
     const istHours = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCHours();
     return istHours >= 22 || istHours < 7;
   }, []);
+
+  // Check if chosen scheduled time falls into IST Quiet Hours (22:00 PM to 07:00 AM)
+  const isScheduledTimeInQuietHours = useMemo(() => {
+    if (!scheduledDateTime) return false;
+    const schedDate = new Date(scheduledDateTime);
+    if (isNaN(schedDate.getTime())) return false;
+    const istHours = new Date(schedDate.getTime() + 5.5 * 3600 * 1000).getUTCHours();
+    return istHours >= 22 || istHours < 7;
+  }, [scheduledDateTime]);
+
+  const getMinScheduledDateTime = () => {
+    const d = new Date(Date.now() + 2 * 60 * 1000);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const setSchedulePreset = (offsetMinutes) => {
+    const target = new Date(Date.now() + offsetMinutes * 60 * 1000);
+    const pad = (n) => String(n).padStart(2, '0');
+    const formatted = `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}T${pad(target.getHours())}:${pad(target.getMinutes())}`;
+    setScheduledDateTime(formatted);
+    setIsScheduled(true);
+  };
+
+  const setScheduleTomorrowMorning = () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const pad = (n) => String(n).padStart(2, '0');
+    const formatted = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}T09:00`;
+    setScheduledDateTime(formatted);
+    setIsScheduled(true);
+  };
+
+  const setScheduleTomorrowEvening = () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const pad = (n) => String(n).padStart(2, '0');
+    const formatted = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}T17:00`;
+    setScheduledDateTime(formatted);
+    setIsScheduled(true);
+  };
 
   // Listen to notification_campaigns collection
   useEffect(() => {
@@ -362,6 +408,62 @@ const Notifications = () => {
     }
   };
 
+  // 2b. Schedule Campaign for Automated Dispatch
+  const handleScheduleCampaign = async () => {
+    if (!formData.title || !formData.body) {
+      return toast.error('Pehle Title aur Message Body enter karein / Please enter title and body first');
+    }
+    if (!validateAudience()) return;
+
+    if (!scheduledDateTime) {
+      return toast.error('Kripya schedule date aur time select karein / Please select scheduled date and time');
+    }
+
+    const schedDate = new Date(scheduledDateTime);
+    if (isNaN(schedDate.getTime())) {
+      return toast.error('Invalid date format');
+    }
+
+    const now = new Date();
+    if (schedDate.getTime() < now.getTime() + 60 * 1000) {
+      return toast.error('Schedule time kam se kam 1 minute aage ka hona chahiye / Scheduled time must be at least 1 minute in the future');
+    }
+
+    if (schedDate.getTime() > now.getTime() + (30 * 24 * 60 * 60 * 1000)) {
+      return toast.error('Schedule time 30 din se zyada aage ka nahi ho sakta / Cannot schedule more than 30 days in advance');
+    }
+
+    if (isScheduledTimeInQuietHours && !overrideQuietHours && !canOverrideQuietHours) {
+      return toast.error('🌙 Selected time IST Quiet Hours (10:00 PM - 07:00 AM) mein aata hai. Marketing role quiet hours mein schedule nahi kar sakta.');
+    }
+
+    setSubmitting(true);
+    try {
+      const createCampaignFn = httpsCallable(functions, 'createCampaign');
+      const res = await createCampaignFn({
+        title: formData.title,
+        body: formData.body,
+        imageUrl: formData.imageUrl || null,
+        deepLink: formData.deepLink || null,
+        audience: getAudiencePayload(),
+        scheduledAt: schedDate.toISOString(),
+        overrideQuietHours: Boolean(canOverrideQuietHours && overrideQuietHours)
+      });
+
+      if (res.data?.success) {
+        toast.success(`📅 Broadcast scheduled successfully for ${formatDateTime(schedDate)}!`);
+        setFormData({ title: '', body: '', imageUrl: '', deepLink: '/product' });
+        setIsScheduled(false);
+        setScheduledDateTime('');
+      }
+    } catch (err) {
+      console.error("Schedule campaign failed:", err);
+      toast.error('Scheduling failed: ' + formatNotificationError(err, false));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // 3. Dispatch Live Broadcast with 'SEND' confirmation
   const promptBroadcastConfirm = () => {
     if (!formData.title || !formData.body) {
@@ -512,6 +614,12 @@ const Notifications = () => {
       render: (c) => (
         <div className="space-y-0.5 text-xs text-gray-500">
           <div><span className="font-bold">Created:</span> {formatDateTime(c.createdAt)}</div>
+          {c.scheduledAt && (
+            <div className="text-purple-700 font-semibold flex items-center gap-1">
+              <Calendar size={11} className="inline flex-shrink-0" />
+              <span><span className="font-bold">Scheduled:</span> {formatDateTime(c.scheduledAt)}</span>
+            </div>
+          )}
           {c.completedAt && (
             <div className="text-emerald-700 font-semibold"><span className="font-bold">Completed:</span> {formatDateTime(c.completedAt)}</div>
           )}
@@ -523,6 +631,7 @@ const Notifications = () => {
       render: (c) => {
         const statusColors = {
           COMPLETED: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+          SCHEDULED: 'text-purple-700 bg-purple-50 border-purple-200',
           SENDING: 'text-blue-700 bg-blue-50 border-blue-200',
           DRAFT: 'text-gray-700 bg-gray-50 border-gray-200',
           FAILED: 'text-red-700 bg-red-50 border-red-200',
@@ -545,13 +654,13 @@ const Notifications = () => {
                 <span>Reset Stuck</span>
               </button>
             )}
-            {(c.status === 'DRAFT') && (
+            {(c.status === 'DRAFT' || c.status === 'SCHEDULED') && (
               <button
                 type="button"
                 onClick={() => handleCancelCampaign(c.id)}
                 disabled={cancellingId === c.id}
                 className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50 text-xs flex items-center gap-1"
-                title="Cancel Campaign"
+                title={c.status === 'SCHEDULED' ? 'Cancel Scheduled Campaign' : 'Cancel Campaign'}
               >
                 <Ban size={13} />
                 <span>Cancel</span>
@@ -972,6 +1081,109 @@ const Notifications = () => {
                 </div>
               </div>
 
+              {/* Schedule for Later Card */}
+              <div className="p-4 bg-purple-50/60 rounded-2xl border border-purple-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Calendar size={15} className="text-purple-700" />
+                    <span className="text-[11px] font-black uppercase tracking-wider text-purple-900">
+                      Schedule Broadcast (स्वचालित शेड्यूलिंग)
+                    </span>
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-1 rounded-xl border border-purple-200 hover:border-purple-300 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={isScheduled}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setIsScheduled(val);
+                        if (val && !scheduledDateTime) {
+                          setSchedulePreset(30);
+                        }
+                      }}
+                      className="w-4 h-4 text-purple-600 rounded border-purple-300 focus:ring-purple-500"
+                    />
+                    <span className="text-xs font-black text-purple-950">
+                      {isScheduled ? 'Scheduled Mode ON' : 'Schedule for Later'}
+                    </span>
+                  </label>
+                </div>
+
+                {isScheduled && (
+                  <div className="pt-2 space-y-3 border-t border-purple-200/60 animate-in fade-in">
+                    <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                      <div className="flex-1 w-full space-y-1">
+                        <label className="text-[10px] font-bold text-purple-900">
+                          Select Date & Time (IST / India Time):
+                        </label>
+                        <input
+                          type="datetime-local"
+                          value={scheduledDateTime}
+                          min={getMinScheduledDateTime()}
+                          onChange={(e) => setScheduledDateTime(e.target.value)}
+                          className="w-full px-3.5 py-2.5 bg-white border border-purple-200 rounded-xl text-xs font-bold font-mono text-purple-950 outline-none focus:ring-2 focus:ring-purple-400"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Quick Presets */}
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-bold text-purple-800 block">Quick Schedule Shortcuts:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setSchedulePreset(30)}
+                          className="px-2.5 py-1 bg-white hover:bg-purple-100/70 border border-purple-200 text-purple-900 rounded-lg text-[11px] font-bold transition-all"
+                        >
+                          ⚡ In 30 Mins
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSchedulePreset(120)}
+                          className="px-2.5 py-1 bg-white hover:bg-purple-100/70 border border-purple-200 text-purple-900 rounded-lg text-[11px] font-bold transition-all"
+                        >
+                          ⏰ In 2 Hours
+                        </button>
+                        <button
+                          type="button"
+                          onClick={setScheduleTomorrowMorning}
+                          className="px-2.5 py-1 bg-white hover:bg-purple-100/70 border border-purple-200 text-purple-900 rounded-lg text-[11px] font-bold transition-all"
+                        >
+                          🌅 Tomorrow 9:00 AM
+                        </button>
+                        <button
+                          type="button"
+                          onClick={setScheduleTomorrowEvening}
+                          className="px-2.5 py-1 bg-white hover:bg-purple-100/70 border border-purple-200 text-purple-900 rounded-lg text-[11px] font-bold transition-all"
+                        >
+                          🌇 Tomorrow 5:00 PM
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Quiet Hours Warning for Scheduled Time */}
+                    {isScheduledTimeInQuietHours && (
+                      <div className="p-2.5 bg-amber-100/80 border border-amber-300 rounded-xl text-amber-950 text-[11px] font-medium flex items-start gap-2">
+                        <Clock size={15} className="text-amber-700 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold">⚠️ Warning: Selected time falls in Quiet Hours (10:00 PM - 07:00 AM IST)</p>
+                          <p className="text-[10px] text-amber-900 mt-0.5">
+                            {canOverrideQuietHours 
+                              ? "SuperAdmin override checkbox enable hona chahiye varna scheduler broadcast skip kar dega."
+                              : "Marketing role quiet hours mein schedule nahi kar sakta. Kripya 07:00 AM ke baad ka samay chunein."}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    <p className="text-[10px] text-purple-700/80 font-medium">
+                      ℹ️ Cloud Scheduler har 1 minute mein scheduled notifications check karke automatically broadcast dispatch karega.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {/* Action Buttons */}
               <div className="pt-2 flex flex-wrap gap-3">
                 <button
@@ -983,17 +1195,31 @@ const Notifications = () => {
                   Save Draft
                 </button>
 
-                <button
-                  type="button"
-                  onClick={promptBroadcastConfirm}
-                  disabled={submitting || !formData.title || !formData.body || (isQuietHoursNow && !overrideQuietHours && !canOverrideQuietHours)}
-                  className="flex-1 bg-[#1b5e20] text-white py-3.5 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-900/20 hover:bg-[#2e7d32] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  <Send size={15} />
-                  <span>
-                    Broadcast to {audienceType === 'CROP' ? (selectedCrop === 'CUSTOM' ? (customCrop || 'Crop') : selectedCrop) : audienceType === 'PINCODE' ? `Pincode ${targetPincode || ''}` : 'ALL Customers'} Now
-                  </span>
-                </button>
+                {isScheduled ? (
+                  <button
+                    type="button"
+                    onClick={handleScheduleCampaign}
+                    disabled={submitting || !formData.title || !formData.body || !scheduledDateTime || (isScheduledTimeInQuietHours && !overrideQuietHours && !canOverrideQuietHours)}
+                    className="flex-1 bg-purple-700 text-white py-3.5 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-purple-900/20 hover:bg-purple-800 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <Calendar size={15} />
+                    <span>
+                      {submitting ? 'Scheduling...' : `Schedule for ${scheduledDateTime ? formatDateTime(scheduledDateTime) : '...'}`}
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={promptBroadcastConfirm}
+                    disabled={submitting || !formData.title || !formData.body || (isQuietHoursNow && !overrideQuietHours && !canOverrideQuietHours)}
+                    className="flex-1 bg-[#1b5e20] text-white py-3.5 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-900/20 hover:bg-[#2e7d32] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <Send size={15} />
+                    <span>
+                      Broadcast to {audienceType === 'CROP' ? (selectedCrop === 'CUSTOM' ? (customCrop || 'Crop') : selectedCrop) : audienceType === 'PINCODE' ? `Pincode ${targetPincode || ''}` : 'ALL Customers'} Now
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1036,7 +1262,7 @@ const Notifications = () => {
                   </div>
                   <span className="font-bold text-gray-200">Krishi Vishal</span>
                   <span>•</span>
-                  <span>just now</span>
+                  <span>{isScheduled && scheduledDateTime ? `📅 ${formatDateTime(scheduledDateTime)}` : 'just now'}</span>
                 </div>
                 <span className="text-[10px] font-mono text-emerald-400">krishi_offers_channel</span>
               </div>
