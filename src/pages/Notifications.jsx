@@ -28,16 +28,18 @@ import toast from 'react-hot-toast';
 
 const PRESET_TEMPLATES = [
   {
+    label: '🍄 Amistar Fungicide (Syngenta)',
+    title: '🍄 अमिस्टार फफूंदनाशक पर विशेष छूट',
+    body: 'धान व सब्जियों को फफूंद रोगों से बचाने के लिए सिंजेंटा अमिस्टार 20% छूट के साथ आज ही ऑर्डर करें।',
+    deepLink: '/product?id=CzAzFSJcsAvCAYApgYGD',
+    imageUrl: 'https://firebasestorage.googleapis.com/v0/b/krishivishal-a9ed7.firebasestorage.app/o/products%2F1789894165988_amistar.jpg?alt=media&token=c0323ee4-8f56-4b04-b4d1-331dc4487685'
+  },
+  {
     label: '🌾 Dhan Rog & Kitnashak Advisory',
     title: '🌾 धान की फसल में कीट रोकथाम',
     body: 'धान की फसल को कीटों से बचाने के लिए प्रमाणित कीटनाशक 20% छूट के साथ आज ही ऑर्डर करें।',
-    deepLink: '/product?id=PROD_DAP_50KG'
-  },
-  {
-    label: '🥦 Gobhi & Sabzi Growth Booster',
-    title: '🥦 गोभी व सब्जी फल-फूल वर्धक',
-    body: 'सब्जियों में अधिक पैदावार के लिए सूक्ष्म पोषक तत्व स्प्रे करें। आज ऑर्डर पर फास्ट डिलीवरी।',
-    deepLink: '/product?id=PROD_UREA_45KG'
+    deepLink: '/product?id=CzAzFSJcsAvCAYApgYGD',
+    imageUrl: 'https://firebasestorage.googleapis.com/v0/b/krishivishal-a9ed7.firebasestorage.app/o/products%2F1789894165988_amistar.jpg?alt=media&token=c0323ee4-8f56-4b04-b4d1-331dc4487685'
   },
   {
     label: '⚡ Flash Offer - Free Delivery Today',
@@ -103,7 +105,8 @@ const Notifications = () => {
       ...prev, 
       title: tpl.title, 
       body: tpl.body, 
-      deepLink: tpl.deepLink || '/product' 
+      deepLink: tpl.deepLink || '/product',
+      imageUrl: tpl.imageUrl || ''
     }));
     toast.success(`Template applied: ${tpl.label}`);
   };
@@ -572,8 +575,7 @@ const Notifications = () => {
                     className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold"
                   >
                     <option value="/product">/product (Product Catalog)</option>
-                    <option value="/product?id=PROD_DAP_50KG">/product?id=PROD_DAP_50KG (DAP Fertilizer)</option>
-                    <option value="/product?id=PROD_UREA_45KG">/product?id=PROD_UREA_45KG (Urea)</option>
+                    <option value="/product?id=CzAzFSJcsAvCAYApgYGD">/product?id=CzAzFSJcsAvCAYApgYGD (Amistar Fungicide - Syngenta)</option>
                     <option value="/order">/order (My Orders)</option>
                   </select>
                 </div>
