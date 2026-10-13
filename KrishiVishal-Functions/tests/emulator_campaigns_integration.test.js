@@ -21,7 +21,6 @@ if (!process.env.FIRESTORE_EMULATOR_HOST) {
 // -------------------------------------------------------------------
 let fcmSendCalls = [];
 let fcmSimulateError = null;
-let fcmMulticastSimulateError = null;
 
 const mockMessaging = {
     send: async (msg) => {
@@ -32,8 +31,8 @@ const mockMessaging = {
         return `mock-msg-${Date.now()}-${Math.random().toString(36).substring(7)}`;
     },
     sendEachForMulticast: async (payload) => {
-        if (fcmMulticastSimulateError) {
-            throw fcmMulticastSimulateError;
+        if (fcmSimulateError) {
+            throw fcmSimulateError;
         }
         fcmSendCalls.push(payload);
         return {
@@ -89,6 +88,13 @@ async function runIntegrationSuite() {
     console.log(`Target: Firestore Emulator at ${process.env.FIRESTORE_EMULATOR_HOST}`);
     console.log("============================================================\n");
 
+    async function resetRateLimits() {
+        await db.collection("admin_rate_limits").doc("campaign_mgmt_" + superAdminContext.uid).delete();
+        await db.collection("admin_rate_limits").doc("campaign_test_" + superAdminContext.uid).delete();
+        await db.collection("admin_rate_limits").doc("campaign_mgmt_" + marketingAdminContext.uid).delete();
+        await db.collection("admin_rate_limits").doc("campaign_test_" + marketingAdminContext.uid).delete();
+    }
+
     // ---------------------------------------------------------------
     // 1. Role Lockdown & Permission Tests across all 5 Callables
     // ---------------------------------------------------------------
@@ -141,9 +147,10 @@ async function runIntegrationSuite() {
     }
 
     // ---------------------------------------------------------------
-    // 2. createCampaign Tests
+    // 2. createCampaign Tests & Scheduling Rejection
     // ---------------------------------------------------------------
     console.log("\n--- 2. Testing createCampaign ---");
+    await resetRateLimits();
 
     // 2.1 Valid Campaign Creation
     let validCampaignId = null;
@@ -167,13 +174,34 @@ async function runIntegrationSuite() {
         const data = snap.data();
         assert.strictEqual(data.title, 'Spring Mustard Seeds Offer');
         assert.strictEqual(data.status, 'DRAFT');
+        assert.strictEqual(data.scheduledAt, null);
         assert.strictEqual(data.createdBy, superAdminContext.uid);
         reportPass("2.1 createCampaign: Valid campaign created with status DRAFT in Firestore");
     } catch (e) {
         reportFail("2.1 createCampaign: Valid campaign creation failed", e);
     }
 
-    // 2.2 Invalid Title (> 65 chars)
+    // 2.2 Reject scheduledAt ('Scheduling is not enabled yet')
+    try {
+        await campaigns.createCampaign.run({
+            data: {
+                title: 'Future Scheduled Campaign',
+                body: 'Valid message body text',
+                deepLink: '/product/123',
+                scheduledAt: '2026-10-20T10:00:00Z'
+            },
+            auth: superAdminContext
+        });
+        reportFail("2.2 createCampaign: Should reject scheduledAt request");
+    } catch (e) {
+        if (e.code === 'invalid-argument' && e.message.includes("Scheduling is not enabled yet")) {
+            reportPass("2.2 createCampaign: Correctly rejects scheduledAt with 'Scheduling is not enabled yet'");
+        } else {
+            reportFail("2.2 createCampaign: Unexpected error for scheduledAt", e);
+        }
+    }
+
+    // 2.3 Invalid Title (> 65 chars)
     try {
         await campaigns.createCampaign.run({
             data: {
@@ -183,16 +211,16 @@ async function runIntegrationSuite() {
             },
             auth: superAdminContext
         });
-        reportFail("2.2 createCampaign: Should reject title > 65 characters");
+        reportFail("2.3 createCampaign: Should reject title > 65 characters");
     } catch (e) {
         if (e.message.includes("65 characters") || e.code === 'invalid-argument') {
-            reportPass("2.2 createCampaign: Rejects title > 65 characters");
+            reportPass("2.3 createCampaign: Rejects title > 65 characters");
         } else {
-            reportFail("2.2 createCampaign: Unexpected error for long title", e);
+            reportFail("2.3 createCampaign: Unexpected error for long title", e);
         }
     }
 
-    // 2.3 Invalid Body (> 240 chars)
+    // 2.4 Invalid Body (> 240 chars)
     try {
         await campaigns.createCampaign.run({
             data: {
@@ -202,16 +230,16 @@ async function runIntegrationSuite() {
             },
             auth: superAdminContext
         });
-        reportFail("2.3 createCampaign: Should reject body > 240 characters");
+        reportFail("2.4 createCampaign: Should reject body > 240 characters");
     } catch (e) {
         if (e.message.includes("240 characters") || e.code === 'invalid-argument') {
-            reportPass("2.3 createCampaign: Rejects body > 240 characters");
+            reportPass("2.4 createCampaign: Rejects body > 240 characters");
         } else {
-            reportFail("2.3 createCampaign: Unexpected error for long body", e);
+            reportFail("2.4 createCampaign: Unexpected error for long body", e);
         }
     }
 
-    // 2.4 Bad deepLink (not in allow-list)
+    // 2.5 Bad deepLink (not in allow-list)
     try {
         await campaigns.createCampaign.run({
             data: {
@@ -221,47 +249,70 @@ async function runIntegrationSuite() {
             },
             auth: superAdminContext
         });
-        reportFail("2.4 createCampaign: Should reject non-allow-listed deepLink");
+        reportFail("2.5 createCampaign: Should reject non-allow-listed deepLink");
     } catch (e) {
         if (e.message.includes("allow-list") || e.code === 'invalid-argument') {
-            reportPass("2.4 createCampaign: Rejects non-allow-listed deepLink");
+            reportPass("2.5 createCampaign: Rejects non-allow-listed deepLink");
         } else {
-            reportFail("2.4 createCampaign: Unexpected error for bad deepLink", e);
+            reportFail("2.5 createCampaign: Unexpected error for bad deepLink", e);
         }
     }
 
-    // 2.5 isQuietHoursIST verification
+    // 2.6 isQuietHoursIST verification with clean getNowIST clock injection
     try {
         const morningTime = new Date('2026-10-13T04:30:00Z'); // 10:00 AM IST -> Not quiet
         const nightTime = new Date('2026-10-13T17:00:00Z');   // 10:30 PM IST -> Quiet
         assert.strictEqual(campaigns.isQuietHoursIST(morningTime), false);
         assert.strictEqual(campaigns.isQuietHoursIST(nightTime), true);
-        reportPass("2.5 isQuietHoursIST: Correctly computes IST quiet hours window (22:00-07:00 IST)");
+
+        // Test clockProvider injection
+        campaigns.setClockProviderForTesting(() => nightTime);
+        assert.strictEqual(campaigns.isQuietHoursIST(), true);
+        campaigns.setClockProviderForTesting(() => morningTime);
+        assert.strictEqual(campaigns.isQuietHoursIST(), false);
+        campaigns.setClockProviderForTesting(null); // Reset
+
+        reportPass("2.6 isQuietHoursIST: Correctly computes IST quiet hours window via clean clock helper");
     } catch (e) {
-        reportFail("2.5 isQuietHoursIST verification failed", e);
+        reportFail("2.6 isQuietHoursIST verification failed", e);
     }
 
-    // 2.6 checkAdminRateLimit test
+    // 2.7 Dual Rate Limiting (mgmt counter: 15/hr, test counter: 30/hr)
     try {
-        const testAdminUid = "admin-rate-limit-test-uid";
+        const testAdminUid = "admin-dual-rate-test-uid";
+        
+        // Test mgmt counter (max 15/hr)
         for (let i = 0; i < 15; i++) {
-            await campaigns.checkAdminRateLimit(testAdminUid);
+            await campaigns.checkAdminRateLimit(testAdminUid, 'mgmt');
         }
         try {
-            await campaigns.checkAdminRateLimit(testAdminUid);
-            reportFail("2.6 checkAdminRateLimit: Should throw resource-exhausted after 15 calls");
+            await campaigns.checkAdminRateLimit(testAdminUid, 'mgmt');
+            reportFail("2.7 checkAdminRateLimit: Should block 16th mgmt call");
         } catch (reErr) {
-            assert(reErr.message.includes("Rate limit exceeded") || reErr.code === 'resource-exhausted');
-            reportPass("2.6 checkAdminRateLimit: Correctly blocks admin after 15 campaign actions per hour");
+            assert(reErr.message.includes("campaign management actions") || reErr.code === 'resource-exhausted');
+            reportPass("2.7 checkAdminRateLimit: Correctly limits mgmt actions to 15/hr (campaign_mgmt)");
+        }
+
+        // Test test counter (max 30/hr)
+        for (let i = 0; i < 30; i++) {
+            await campaigns.checkAdminRateLimit(testAdminUid, 'test');
+        }
+        try {
+            await campaigns.checkAdminRateLimit(testAdminUid, 'test');
+            reportFail("2.7 checkAdminRateLimit: Should block 31st test call");
+        } catch (reErr) {
+            assert(reErr.message.includes("test notification sends") || reErr.code === 'resource-exhausted');
+            reportPass("2.7 checkAdminRateLimit: Correctly limits test notifications to 30/hr (campaign_test)");
         }
     } catch (e) {
-        reportFail("2.6 checkAdminRateLimit test failed", e);
+        reportFail("2.7 checkAdminRateLimit dual counter test failed", e);
     }
 
     // ---------------------------------------------------------------
     // 3. sendTestNotification Tests (Topic & Task D testUserUid)
     // ---------------------------------------------------------------
     console.log("\n--- 3. Testing sendTestNotification ---");
+    await resetRateLimits();
 
     // 3.1 Topic send: test_all
     try {
@@ -288,7 +339,7 @@ async function runIntegrationSuite() {
         reportFail("3.1 sendTestNotification test_all route failed", e);
     }
 
-    // 3.2 Task D: testUserUid NOT in allow-list -> rejected
+    // 3.2 Task D: testUserUid NOT in allow-list -> rejected BEFORE charging budget
     try {
         await campaigns.sendTestNotification.run({
             data: {
@@ -307,12 +358,18 @@ async function runIntegrationSuite() {
         }
     }
 
-    // 3.3 Task D: testUserUid in allow-list, but NO tokens in users/{uid}/fcm_tokens -> not-found
+    // 3.3 Task D: testUserUid with empty/invalid token docs (no d.data().token) -> throws not-found
     try {
         const allowedUserNoTokens = 'allowed-tester-empty-tokens';
         await db.collection("notification_test_users").doc(allowedUserNoTokens).set({
-            name: 'Tester No Tokens',
+            name: 'Tester No Valid Tokens',
             enabled: true
+        });
+
+        // Subcollection with doc missing 'token' string field (only id)
+        await db.collection("users").doc(allowedUserNoTokens).collection("fcm_tokens").doc("fake_id_without_token_field").set({
+            platform: "android"
+            // token field omitted!
         });
 
         await campaigns.sendTestNotification.run({
@@ -323,16 +380,16 @@ async function runIntegrationSuite() {
             },
             auth: superAdminContext
         });
-        reportFail("3.3 sendTestNotification: Should throw not-found when user has no tokens");
+        reportFail("3.3 sendTestNotification: Should throw not-found when doc lacks token string");
     } catch (e) {
-        if (e.code === 'not-found' && e.message.includes("No active FCM tokens found")) {
-            reportPass("3.3 sendTestNotification: Correctly throws not-found when allow-listed user has 0 tokens");
+        if (e.code === 'not-found' && e.message.includes("No valid FCM token strings found")) {
+            reportPass("3.3 sendTestNotification: Correctly rejects token docs that lack token string (no d.id fallback)");
         } else {
-            reportFail("3.3 sendTestNotification: Unexpected error when tokens missing", e);
+            reportFail("3.3 sendTestNotification: Unexpected error when tokens missing string", e);
         }
     }
 
-    // 3.4 Task D: testUserUid in allow-list, WITH active tokens in users/{uid}/fcm_tokens -> SUCCESS
+    // 3.4 Task D: testUserUid with active string tokens -> SUCCESS
     try {
         fcmSendCalls = [];
         const allowedUserWithTokens = 'allowed-tester-active';
@@ -341,7 +398,7 @@ async function runIntegrationSuite() {
             enabled: true
         });
 
-        // Add 3 tokens to subcollection users/{uid}/fcm_tokens
+        // Add 3 valid token docs
         const userTokensCol = db.collection("users").doc(allowedUserWithTokens).collection("fcm_tokens");
         await userTokensCol.doc("token_dev_1").set({ token: "fcm_token_dev_1", platform: "android" });
         await userTokensCol.doc("token_dev_2").set({ token: "fcm_token_dev_2", platform: "android" });
@@ -373,14 +430,9 @@ async function runIntegrationSuite() {
         assert.strictEqual(auditSnap.size, 1);
         assert.strictEqual(auditSnap.docs[0].data().callerUid, superAdminContext.uid);
 
-        reportPass("3.4 sendTestNotification: Successfully dispatches to specific allow-listed testUserUid tokens & records audit log");
+        reportPass("3.4 sendTestNotification: Successfully dispatches to allow-listed testUserUid using strictly d.data().token");
     } catch (e) {
         reportFail("3.4 sendTestNotification testUserUid flow failed", e);
-    }
-
-    async function resetRateLimits() {
-        await db.collection("admin_rate_limits").doc("campaign_" + superAdminContext.uid).delete();
-        await db.collection("admin_rate_limits").doc("campaign_" + marketingAdminContext.uid).delete();
     }
 
     // ---------------------------------------------------------------
@@ -389,12 +441,11 @@ async function runIntegrationSuite() {
     console.log("\n--- 4. Testing sendCampaign Quiet Hours & Override Controls ---");
     await resetRateLimits();
 
-    // Mock isQuietHoursIST for quiet hours testing
-    const originalIsQuietHours = campaigns.isQuietHoursIST;
+    const nightTimeIST = new Date('2026-10-13T17:00:00Z'); // 10:30 PM IST
 
     // 4.1 Quiet Hours Active: Normal call without override is strictly BLOCKED
     try {
-        campaigns.isQuietHoursIST = () => true; // Force quiet hours simulation
+        campaigns.setClockProviderForTesting(() => nightTimeIST);
 
         const quietCampRef = db.collection("notification_campaigns").doc("camp-quiet-block-test");
         await quietCampRef.set({
@@ -458,11 +509,11 @@ async function runIntegrationSuite() {
     } catch (e) {
         reportFail("4.3 sendCampaign: SuperAdmin quiet hours override failed", e);
     } finally {
-        campaigns.isQuietHoursIST = originalIsQuietHours; // Restore original function
+        campaigns.setClockProviderForTesting(null); // Reset clock provider
     }
 
     // ---------------------------------------------------------------
-    // 5. Parallel Idempotency Test
+    // 5. Parallel Idempotency Test on sendCampaign
     // ---------------------------------------------------------------
     console.log("\n--- 5. Testing Parallel Idempotency on sendCampaign ---");
     await resetRateLimits();
@@ -563,7 +614,7 @@ async function runIntegrationSuite() {
     }
 
     // ---------------------------------------------------------------
-    // 7. resetStuckCampaign Recovery & Time Gate Tests
+    // 7. resetStuckCampaign Recovery, FAILED-only validation, & Warning
     // ---------------------------------------------------------------
     console.log("\n--- 7. Testing resetStuckCampaign ---");
     await resetRateLimits();
@@ -592,7 +643,7 @@ async function runIntegrationSuite() {
         }
     }
 
-    // 7.2 Reset stuck > 5 minutes -> ALLOWED
+    // 7.2 Reject newStatus other than 'FAILED' (e.g. 'DRAFT')
     try {
         const matureStuckCampId = "camp-mature-stuck-test";
         const eightMinutesAgo = new Date(Date.now() - 8 * 60 * 1000);
@@ -603,20 +654,36 @@ async function runIntegrationSuite() {
             audience: { topic: 'all_customers' }
         });
 
+        await campaigns.resetStuckCampaign.run({
+            data: { campaignId: matureStuckCampId, newStatus: 'DRAFT' },
+            auth: superAdminContext
+        });
+        reportFail("7.2 resetStuckCampaign: Should reject newStatus 'DRAFT'");
+    } catch (e) {
+        if (e.code === 'invalid-argument' && e.message.includes("Only 'FAILED' status is allowed")) {
+            reportPass("7.2 resetStuckCampaign: Correctly rejects non-FAILED target status (DRAFT rejected)");
+        } else {
+            reportFail("7.2 resetStuckCampaign: Unexpected error for non-FAILED status", e);
+        }
+    }
+
+    // 7.3 Reset stuck > 5 minutes to FAILED -> ALLOWED & returns warning
+    try {
         const resetRes = await campaigns.resetStuckCampaign.run({
-            data: { campaignId: matureStuckCampId, newStatus: 'FAILED' },
+            data: { campaignId: "camp-mature-stuck-test", newStatus: 'FAILED' },
             auth: superAdminContext
         });
 
         assert.strictEqual(resetRes.success, true);
         assert.strictEqual(resetRes.status, 'FAILED');
         assert(resetRes.elapsedMinutes >= 7);
+        assert(resetRes.warning && resetRes.warning.includes("FCM ne message accept kiya ho sakta hai"), "Warning message must be present");
 
-        const snap = await db.collection("notification_campaigns").doc(matureStuckCampId).get();
+        const snap = await db.collection("notification_campaigns").doc("camp-mature-stuck-test").get();
         assert.strictEqual(snap.data().status, 'FAILED');
-        reportPass("7.2 resetStuckCampaign: Successfully resets campaign stuck in SENDING > 5 minutes");
+        reportPass("7.3 resetStuckCampaign: Successfully resets campaign to FAILED with warning message returned");
     } catch (e) {
-        reportFail("7.2 resetStuckCampaign mature recovery failed", e);
+        reportFail("7.3 resetStuckCampaign mature recovery failed", e);
     }
 
     // ---------------------------------------------------------------

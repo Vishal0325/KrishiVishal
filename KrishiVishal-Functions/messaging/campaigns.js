@@ -51,11 +51,24 @@ function validateCampaignInput(data) {
 }
 
 /**
+ * Clock provider allowing deterministic time-injection for tests and quiet-hours auditing
+ */
+let clockProvider = () => new Date();
+
+function setClockProviderForTesting(fn) {
+    clockProvider = fn || (() => new Date());
+}
+
+function getNowIST(customDate = null) {
+    const d = customDate || clockProvider();
+    return new Date(d.getTime() + (5.5 * 60 * 60 * 1000));
+}
+
+/**
  * Checks if current time is in IST Quiet Hours (22:00 PM to 07:00 AM IST)
  */
-function isQuietHoursIST(dateObj = new Date()) {
-    // IST is UTC + 5:30
-    const istTime = new Date(dateObj.getTime() + (5.5 * 60 * 60 * 1000));
+function isQuietHoursIST(customDate = null) {
+    const istTime = getNowIST(customDate);
     const hours = istTime.getUTCHours();
     return hours >= 22 || hours < 7;
 }
@@ -98,7 +111,7 @@ function verifyMarketingAdmin(request) {
 }
 
 /**
- * System-Wide & Per-Admin Broadcast Rate Limiting
+ * System-Wide Broadcast Rate Limiting
  * Enforces max 3 ALL-customers broadcast campaigns per day across system.
  */
 async function checkDailyBroadcastRateLimit() {
@@ -116,41 +129,42 @@ async function checkDailyBroadcastRateLimit() {
 }
 
 /**
- * Per-Admin Campaign Creation Rate Limiting
- * Limits individual admin to creating max 15 campaigns per hour to prevent accidental spam/script abuse.
+ * Per-Admin Action Rate Limiting
+ * Counters:
+ * - 'mgmt': doc `campaign_mgmt_${adminUid}`, max 15/hr (createCampaign, cancelCampaign, resetStuckCampaign)
+ * - 'test': doc `campaign_test_${adminUid}`, max 30/hr (sendTestNotification)
  */
-async function checkAdminRateLimit(adminUid) {
+async function checkAdminRateLimit(adminUid, type = 'mgmt') {
     if (!adminUid) return;
-    try {
-        const rateRef = db.collection("admin_rate_limits").doc(`campaign_${adminUid}`);
-        const snap = await rateRef.get();
-        const now = Date.now();
-        const ONE_HOUR = 60 * 60 * 1000;
+    const limit = type === 'test' ? 30 : 15;
+    const docId = type === 'test' ? `campaign_test_${adminUid}` : `campaign_mgmt_${adminUid}`;
+    const rateRef = db.collection("admin_rate_limits").doc(docId);
+    const now = Date.now();
+    const ONE_HOUR = 60 * 60 * 1000;
 
+    await db.runTransaction(async (transaction) => {
+        const snap = await transaction.get(rateRef);
         if (snap.exists) {
             const data = snap.data();
             const windowStart = data.windowStart || 0;
             const count = data.count || 0;
 
             if (now - windowStart < ONE_HOUR) {
-                if (count >= 15) {
-                    throw new HttpsError('resource-exhausted', 'Per-admin rate limit reached (Max 15 campaigns per hour per admin).');
+                if (count >= limit) {
+                    const actionName = type === 'test' ? 'test notification sends' : 'campaign management actions';
+                    throw new HttpsError('resource-exhausted', `Rate limit exceeded. Max ${limit} ${actionName} per hour per admin.`);
                 }
-                await rateRef.update({ count: admin.firestore.FieldValue.increment(1) });
+                transaction.update(rateRef, { count: admin.firestore.FieldValue.increment(1) });
                 return;
             }
         }
 
-        await rateRef.set({
+        transaction.set(rateRef, {
             windowStart: now,
             count: 1,
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
-    } catch (err) {
-        if (err instanceof HttpsError) throw err;
-        // Non-blocking fallback if rate limiting store is unreachable
-        console.warn(`[checkAdminRateLimit] Rate limit check skipped due to error: ${err.message}`);
-    }
+    });
 }
 
 /**
@@ -158,28 +172,20 @@ async function checkAdminRateLimit(adminUid) {
  */
 exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
-    await checkAdminRateLimit(caller.uid);
+
+    // Reject scheduling requests before consuming budget
+    if (request.data && request.data.scheduledAt !== undefined && request.data.scheduledAt !== null) {
+        throw new HttpsError('invalid-argument', 'Scheduling is not enabled yet.');
+    }
 
     const { title, body, imageUrl, deepLink } = validateCampaignInput(request.data);
+
+    // Consume management rate limit budget (15/hr) only after input/role validation
+    await checkAdminRateLimit(caller.uid, 'mgmt');
+
     const idempotencyKey = (request.data.idempotencyKey || '').trim() || db.collection("notification_campaigns").doc().id;
-
-    // Quiet hours handling
-    const scheduledAtRaw = request.data.scheduledAt;
-    let scheduledAt = null;
-    let initialStatus = 'DRAFT';
-
-    const isQuiet = (module.exports.isQuietHoursIST || isQuietHoursIST)();
-    if (scheduledAtRaw) {
-        const scheduledDate = new Date(scheduledAtRaw);
-        if (isNaN(scheduledDate.getTime()) || scheduledDate.getTime() <= Date.now()) {
-            throw new HttpsError('invalid-argument', 'scheduledAt must be a valid future ISO timestamp.');
-        }
-        scheduledAt = scheduledDate;
-        initialStatus = 'SCHEDULED';
-    } else if (isQuiet) {
-        // If created during quiet hours without schedule, force DRAFT or warning
-        initialStatus = 'DRAFT';
-    }
+    const isQuiet = isQuietHoursIST();
+    const initialStatus = 'DRAFT'; // Status SCHEDULED is NEVER created
 
     const campaignRef = db.collection("notification_campaigns").doc(idempotencyKey);
 
@@ -191,7 +197,7 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
         deepLink,
         audience: { type: 'ALL', topic: 'all_customers' },
         status: initialStatus,
-        scheduledAt: scheduledAt ? admin.firestore.Timestamp.fromDate(scheduledAt) : null,
+        scheduledAt: null,
         createdBy: caller.uid,
         creatorEmail: caller.email,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -208,36 +214,38 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
 
 /**
  * 2. sendTestNotification
- * Sends to caller's registered device tokens, or staging test topic 'test_all'.
+ * Sends to target testUserUid, caller device tokens, or staging topic 'test_all'.
  */
 exports.sendTestNotification = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
-    await checkAdminRateLimit(caller.uid);
     const { title, body, imageUrl, deepLink } = validateCampaignInput(request.data);
     const testUserUid = request.data.testUserUid ? String(request.data.testUserUid).trim() : null;
 
     if (testUserUid) {
-        // 1. Verify target in allow-list: notification_test_users/{uid}
+        // 1. Verify target in allow-list BEFORE charging rate limit budget
         const allowSnap = await db.collection("notification_test_users").doc(testUserUid).get();
         if (!allowSnap.exists) {
             throw new HttpsError('permission-denied', `Target UID '${testUserUid}' is not registered in notification_test_users allow-list.`);
         }
 
-        // 2. Fetch tokens strictly from users/{uid}/fcm_tokens subcollection (no root fallback)
+        // 2. Fetch tokens strictly from users/{uid}/fcm_tokens subcollection (no root fallback, strictly d.data().token)
         const tokensSnap = await db.collection("users").doc(testUserUid).collection("fcm_tokens").get();
         if (tokensSnap.empty) {
             throw new HttpsError('not-found', `No active FCM tokens found in users/${testUserUid}/fcm_tokens.`);
         }
 
-        // 3. Extract tokens, limit to max 10
+        // 3. Extract tokens, limit to max 10 (no d.id fallback!)
         const rawTokens = tokensSnap.docs
-            .map(d => (d.data() && d.data().token) || d.id)
+            .map(d => d.data() && d.data().token)
             .filter(t => typeof t === 'string' && t.trim().length > 0);
         
         const tokens = Array.from(new Set(rawTokens)).slice(0, 10);
         if (tokens.length === 0) {
             throw new HttpsError('not-found', `No valid FCM token strings found for test user ${testUserUid}.`);
         }
+
+        // Consume test rate limit budget (30/hr) only after validation passes
+        await checkAdminRateLimit(caller.uid, 'test');
 
         // 4. Send via sendEachForMulticast
         const multicastMessage = {
@@ -306,6 +314,8 @@ exports.sendTestNotification = onCall({ region: ACTIVE_REGION, invoker: 'public'
     const useTestTopic = request.data.useTestTopic === true;
 
     if (useTestTopic) {
+        await checkAdminRateLimit(caller.uid, 'test');
+
         // Safe staging topic: test_all
         const topicMessage = {
             notification: {
@@ -334,34 +344,26 @@ exports.sendTestNotification = onCall({ region: ACTIVE_REGION, invoker: 'public'
 
     // Direct to caller tokens
     const tokensSnap = await db.collection("users").doc(caller.uid).collection("fcm_tokens").get();
-    if (tokensSnap.empty) {
-        // Fallback check root token
+    let tokens = [];
+    if (!tokensSnap.empty) {
+        tokens = tokensSnap.docs
+            .map(d => d.data() && d.data().token)
+            .filter(t => typeof t === 'string' && t.trim().length > 0);
+    }
+    if (tokens.length === 0) {
         const userDoc = await db.collection("users").doc(caller.uid).get();
-        const rootToken = userDoc.exists ? userDoc.data().fcmToken : null;
-        if (!rootToken) {
-            throw new HttpsError('failed-precondition', 'No registered device tokens found for your admin user account.');
-        }
-
-        const msg = {
-            notification: { title, body, ...(imageUrl ? { imageUrl } : {}) },
-            token: rootToken,
-            data: { deepLink: deepLink || '', isTest: 'true' },
-            android: {
-                notification: {
-                    channelId: 'krishi_offers_channel',
-                    icon: 'ic_home',
-                    color: '#2E7D32',
-                    ...(imageUrl ? { imageUrl } : {})
-                }
-            }
-        };
-        const msgId = await admin.messaging().send(msg);
-        return { success: true, mode: 'DIRECT_DEVICE', tokenCount: 1, messageId: msgId };
+        const rootToken = (userDoc.exists && typeof userDoc.data().fcmToken === 'string') ? userDoc.data().fcmToken.trim() : null;
+        if (rootToken) tokens.push(rootToken);
     }
 
-    const tokens = tokensSnap.docs.map(d => (d.data() && d.data().token) || d.id).filter(Boolean);
+    if (tokens.length === 0) {
+        throw new HttpsError('failed-precondition', 'No registered device tokens found for your admin user account.');
+    }
+
+    await checkAdminRateLimit(caller.uid, 'test');
+
     const multicastPayload = {
-        tokens,
+        tokens: tokens.slice(0, 10),
         notification: { title, body, ...(imageUrl ? { imageUrl } : {}) },
         data: { deepLink: deepLink || '', isTest: 'true' },
         android: {
@@ -390,7 +392,6 @@ exports.sendTestNotification = onCall({ region: ACTIVE_REGION, invoker: 'public'
  */
 exports.sendCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
-    await checkAdminRateLimit(caller.uid);
     const { campaignId } = request.data || {};
 
     if (!campaignId || typeof campaignId !== 'string') {
@@ -400,7 +401,7 @@ exports.sendCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: 
     // Rate limit: max 3 broadcast campaigns per day
     await checkDailyBroadcastRateLimit();
 
-    const isQuiet = (module.exports.isQuietHoursIST || isQuietHoursIST)();
+    const isQuiet = isQuietHoursIST();
     const overrideRequested = request.data && request.data.overrideQuietHours === true;
 
     if (isQuiet) {
@@ -521,7 +522,6 @@ exports.sendCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: 
  */
 exports.cancelCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
-    await checkAdminRateLimit(caller.uid);
     const { campaignId } = request.data || {};
 
     if (!campaignId || typeof campaignId !== 'string') {
@@ -551,6 +551,9 @@ exports.cancelCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
         });
     });
 
+    // Consume management budget only after valid cancellation
+    await checkAdminRateLimit(caller.uid, 'mgmt');
+
     await db.collection("audit_logs").add({
         action: 'NOTIFICATION_CAMPAIGN_CANCELLED',
         campaignId,
@@ -564,15 +567,18 @@ exports.cancelCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
 
 /**
  * 5. resetStuckCampaign
- * Recovers campaigns stuck in 'SENDING' status for > 5 minutes by marking them FAILED or allowing retry.
+ * Recovers campaigns stuck in 'SENDING' status for > 5 minutes by marking them FAILED.
  */
 exports.resetStuckCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
-    await checkAdminRateLimit(caller.uid);
     const { campaignId, newStatus = 'FAILED' } = request.data || {};
 
     if (!campaignId || typeof campaignId !== 'string') {
         throw new HttpsError('invalid-argument', 'Valid campaignId is required.');
+    }
+
+    if (newStatus !== 'FAILED') {
+        throw new HttpsError('invalid-argument', "Only 'FAILED' status is allowed when resetting stuck campaigns.");
     }
 
     const campaignRef = db.collection("notification_campaigns").doc(campaignId);
@@ -594,31 +600,41 @@ exports.resetStuckCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', 
             throw new HttpsError('failed-precondition', `Campaign has only been SENDING for ${Math.round(elapsedMinutes)} minutes. Reset is allowed after 5 minutes.`);
         }
 
-        const targetStatus = ['FAILED', 'DRAFT'].includes(newStatus) ? newStatus : 'FAILED';
         t.update(campaignRef, {
-            status: targetStatus,
+            status: 'FAILED',
             recoveryNote: `Stuck in SENDING for ${Math.round(elapsedMinutes)} mins. Reset by ${caller.email}.`,
             recoveredAt: admin.firestore.FieldValue.serverTimestamp(),
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
 
-        return { targetStatus, elapsedMinutes: Math.round(elapsedMinutes) };
+        return { elapsedMinutes: Math.round(elapsedMinutes) };
     });
+
+    // Consume management budget only after valid reset
+    await checkAdminRateLimit(caller.uid, 'mgmt');
 
     await db.collection("audit_logs").add({
         action: 'NOTIFICATION_CAMPAIGN_STUCK_RESET',
         campaignId,
-        newStatus: result.targetStatus,
+        newStatus: 'FAILED',
         performedBy: caller.uid,
         performedByEmail: caller.email,
         timestamp: admin.firestore.FieldValue.serverTimestamp()
     });
 
-    return { success: true, campaignId, status: result.targetStatus, elapsedMinutes: result.elapsedMinutes };
+    return { 
+        success: true, 
+        campaignId, 
+        status: 'FAILED', 
+        elapsedMinutes: result.elapsedMinutes,
+        warning: 'FCM ne message accept kiya ho sakta hai, dobara send karne se pehle admin verify kare.'
+    };
 });
 
 module.exports.validateCampaignInput = validateCampaignInput;
 module.exports.isQuietHoursIST = isQuietHoursIST;
+module.exports.getNowIST = getNowIST;
+module.exports.setClockProviderForTesting = setClockProviderForTesting;
 module.exports.verifyMarketingAdmin = verifyMarketingAdmin;
 module.exports.checkDailyBroadcastRateLimit = checkDailyBroadcastRateLimit;
 module.exports.checkAdminRateLimit = checkAdminRateLimit;
