@@ -83,9 +83,15 @@ const Notifications = () => {
     deepLink: '/product'
   });
 
+  // Real Firestore Master Data for Crops & Pincodes
+  const [realCrops, setRealCrops] = useState([]);
+  const [loadingCrops, setLoadingCrops] = useState(true);
+  const [realPincodes, setRealPincodes] = useState([]);
+  const [loadingPincodes, setLoadingPincodes] = useState(true);
+
   // Audience Targeting State: 'ALL' | 'CROP' | 'PINCODE'
   const [audienceType, setAudienceType] = useState('ALL');
-  const [selectedCrop, setSelectedCrop] = useState('धान (Paddy)');
+  const [selectedCrop, setSelectedCrop] = useState('');
   const [customCrop, setCustomCrop] = useState('');
   const [targetPincode, setTargetPincode] = useState('');
 
@@ -170,6 +176,56 @@ const Notifications = () => {
       setLoading(false);
     });
     return unsubscribe;
+  }, []);
+
+  // Listen to real crops in Firestore
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'crops'), (snapshot) => {
+      const list = snapshot.docs
+        .map(doc => ({ id: doc.id, name: (doc.data().name || doc.id).trim(), isActive: doc.data().isActive !== false }))
+        .filter(c => c.isActive && c.name);
+      setRealCrops(list);
+      setLoadingCrops(false);
+      setSelectedCrop(prev => {
+        if (!prev && list.length > 0) return list[0].name;
+        return prev;
+      });
+    }, (err) => {
+      console.warn("notification_campaigns: crops subscription error:", err.message);
+      setLoadingCrops(false);
+    });
+    return unsub;
+  }, []);
+
+  // Listen to real operational warehouses to populate real serviceable pincodes
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'warehouses'), (snapshot) => {
+      const pinMap = new Map();
+      snapshot.docs.forEach(doc => {
+        const d = doc.data();
+        const pin = (d.pincode ? String(d.pincode) : '').trim();
+        if (pin && /^[1-9][0-9]{5}$/.test(pin)) {
+          if (!pinMap.has(pin)) {
+            pinMap.set(pin, {
+              pincode: pin,
+              name: d.name || d.hubName || `Hub ${pin}`,
+              district: d.district || 'Samastipur'
+            });
+          }
+        }
+      });
+      const list = Array.from(pinMap.values());
+      setRealPincodes(list);
+      setLoadingPincodes(false);
+      setTargetPincode(prev => {
+        if (!prev && list.length > 0) return list[0].pincode;
+        return prev;
+      });
+    }, (err) => {
+      console.warn("notification_campaigns: warehouses subscription error:", err.message);
+      setLoadingPincodes(false);
+    });
+    return unsub;
   }, []);
 
   const applyTemplate = (tpl) => {
@@ -662,28 +718,76 @@ const Notifications = () => {
 
                 {/* Crop Options if CROP selected */}
                 {audienceType === 'CROP' && (
-                  <div className="pt-2 space-y-2 border-t border-gray-200/60 animate-in fade-in">
-                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-wider block">
-                      Target Crop Advisory
-                    </label>
-                    <select
-                      value={selectedCrop}
-                      onChange={(e) => setSelectedCrop(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-800 outline-none focus:ring-1 focus:ring-emerald-600"
-                    >
-                      {POPULAR_CROPS.map((crop) => (
-                        <option key={crop.value} value={crop.value}>
-                          {crop.label} {crop.topic ? `(${crop.topic})` : ''}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="pt-2 space-y-3 border-t border-gray-200/60 animate-in fade-in">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-wider block">
+                        Real Crops from Database ({realCrops.length} Active in Firestore)
+                      </label>
+                      <span className="text-[10px] text-emerald-800 font-bold bg-emerald-100/80 px-2 py-0.5 rounded">
+                        Live Master Data
+                      </span>
+                    </div>
+
+                    {/* Quick Select Chips from Real Database Crops */}
+                    {realCrops.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-bold text-gray-400 block">1-Click Quick Select:</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {realCrops.map((c) => (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => { setSelectedCrop(c.name); setCustomCrop(''); }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-1.5 ${
+                                selectedCrop === c.name
+                                  ? 'bg-emerald-700 text-white border-emerald-800 shadow-sm scale-105'
+                                  : 'bg-white text-gray-700 border-gray-200 hover:border-emerald-300'
+                              }`}
+                            >
+                              <span>🌱</span>
+                              <span>{c.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-gray-400">All Available Crops:</label>
+                      <select
+                        value={selectedCrop}
+                        onChange={(e) => setSelectedCrop(e.target.value)}
+                        className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-800 outline-none focus:ring-1 focus:ring-emerald-600"
+                      >
+                        {realCrops.length > 0 && (
+                          <optgroup label="🌱 Real Database Crops (Firestore)">
+                            {realCrops.map((crop) => {
+                              const clean = crop.name.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+                              return (
+                                <option key={crop.id} value={crop.name}>
+                                  {crop.name} (topic: crop_{clean})
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        )}
+
+                        <optgroup label="🌾 Other Farm Crops">
+                          {POPULAR_CROPS.map((crop) => (
+                            <option key={crop.value} value={crop.value}>
+                              {crop.label} {crop.topic ? `(${crop.topic})` : ''}
+                            </option>
+                          ))}
+                        </optgroup>
+                      </select>
+                    </div>
 
                     {selectedCrop === 'CUSTOM' && (
                       <input
                         type="text"
                         value={customCrop}
                         onChange={(e) => setCustomCrop(e.target.value)}
-                        placeholder="Enter Crop Name (e.g. Chilli, Cotton, Soybean)"
+                        placeholder="Enter Custom Crop Name (e.g. Chilli, Cotton, Soybean)"
                         className="w-full px-3.5 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-800 outline-none focus:ring-1 focus:ring-emerald-600"
                       />
                     )}
@@ -692,21 +796,58 @@ const Notifications = () => {
 
                 {/* Pincode Input if PINCODE selected */}
                 {audienceType === 'PINCODE' && (
-                  <div className="pt-2 space-y-1.5 border-t border-gray-200/60 animate-in fade-in">
+                  <div className="pt-2 space-y-3 border-t border-gray-200/60 animate-in fade-in">
                     <div className="flex justify-between items-center">
                       <label className="text-[10px] font-black text-gray-500 uppercase tracking-wider">
-                        Target Delivery Pincode (6-digit)
+                        Real Serviceable Hub & Customer Pincodes ({realPincodes.length} Active in Database)
                       </label>
-                      <span className="text-[10px] text-gray-400 font-mono">e.g. 844101 (Hajipur), 848101 (Samastipur)</span>
+                      <span className="text-[10px] text-emerald-800 font-bold bg-emerald-100/80 px-2 py-0.5 rounded">
+                        Live Hubs
+                      </span>
                     </div>
-                    <input
-                      type="text"
-                      maxLength={6}
-                      value={targetPincode}
-                      onChange={(e) => setTargetPincode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="e.g. 844101"
-                      className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-mono font-bold text-gray-800 outline-none focus:ring-1 focus:ring-emerald-600"
-                    />
+
+                    {/* Quick Select Cards for Real Operational Pincodes */}
+                    {realPincodes.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-bold text-gray-400 block">1-Click Quick Select:</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                          {realPincodes.map((hub) => (
+                            <button
+                              key={hub.pincode}
+                              type="button"
+                              onClick={() => setTargetPincode(hub.pincode)}
+                              className={`p-2.5 rounded-xl text-left border transition-all flex flex-col justify-between ${
+                                targetPincode === hub.pincode
+                                  ? 'bg-emerald-50 border-emerald-600 text-emerald-950 shadow-sm ring-1 ring-emerald-600'
+                                  : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between w-full">
+                                <span className="text-xs font-black font-mono tracking-wider">{hub.pincode}</span>
+                                <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">
+                                  {hub.district}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-gray-500 font-medium truncate mt-1">{hub.name}</p>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-gray-400">
+                        Target Pincode (6-digit Indian PIN code):
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={6}
+                        value={targetPincode}
+                        onChange={(e) => setTargetPincode(e.target.value.replace(/\D/g, ''))}
+                        placeholder="e.g. 848101 or 848117"
+                        className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-mono font-bold text-gray-800 outline-none focus:ring-1 focus:ring-emerald-600"
+                      />
+                    </div>
                   </div>
                 )}
               </div>
