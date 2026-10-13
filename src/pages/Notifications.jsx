@@ -21,10 +21,25 @@ import {
   Smartphone,
   ShieldCheck,
   Ban,
-  UserCheck
+  UserCheck,
+  Wheat,
+  MapPin
 } from 'lucide-react';
 import { formatDateTime } from '../utils/formatters';
 import toast from 'react-hot-toast';
+
+const POPULAR_CROPS = [
+  { value: 'धान (Paddy)', label: '🌾 धान (Paddy)', topic: 'crop_paddy' },
+  { value: 'गेहूं (Wheat)', label: '🌾 गेहूं (Wheat)', topic: 'crop_wheat' },
+  { value: 'मक्का (Maize)', label: '🌽 मक्का (Maize)', topic: 'crop_maize' },
+  { value: 'आलू (Potato)', label: '🥔 आलू (Potato)', topic: 'crop_potato' },
+  { value: 'फूलगोभी (Gobhi)', label: '🥦 फूलगोभी (Gobhi)', topic: 'crop_gobhi' },
+  { value: 'कद्दू (Kaddu)', label: '🎃 कद्दू (Kaddu)', topic: 'crop_kaddu' },
+  { value: 'सरसों (Sarson)', label: '🌼 सरसों (Sarson)', topic: 'crop_sarson' },
+  { value: 'टमाटर (Tomato)', label: '🍅 टमाटर (Tomato)', topic: 'crop_tomato' },
+  { value: 'प्याज (Onion)', label: '🧅 प्याज (Onion)', topic: 'crop_onion' },
+  { value: 'CUSTOM', label: '✏️ Other / Custom Crop', topic: '' }
+];
 
 const PRESET_TEMPLATES = [
   {
@@ -67,6 +82,63 @@ const Notifications = () => {
     imageUrl: '',
     deepLink: '/product'
   });
+
+  // Audience Targeting State: 'ALL' | 'CROP' | 'PINCODE'
+  const [audienceType, setAudienceType] = useState('ALL');
+  const [selectedCrop, setSelectedCrop] = useState('धान (Paddy)');
+  const [customCrop, setCustomCrop] = useState('');
+  const [targetPincode, setTargetPincode] = useState('');
+
+  const getAudiencePayload = () => {
+    if (audienceType === 'CROP') {
+      const cropVal = selectedCrop === 'CUSTOM' ? customCrop.trim() : selectedCrop;
+      return { type: 'CROP', crop: cropVal };
+    }
+    if (audienceType === 'PINCODE') {
+      return { type: 'PINCODE', pincode: targetPincode.trim() };
+    }
+    return { type: 'ALL' };
+  };
+
+  const getTargetTopic = () => {
+    if (audienceType === 'CROP') {
+      const cropVal = selectedCrop === 'CUSTOM' ? customCrop.trim() : selectedCrop;
+      const clean = (cropVal || '').toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+      return clean ? `crop_${clean}` : 'crop_...';
+    }
+    if (audienceType === 'PINCODE') {
+      return targetPincode.trim() ? `pin_${targetPincode.trim()}` : 'pin_...';
+    }
+    return 'all_customers';
+  };
+
+  const getAudienceDescription = () => {
+    if (audienceType === 'CROP') {
+      const cropVal = selectedCrop === 'CUSTOM' ? (customCrop.trim() || 'Custom') : selectedCrop;
+      return `Targeted to Farmers growing ${cropVal}`;
+    }
+    if (audienceType === 'PINCODE') {
+      return `Targeted to Farmers in Pincode ${targetPincode.trim() || '...'}`;
+    }
+    return 'ALL Registered Customers';
+  };
+
+  const validateAudience = () => {
+    if (audienceType === 'CROP') {
+      const cropVal = selectedCrop === 'CUSTOM' ? customCrop.trim() : selectedCrop;
+      if (!cropVal) {
+        toast.error('Kripya target crop ka naam chunein ya enter karein / Please select or enter a crop');
+        return false;
+      }
+    } else if (audienceType === 'PINCODE') {
+      const pin = targetPincode.trim();
+      if (!/^[1-9][0-9]{5}$/.test(pin)) {
+        toast.error('Kripya valid 6-digit Indian pincode enter karein (e.g. 844101)');
+        return false;
+      }
+    }
+    return true;
+  };
 
   // Direct test user targeting
   const [testUserUid, setTestUserUid] = useState('');
@@ -209,6 +281,7 @@ const Notifications = () => {
     if (!formData.title || !formData.body) {
       return toast.error('Please enter title and body');
     }
+    if (!validateAudience()) return;
 
     setSubmitting(true);
     try {
@@ -217,7 +290,8 @@ const Notifications = () => {
         title: formData.title,
         body: formData.body,
         imageUrl: formData.imageUrl || null,
-        deepLink: formData.deepLink || null
+        deepLink: formData.deepLink || null,
+        audience: getAudiencePayload()
       });
 
       if (res.data?.success) {
@@ -237,6 +311,7 @@ const Notifications = () => {
     if (!formData.title || !formData.body) {
       return toast.error('Please enter title and body for the broadcast');
     }
+    if (!validateAudience()) return;
 
     if (isQuietHoursNow && !overrideQuietHours && !canOverrideQuietHours) {
       return toast.error('🌙 Quiet Hours Active (10:00 PM - 07:00 AM IST): Push broadcasting is restricted for Marketing role.');
@@ -254,13 +329,14 @@ const Notifications = () => {
     setBroadcastModalOpen(false);
     setSubmitting(true);
     try {
-      // Step A: Create the campaign first
+      // Step A: Create the campaign first with audience targeting
       const createCampaignFn = httpsCallable(functions, 'createCampaign');
       const createRes = await createCampaignFn({
         title: formData.title,
         body: formData.body,
         imageUrl: formData.imageUrl || null,
-        deepLink: formData.deepLink || null
+        deepLink: formData.deepLink || null,
+        audience: getAudiencePayload()
       });
 
       const campaignId = createRes.data?.campaignId;
@@ -274,7 +350,8 @@ const Notifications = () => {
       });
 
       if (sendRes.data?.success) {
-        toast.success('🚀 Broadcast successfully dispatched to topic all_customers!');
+        const topicName = sendRes.data?.topic || getTargetTopic();
+        toast.success(`🚀 Broadcast successfully dispatched to topic: ${topicName}!`);
         setFormData({ title: '', body: '', imageUrl: '', deepLink: '/product' });
         setConfirmInputText('');
       }
@@ -350,19 +427,29 @@ const Notifications = () => {
     },
     { 
       header: 'Audience & Target', 
-      render: (c) => (
-        <div>
-          <span className="bg-emerald-50 text-[#1b5e20] border border-emerald-200/60 px-2 py-0.5 rounded text-[10px] font-black uppercase inline-flex items-center gap-1">
-            <Target size={11} /> {c.audience?.topic || 'all_customers'}
-          </span>
-          <p className="text-[10px] text-gray-400 font-mono mt-0.5">Topic Broadcast (All Customers)</p>
-          {c.quietHoursOverridden && (
-            <span className="inline-block mt-1 text-[9px] bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded font-bold">
-              ⚡ Quiet Hours Overridden
+      render: (c) => {
+        const audType = c.audience?.type || 'ALL';
+        const topic = c.audience?.topic || 'all_customers';
+        const label = audType === 'CROP'
+          ? `🌾 Crop: ${c.audience?.crop || 'Custom'}`
+          : audType === 'PINCODE'
+          ? `📍 Pin: ${c.audience?.pincode || ''}`
+          : '👥 All Customers';
+
+        return (
+          <div>
+            <span className="bg-emerald-50 text-[#1b5e20] border border-emerald-200/60 px-2 py-0.5 rounded text-[10px] font-black inline-flex items-center gap-1">
+              <Target size={11} /> {topic}
             </span>
-          )}
-        </div>
-      )
+            <p className="text-[10px] text-gray-500 font-bold mt-0.5">{label}</p>
+            {c.quietHoursOverridden && (
+              <span className="inline-block mt-1 text-[9px] bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded font-bold">
+                ⚡ Quiet Hours Overridden
+              </span>
+            )}
+          </div>
+        );
+      }
     },
     { 
       header: 'Created & Timing', 
@@ -499,17 +586,130 @@ const Notifications = () => {
                 </div>
                 <div>
                   <h2 className="text-base font-black text-gray-900 uppercase tracking-tight">Compose Broadcast</h2>
-                  <p className="text-[10px] text-gray-400 font-bold">FCM Topic: all_customers</p>
+                  <p className="text-[10px] text-gray-400 font-bold">FCM Topic: {getTargetTopic()}</p>
                 </div>
               </div>
 
               <div className="bg-emerald-100/70 border border-emerald-300/80 px-3 py-1.5 rounded-xl text-center">
                 <p className="text-[9px] font-black uppercase text-emerald-900 tracking-wider">Audience</p>
-                <p className="text-xs font-black font-mono text-emerald-950">ALL Registered Customers</p>
+                <p className="text-xs font-black font-mono text-emerald-950">
+                  {audienceType === 'ALL' ? 'ALL Customers' : audienceType === 'CROP' ? 'By Crop' : 'By Pincode'}
+                </p>
               </div>
             </div>
 
             <div className="space-y-5">
+              {/* Audience Targeting Selector */}
+              <div className="space-y-2.5 p-4 bg-gray-50/80 border border-gray-200/80 rounded-2xl">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
+                    <Target size={13} className="text-[#1b5e20]" /> Select Audience Target
+                  </label>
+                  <span className="text-[10px] font-mono font-bold text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded-md">
+                    Topic: {getTargetTopic()}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAudienceType('ALL')}
+                    className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                      audienceType === 'ALL'
+                        ? 'bg-emerald-50 border-[#1b5e20] text-[#1b5e20] shadow-sm'
+                        : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Users size={14} />
+                      <span className="text-xs font-black">All Customers</span>
+                    </div>
+                    <span className="text-[10px] text-gray-400 font-mono mt-1">all_customers</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAudienceType('CROP')}
+                    className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                      audienceType === 'CROP'
+                        ? 'bg-emerald-50 border-[#1b5e20] text-[#1b5e20] shadow-sm'
+                        : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Wheat size={14} />
+                      <span className="text-xs font-black">By Crop</span>
+                    </div>
+                    <span className="text-[10px] text-gray-400 font-mono mt-1">crop_&lt;name&gt;</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAudienceType('PINCODE')}
+                    className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                      audienceType === 'PINCODE'
+                        ? 'bg-emerald-50 border-[#1b5e20] text-[#1b5e20] shadow-sm'
+                        : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <MapPin size={14} />
+                      <span className="text-xs font-black">By Pincode</span>
+                    </div>
+                    <span className="text-[10px] text-gray-400 font-mono mt-1">pin_&lt;pincode&gt;</span>
+                  </button>
+                </div>
+
+                {/* Crop Options if CROP selected */}
+                {audienceType === 'CROP' && (
+                  <div className="pt-2 space-y-2 border-t border-gray-200/60 animate-in fade-in">
+                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-wider block">
+                      Target Crop Advisory
+                    </label>
+                    <select
+                      value={selectedCrop}
+                      onChange={(e) => setSelectedCrop(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-800 outline-none focus:ring-1 focus:ring-emerald-600"
+                    >
+                      {POPULAR_CROPS.map((crop) => (
+                        <option key={crop.value} value={crop.value}>
+                          {crop.label} {crop.topic ? `(${crop.topic})` : ''}
+                        </option>
+                      ))}
+                    </select>
+
+                    {selectedCrop === 'CUSTOM' && (
+                      <input
+                        type="text"
+                        value={customCrop}
+                        onChange={(e) => setCustomCrop(e.target.value)}
+                        placeholder="Enter Crop Name (e.g. Chilli, Cotton, Soybean)"
+                        className="w-full px-3.5 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-800 outline-none focus:ring-1 focus:ring-emerald-600"
+                      />
+                    )}
+                  </div>
+                )}
+
+                {/* Pincode Input if PINCODE selected */}
+                {audienceType === 'PINCODE' && (
+                  <div className="pt-2 space-y-1.5 border-t border-gray-200/60 animate-in fade-in">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-wider">
+                        Target Delivery Pincode (6-digit)
+                      </label>
+                      <span className="text-[10px] text-gray-400 font-mono">e.g. 844101 (Hajipur), 848101 (Samastipur)</span>
+                    </div>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      value={targetPincode}
+                      onChange={(e) => setTargetPincode(e.target.value.replace(/\D/g, ''))}
+                      placeholder="e.g. 844101"
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-mono font-bold text-gray-800 outline-none focus:ring-1 focus:ring-emerald-600"
+                    />
+                  </div>
+                )}
+              </div>
               {/* Title */}
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center ml-1">
@@ -649,7 +849,9 @@ const Notifications = () => {
                   className="flex-1 bg-[#1b5e20] text-white py-3.5 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-900/20 hover:bg-[#2e7d32] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   <Send size={15} />
-                  <span>Broadcast to ALL Customers Now</span>
+                  <span>
+                    Broadcast to {audienceType === 'CROP' ? (selectedCrop === 'CUSTOM' ? (customCrop || 'Crop') : selectedCrop) : audienceType === 'PINCODE' ? `Pincode ${targetPincode || ''}` : 'ALL Customers'} Now
+                  </span>
                 </button>
               </div>
             </div>
@@ -752,13 +954,13 @@ const Notifications = () => {
               </div>
 
               <h2 className="text-lg font-black text-gray-900 tracking-tight">
-                Broadcast to ALL Customers?
+                Broadcast to {audienceType === 'CROP' ? 'Target Crop' : audienceType === 'PINCODE' ? 'Target Pincode' : 'ALL Customers'}?
               </h2>
 
               <div className="text-left bg-amber-50 border border-amber-200/80 rounded-xl p-3.5 space-y-1.5 text-xs text-amber-950">
                 <p className="font-bold">⚠️ Critical Action Warning:</p>
                 <p className="text-[11px] leading-relaxed">
-                  Ye push notification topic <b>all_customers</b> par turant deliver hoga. Sabhi customers jinka app notification on hai, unhe alert milega. Ise cancel ya undo nahi kiya ja sakta.
+                  Ye push notification topic <b className="font-mono text-emerald-800">{getTargetTopic()}</b> ({getAudienceDescription()}) par turant deliver hoga. Sabhi subscribed customers jinka app notification on hai, unhe alert milega. Ise cancel ya undo nahi kiya ja sakta.
                 </p>
                 {isQuietHoursNow && overrideQuietHours && (
                   <p className="text-[11px] font-bold text-red-700 pt-1 border-t border-amber-200">
