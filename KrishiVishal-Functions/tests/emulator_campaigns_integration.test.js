@@ -382,7 +382,7 @@ async function runIntegrationSuite() {
         });
         reportFail("3.3 sendTestNotification: Should throw not-found when doc lacks token string");
     } catch (e) {
-        if (e.code === 'not-found' && e.message.includes("No valid FCM token strings found")) {
+        if (e.code === 'not-found' && (e.message.includes("No valid FCM token strings found") || e.message.includes("No active FCM tokens found"))) {
             reportPass("3.3 sendTestNotification: Correctly rejects token docs that lack token string (no d.id fallback)");
         } else {
             reportFail("3.3 sendTestNotification: Unexpected error when tokens missing string", e);

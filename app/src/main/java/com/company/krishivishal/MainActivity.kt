@@ -263,6 +263,22 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                 deepLinkProductId = null
                 deepLinkTrigger++
                 return
+            } else if (notifTargetId.startsWith("/product") || notifTargetId.contains("product?id=")) {
+                val prodId = notifTargetId.substringAfter("id=").substringBefore("&").ifBlank { notifTargetId.substringAfterLast("/") }
+                if (prodId.isNotBlank() && prodId != "/product") {
+                    deepLinkProductId = prodId
+                    deepLinkOrderId = null
+                    deepLinkTrigger++
+                    return
+                }
+            } else if (notifTargetId.startsWith("/order") || notifTargetId.contains("order?id=")) {
+                val ordId = notifTargetId.substringAfter("id=").substringBefore("&").ifBlank { notifTargetId.substringAfterLast("/") }
+                if (ordId.isNotBlank() && ordId != "/order") {
+                    deepLinkOrderId = ordId
+                    deepLinkProductId = null
+                    deepLinkTrigger++
+                    return
+                }
             }
         }
 

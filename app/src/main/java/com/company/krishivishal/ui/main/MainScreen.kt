@@ -593,7 +593,37 @@ fun MainScreen(
             composable(Screen.Notifications.route) {
                 com.company.krishivishal.ui.notification.NotificationScreen(
                     onBack = { navController.popBackStack() },
-                    onNotificationClick = { /* Handle deep link */ }
+                    onNotificationClick = { notification ->
+                        val target = notification.data?.trim()
+                        when {
+                            !target.isNullOrBlank() && (notification.type == "PRODUCT" || notification.type == "STOCK_AVAILABLE") -> {
+                                navController.navigate(Screen.ProductDetail.createRoute(target))
+                            }
+                            !target.isNullOrBlank() && (notification.type == "ORDER" || notification.type == "ORDER_STATUS_UPDATE" || notification.type == "ORDER_CONFIRMED" || notification.type == "DELIVERY_UPDATE") -> {
+                                navController.navigate(Screen.Tracking.createRoute(target))
+                            }
+                            !target.isNullOrBlank() && target.startsWith("/product") -> {
+                                val prodId = target.substringAfter("id=").substringBefore("&").ifBlank { target.substringAfterLast("/") }
+                                if (prodId.isNotBlank() && prodId != "/product") {
+                                    navController.navigate(Screen.ProductDetail.createRoute(prodId))
+                                } else {
+                                    navController.navigate(Screen.AllProducts.route)
+                                }
+                            }
+                            !target.isNullOrBlank() && target.startsWith("/order") -> {
+                                val ordId = target.substringAfter("id=").substringBefore("&").ifBlank { target.substringAfterLast("/") }
+                                if (ordId.isNotBlank() && ordId != "/order") {
+                                    navController.navigate(Screen.Tracking.createRoute(ordId))
+                                } else {
+                                    navController.navigate(Screen.Orders.route)
+                                }
+                            }
+                            else -> {
+                                // Default fallback if no specific target ID
+                                navController.navigate(Screen.Home.route)
+                            }
+                        }
+                    }
                 )
             }
 

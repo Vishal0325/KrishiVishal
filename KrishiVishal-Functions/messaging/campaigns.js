@@ -84,8 +84,32 @@ function buildFcmMessage({ title, body, imageUrl, deepLink, topic, tokens, campa
         ...(imageUrl ? { imageUrl } : {})
     };
 
+    // Infer type and targetId from deepLink to support Android navigation without app updates
+    let inferredType = 'GENERAL';
+    let productId = null;
+    let orderId = null;
+    let targetId = null;
+
+    if (deepLink) {
+        const prodMatch = deepLink.match(/\/product\?id=([^&#]+)/) || deepLink.match(/\/product\/([^&#/?]+)/);
+        const orderMatch = deepLink.match(/\/order\?id=([^&#]+)/) || deepLink.match(/\/order\/([^&#/?]+)/);
+        if (prodMatch) {
+            inferredType = 'PRODUCT';
+            productId = prodMatch[1];
+            targetId = prodMatch[1];
+        } else if (orderMatch) {
+            inferredType = 'ORDER';
+            orderId = orderMatch[1];
+            targetId = orderMatch[1];
+        }
+    }
+
     const data = {
         deepLink: deepLink || '',
+        type: inferredType,
+        ...(productId ? { productId } : {}),
+        ...(orderId ? { orderId } : {}),
+        ...(targetId ? { targetId } : {}),
         ...(campaignId ? { campaignId } : {}),
         ...(isTest ? { isTest: 'true' } : {}),
         createdAt: new Date().toISOString(),

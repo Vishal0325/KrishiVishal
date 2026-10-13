@@ -77,7 +77,7 @@ open class KrishiVishalFirebaseMessagingService : FirebaseMessagingService() {
                 title = notificationTitle,
                 body = notificationBody,
                 type = type,
-                data = data ?: orderId ?: productId
+                data = data ?: targetId ?: orderId ?: productId ?: deepLink
             )
 
             serviceScope.launch {
