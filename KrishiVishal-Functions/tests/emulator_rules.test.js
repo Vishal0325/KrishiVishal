@@ -1251,6 +1251,28 @@ async function runEmulatorRulesTests() {
         }));
     });
 
+    // 14.7 Client SDK cannot read or write admin_rate_limits
+    await testRule("14.7 Client SDK CANNOT read or write admin_rate_limits", async (env) => {
+        const customer = env.authenticatedContext('customer_dave');
+        const superAdmin = env.authenticatedContext('super_admin_user', { role: 'SuperAdmin' });
+
+        await assertFails(customer.firestore().collection('admin_rate_limits').doc('lim_1').get());
+        await assertFails(customer.firestore().collection('admin_rate_limits').doc('lim_1').set({ count: 1 }));
+        await assertFails(superAdmin.firestore().collection('admin_rate_limits').doc('lim_1').get());
+        await assertFails(superAdmin.firestore().collection('admin_rate_limits').doc('lim_1').set({ count: 1 }));
+    });
+
+    // 14.8 Client SDK cannot read or write notification_test_users
+    await testRule("14.8 Client SDK CANNOT read or write notification_test_users", async (env) => {
+        const customer = env.authenticatedContext('customer_dave');
+        const superAdmin = env.authenticatedContext('super_admin_user', { role: 'SuperAdmin' });
+
+        await assertFails(customer.firestore().collection('notification_test_users').doc('user_1').get());
+        await assertFails(customer.firestore().collection('notification_test_users').doc('user_1').set({ enabled: true }));
+        await assertFails(superAdmin.firestore().collection('notification_test_users').doc('user_1').get());
+        await assertFails(superAdmin.firestore().collection('notification_test_users').doc('user_1').set({ enabled: true }));
+    });
+
     await env.cleanup();
 
     console.log(`\n==========================================`);

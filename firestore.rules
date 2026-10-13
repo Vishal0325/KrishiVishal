@@ -423,6 +423,26 @@ service cloud.firestore {
 
 
     // ============================================================
+    // NOTIFICATION TEST USERS (TARGET ALLOW-LIST)
+    // ============================================================
+
+    match /notification_test_users/{uid} {
+      // Server-managed test user allow-list; strictly closed to client read/write
+      allow read, write: if false;
+    }
+
+
+    // ============================================================
+    // ADMIN RATE LIMITS
+    // ============================================================
+
+    match /admin_rate_limits/{docId} {
+      // Internal backend sliding-window rate limit counters; strictly closed to client read/write
+      allow read, write: if false;
+    }
+
+
+    // ============================================================
     // BROADCAST INBOX (CUSTOMER IN-APP PROMOTIONAL FEED)
     // ============================================================
 

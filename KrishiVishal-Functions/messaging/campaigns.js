@@ -85,10 +85,15 @@ function verifyMarketingAdmin(request) {
         throw new HttpsError('permission-denied', 'Unauthorized. Only SuperAdmin and Marketing managers can manage broadcast campaigns.');
     }
 
+    const isSuperAdmin = (('isSuperAdmin' in token) && token.isSuperAdmin === true) || 
+                         ["SuperAdmin", "SUPER_ADMIN"].includes(roleVal);
+
     return {
         uid: request.auth.uid,
         email: token.email || 'unknown',
-        role: roleVal || (hasAdminFlag ? 'Admin' : 'Marketing')
+        role: roleVal || (hasAdminFlag ? 'Admin' : 'Marketing'),
+        isSuperAdmin,
+        isAdmin: hasAdminFlag
     };
 }
 
@@ -163,6 +168,7 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
     let scheduledAt = null;
     let initialStatus = 'DRAFT';
 
+    const isQuiet = (module.exports.isQuietHoursIST || isQuietHoursIST)();
     if (scheduledAtRaw) {
         const scheduledDate = new Date(scheduledAtRaw);
         if (isNaN(scheduledDate.getTime()) || scheduledDate.getTime() <= Date.now()) {
@@ -170,7 +176,7 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
         }
         scheduledAt = scheduledDate;
         initialStatus = 'SCHEDULED';
-    } else if (isQuietHoursIST()) {
+    } else if (isQuiet) {
         // If created during quiet hours without schedule, force DRAFT or warning
         initialStatus = 'DRAFT';
     }
@@ -191,13 +197,13 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         idempotencyKey,
-        quietHoursBlocked: isQuietHoursIST(),
+        quietHoursBlocked: isQuiet,
         stats: { requested: 0, sent: 0, failed: 0 }
     };
 
     await campaignRef.set(campaignData, { merge: true });
 
-    return { success: true, campaignId: idempotencyKey, status: initialStatus, isQuietHours: isQuietHoursIST() };
+    return { success: true, campaignId: idempotencyKey, status: initialStatus, isQuietHours: isQuiet };
 });
 
 /**
@@ -206,7 +212,97 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
  */
 exports.sendTestNotification = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
+    await checkAdminRateLimit(caller.uid);
     const { title, body, imageUrl, deepLink } = validateCampaignInput(request.data);
+    const testUserUid = request.data.testUserUid ? String(request.data.testUserUid).trim() : null;
+
+    if (testUserUid) {
+        // 1. Verify target in allow-list: notification_test_users/{uid}
+        const allowSnap = await db.collection("notification_test_users").doc(testUserUid).get();
+        if (!allowSnap.exists) {
+            throw new HttpsError('permission-denied', `Target UID '${testUserUid}' is not registered in notification_test_users allow-list.`);
+        }
+
+        // 2. Fetch tokens strictly from users/{uid}/fcm_tokens subcollection (no root fallback)
+        const tokensSnap = await db.collection("users").doc(testUserUid).collection("fcm_tokens").get();
+        if (tokensSnap.empty) {
+            throw new HttpsError('not-found', `No active FCM tokens found in users/${testUserUid}/fcm_tokens.`);
+        }
+
+        // 3. Extract tokens, limit to max 10
+        const rawTokens = tokensSnap.docs
+            .map(d => (d.data() && d.data().token) || d.id)
+            .filter(t => typeof t === 'string' && t.trim().length > 0);
+        
+        const tokens = Array.from(new Set(rawTokens)).slice(0, 10);
+        if (tokens.length === 0) {
+            throw new HttpsError('not-found', `No valid FCM token strings found for test user ${testUserUid}.`);
+        }
+
+        // 4. Send via sendEachForMulticast
+        const multicastMessage = {
+            tokens,
+            notification: {
+                title,
+                body,
+                ...(imageUrl ? { imageUrl } : {})
+            },
+            data: {
+                deepLink: deepLink || '',
+                isTest: 'true',
+                targetUid: testUserUid
+            },
+            android: {
+                notification: {
+                    channelId: 'krishi_offers_channel',
+                    icon: 'ic_home',
+                    color: '#2E7D32',
+                    ...(imageUrl ? { imageUrl } : {})
+                }
+            }
+        };
+
+        const multiRes = await admin.messaging().sendEachForMulticast(multicastMessage);
+
+        // 5. Inspect responses for invalid tokens
+        const invalidTokens = [];
+        if (multiRes.responses) {
+            multiRes.responses.forEach((resp, idx) => {
+                if (!resp.success && resp.error) {
+                    invalidTokens.push({
+                        token: tokens[idx],
+                        code: resp.error.code || 'unknown',
+                        message: resp.error.message || ''
+                    });
+                }
+            });
+        }
+
+        // 6. Audit log entry
+        await db.collection("audit_logs").add({
+            action: 'NOTIFICATION_TEST_SEND',
+            callerUid: caller.uid,
+            callerEmail: caller.email,
+            callerRole: caller.role,
+            targetUid: testUserUid,
+            tokensAttempted: tokens.length,
+            successCount: multiRes.successCount,
+            failureCount: multiRes.failureCount,
+            invalidTokensCount: invalidTokens.length,
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        return {
+            success: true,
+            mode: 'TEST_USER',
+            targetUid: testUserUid,
+            tokensAttempted: tokens.length,
+            successCount: multiRes.successCount,
+            failureCount: multiRes.failureCount,
+            invalidTokens
+        };
+    }
+
     const useTestTopic = request.data.useTestTopic === true;
 
     if (useTestTopic) {
@@ -263,7 +359,7 @@ exports.sendTestNotification = onCall({ region: ACTIVE_REGION, invoker: 'public'
         return { success: true, mode: 'DIRECT_DEVICE', tokenCount: 1, messageId: msgId };
     }
 
-    const tokens = tokensSnap.docs.map(d => d.data().token).filter(Boolean);
+    const tokens = tokensSnap.docs.map(d => (d.data() && d.data().token) || d.id).filter(Boolean);
     const multicastPayload = {
         tokens,
         notification: { title, body, ...(imageUrl ? { imageUrl } : {}) },
@@ -294,6 +390,7 @@ exports.sendTestNotification = onCall({ region: ACTIVE_REGION, invoker: 'public'
  */
 exports.sendCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
+    await checkAdminRateLimit(caller.uid);
     const { campaignId } = request.data || {};
 
     if (!campaignId || typeof campaignId !== 'string') {
@@ -303,8 +400,16 @@ exports.sendCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: 
     // Rate limit: max 3 broadcast campaigns per day
     await checkDailyBroadcastRateLimit();
 
-    if (isQuietHoursIST() && !request.data.overrideQuietHours) {
-        throw new HttpsError('failed-precondition', 'Quiet hours active in India (10:00 PM - 07:00 AM IST). Push broadcasting is restricted.');
+    const isQuiet = (module.exports.isQuietHoursIST || isQuietHoursIST)();
+    const overrideRequested = request.data && request.data.overrideQuietHours === true;
+
+    if (isQuiet) {
+        if (!overrideRequested) {
+            throw new HttpsError('failed-precondition', 'Quiet hours active in India (10:00 PM - 07:00 AM IST). Push broadcasting is restricted.');
+        }
+        if (!caller.isSuperAdmin) {
+            throw new HttpsError('permission-denied', 'Only SuperAdmin role is authorized to override quiet hours.');
+        }
     }
 
     const campaignRef = db.collection("notification_campaigns").doc(campaignId);
@@ -378,6 +483,7 @@ exports.sendCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: 
             status: 'COMPLETED',
             messageId,
             completedAt: admin.firestore.FieldValue.serverTimestamp(),
+            quietHoursOverridden: isQuiet && overrideRequested,
             'stats.sent': 1,
             'stats.failed': 0
         });
@@ -392,6 +498,7 @@ exports.sendCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: 
             performedBy: caller.uid,
             performedByEmail: caller.email,
             performedByRole: caller.role,
+            quietHoursOverridden: isQuiet && overrideRequested,
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
             messageId
         });
@@ -414,6 +521,7 @@ exports.sendCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: 
  */
 exports.cancelCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
+    await checkAdminRateLimit(caller.uid);
     const { campaignId } = request.data || {};
 
     if (!campaignId || typeof campaignId !== 'string') {
@@ -430,6 +538,9 @@ exports.cancelCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
         const data = snap.data();
         if (data.status === 'COMPLETED' || data.status === 'SENDING') {
             throw new HttpsError('failed-precondition', `Cannot cancel a campaign that is already ${data.status}.`);
+        }
+        if (data.status === 'CANCELLED') {
+            throw new HttpsError('failed-precondition', 'Campaign is already cancelled.');
         }
 
         t.update(campaignRef, {
@@ -453,10 +564,11 @@ exports.cancelCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
 
 /**
  * 5. resetStuckCampaign
- * Recovers campaigns stuck in 'SENDING' status for > 15 minutes by marking them FAILED or allowing retry.
+ * Recovers campaigns stuck in 'SENDING' status for > 5 minutes by marking them FAILED or allowing retry.
  */
 exports.resetStuckCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
+    await checkAdminRateLimit(caller.uid);
     const { campaignId, newStatus = 'FAILED' } = request.data || {};
 
     if (!campaignId || typeof campaignId !== 'string') {
@@ -477,8 +589,8 @@ exports.resetStuckCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', 
         const sentAt = data.sentAt ? data.sentAt.toDate().getTime() : 0;
         const elapsedMinutes = (Date.now() - sentAt) / (60 * 1000);
 
-        // Allow reset if stuck for > 5 minutes, or caller is SuperAdmin
-        if (elapsedMinutes < 5 && caller.role !== 'SuperAdmin' && !caller.isAdmin) {
+        // Allow reset strictly after 5 minutes
+        if (elapsedMinutes < 5) {
             throw new HttpsError('failed-precondition', `Campaign has only been SENDING for ${Math.round(elapsedMinutes)} minutes. Reset is allowed after 5 minutes.`);
         }
 
