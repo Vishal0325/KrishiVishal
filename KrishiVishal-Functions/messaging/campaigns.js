@@ -111,6 +111,44 @@ async function checkDailyBroadcastRateLimit() {
 }
 
 /**
+ * Per-Admin Campaign Creation Rate Limiting
+ * Limits individual admin to creating max 15 campaigns per hour to prevent accidental spam/script abuse.
+ */
+async function checkAdminRateLimit(adminUid) {
+    if (!adminUid) return;
+    try {
+        const rateRef = db.collection("admin_rate_limits").doc(`campaign_${adminUid}`);
+        const snap = await rateRef.get();
+        const now = Date.now();
+        const ONE_HOUR = 60 * 60 * 1000;
+
+        if (snap.exists) {
+            const data = snap.data();
+            const windowStart = data.windowStart || 0;
+            const count = data.count || 0;
+
+            if (now - windowStart < ONE_HOUR) {
+                if (count >= 15) {
+                    throw new HttpsError('resource-exhausted', 'Per-admin rate limit reached (Max 15 campaigns per hour per admin).');
+                }
+                await rateRef.update({ count: admin.firestore.FieldValue.increment(1) });
+                return;
+            }
+        }
+
+        await rateRef.set({
+            windowStart: now,
+            count: 1,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+    } catch (err) {
+        if (err instanceof HttpsError) throw err;
+        // Non-blocking fallback if rate limiting store is unreachable
+        console.warn(`[checkAdminRateLimit] Rate limit check skipped due to error: ${err.message}`);
+    }
+}
+
+/**
  * 1. createCampaign
  */
 exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
