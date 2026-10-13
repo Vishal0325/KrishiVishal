@@ -74,6 +74,50 @@ function isQuietHoursIST(customDate = null) {
 }
 
 /**
+ * Shared FCM message builder for topics and multicast tokens.
+ * Guarantees consistent channelId, Android styling, and data payload across topic broadcasts and test sends.
+ */
+function buildFcmMessage({ title, body, imageUrl, deepLink, topic, tokens, campaignId, isTest = false, extraData = {} }) {
+    const notification = {
+        title,
+        body,
+        ...(imageUrl ? { imageUrl } : {})
+    };
+
+    const data = {
+        deepLink: deepLink || '',
+        ...(campaignId ? { campaignId } : {}),
+        ...(isTest ? { isTest: 'true' } : {}),
+        createdAt: new Date().toISOString(),
+        ...extraData
+    };
+
+    const android = {
+        notification: {
+            channelId: 'krishi_offers_channel',
+            icon: 'ic_home',
+            color: '#2E7D32',
+            ...(imageUrl ? { imageUrl } : {})
+        }
+    };
+
+    const payload = {
+        notification,
+        data,
+        android
+    };
+
+    if (topic) {
+        payload.topic = topic;
+    }
+    if (tokens && Array.isArray(tokens)) {
+        payload.tokens = tokens;
+    }
+
+    return payload;
+}
+
+/**
  * SuperAdmin / Marketing role check with defensive token introspection
  * Guarantees no crash on missing token/claims
  */
@@ -248,27 +292,15 @@ exports.sendTestNotification = onCall({ region: ACTIVE_REGION, invoker: 'public'
         await checkAdminRateLimit(caller.uid, 'test');
 
         // 4. Send via sendEachForMulticast
-        const multicastMessage = {
+        const multicastMessage = buildFcmMessage({
             tokens,
-            notification: {
-                title,
-                body,
-                ...(imageUrl ? { imageUrl } : {})
-            },
-            data: {
-                deepLink: deepLink || '',
-                isTest: 'true',
-                targetUid: testUserUid
-            },
-            android: {
-                notification: {
-                    channelId: 'krishi_offers_channel',
-                    icon: 'ic_home',
-                    color: '#2E7D32',
-                    ...(imageUrl ? { imageUrl } : {})
-                }
-            }
-        };
+            title,
+            body,
+            imageUrl,
+            deepLink,
+            isTest: true,
+            extraData: { targetUid: testUserUid }
+        });
 
         const multiRes = await admin.messaging().sendEachForMulticast(multicastMessage);
 
@@ -317,26 +349,14 @@ exports.sendTestNotification = onCall({ region: ACTIVE_REGION, invoker: 'public'
         await checkAdminRateLimit(caller.uid, 'test');
 
         // Safe staging topic: test_all
-        const topicMessage = {
-            notification: {
-                title,
-                body,
-                ...(imageUrl ? { imageUrl } : {})
-            },
-            data: {
-                deepLink: deepLink || '',
-                isTest: 'true'
-            },
-            android: {
-                notification: {
-                    channelId: 'krishi_offers_channel',
-                    icon: 'ic_home',
-                    color: '#2E7D32',
-                    ...(imageUrl ? { imageUrl } : {})
-                }
-            },
-            topic: 'test_all'
-        };
+        const topicMessage = buildFcmMessage({
+            title,
+            body,
+            imageUrl,
+            deepLink,
+            topic: 'test_all',
+            isTest: true
+        });
 
         const response = await admin.messaging().send(topicMessage);
         return { success: true, mode: 'TOPIC', topic: 'test_all', messageId: response };
@@ -362,19 +382,14 @@ exports.sendTestNotification = onCall({ region: ACTIVE_REGION, invoker: 'public'
 
     await checkAdminRateLimit(caller.uid, 'test');
 
-    const multicastPayload = {
+    const multicastPayload = buildFcmMessage({
         tokens: tokens.slice(0, 10),
-        notification: { title, body, ...(imageUrl ? { imageUrl } : {}) },
-        data: { deepLink: deepLink || '', isTest: 'true' },
-        android: {
-            notification: {
-                channelId: 'krishi_offers_channel',
-                icon: 'ic_home',
-                color: '#2E7D32',
-                ...(imageUrl ? { imageUrl } : {})
-            }
-        }
-    };
+        title,
+        body,
+        imageUrl,
+        deepLink,
+        isTest: true
+    });
 
     const multiRes = await admin.messaging().sendEachForMulticast(multicastPayload);
     return {
@@ -442,27 +457,14 @@ exports.sendCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: 
 
     const topic = (campaignToBroadcast.audience && campaignToBroadcast.audience.topic) || 'all_customers';
 
-    const message = {
-        notification: {
-            title: campaignToBroadcast.title,
-            body: campaignToBroadcast.body,
-            ...(campaignToBroadcast.imageUrl ? { imageUrl: campaignToBroadcast.imageUrl } : {})
-        },
-        data: {
-            campaignId: campaignId,
-            deepLink: campaignToBroadcast.deepLink || '',
-            createdAt: new Date().toISOString()
-        },
-        android: {
-            notification: {
-                channelId: 'krishi_offers_channel',
-                icon: 'ic_home',
-                color: '#2E7D32',
-                ...(campaignToBroadcast.imageUrl ? { imageUrl: campaignToBroadcast.imageUrl } : {})
-            }
-        },
-        topic: topic
-    };
+    const message = buildFcmMessage({
+        title: campaignToBroadcast.title,
+        body: campaignToBroadcast.body,
+        imageUrl: campaignToBroadcast.imageUrl,
+        deepLink: campaignToBroadcast.deepLink,
+        topic,
+        campaignId
+    });
 
     try {
         const messageId = await admin.messaging().send(message);
@@ -632,6 +634,7 @@ exports.resetStuckCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', 
 });
 
 module.exports.validateCampaignInput = validateCampaignInput;
+module.exports.buildFcmMessage = buildFcmMessage;
 module.exports.isQuietHoursIST = isQuietHoursIST;
 module.exports.getNowIST = getNowIST;
 module.exports.setClockProviderForTesting = setClockProviderForTesting;

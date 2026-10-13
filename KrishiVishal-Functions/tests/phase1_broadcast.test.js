@@ -240,6 +240,32 @@ async function runPhase1Tests() {
         recordFail("8.7 completedAt field verification failed", e);
     }
 
+    // 8.8 buildFcmMessage Shared FCM Payload Builder Verification
+    try {
+        const payload = campaignsModule.buildFcmMessage({
+            title: "Test Title",
+            body: "Test Body",
+            imageUrl: "https://example.com/banner.jpg",
+            deepLink: "/product?id=123",
+            topic: "all_customers",
+            campaignId: "CAMP_TEST_101"
+        });
+
+        assert.strictEqual(payload.notification.title, "Test Title");
+        assert.strictEqual(payload.notification.body, "Test Body");
+        assert.strictEqual(payload.notification.imageUrl, "https://example.com/banner.jpg");
+        assert.strictEqual(payload.android.notification.channelId, "krishi_offers_channel");
+        assert.strictEqual(payload.android.notification.icon, "ic_home");
+        assert.strictEqual(payload.android.notification.color, "#2E7D32");
+        assert.strictEqual(payload.data.campaignId, "CAMP_TEST_101");
+        assert.strictEqual(payload.data.deepLink, "/product?id=123");
+        assert.strictEqual(payload.topic, "all_customers");
+        assert.ok(typeof payload.data.createdAt === "string");
+        recordPass("8.8 buildFcmMessage generates unified FCM topic and notification structure");
+    } catch (e) {
+        recordFail("8.8 buildFcmMessage verification failed", e);
+    }
+
     console.log(`\n======================================================`);
     console.log(`PHASE 1 BROADCAST TEST SUMMARY: ${passed} PASSED, ${failed} FAILED`);
     console.log(`======================================================\n`);
