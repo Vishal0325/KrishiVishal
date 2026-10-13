@@ -182,6 +182,7 @@ const FUNCTION_MAP = {
     sendCampaign: ['./messaging/campaigns', 'sendCampaign'],
     cancelCampaign: ['./messaging/campaigns', 'cancelCampaign'],
     resetStuckCampaign: ['./messaging/campaigns', 'resetStuckCampaign'],
+    dispatchScheduledCampaigns: ['./messaging/campaigns', 'dispatchScheduledCampaigns'],
     cronCropAdvisory: ['./messaging/cropAdvisory', 'cronCropAdvisory'],
     runCropAdvisoryEngine: ['./messaging/cropAdvisory', 'runCropAdvisoryEngine'],
 

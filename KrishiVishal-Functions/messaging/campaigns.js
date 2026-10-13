@@ -1,4 +1,5 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { db, admin } = require("../core/admin");
 const { REGION } = require("./notifications");
 
@@ -272,9 +273,41 @@ async function checkAdminRateLimit(adminUid, type = 'mgmt') {
 exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
 
-    // Reject scheduling requests before consuming budget
-    if (request.data && request.data.scheduledAt !== undefined && request.data.scheduledAt !== null) {
-        throw new HttpsError('invalid-argument', 'Scheduling is not enabled yet.');
+    let scheduledTimestamp = null;
+    let initialStatus = 'DRAFT';
+    let quietHoursOverridden = false;
+
+    // Validate scheduledAt if provided
+    if (request.data && request.data.scheduledAt !== undefined && request.data.scheduledAt !== null && request.data.scheduledAt !== '') {
+        const schedDate = new Date(request.data.scheduledAt);
+        if (isNaN(schedDate.getTime())) {
+            throw new HttpsError('invalid-argument', 'Invalid scheduledAt format. Must be a valid ISO date string.');
+        }
+
+        const now = clockProvider();
+        // Must be at least 1 minute in the future
+        if (schedDate.getTime() < now.getTime() + 60 * 1000) {
+            throw new HttpsError('invalid-argument', 'scheduledAt must be at least 1 minute in the future.');
+        }
+
+        // Cannot schedule more than 30 days in advance
+        if (schedDate.getTime() > now.getTime() + (30 * 24 * 60 * 60 * 1000)) {
+            throw new HttpsError('invalid-argument', 'scheduledAt cannot be scheduled more than 30 days in advance.');
+        }
+
+        // Check quiet hours at scheduled execution time
+        const isSchedInQuietHours = isQuietHoursIST(schedDate);
+        const overrideRequested = Boolean(request.data.overrideQuietHours);
+
+        if (isSchedInQuietHours) {
+            if (!caller.isSuperAdmin || !overrideRequested) {
+                throw new HttpsError('failed-precondition', 'Scheduled time falls within IST Quiet Hours (10:00 PM - 07:00 AM). Please schedule after 07:00 AM IST or enable SuperAdmin override.');
+            }
+            quietHoursOverridden = true;
+        }
+
+        initialStatus = 'SCHEDULED';
+        scheduledTimestamp = admin.firestore.Timestamp.fromDate(schedDate);
     }
 
     const { title, body, imageUrl, deepLink, audience } = validateCampaignInput(request.data);
@@ -284,7 +317,6 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
 
     const idempotencyKey = (request.data.idempotencyKey || '').trim() || db.collection("notification_campaigns").doc().id;
     const isQuiet = isQuietHoursIST();
-    const initialStatus = 'DRAFT'; // Status SCHEDULED is NEVER created
 
     const campaignRef = db.collection("notification_campaigns").doc(idempotencyKey);
 
@@ -296,7 +328,8 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
         deepLink,
         audience,
         status: initialStatus,
-        scheduledAt: null,
+        scheduledAt: scheduledTimestamp,
+        quietHoursOverridden: quietHoursOverridden || false,
         createdBy: caller.uid,
         creatorEmail: caller.email,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -308,7 +341,13 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
 
     await campaignRef.set(campaignData, { merge: true });
 
-    return { success: true, campaignId: idempotencyKey, status: initialStatus, isQuietHours: isQuiet };
+    return { 
+        success: true, 
+        campaignId: idempotencyKey, 
+        status: initialStatus, 
+        scheduledAt: scheduledTimestamp ? scheduledTimestamp.toDate().toISOString() : null, 
+        isQuietHours: isQuiet 
+    };
 });
 
 /**
@@ -691,6 +730,154 @@ exports.resetStuckCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', 
     };
 });
 
+/**
+ * 6. processDueCampaigns
+ * Atomically scans and dispatches campaigns due for broadcast.
+ * Idempotent: uses Firestore transaction to transition SCHEDULED -> SENDING -> COMPLETED.
+ */
+async function processDueCampaigns(testNow = null) {
+    const now = testNow || clockProvider();
+    const nowTs = admin.firestore.Timestamp.fromDate(now);
+
+    const dueSnap = await db.collection("notification_campaigns")
+        .where("status", "==", "SCHEDULED")
+        .where("scheduledAt", "<=", nowTs)
+        .limit(10)
+        .get();
+
+    if (dueSnap.empty) {
+        return { processed: 0, dispatched: [] };
+    }
+
+    const dispatched = [];
+    for (const doc of dueSnap.docs) {
+        const campaignId = doc.id;
+        let campaignData = null;
+
+        try {
+            await db.runTransaction(async (t) => {
+                const snap = await t.get(doc.ref);
+                if (!snap.exists) return;
+                const d = snap.data();
+                if (d.status !== 'SCHEDULED') return;
+
+                // Enforce quiet hours at execution time unless explicitly overridden
+                const isQuiet = isQuietHoursIST(now);
+                if (isQuiet && !d.quietHoursOverridden) {
+                    console.warn(`[dispatchScheduledCampaigns] Postponing campaign ${campaignId} during IST quiet hours.`);
+                    return;
+                }
+
+                campaignData = d;
+                t.update(doc.ref, {
+                    status: 'SENDING',
+                    sentAt: admin.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    dispatchedBy: 'SYSTEM_SCHEDULER'
+                });
+            });
+        } catch (txErr) {
+            console.warn(`[dispatchScheduledCampaigns] Lock acquisition error for ${campaignId}:`, txErr.message);
+            continue;
+        }
+
+        if (!campaignData) continue;
+
+        // Daily rate limit check for ALL-customer broadcasts
+        const isAllCustomers = !campaignData.audience || campaignData.audience.type === 'ALL';
+        if (isAllCustomers) {
+            try {
+                await checkDailyBroadcastRateLimit();
+            } catch (rateErr) {
+                console.error(`[dispatchScheduledCampaigns] Daily broadcast limit reached for ${campaignId}:`, rateErr.message);
+                await doc.ref.update({
+                    status: 'FAILED',
+                    error: rateErr.message,
+                    failedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                continue;
+            }
+        }
+
+        const topic = (campaignData.audience && campaignData.audience.topic) || 'all_customers';
+        const message = buildFcmMessage({
+            title: campaignData.title,
+            body: campaignData.body,
+            imageUrl: campaignData.imageUrl,
+            deepLink: campaignData.deepLink,
+            topic,
+            campaignId
+        });
+
+        try {
+            const messageId = await admin.messaging().send(message);
+
+            await db.collection("broadcast_inbox").doc(campaignId).set({
+                campaignId,
+                title: campaignData.title,
+                body: campaignData.body,
+                imageUrl: campaignData.imageUrl || null,
+                deepLink: campaignData.deepLink || null,
+                type: 'PROMOTIONAL',
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                topic
+            }, { merge: true });
+
+            await doc.ref.update({
+                status: 'COMPLETED',
+                messageId,
+                completedAt: admin.firestore.FieldValue.serverTimestamp(),
+                'stats.sent': 1,
+                'stats.failed': 0
+            });
+
+            await db.collection("audit_logs").add({
+                action: 'NOTIFICATION_CAMPAIGN_SCHEDULED_DISPATCH',
+                campaignId,
+                title: campaignData.title,
+                audience: campaignData.audience,
+                topic,
+                scheduledAt: campaignData.scheduledAt,
+                performedBy: 'SYSTEM_SCHEDULER',
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                messageId
+            });
+
+            dispatched.push(campaignId);
+        } catch (sendErr) {
+            console.error(`[dispatchScheduledCampaigns] Send failed for ${campaignId}:`, sendErr);
+            await doc.ref.update({
+                status: 'FAILED',
+                error: sendErr.message,
+                failedAt: admin.firestore.FieldValue.serverTimestamp(),
+                'stats.failed': 1
+            });
+        }
+    }
+
+    return { processed: dispatched.length, dispatched };
+}
+
+/**
+ * 7. dispatchScheduledCampaigns
+ * Cloud Scheduler cron running every 1 minute in Asia/Kolkata
+ */
+exports.dispatchScheduledCampaigns = onSchedule({
+    schedule: "every 1 minutes",
+    region: ACTIVE_REGION,
+    timeZone: "Asia/Kolkata"
+}, async (event) => {
+    try {
+        const res = await processDueCampaigns();
+        if (res.processed > 0) {
+            console.log(`[dispatchScheduledCampaigns] Dispatched ${res.processed} scheduled campaigns:`, res.dispatched);
+        }
+    } catch (err) {
+        console.error("[dispatchScheduledCampaigns] Error executing cron:", err);
+    }
+    return null;
+});
+
 module.exports.validateCampaignInput = validateCampaignInput;
 module.exports.buildFcmMessage = buildFcmMessage;
 module.exports.isQuietHoursIST = isQuietHoursIST;
@@ -699,3 +886,4 @@ module.exports.setClockProviderForTesting = setClockProviderForTesting;
 module.exports.verifyMarketingAdmin = verifyMarketingAdmin;
 module.exports.checkDailyBroadcastRateLimit = checkDailyBroadcastRateLimit;
 module.exports.checkAdminRateLimit = checkAdminRateLimit;
+module.exports.processDueCampaigns = processDueCampaigns;

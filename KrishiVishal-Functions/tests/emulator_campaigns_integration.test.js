@@ -181,24 +181,72 @@ async function runIntegrationSuite() {
         reportFail("2.1 createCampaign: Valid campaign creation failed", e);
     }
 
-    // 2.2 Reject scheduledAt ('Scheduling is not enabled yet')
+    // 2.2a Reject scheduledAt in the past
     try {
         await campaigns.createCampaign.run({
             data: {
-                title: 'Future Scheduled Campaign',
+                title: 'Past Scheduled Campaign',
                 body: 'Valid message body text',
                 deepLink: '/product/123',
-                scheduledAt: '2026-10-20T10:00:00Z'
+                scheduledAt: new Date(Date.now() - 3600000).toISOString()
             },
             auth: superAdminContext
         });
-        reportFail("2.2 createCampaign: Should reject scheduledAt request");
+        reportFail("2.2a createCampaign: Should reject past scheduledAt");
     } catch (e) {
-        if (e.code === 'invalid-argument' && e.message.includes("Scheduling is not enabled yet")) {
-            reportPass("2.2 createCampaign: Correctly rejects scheduledAt with 'Scheduling is not enabled yet'");
+        if (e.code === 'invalid-argument' && e.message.includes("at least 1 minute in the future")) {
+            reportPass("2.2a createCampaign: Correctly rejects past scheduledAt");
         } else {
-            reportFail("2.2 createCampaign: Unexpected error for scheduledAt", e);
+            reportFail("2.2a createCampaign: Unexpected error for past scheduledAt", e);
         }
+    }
+
+    // 2.2b Reject scheduledAt in Quiet Hours without override
+    try {
+        const tomorrowQuietUTC = new Date(Date.now() + 24 * 3600 * 1000);
+        tomorrowQuietUTC.setUTCHours(18, 0, 0, 0); // 18:00 UTC = 23:30 IST (Quiet hours)
+        await campaigns.createCampaign.run({
+            data: {
+                title: 'Quiet Hours Scheduled Campaign',
+                body: 'Valid message body text',
+                deepLink: '/product/123',
+                scheduledAt: tomorrowQuietUTC.toISOString(),
+                overrideQuietHours: false
+            },
+            auth: marketingAdminContext
+        });
+        reportFail("2.2b createCampaign: Should reject quiet hours scheduledAt for marketing");
+    } catch (e) {
+        if (e.code === 'failed-precondition' && e.message.includes("Quiet Hours")) {
+            reportPass("2.2b createCampaign: Correctly rejects quiet hours scheduledAt without SuperAdmin override");
+        } else {
+            reportFail("2.2b createCampaign: Unexpected error for quiet hours scheduledAt", e);
+        }
+    }
+
+    // 2.2c Successfully create SCHEDULED campaign for future daytime
+    try {
+        const tomorrowDayUTC = new Date(Date.now() + 24 * 3600 * 1000);
+        tomorrowDayUTC.setUTCHours(4, 30, 0, 0); // 10:00 AM IST
+        const schedRes = await campaigns.createCampaign.run({
+            data: {
+                idempotencyKey: 'camp-future-sched-test',
+                title: 'Future Scheduled Morning Alert',
+                body: 'Good morning farmers! Check latest crop advice.',
+                deepLink: '/product',
+                scheduledAt: tomorrowDayUTC.toISOString()
+            },
+            auth: superAdminContext
+        });
+
+        assert.strictEqual(schedRes.success, true);
+        assert.strictEqual(schedRes.status, 'SCHEDULED');
+        const snap = await db.collection("notification_campaigns").doc('camp-future-sched-test').get();
+        assert.strictEqual(snap.data().status, 'SCHEDULED');
+        assert(snap.data().scheduledAt !== null);
+        reportPass("2.2c createCampaign: Valid campaign created with status SCHEDULED and persisted scheduledAt");
+    } catch (e) {
+        reportFail("2.2c createCampaign: Valid scheduled campaign creation failed", e);
     }
 
     // 2.3 Invalid Title (> 65 chars)
@@ -724,6 +772,83 @@ async function runIntegrationSuite() {
         reportPass("7.3 resetStuckCampaign: Successfully resets campaign to FAILED with warning message returned");
     } catch (e) {
         reportFail("7.3 resetStuckCampaign mature recovery failed", e);
+    }
+
+    // ---------------------------------------------------------------
+    // 8. Testing processDueCampaigns (Scheduled Push Dispatch)
+    // ---------------------------------------------------------------
+    console.log("\n--- 8. Testing processDueCampaigns (Scheduled Push Dispatch) ---");
+
+    // 8.1 processDueCampaigns: Dispatches due campaign and marks COMPLETED
+    try {
+        const dueSchedTime = new Date(Date.now() - 5 * 60 * 1000);
+        await db.collection("notification_campaigns").doc("camp-due-for-dispatch").set({
+            id: "camp-due-for-dispatch",
+            title: "Scheduled Alert Due Now",
+            body: "This alert is scheduled and due for dispatch",
+            deepLink: "/product",
+            audience: { type: 'ALL', topic: 'all_customers' },
+            status: 'SCHEDULED',
+            scheduledAt: admin.firestore.Timestamp.fromDate(dueSchedTime),
+            quietHoursOverridden: true,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        const dispatchRes = await campaigns.processDueCampaigns();
+        assert(dispatchRes.processed >= 1, "Should have processed at least 1 due campaign");
+        assert(dispatchRes.dispatched.includes("camp-due-for-dispatch"), "camp-due-for-dispatch should be dispatched");
+
+        const snap = await db.collection("notification_campaigns").doc("camp-due-for-dispatch").get();
+        assert.strictEqual(snap.data().status, 'COMPLETED');
+        assert(snap.data().messageId && snap.data().messageId.startsWith('mock-msg-'), "MessageId should start with mock-msg-");
+
+        // Check broadcast_inbox
+        const inboxSnap = await db.collection("broadcast_inbox").doc("camp-due-for-dispatch").get();
+        assert.strictEqual(inboxSnap.exists, true);
+        assert.strictEqual(inboxSnap.data().title, "Scheduled Alert Due Now");
+
+        reportPass("8.1 processDueCampaigns: Successfully dispatches due scheduled campaign and sets COMPLETED");
+    } catch (e) {
+        reportFail("8.1 processDueCampaigns: Failed to dispatch due campaign", e);
+    }
+
+    // 8.2 processDueCampaigns: Does NOT dispatch future campaign
+    try {
+        const farFuture = new Date(Date.now() + 48 * 3600 * 1000);
+        await db.collection("notification_campaigns").doc("camp-far-future").set({
+            id: "camp-far-future",
+            title: "Far Future Alert",
+            body: "Not due yet",
+            status: 'SCHEDULED',
+            scheduledAt: admin.firestore.Timestamp.fromDate(farFuture),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        const dispatchRes = await campaigns.processDueCampaigns();
+        assert(!dispatchRes.dispatched.includes("camp-far-future"), "Future campaign must not be dispatched");
+
+        const snap = await db.collection("notification_campaigns").doc("camp-far-future").get();
+        assert.strictEqual(snap.data().status, 'SCHEDULED');
+        reportPass("8.2 processDueCampaigns: Correctly ignores future scheduled campaigns");
+    } catch (e) {
+        reportFail("8.2 processDueCampaigns: Erroneously touched future campaign", e);
+    }
+
+    // 8.3 cancelCampaign: Successfully cancels SCHEDULED campaign
+    try {
+        const cancelRes = await campaigns.cancelCampaign.run({
+            data: { campaignId: "camp-far-future" },
+            auth: superAdminContext
+        });
+
+        assert.strictEqual(cancelRes.success, true);
+        const snap = await db.collection("notification_campaigns").doc("camp-far-future").get();
+        assert.strictEqual(snap.data().status, 'CANCELLED');
+        reportPass("8.3 cancelCampaign: Successfully cancels a SCHEDULED campaign");
+    } catch (e) {
+        reportFail("8.3 cancelCampaign: Failed to cancel SCHEDULED campaign", e);
     }
 
     // ---------------------------------------------------------------
