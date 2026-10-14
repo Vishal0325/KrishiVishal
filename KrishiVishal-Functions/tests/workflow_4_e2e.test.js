@@ -307,7 +307,7 @@ async function runWorkflow4() {
         assert.strictEqual(updatedReturnDoc.refundStatus, 'CREDIT_NOTE_ISSUED', "Refund status must update to CREDIT_NOTE_ISSUED");
         const cnNumber1 = updatedReturnDoc.creditNoteNo;
         assert(cnNumber1, "Credit note number must be generated");
-        assert(cnNumber1.startsWith('KVCN/26-27/'), `CN number must start with KVCN/26-27/: ${cnNumber1}`);
+        assert(cnNumber1.startsWith('CN-SAM-26-'), `CN number must start with CN-SAM-26-: ${cnNumber1}`);
         assert(cnNumber1.length <= 16, `CN number length (${cnNumber1.length}) must be <= 16 chars (Rule 53)`);
         pass(`2a. Full Return approved with QC PASSED: Credit Note ${cnNumber1} issued (length=${cnNumber1.length} <= 16)`);
 
@@ -410,7 +410,7 @@ async function runWorkflow4() {
         });
 
         assert.strictEqual(partialRes.success, true);
-        assert(partialRes.creditNoteNumber.startsWith('KVCN/26-27/'));
+        assert(partialRes.creditNoteNumber.startsWith('CN-SAM-26-'));
         assert(partialRes.creditNoteNumber.length <= 16);
         assert.strictEqual(partialRes.totalRefundAmount, 400, `Partial return amount must be ₹400, got ${partialRes.totalRefundAmount}`);
 

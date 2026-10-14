@@ -207,15 +207,15 @@ async function runSprint1TestSuite() {
 
         console.log("Generated Sequence:", invoiceNumbers.join(", "));
         assert.deepStrictEqual(invoiceNumbers, [
-            "KV/26-27/00001",
-            "KV/26-27/00002",
-            "KV/26-27/00003",
-            "KV/26-27/00004",
-            "KV/26-27/00005"
+            "SAM-26-000000001",
+            "SAM-26-000000002",
+            "SAM-26-000000003",
+            "SAM-26-000000004",
+            "SAM-26-000000005"
         ]);
         assert.strictEqual(invoiceNumbers.length, 5);
         assert.strictEqual(invoiceNumbers.every(n => n.length <= 16), true);
-        pass("3.1 5 parallel concurrent invoice generations generate consecutive non-colliding numbers (KV/26-27/00001 to 00005)");
+        pass("3.1 5 parallel concurrent invoice generations generate consecutive non-colliding numbers (SAM-26-000000001 to 000000005)");
 
         // =================================================================
         // PART 4: IMMUTABLE AUDIT LOG DIFF & FIELD MUTATION CAPTURE

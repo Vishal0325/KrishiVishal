@@ -100,6 +100,7 @@ async function runSprint4TestSuite() {
         };
 
         // Initialize invoice counter
+        store.invoice_counters.set("SAM_26", { currentSequence: 0 });
         store.invoice_counters.set("26-27", { currentSequence: 0 });
 
         // =================================================================
@@ -126,7 +127,7 @@ async function runSprint4TestSuite() {
 
         const codResult = await recognizeOrderDeliveryFinancials(codOrder);
         assert.strictEqual(codResult.success, true);
-        assert.strictEqual(codResult.invoiceNumber, "KV/26-27/00001");
+        assert.strictEqual(codResult.invoiceNumber, "SAM-26-000000001");
         assert.strictEqual(codResult.totalSales, 1180);
         assert.strictEqual(codResult.taxableAmount, 1000);
         assert.strictEqual(codResult.totalTax, 180);
@@ -135,7 +136,7 @@ async function runSprint4TestSuite() {
         // Verify order document updated
         assert(store.orders.has("ORD_SAM_COD_1001"));
         const updatedOrder = store.orders.get("ORD_SAM_COD_1001");
-        assert.strictEqual(updatedOrder.invoiceNumber, "KV/26-27/00001");
+        assert.strictEqual(updatedOrder.invoiceNumber, "SAM-26-000000001");
         assert.strictEqual(updatedOrder.financialStatus, "RECOGNIZED");
         assert.strictEqual(updatedOrder.cgstAmount, 90);
         assert.strictEqual(updatedOrder.sgstAmount, 90);
@@ -172,7 +173,7 @@ async function runSprint4TestSuite() {
         };
 
         const prepaidResult = await recognizeOrderDeliveryFinancials(prepaidOrder);
-        assert.strictEqual(prepaidResult.invoiceNumber, "KV/26-27/00002");
+        assert.strictEqual(prepaidResult.invoiceNumber, "SAM-26-000000002");
         assert.strictEqual(prepaidResult.totalSales, 1180);
 
         const updatedPrepaidOrder = store.orders.get("ORD_UP_PREPAID_2002");
@@ -183,16 +184,16 @@ async function runSprint4TestSuite() {
         const prepaidJE = store.journal_entries.get(prepaidResult.journalEntryId);
         assert.strictEqual(prepaidJE.totalAmount, 1880);
 
-        pass("2.1 Prepaid Inter-State Sale (UP): Gateway Receivable debited and Output IGST credited (Invoice KV/26-27/00002)");
+        pass("2.1 Prepaid Inter-State Sale (UP): Gateway Receivable debited and Output IGST credited (Invoice SAM-26-000000002)");
 
         // =================================================================
         // PART 3: RULE 46 SEQUENTIAL NUMBER ASSIGNMENT
         // =================================================================
         console.log("\n--- PART 3: Rule 46 Sequential Invoicing Verification ---");
 
-        assert.strictEqual(codResult.invoiceNumber, "KV/26-27/00001");
-        assert.strictEqual(prepaidResult.invoiceNumber, "KV/26-27/00002");
-        pass("3.1 Orders assigned consecutive non-colliding Rule 46 Tax Invoice numbers (00001, 00002)");
+        assert.strictEqual(codResult.invoiceNumber, "SAM-26-000000001");
+        assert.strictEqual(prepaidResult.invoiceNumber, "SAM-26-000000002");
+        pass("3.1 Orders assigned consecutive non-colliding Rule 46 Tax Invoice numbers (000000001, 000000002)");
 
         // =================================================================
         // PART 4: PERIOD LOCK GUARD ON ORDER DELIVERY

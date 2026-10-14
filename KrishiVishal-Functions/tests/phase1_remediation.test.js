@@ -211,7 +211,7 @@ async function runPhase1TestSuite() {
         const genResult = await generateAndUploadInvoice(orderId1);
         assert(genResult.success);
         const dispatchedInvoiceNumber = genResult.invoiceNumber;
-        assert(dispatchedInvoiceNumber.startsWith("KV/"), `Invoice number must start with official prefix KV/, got: ${dispatchedInvoiceNumber}`);
+        assert(dispatchedInvoiceNumber.startsWith("SAM-26-"), `Invoice number must start with official prefix SAM-26-, got: ${dispatchedInvoiceNumber}`);
         assert(dispatchedInvoiceNumber.length <= 16, `Rule 46: length must be <= 16, got: ${dispatchedInvoiceNumber.length}`);
 
         // 1.2 Confirm order document has root invoiceNumber assigned
@@ -322,9 +322,9 @@ async function runPhase1TestSuite() {
 
         console.log("Allocated Credit Note Numbers:", cnNumbers.join(", "));
 
-        assert.strictEqual(cnNumbers[0], `KVCN/${testFY}/00001`);
-        assert.strictEqual(cnNumbers[1], `KVCN/${testFY}/00002`);
-        assert.strictEqual(cnNumbers[2], `KVCN/${testFY}/00003`);
+        assert.strictEqual(cnNumbers[0], `CN-SAM-26-000001`);
+        assert.strictEqual(cnNumbers[1], `CN-SAM-26-000002`);
+        assert.strictEqual(cnNumbers[2], `CN-SAM-26-000003`);
 
         // Strict assertion: exactly <= 16 characters!
         assert(cnNumbers.every(cn => cn.length <= 16), `Rule 53 violation: CN length exceeds 16 chars! Lengths: ${cnNumbers.map(c => c.length).join(', ')}`);
@@ -449,7 +449,7 @@ async function runPhase1TestSuite() {
         const numResKey = "RET_NUM_RES_RETRY";
         const numResLockId = deriveLockDocId(`RET_${numResKey}`);
         const numResLockRef = createMockDocRef("credit_note_locks", numResLockId);
-        const preAllocNumber = "KVCN/26-27/00088";
+        const preAllocNumber = "CN-SAM-26-000088";
         await numResLockRef.set({
             lockDocId: numResLockId,
             idempotencyKey: `RET_${numResKey}`,
@@ -478,7 +478,7 @@ async function runPhase1TestSuite() {
         const jePostKey = "RET_JE_POSTED_RETRY";
         const jePostLockId = deriveLockDocId(`RET_${jePostKey}`);
         const jePostLockRef = createMockDocRef("credit_note_locks", jePostLockId);
-        const preJeAllocNumber = "KVCN/26-27/00089";
+        const preJeAllocNumber = "CN-SAM-26-000089";
         const preJeJournalId = "JE_CN_202610_CUSTOM_089";
         // Pre-seed journal entry in store
         store.journal_entries.set(preJeJournalId, {
@@ -523,7 +523,7 @@ async function runPhase1TestSuite() {
         const testJeData = {
             entryId: matchJeId,
             refType: "SALES_RETURN",
-            refId: "KVCN/26-27/00090",
+            refId: "CN-SAM-26-000090",
             periodId: "2026-10",
             date: new Date(),
             memo: "Test Journal Entry Match",

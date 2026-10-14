@@ -143,7 +143,7 @@ async function runEmulatorValidationSuite() {
 
             const createdCn = cnSnap.docs[0].data();
             const cnNumber = createdCn.creditNoteNo;
-            assert.ok(cnNumber.startsWith("KVCN/"), `Valid CN format: ${cnNumber}`);
+            assert.ok(cnNumber.startsWith("CN-SAM-26-"), `Valid CN format: ${cnNumber}`);
 
             // Verify successful responses all point to the exact same creditNoteNumber
             for (const s of successful) {
@@ -925,7 +925,7 @@ async function runEmulatorValidationSuite() {
                 returnRequestId
             });
             assert.strictEqual(recoveryRes.success, true);
-            assert.ok(recoveryRes.creditNoteNumber.startsWith("KVCN/"));
+            assert.ok(recoveryRes.creditNoteNumber.startsWith("CN-SAM-26-"));
 
             const postRecovLock = await lockRef.get();
             assert.strictEqual(postRecovLock.data().status, "COMPLETED");
@@ -937,12 +937,12 @@ async function runEmulatorValidationSuite() {
         {
             const returnRequestId = "RET_EMU_RECOV_NUM_RES_002";
             const orderId = "ORD_EMU_RECOV_002";
-            const originalInvoiceNo = "KV/26-27/00302";
+            const originalInvoiceNo = "SAM-26-000000302";
             const lockDocId = deriveLockDocId(`RET_${returnRequestId}`);
             const lockRef = db.collection("credit_note_locks").doc(lockDocId);
 
-            const reservedNumber = "KVCN/26-27/88801";
-            const reservedId = "KVCN_26-27_88801";
+            const reservedNumber = "CN-SAM-26-088801";
+            const reservedId = "CN-SAM-26-088801";
             const returnedItems = [{ skuId: "SKU_R2", name: "R2", quantity: 1, taxablePrice: 500, costPrice: 350, hsn: "1209", category: "SEEDS" }];
             const taxCalc = calculateTaxForOrder({ shippingState: "Bihar", items: returnedItems });
 
@@ -960,8 +960,7 @@ async function runEmulatorValidationSuite() {
             });
 
             // Capture current counter sequence before call
-            const fy = getCurrentFinancialYear();
-            const counterRef = db.collection("credit_note_counters").doc(fy);
+            const counterRef = db.collection("credit_note_counters").doc("SAM_26");
             const beforeCounterSnap = await counterRef.get();
             const beforeSeq = beforeCounterSnap.exists ? beforeCounterSnap.data().currentSequence : 0;
 
@@ -991,12 +990,12 @@ async function runEmulatorValidationSuite() {
         {
             const returnRequestId = "RET_EMU_RECOV_JE_POST_003";
             const orderId = "ORD_EMU_RECOV_003";
-            const originalInvoiceNo = "KV/26-27/00303";
+            const originalInvoiceNo = "SAM-26-000000303";
             const lockDocId = deriveLockDocId(`RET_${returnRequestId}`);
             const lockRef = db.collection("credit_note_locks").doc(lockDocId);
 
-            const reservedNumber = "KVCN/26-27/88802";
-            const reservedId = "KVCN_26-27_88802";
+            const reservedNumber = "CN-SAM-26-088802";
+            const reservedId = "CN-SAM-26-088802";
             const periodId = getFiscalPeriodId();
             const deterministicJournalId = deriveDeterministicJournalId(`RET_${returnRequestId}`, periodId);
             const returnedItems = [{ skuId: "SKU_R3", name: "R3", quantity: 1, taxablePrice: 1000, costPrice: 700, hsn: "1209", category: "SEEDS" }];
@@ -1091,16 +1090,15 @@ async function runEmulatorValidationSuite() {
             pass(`State 4.4: COMPLETED operation returned existing record with alreadyIssued: true.`);
         }
 
-        // State 4.5: Analysis of sequence gap between counter increment and lock update
+            // State 4.5: Analysis of sequence gap between counter increment and lock update
         {
             // Verify counter transaction semantics:
             // If getNextCreditNoteNumber() succeeds, counter doc in Firestore increments by 1.
-            const fy = getCurrentFinancialYear();
-            const counterRef = db.collection("credit_note_counters").doc(fy);
+            const counterRef = db.collection("credit_note_counters").doc("SAM_26");
             const c1 = await counterRef.get();
-            const seq1 = c1.data().currentSequence;
+            const seq1 = c1.exists ? (Number(c1.data().currentSequence) || 0) : 0;
 
-            const alloc = await getNextCreditNoteNumber();
+            const alloc = await getNextCreditNoteNumber("SAM", "26");
             const c2 = await counterRef.get();
             const seq2 = c2.data().currentSequence;
 
@@ -1112,8 +1110,7 @@ async function runEmulatorValidationSuite() {
         // State 4.6: Atomic Credit Note Number Reservation (reserveNextCreditNoteNumberForLock)
         {
             // 4.6a: Verify atomic counter + lock write in a single Firestore transaction
-            const fy = getCurrentFinancialYear();
-            const counterRef = db.collection("credit_note_counters").doc(fy);
+            const counterRef = db.collection("credit_note_counters").doc("SAM_26");
             const beforeCounterSnap = await counterRef.get();
             const beforeSeq = beforeCounterSnap.exists ? Number(beforeCounterSnap.data().currentSequence) || 0 : 0;
 
@@ -1125,10 +1122,10 @@ async function runEmulatorValidationSuite() {
                 updatedAtMs: Date.now()
             });
 
-            const res1 = await reserveNextCreditNoteNumberForLock(testLockRef, fy, "KVCN");
+            const res1 = await reserveNextCreditNoteNumberForLock(testLockRef, "SAM", "26");
             assert.strictEqual(res1.alreadyReserved, false);
             assert.strictEqual(res1.sequence, beforeSeq + 1);
-            assert.strictEqual(res1.creditNoteNumber, `KVCN/${fy}/${String(beforeSeq + 1).padStart(5, "0")}`);
+            assert.strictEqual(res1.creditNoteNumber, `CN-SAM-26-${String(beforeSeq + 1).padStart(6, "0")}`);
 
             // Verify both counter and lock were updated
             const afterCounterSnap = await counterRef.get();
@@ -1139,7 +1136,7 @@ async function runEmulatorValidationSuite() {
             assert.strictEqual(afterLockSnap.data().sequence, beforeSeq + 1);
 
             // 4.6b: Verify idempotency - Calling reserveNextCreditNoteNumberForLock on the same lock reuses number
-            const res2 = await reserveNextCreditNoteNumberForLock(testLockRef, fy, "KVCN");
+            const res2 = await reserveNextCreditNoteNumberForLock(testLockRef, "SAM", "26");
             assert.strictEqual(res2.alreadyReserved, true);
             assert.strictEqual(res2.creditNoteNumber, res1.creditNoteNumber);
             assert.strictEqual(res2.sequence, res1.sequence);
@@ -1159,14 +1156,14 @@ async function runEmulatorValidationSuite() {
 
             const currentSeqBefore4 = (await counterRef.get()).data().currentSequence;
             const concurrentResults = await Promise.all([
-                reserveNextCreditNoteNumberForLock(concurrentLockRef, fy, "KVCN"),
-                reserveNextCreditNoteNumberForLock(concurrentLockRef, fy, "KVCN"),
-                reserveNextCreditNoteNumberForLock(concurrentLockRef, fy, "KVCN"),
-                reserveNextCreditNoteNumberForLock(concurrentLockRef, fy, "KVCN")
+                reserveNextCreditNoteNumberForLock(concurrentLockRef, "SAM", "26"),
+                reserveNextCreditNoteNumberForLock(concurrentLockRef, "SAM", "26"),
+                reserveNextCreditNoteNumberForLock(concurrentLockRef, "SAM", "26"),
+                reserveNextCreditNoteNumberForLock(concurrentLockRef, "SAM", "26")
             ]);
 
             // All 4 concurrent calls must return the EXACT same credit note number
-            const expectedAllocatedNumber = `KVCN/${fy}/${String(currentSeqBefore4 + 1).padStart(5, "0")}`;
+            const expectedAllocatedNumber = `CN-SAM-26-${String(currentSeqBefore4 + 1).padStart(6, "0")}`;
             for (const r of concurrentResults) {
                 assert.strictEqual(r.creditNoteNumber, expectedAllocatedNumber);
             }
@@ -1294,8 +1291,8 @@ async function runEmulatorValidationSuite() {
         // -------------------------------------------------------------------------
         {
             const retId3 = "RET_EMU_APPROVED_FIRST_001";
-            const beforeData3 = { status: "APPROVED", qcStatus: "PASSED", refundStatus: "CREDIT_NOTE_ISSUED", creditNoteNo: "KVCN/26-27/00005" };
-            const afterData3 = { status: "APPROVED", qcStatus: "PASSED", refundStatus: "CREDIT_NOTE_ISSUED", creditNoteNo: "KVCN/26-27/00005", notes: "Updated note" };
+            const beforeData3 = { status: "APPROVED", qcStatus: "PASSED", refundStatus: "CREDIT_NOTE_ISSUED", creditNoteNo: "CN-SAM-26-000005" };
+            const afterData3 = { status: "APPROVED", qcStatus: "PASSED", refundStatus: "CREDIT_NOTE_ISSUED", creditNoteNo: "CN-SAM-26-000005", notes: "Updated note" };
 
             const res3 = await handleReturnApproved({
                 returnId: retId3,
@@ -1316,14 +1313,14 @@ async function runEmulatorValidationSuite() {
                 generateCreditNoteForReturn({
                     orderId: "ORD_EMU_PARENT_001",
                     returnRequestId: concRetId,
-                    originalInvoiceNo: "KV/26-27/00501",
+                    originalInvoiceNo: "SAM-26-000000501",
                     returnedItems: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600, hsn: "1209", category: "SEEDS" }],
                     shippingState: "Bihar"
                 }),
                 generateCreditNoteForReturn({
                     orderId: "ORD_EMU_PARENT_001",
                     returnRequestId: concRetId,
-                    originalInvoiceNo: "KV/26-27/00501",
+                    originalInvoiceNo: "SAM-26-000000501",
                     returnedItems: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600, hsn: "1209", category: "SEEDS" }],
                     shippingState: "Bihar"
                 })
@@ -1362,20 +1359,20 @@ async function runEmulatorValidationSuite() {
                 idempotencyKey: effectiveKey,
                 returnRequestId: failRetId,
                 status: "NUMBER_RESERVED",
-                creditNoteNumber: "KVCN/26-27/99901",
-                creditNoteId: "KVCN_26-27_99901",
+                creditNoteNumber: "CN-SAM-26-099901",
+                creditNoteId: "CN-SAM-26-099901",
                 updatedAtMs: Date.now() - (LOCK_STALE_TIMEOUT_MS + 5000) // stale
             });
 
             const retryRes = await generateCreditNoteForReturn({
                 orderId: "ORD_EMU_PARENT_001",
                 returnRequestId: failRetId,
-                originalInvoiceNo: "KV/26-27/00501",
+                originalInvoiceNo: "SAM-26-000000501",
                 returnedItems: [{ skuId: "SKU_SEEDS_01", name: "Wheat Seeds 10kg", quantity: 1, taxablePrice: 600, sellingPrice: 600, hsn: "1209", category: "SEEDS" }],
                 shippingState: "Bihar"
             });
 
-            assert.strictEqual(retryRes.creditNoteNumber, "KVCN/26-27/99901", "Retry must reuse previously reserved credit note number");
+            assert.strictEqual(retryRes.creditNoteNumber, "CN-SAM-26-099901", "Retry must reuse previously reserved credit note number");
             pass("Scenario 5.5: Retry after partial failure successfully reuses reserved number.");
         }
 
@@ -1394,7 +1391,7 @@ async function runEmulatorValidationSuite() {
                 paymentMethod: "COD",
                 shippingState: "Bihar",
                 items: [
-                    { skuId: "SKU_PEST_01", name: "Organic Bio-Pesticide", quantity: 1, taxablePrice: 450, sellingPrice: 450, hsn: "3808" }
+                    { skuId: "SKU_PEST_01", name: "Organic Bio-Pesticide", quantity: 1, taxablePrice: 450, sellingPrice: 450, costPrice: 300, hsn: "3808" }
                 ],
                 totalAmount: 450
             });
@@ -1402,14 +1399,14 @@ async function runEmulatorValidationSuite() {
             const delRes = await handleOrderDelivery({
                 orderId: orderDelId,
                 beforeData: { status: "SHIPPED" },
-                afterData: { status: "DELIVERED", items: [{ skuId: "SKU_PEST_01", name: "Organic Bio-Pesticide", quantity: 1, taxablePrice: 450, sellingPrice: 450, hsn: "3808" }], paymentMode: "COD", shippingAddress: { state: "Bihar" } },
+                afterData: { status: "DELIVERED", items: [{ skuId: "SKU_PEST_01", name: "Organic Bio-Pesticide", quantity: 1, taxablePrice: 450, sellingPrice: 450, costPrice: 300, hsn: "3808" }], paymentMode: "COD", shippingAddress: { state: "Bihar" } },
                 orderRef: orderDelRef
             });
 
             assert(delRes && delRes.success, "handleOrderDelivery must return success");
             const updatedDelDoc = (await orderDelRef.get()).data();
             assert.strictEqual(updatedDelDoc.financialStatus, "RECOGNIZED", "Order financialStatus must be RECOGNIZED");
-            assert(updatedDelDoc.invoiceNumber && updatedDelDoc.invoiceNumber.startsWith("KV/"), `Order must have official invoiceNumber, got: ${updatedDelDoc.invoiceNumber}`);
+            assert(updatedDelDoc.invoiceNumber && updatedDelDoc.invoiceNumber.startsWith("SAM-26-"), `Order must have official invoiceNumber, got: ${updatedDelDoc.invoiceNumber}`);
             assert(updatedDelDoc.invoiceUrl && updatedDelDoc.invoiceUrl.includes("firebasestorage.googleapis.com"), `Order must have official invoiceUrl, got: ${updatedDelDoc.invoiceUrl}`);
 
             pass("Scenario 5.6: Delivery trigger automatically performs revenue recognition and official invoice PDF generation.");

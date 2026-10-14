@@ -203,6 +203,7 @@ async function runSprint2TestSuite() {
 
         const testFY = "26-27";
         store.credit_note_counters.set(testFY, { currentSequence: 0 });
+        store.credit_note_counters.set("SAM_26", { currentSequence: 0 });
 
         const cnPromises = [
             getNextCreditNoteNumber(testFY),
@@ -216,13 +217,13 @@ async function runSprint2TestSuite() {
         console.log("Generated Credit Note Sequence:", cnNumbers.join(", "));
 
         assert.deepStrictEqual(cnNumbers, [
-            "KVCN/26-27/00001",
-            "KVCN/26-27/00002",
-            "KVCN/26-27/00003",
-            "KVCN/26-27/00004"
+            "CN-SAM-26-000001",
+            "CN-SAM-26-000002",
+            "CN-SAM-26-000003",
+            "CN-SAM-26-000004"
         ]);
         assert(cnNumbers.every(n => n.length <= 16), "Credit note numbers must not exceed statutory limit of 16 characters (Rule 53 CGST)");
-        pass("4.1 4 parallel concurrent credit note generations produce consecutive numbers (KVCN/26-27/00001 to 00004)");
+        pass("4.1 4 parallel concurrent credit note generations produce consecutive numbers (CN-SAM-26-000001 to 000004)");
 
         // =================================================================
         // PART 5: CREDIT NOTE GENERATION & BALANCED JOURNAL REVERSAL
