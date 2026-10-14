@@ -170,7 +170,8 @@ async function executeWalletOperation({
     entityId,
     description = "",
     metadata = {},
-    idempotencyKey = null
+    idempotencyKey = null,
+    periodId = null
 }, expectedDirection, options = {}) {
     if (!uid || typeof uid !== "string" || !uid.trim()) {
         const err = new Error("INVALID_UID: uid is strictly required.");
@@ -302,9 +303,10 @@ async function executeWalletOperation({
 
         if (!skipJournalEntry) {
             const entryAmount = expectedDirection === "DEBIT" ? debitAmount : roundedAmount;
+            const effectivePeriodId = periodId || options.periodId || getFiscalPeriodId(options.date || new Date());
             const jePayload = {
                 entryId: deterministicJournalId,
-                periodId: getFiscalPeriodId(options.date || new Date()),
+                periodId: effectivePeriodId,
                 date: options.date || new Date(),
                 refType: "WALLET_TRANSACTION",
                 refId: String(entityId),

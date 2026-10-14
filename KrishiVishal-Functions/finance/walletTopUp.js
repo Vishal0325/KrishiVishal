@@ -272,30 +272,37 @@ exports.adminAdjustWallet = onCall({ region: REGION }, async (request) => {
     };
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// getWalletHistory  (User-callable)
-//   Paginated wallet transaction history for the customer app Wallet screen.
-// ─────────────────────────────────────────────────────────────────────────────
-exports.getWalletHistory = onCall({ region: REGION }, async (request) => {
-    const context = { auth: request.auth };
-    if (!context.auth) throw new HttpsError('unauthenticated', 'Login required.');
+const WALLET_CUTOVER_T0 = new Date(process.env.WALLET_CUTOVER_T0 || "2026-10-14T00:00:00.000Z");
 
-    const uid = context.auth.uid;
+/**
+ * Core Dual-Read Wallet History Engine across Cutover T0.
+ * Priority 1: Reads root canonical collection `wallet_transactions`.
+ * Priority 2: If root records < limit, dual-reads legacy subcollection `users/{uid}/wallet_history`.
+ * Merges and normalizes into a uniform standard structure for Customer App UI.
+ */
+async function getWalletHistoryCore(uid, options = {}) {
+    if (!uid || typeof uid !== "string") {
+        throw new Error("INVALID_UID: uid is required.");
+    }
+
+    const limit = (typeof options.limit === "number" && options.limit > 0 && options.limit <= 100)
+        ? options.limit
+        : 50;
 
     const parseDate = (val) => {
         if (!val) return { ms: 0, iso: null };
-        if (typeof val.toDate === 'function') {
+        if (typeof val.toDate === "function") {
             const d = val.toDate();
             return { ms: d.getTime(), iso: d.toISOString() };
         }
         if (val instanceof Date) {
             return { ms: val.getTime(), iso: val.toISOString() };
         }
-        if (typeof val === 'number') {
+        if (typeof val === "number") {
             const d = new Date(val);
             return { ms: d.getTime(), iso: d.toISOString() };
         }
-        if (typeof val === 'string') {
+        if (typeof val === "string") {
             const d = new Date(val);
             if (!isNaN(d.getTime())) {
                 return { ms: d.getTime(), iso: d.toISOString() };
@@ -304,175 +311,181 @@ exports.getWalletHistory = onCall({ region: REGION }, async (request) => {
         return { ms: 0, iso: null };
     };
 
-    let historyDocs = [];
-    let txnByUidDocs = [];
-    let txnByUserIdDocs = [];
-    let walletOrderDocs = [];
-    let walletReturnDocs = [];
-
-    // Query 1: users/{uid}/wallet_history (Standard wallet subcollection)
-    try {
-        const snap = await db.collection('users').doc(uid).collection('wallet_history').limit(50).get();
-        historyDocs = snap.docs;
-    } catch (err) {
-        console.warn('[getWalletHistory] wallet_history query error:', err.message);
-    }
-
-    // Query 2: wallet_transactions where uid == uid
-    try {
-        const snap = await db.collection('wallet_transactions').where('uid', '==', uid).limit(50).get();
-        txnByUidDocs = snap.docs;
-    } catch (err) {
-        console.warn('[getWalletHistory] wallet_transactions by uid query error:', err.message);
-    }
-
-    // Query 3: wallet_transactions where userId == uid (Admin portal refund records)
-    try {
-        const snap = await db.collection('wallet_transactions').where('userId', '==', uid).limit(50).get();
-        txnByUserIdDocs = snap.docs;
-    } catch (err) {
-        console.warn('[getWalletHistory] wallet_transactions by userId query error:', err.message);
-    }
-
-    // Query 4: orders where userId == uid and paymentMethod == 'WALLET' (captures any order paid by wallet)
-    try {
-        const snap = await db.collection('orders').where('userId', '==', uid).where('paymentMethod', '==', 'WALLET').limit(50).get();
-        walletOrderDocs = snap.docs;
-    } catch (err) {
-        console.warn('[getWalletHistory] orders query error:', err.message);
-    }
-
-    // Query 5: returns where userId == uid (captures any return refunded to wallet)
-    try {
-        const snap = await db.collection('returns').where('userId', '==', uid).limit(50).get();
-        walletReturnDocs = snap.docs;
-    } catch (err) {
-        console.warn('[getWalletHistory] returns query error:', err.message);
-    }
-
-    let transactions = [];
+    const transactions = [];
     const seenIds = new Set();
     const seenOrderPayments = new Set();
     const seenReturnIds = new Set();
 
-    historyDocs.forEach(doc => {
-        const d = doc.data();
+    const mapRootDoc = (doc) => {
+        const d = doc.data() || {};
+        const docId = doc.id || d.txId;
+        if (seenIds.has(docId)) return;
+        seenIds.add(docId);
+
+        const orderId = d.metadata?.orderId || d.orderId || (d.eventType === "ORDER_PAYMENT" ? d.entityId : null) || d.referenceOrderId || null;
+        const returnId = d.metadata?.returnId || d.returnId || (d.eventType === "ORDER_REFUND" ? d.entityId : null) || d.referenceId || null;
+
+        let type = d.eventType || d.type || "";
+        let description = d.description || "";
+
+        if (d.eventType === "ORDER_PAYMENT" || d.type === "DEBIT") {
+            type = "ORDER_PAYMENT";
+            description = description || `Order Payment #${orderId ? String(orderId).slice(-6).toUpperCase() : ""}`;
+        } else if (d.eventType === "ORDER_REFUND" || d.category === "REFUND") {
+            type = "REFUND_CREDIT";
+            description = description || "Refund credited to wallet";
+        } else if (d.eventType === "TOPUP" || d.type === "TOPUP") {
+            type = "TOPUP";
+            description = description || "Wallet Top-up";
+        } else if (d.eventType === "REFERRAL_REWARD" || d.type === "REFERRAL_CREDIT") {
+            type = "REFERRAL_CREDIT";
+            description = description || "Referral Reward";
+        } else if (d.eventType === "REFERRAL_REVERSAL") {
+            type = "REFERRAL_REVERSAL";
+            description = description || "Referral Reversal";
+        } else if (d.eventType === "ADMIN_CREDIT") {
+            type = "ADMIN_CREDIT";
+            description = description || "Admin Wallet Credit";
+        } else if (d.eventType === "ADMIN_DEBIT") {
+            type = "ADMIN_DEBIT";
+            description = description || "Admin Wallet Debit";
+        } else if (!type) {
+            type = "WALLET_TRANSACTION";
+        }
+
+        if (orderId && type === "ORDER_PAYMENT") seenOrderPayments.add(orderId);
+        if (returnId) seenReturnIds.add(returnId);
+
+        const parsed = parseDate(d.createdAt || d.timestamp || d.timestampMs || d.updatedAt);
+        transactions.push({
+            id: docId,
+            type,
+            amount: Number(d.amount) || 0,
+            description,
+            orderId,
+            returnId,
+            timestampMs: parsed.ms,
+            isoString: parsed.iso,
+            source: "ROOT"
+        });
+    };
+
+    const mapLegacyDoc = (doc) => {
+        const d = doc.data() || {};
         if (seenIds.has(doc.id)) return;
         seenIds.add(doc.id);
-        if (d.orderId && (d.type === 'ORDER_PAYMENT' || d.type === 'REDEEMED_AT_CHECKOUT')) {
-            seenOrderPayments.add(d.orderId);
+
+        const orderId = d.orderId || null;
+        const returnId = d.returnId || null;
+
+        if (orderId && (d.type === "ORDER_PAYMENT" || d.type === "REDEEMED_AT_CHECKOUT")) {
+            if (seenOrderPayments.has(orderId)) return;
+            seenOrderPayments.add(orderId);
         }
-        if (d.returnId) {
-            seenReturnIds.add(d.returnId);
+        if (returnId) {
+            if (seenReturnIds.has(returnId)) return;
+            seenReturnIds.add(returnId);
         }
+
+        let type = d.type || "REFUND_CREDIT";
+        if (type === "REDEEMED_AT_CHECKOUT") type = "ORDER_PAYMENT";
 
         const parsed = parseDate(d.timestamp || d.createdAt || d.updatedAt);
         transactions.push({
             id: doc.id,
-            type: d.type || 'REFUND_CREDIT',
+            type,
             amount: Number(d.amount) || 0,
-            description: d.description || (d.type === 'ORDER_PAYMENT' ? 'Order Payment' : 'Refund Credit'),
-            orderId: d.orderId || null,
-            returnId: d.returnId || null,
+            description: d.description || (type === "ORDER_PAYMENT" ? "Order Payment" : "Refund Credit"),
+            orderId,
+            returnId,
             timestampMs: parsed.ms,
-            isoString: parsed.iso
-        });
-    });
-
-    const mapTxnDoc = (doc) => {
-        const d = doc.data();
-        if (seenIds.has(doc.id)) return;
-        seenIds.add(doc.id);
-
-        const orderId = d.orderId || d.referenceOrderId || null;
-        const returnId = d.referenceId || d.returnId || null;
-
-        let description = d.description || "";
-        let type = d.type || "";
-
-        if (d.category === "REFUND" && (d.type === "CREDIT" || !d.type)) {
-            type = "REFUND_CREDIT";
-            description = description || "Refund credited to wallet";
-        } else if (d.type === "REFERRAL_CREDIT" || d.type === "REFERRAL_SIGNUP_CREDIT") {
-            description = description || "Referral Reward";
-        } else if (d.type === "REFERRAL_REVERSAL") {
-            description = description || "Referral Reversal";
-        } else if (d.type === "REDEEMED_AT_CHECKOUT" || d.type === "ORDER_PAYMENT") {
-            type = "ORDER_PAYMENT";
-            description = description || "Order Payment";
-        } else if (!type) {
-            type = "REFUND_CREDIT";
-        }
-
-        if (orderId && type === 'ORDER_PAYMENT') {
-            seenOrderPayments.add(orderId);
-        }
-        if (returnId) {
-            seenReturnIds.add(returnId);
-        }
-
-        const parsed = parseDate(d.createdAt || d.timestamp || d.updatedAt);
-        transactions.push({
-            id: doc.id,
-            type: type,
-            amount: Number(d.amount) || 0,
-            description: description,
-            orderId: orderId,
-            returnId: returnId,
-            timestampMs: parsed.ms,
-            isoString: parsed.iso
+            isoString: parsed.iso,
+            source: "LEGACY"
         });
     };
 
-    txnByUidDocs.forEach(mapTxnDoc);
-    txnByUserIdDocs.forEach(mapTxnDoc);
-
-    // Process fallback: Wallet Orders not yet recorded in history subcollection
-    walletOrderDocs.forEach(doc => {
-        const d = doc.data();
-        if (seenIds.has(doc.id) || seenOrderPayments.has(doc.id)) return;
-        seenIds.add(doc.id);
-        seenOrderPayments.add(doc.id);
-
-        const parsed = parseDate(d.createdAt || d.updatedAt);
-        transactions.push({
-            id: `ord_${doc.id}`,
-            type: "ORDER_PAYMENT",
-            amount: Number(d.totalAmount) || 0,
-            description: `Order #${doc.id.slice(-6).toUpperCase()}`,
-            orderId: doc.id,
-            returnId: null,
-            timestampMs: parsed.ms,
-            isoString: parsed.iso
-        });
-    });
-
-    // Process fallback: Returns with refundMethod == 'WALLET' not yet recorded
-    walletReturnDocs.forEach(doc => {
-        const d = doc.data();
-        if (seenIds.has(doc.id) || seenReturnIds.has(doc.id)) return;
-        if (d.refundMethod === 'WALLET' || d.status === 'REFUNDED' || d.refundStatus === 'COMPLETED') {
-            seenIds.add(doc.id);
-            seenReturnIds.add(doc.id);
-
-            const parsed = parseDate(d.refundedAt || d.updatedAt || d.createdAt);
-            transactions.push({
-                id: `ret_${doc.id}`,
-                type: "REFUND_CREDIT",
-                amount: Number(d.refundAmount || d.amount) || 0,
-                description: `Refund for Return #${doc.id.slice(-6).toUpperCase()}`,
-                orderId: d.orderId || null,
-                returnId: doc.id,
-                timestampMs: parsed.ms,
-                isoString: parsed.iso
-            });
+    // ── Phase 1: Query Canonical Root Collection `wallet_transactions` ──
+    try {
+        let rootDocs = [];
+        try {
+            const rootSnap = await db.collection("wallet_transactions")
+                .where("uid", "==", uid)
+                .orderBy("createdAt", "desc")
+                .limit(limit)
+                .get();
+            rootDocs = rootSnap.docs;
+        } catch (indexErr) {
+            // Unindexed / dev / emulator fallback: query without composite orderBy
+            const rootSnap = await db.collection("wallet_transactions")
+                .where("uid", "==", uid)
+                .limit(limit)
+                .get();
+            rootDocs = rootSnap.docs;
         }
-    });
+        rootDocs.forEach(mapRootDoc);
 
-    // Sort in memory (newest first)
+        // Also query by userId for backward-compatibility with older portal records
+        if (rootDocs.length < limit) {
+            try {
+                const userSnap = await db.collection("wallet_transactions")
+                    .where("userId", "==", uid)
+                    .limit(limit - rootDocs.length)
+                    .get();
+                userSnap.docs.forEach(mapRootDoc);
+            } catch (ignored) {}
+        }
+    } catch (err) {
+        console.warn("[getWalletHistory] root wallet_transactions query error:", err.message);
+    }
+
+    // ── Phase 2: Dual-Read Fallback to Legacy Subcollection `users/{uid}/wallet_history` ──
+    // Fallback executes if root records are less than requested limit or older history is needed
+    if (transactions.length < limit || options.includeLegacy === true) {
+        try {
+            const legacyLimit = limit - transactions.length > 0 ? (limit - transactions.length) : limit;
+            const legSnap = await db.collection("users").doc(uid)
+                .collection("wallet_history")
+                .limit(legacyLimit)
+                .get();
+            legSnap.docs.forEach(mapLegacyDoc);
+        } catch (err) {
+            console.warn("[getWalletHistory] legacy wallet_history query error:", err.message);
+        }
+    }
+
+    // ── Phase 3: Secondary Legacy Fallbacks (Unrecorded Orders / Returns) ──
+    if (transactions.length < limit) {
+        try {
+            const orderSnap = await db.collection("orders")
+                .where("userId", "==", uid)
+                .where("paymentMethod", "==", "WALLET")
+                .limit(limit - transactions.length)
+                .get();
+            orderSnap.docs.forEach(doc => {
+                const d = doc.data() || {};
+                if (seenIds.has(doc.id) || seenOrderPayments.has(doc.id)) return;
+                seenIds.add(doc.id);
+                seenOrderPayments.add(doc.id);
+                const parsed = parseDate(d.createdAt || d.updatedAt);
+                transactions.push({
+                    id: `ord_${doc.id}`,
+                    type: "ORDER_PAYMENT",
+                    amount: Number(d.totalAmount) || 0,
+                    description: `Order #${doc.id.slice(-6).toUpperCase()}`,
+                    orderId: doc.id,
+                    returnId: null,
+                    timestampMs: parsed.ms,
+                    isoString: parsed.iso,
+                    source: "LEGACY_ORDER"
+                });
+            });
+        } catch (ignored) {}
+    }
+
+    // Sort combined records chronologically (newest first)
     transactions.sort((a, b) => b.timestampMs - a.timestampMs);
 
-    const formattedTxns = transactions.slice(0, 50).map(t => ({
+    const formattedTxns = transactions.slice(0, limit).map(t => ({
         id: t.id,
         type: t.type,
         amount: t.amount,
@@ -482,8 +495,32 @@ exports.getWalletHistory = onCall({ region: REGION }, async (request) => {
         timestamp: t.isoString
     }));
 
-    return { success: true, transactions: formattedTxns };
+    return {
+        success: true,
+        transactions: formattedTxns,
+        cutoverT0: WALLET_CUTOVER_T0.toISOString(),
+        count: formattedTxns.length
+    };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getWalletHistory  (User-callable)
+//   Paginated wallet transaction history for the customer app Wallet screen.
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getWalletHistory = onCall({ region: REGION }, async (request) => {
+    const context = { auth: request.auth };
+    if (!context.auth) throw new HttpsError("unauthenticated", "Login required.");
+
+    try {
+        return await getWalletHistoryCore(context.auth.uid, request.data || {});
+    } catch (err) {
+        console.error("[getWalletHistory] Error fetching wallet history:", err);
+        throw new HttpsError("internal", err.message || "Failed to fetch wallet history.");
+    }
 });
+
+exports.getWalletHistoryCore = getWalletHistoryCore;
+exports.WALLET_CUTOVER_T0 = WALLET_CUTOVER_T0;
 
 exports.isAuthorizedAdmin = isAuthorizedAdmin;
 exports.deriveTimeWindowKey = deriveTimeWindowKey;
