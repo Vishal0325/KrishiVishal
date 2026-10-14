@@ -235,7 +235,7 @@ async function runPhase2TestSuite() {
 
             assert.ok(res1);
             assert.strictEqual(res1.success, true);
-            assert.ok(res1.creditNoteNumber.startsWith("KVCN/"));
+            assert.ok(res1.creditNoteNumber.startsWith("CN-SAM-26-"));
 
             const updatedReturn = store.returns.get(returnId);
             assert.strictEqual(updatedReturn.creditNoteNo, res1.creditNoteNumber);
@@ -260,8 +260,8 @@ async function runPhase2TestSuite() {
         console.log("\n--- TEST 2: Statutory Credit Note PDF Generation ---");
         {
             const sampleCnData = {
-                creditNoteNo: "KVCN/26-27/00001",
-                originalInvoiceNo: "KV/26-27/00555",
+                creditNoteNo: "CN-SAM-26-000001",
+                originalInvoiceNo: "SAM-26-000000555",
                 returnReason: "DAMAGED_IN_TRANSIT",
                 customerName: "Rameshwar Prasad",
                 customerPhone: "+919876543210",
@@ -355,8 +355,8 @@ async function runPhase2TestSuite() {
 
             // Credit Note in current period: Return ₹2,000 @ 18% (Taxable ₹2,000, CGST ₹180, SGST ₹180)
             store.credit_notes.set("CN_GSTR_NET_01", {
-                creditNoteId: "KVCN_26-27_00010",
-                creditNoteNo: "KVCN/26-27/00010",
+                creditNoteId: "CN-SAM-26-000010",
+                creditNoteNo: "CN-SAM-26-000010",
                 financialPeriodId: periodId,
                 shippingState: "Bihar",
                 taxableAmount: 2000,
@@ -381,8 +381,8 @@ async function runPhase2TestSuite() {
 
             // Foreign period Credit Note (from 2026-09) - Must NOT be netted in 2026-10
             store.credit_notes.set("CN_GSTR_FOREIGN_02", {
-                creditNoteId: "KVCN_26-27_00005",
-                creditNoteNo: "KVCN/26-27/00005",
+                creditNoteId: "CN-SAM-26-000005",
+                creditNoteNo: "CN-SAM-26-000005",
                 financialPeriodId: "2026-09",
                 shippingState: "Bihar",
                 taxableAmount: 5000,
@@ -405,10 +405,10 @@ async function runPhase2TestSuite() {
             assert.strictEqual(t12Hsn.totalQuantity, 8, `Netted HSN quantity must be 8, got ${t12Hsn.totalQuantity}`);
             assert.strictEqual(t12Hsn.totalTaxableValue, 8000);
 
-            // Table 13 Document serials: Only includes current period Credit Note (KVCN/26-27/00010)
+            // Table 13 Document serials: Only includes current period Credit Note (CN-SAM-26-000010)
             assert.strictEqual(summary.table13Documents.creditNotes.totalIssued, 1);
-            assert.strictEqual(summary.table13Documents.creditNotes.fromSerial, "KVCN/26-27/00010");
-            assert.strictEqual(summary.table13Documents.creditNotes.toSerial, "KVCN/26-27/00010");
+            assert.strictEqual(summary.table13Documents.creditNotes.fromSerial, "CN-SAM-26-000010");
+            assert.strictEqual(summary.table13Documents.creditNotes.toSerial, "CN-SAM-26-000010");
 
             pass("3.1 GSTR-1 Table 7 and Table 12 correctly netted current period Credit Notes.");
             pass("3.2 Table 13 strictly excluded foreign period credit note serials.");

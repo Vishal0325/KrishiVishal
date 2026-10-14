@@ -7,7 +7,7 @@
 
 const crypto = require("crypto");
 const { db, admin } = require("../core/admin");
-const { getCurrentFinancialYear } = require("./sequentialInvoiceEngine");
+const { getCurrentFinancialYear, getShortFinancialYear, extractHubCode } = require("./sequentialInvoiceEngine");
 const { postJournalEntry } = require("../finance/generalLedger");
 const { calculateTaxForOrder, roundCurrency } = require("../tax/gstEngine");
 
@@ -50,17 +50,50 @@ function getTimestampMillis(ts) {
 }
 
 /**
- * Concurrency-safe consecutive credit note number generator.
- * Format: KVCN/{FY}/{SEQUENCE_5_DIGITS} (e.g. KVCN/26-27/00001)
- * Statutory limit: <= 16 characters (Rule 53 CGST).
- * 
- * @param {string} [financialYear] e.g. "26-27"
- * @param {string} [prefix] defaults to "KVCN"
- * @returns {Promise<{ creditNoteNumber: string, sequence: number, financialYear: string }>}
+ * Helper to parse hub code, financial year, and prefix flexibly.
  */
-async function getNextCreditNoteNumber(financialYear = null, prefix = "KVCN") {
-    const fy = financialYear || getCurrentFinancialYear();
-    const counterRef = db.collection("credit_note_counters").doc(fy);
+function parseCreditNoteArgs(hubCodeOrFy, financialYear, prefix = "CN") {
+    let hub = "SAM";
+    let fy = null;
+    let pref = prefix;
+
+    if (hubCodeOrFy && (hubCodeOrFy.includes("/") || /^\d{2}-\d{2}$/.test(hubCodeOrFy) || /^\d{4}-\d{4}$/.test(hubCodeOrFy))) {
+        // First arg was financialYear (legacy call)
+        fy = hubCodeOrFy;
+        if (typeof financialYear === "string" && !/^\d/.test(financialYear)) {
+            pref = financialYear;
+        }
+    } else if (hubCodeOrFy) {
+        hub = extractHubCode(hubCodeOrFy);
+        fy = financialYear;
+    }
+
+    let shortFy;
+    if (fy) {
+        const start = String(fy).split("-")[0].trim();
+        shortFy = start.slice(-2);
+    } else {
+        shortFy = getShortFinancialYear();
+    }
+    const cleanPrefix = (pref === "KVCN" || !pref) ? "CN" : pref;
+
+    return { hub, shortFy, cleanPrefix };
+}
+
+/**
+ * Concurrency-safe consecutive credit note number generator.
+ * Format: CN-{HUB}-{FY}-{SEQUENCE_6_DIGITS} (e.g. CN-SAM-26-000001)
+ * Statutory limit: exactly 16 characters (Rule 53 CGST).
+ * 
+ * @param {string} [hubCodeOrFy] e.g. "SAM" or legacy "26-27"
+ * @param {string} [financialYear] e.g. "26" or "26-27"
+ * @param {string} [prefix] defaults to "CN"
+ * @returns {Promise<{ creditNoteNumber: string, sequence: number, financialYear: string, hubCode: string }>}
+ */
+async function getNextCreditNoteNumber(hubCodeOrFy = "SAM", financialYear = null, prefix = "CN") {
+    const { hub, shortFy, cleanPrefix } = parseCreditNoteArgs(hubCodeOrFy, financialYear, prefix);
+    const counterDocId = `${hub}_${shortFy}`;
+    const counterRef = db.collection("credit_note_counters").doc(counterDocId);
 
     const result = await db.runTransaction(async (transaction) => {
         const counterDoc = await transaction.get(counterRef);
@@ -71,16 +104,17 @@ async function getNextCreditNoteNumber(financialYear = null, prefix = "KVCN") {
         }
 
         const nextSequence = currentSequence + 1;
-        const paddedSequence = String(nextSequence).padStart(5, "0");
-        const creditNoteNumber = `${prefix}/${fy}/${paddedSequence}`;
+        const paddedSequence = String(nextSequence).padStart(6, "0");
+        const creditNoteNumber = `${cleanPrefix}-${hub}-${shortFy}-${paddedSequence}`;
 
         if (creditNoteNumber.length > 16) {
             throw new Error(`GST_RULE_53_VIOLATION: Credit note number '${creditNoteNumber}' exceeds maximum statutory limit of 16 characters.`);
         }
 
         transaction.set(counterRef, {
-            financialYear: fy,
-            prefix,
+            hubCode: hub,
+            financialYear: shortFy,
+            prefix: cleanPrefix,
             currentSequence: nextSequence,
             lastGeneratedCreditNoteNumber: creditNoteNumber,
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -89,7 +123,8 @@ async function getNextCreditNoteNumber(financialYear = null, prefix = "KVCN") {
         return {
             creditNoteNumber,
             sequence: nextSequence,
-            financialYear: fy
+            financialYear: shortFy,
+            hubCode: hub
         };
     });
 
@@ -107,16 +142,18 @@ async function getNextCreditNoteNumber(financialYear = null, prefix = "KVCN") {
  * 4. Eliminates any micro-window where a counter could increment without the lock recording it.
  *
  * @param {FirebaseFirestore.DocumentReference} lockRef
+ * @param {string} [hubCodeOrFy]
  * @param {string} [financialYear]
  * @param {string} [prefix]
- * @returns {Promise<{ creditNoteNumber: string, creditNoteId: string, sequence: number, alreadyReserved: boolean }>}
+ * @returns {Promise<{ creditNoteNumber: string, creditNoteId: string, sequence: number, financialYear: string, hubCode: string, alreadyReserved: boolean }>}
  */
-async function reserveNextCreditNoteNumberForLock(lockRef, financialYear = null, prefix = "KVCN") {
+async function reserveNextCreditNoteNumberForLock(lockRef, hubCodeOrFy = "SAM", financialYear = null, prefix = "CN") {
     if (!lockRef) {
         throw new Error("INVALID_LOCK_REF: lockRef is required for atomic reservation.");
     }
-    const fy = financialYear || getCurrentFinancialYear();
-    const counterRef = db.collection("credit_note_counters").doc(fy);
+    const { hub, shortFy, cleanPrefix } = parseCreditNoteArgs(hubCodeOrFy, financialYear, prefix);
+    const counterDocId = `${hub}_${shortFy}`;
+    const counterRef = db.collection("credit_note_counters").doc(counterDocId);
 
     const result = await db.runTransaction(async (transaction) => {
         // Read 1: Inspect current lock state
@@ -128,7 +165,8 @@ async function reserveNextCreditNoteNumberForLock(lockRef, financialYear = null,
                     creditNoteNumber: data.creditNoteNumber,
                     creditNoteId: data.creditNoteId || data.creditNoteNumber.replace(/\//g, "_"),
                     sequence: data.sequence || null,
-                    financialYear: fy,
+                    financialYear: shortFy,
+                    hubCode: hub,
                     alreadyReserved: true
                 };
             }
@@ -142,8 +180,8 @@ async function reserveNextCreditNoteNumberForLock(lockRef, financialYear = null,
         }
 
         const nextSequence = currentSequence + 1;
-        const paddedSequence = String(nextSequence).padStart(5, "0");
-        const creditNoteNumber = `${prefix}/${fy}/${paddedSequence}`;
+        const paddedSequence = String(nextSequence).padStart(6, "0");
+        const creditNoteNumber = `${cleanPrefix}-${hub}-${shortFy}-${paddedSequence}`;
 
         if (creditNoteNumber.length > 16) {
             throw new Error(`GST_RULE_53_VIOLATION: Credit note number '${creditNoteNumber}' exceeds maximum statutory limit of 16 characters.`);
@@ -153,8 +191,9 @@ async function reserveNextCreditNoteNumberForLock(lockRef, financialYear = null,
 
         // Write 1: Update counter atomically
         transaction.set(counterRef, {
-            financialYear: fy,
-            prefix,
+            hubCode: hub,
+            financialYear: shortFy,
+            prefix: cleanPrefix,
             currentSequence: nextSequence,
             lastGeneratedCreditNoteNumber: creditNoteNumber,
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -166,6 +205,8 @@ async function reserveNextCreditNoteNumberForLock(lockRef, financialYear = null,
             creditNoteNumber,
             creditNoteId,
             sequence: nextSequence,
+            hubCode: hub,
+            financialYear: shortFy,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             updatedAtMs: Date.now()
         }, { merge: true });
@@ -174,7 +215,8 @@ async function reserveNextCreditNoteNumberForLock(lockRef, financialYear = null,
             creditNoteNumber,
             creditNoteId,
             sequence: nextSequence,
-            financialYear: fy,
+            financialYear: shortFy,
+            hubCode: hub,
             alreadyReserved: false
         };
     });
@@ -208,9 +250,23 @@ function getFiscalPeriodId(date = new Date()) {
  * @param {string} param0.returnRequestId MANDATORY canonical Return Request ID (e.g. "RET-XXXX")
  * @returns {Promise<object>} Credit note record & Journal Entry reference
  */
+function deriveHubFromInvoiceOrCode(hubCode, hubId, originalInvoiceNo) {
+    if (hubCode) return extractHubCode(hubCode);
+    if (hubId) return extractHubCode(hubId);
+    if (originalInvoiceNo && typeof originalInvoiceNo === "string") {
+        const parts = originalInvoiceNo.split("-");
+        if (parts.length > 1 && parts[0].length === 3 && isNaN(Number(parts[0])) && !["INV", "ORD", "RET", "REC"].includes(parts[0])) {
+            return extractHubCode(parts[0]);
+        }
+    }
+    return "SAM";
+}
+
 async function generateCreditNoteForReturn({
     orderId,
     originalInvoiceNo,
+    hubCode = null,
+    hubId = null,
     returnReason = "CUSTOMER_RETURN",
     returnedItems = [],
     restockable = true,
@@ -231,6 +287,8 @@ async function generateCreditNoteForReturn({
     if (!Array.isArray(returnedItems) || returnedItems.length === 0) {
         throw new Error("EMPTY_RETURN_ITEMS: At least one returned item is required.");
     }
+
+    const effectiveHubCode = deriveHubFromInvoiceOrCode(hubCode, hubId, originalInvoiceNo);
 
     // Stable business identifier anchored exclusively to the canonical Return Request ID
     const effectiveKey = `RET_${cleanReturnRequestId}`;
@@ -389,7 +447,7 @@ async function generateCreditNoteForReturn({
                 if (existingJeSnap.exists) {
                     const existingJe = existingJeSnap.data();
                     journalEntryId = existingJe.entryId;
-                    if (existingJe.refId && (existingJe.refId.startsWith("KVCN/") || existingJe.refId.startsWith("KV/CN/"))) {
+                    if (existingJe.refId && (existingJe.refId.startsWith("KVCN/") || existingJe.refId.startsWith("KV/CN/") || existingJe.refId.startsWith("CN-"))) {
                         creditNoteNumber = existingJe.refId;
                         creditNoteId = creditNoteNumber.replace(/\//g, "_");
                     }
@@ -441,7 +499,7 @@ async function generateCreditNoteForReturn({
 
         // 4. Atomically Reserve Sequential Credit Note Number in one indivisible transaction
         if (!creditNoteNumber) {
-            const alloc = await reserveNextCreditNoteNumberForLock(lockRef);
+            const alloc = await reserveNextCreditNoteNumberForLock(lockRef, effectiveHubCode);
             creditNoteNumber = alloc.creditNoteNumber;
             creditNoteId = alloc.creditNoteId;
         }
@@ -522,6 +580,7 @@ async function generateCreditNoteForReturn({
             creditNoteNo: creditNoteNumber,
             originalInvoiceNo,
             orderId,
+            hubCode: effectiveHubCode,
             returnReason,
             shippingState,
             taxableAmount,
