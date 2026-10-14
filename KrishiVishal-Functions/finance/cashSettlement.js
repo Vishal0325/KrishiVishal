@@ -1,6 +1,6 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db, admin } = require("../core/admin");
-const { postLedgerEntry } = require("./ledger");
+const { postJournalEntry } = require("./generalLedger");
 
 const REGION = 'asia-south1';
 const ALLOWED_ROLES = ['hubmanager', 'admin', 'superadmin'];
@@ -46,6 +46,7 @@ async function isAuthorizedSettler(auth) {
  * confirmCashSettlement
  * Callable function to confirm two-way cash settlement at the physical hub.
  * Role required: HubManager, Admin, SuperAdmin.
+ * Migrated to System 2 Double-Entry Accounting (Rules 1-5 compliant).
  */
 exports.confirmCashSettlement = onCall({ region: REGION }, async (request) => {
     const data = request.data || {};
@@ -99,8 +100,9 @@ exports.confirmCashSettlement = onCall({ region: REGION }, async (request) => {
     const verifiedBy = data.verifiedBy || auth.uid;
 
     try {
+        let executionResult = null;
         await db.runTransaction(async (transaction) => {
-            // PHASE 1: ALL READS FIRST (Strict Firestore transaction rule)
+            // PHASE 1: ALL READS FIRST (Strict Firestore transaction rule 1)
             const currentSettlementSnap = await transaction.get(settlementRef);
             if (!currentSettlementSnap.exists) {
                 throw new Error("Settlement document does not exist.");
@@ -117,7 +119,57 @@ exports.confirmCashSettlement = onCall({ region: REGION }, async (request) => {
                 riderSnap = await transaction.get(riderRef);
             }
 
-            // PHASE 2: ALL WRITES
+            // PHASE 2: SYSTEM 2 JOURNAL ENTRY (Zero caller writes before postJournalEntry - Rule 2)
+            let jeResult = null;
+            const now = new Date();
+            const periodId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+            if (totalCollected > 0) {
+                const entryId = shortage > 0
+                    ? `JE_HUB_SETTLEMENT_SHORTAGE_${cleanSettlementId}`
+                    : `JE_HUB_SETTLEMENT_${cleanSettlementId}`;
+
+                const lines = [];
+                if (shortage > 0) {
+                    if (depositedAmount > 0) {
+                        lines.push({ accountCode: '1020_HUB_CASH_VAULT', debit: depositedAmount, credit: 0 });
+                    }
+                    lines.push({ accountCode: '1015_RIDER_RECEIVABLE_SHORTAGES', debit: shortage, credit: 0 });
+                    lines.push({ accountCode: '1010_CASH_IN_HAND_RIDERS', debit: 0, credit: totalCollected });
+                } else {
+                    lines.push({ accountCode: '1020_HUB_CASH_VAULT', debit: totalCollected, credit: 0 });
+                    lines.push({ accountCode: '1010_CASH_IN_HAND_RIDERS', debit: 0, credit: totalCollected });
+                }
+
+                jeResult = await postJournalEntry({
+                    entryId,
+                    refType: 'COD_SETTLEMENT',
+                    refId: cleanSettlementId,
+                    periodId,
+                    date: new Date(),
+                    memo: shortage > 0
+                        ? `Hub cash settlement with shortage for rider ${riderId} (Settlement: ${cleanSettlementId})`
+                        : `Hub cash settlement confirmed for rider ${riderId} (Settlement: ${cleanSettlementId})`,
+                    lines,
+                    createdBy: auth.uid
+                }, transaction);
+
+                // RULE 3: Replay idempotency guard
+                if (jeResult && (jeResult.alreadyProcessed || jeResult.alreadyExists)) {
+                    executionResult = {
+                        success: true,
+                        settlementId: cleanSettlementId,
+                        status: finalStatus,
+                        totalCollected,
+                        depositedAmount,
+                        shortage,
+                        alreadyProcessed: true
+                    };
+                    return;
+                }
+            }
+
+            // PHASE 3: ALL CALLER WRITES STAGED STRICTLY AFTER postJournalEntry (Rule 5)
             // a. Update settlement doc: status, depositedAmount, shortage, totalCollected
             transaction.update(settlementRef, {
                 status: finalStatus,
@@ -127,6 +179,7 @@ exports.confirmCashSettlement = onCall({ region: REGION }, async (request) => {
                 hubId: hubId,
                 confirmedBy: auth.uid,
                 verifiedBy: verifiedBy,
+                journalEntryId: jeResult ? jeResult.entryId : null,
                 confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             });
@@ -142,9 +195,10 @@ exports.confirmCashSettlement = onCall({ region: REGION }, async (request) => {
                 });
             }
 
-            // c. Update rider document (riders/{riderId}): cashInHand: 0, pendingShortageAmount, lastSettlementAt
+            // c. Update rider document (riders/{riderId}): cash_in_hand: 0, pendingShortageAmount, lastSettlementAt
             if (riderRef) {
                 const riderUpdates = {
+                    cash_in_hand: 0,
                     cashInHand: 0,
                     lastSettlementAt: admin.firestore.FieldValue.serverTimestamp(),
                     lastSettlementId: cleanSettlementId,
@@ -166,76 +220,44 @@ exports.confirmCashSettlement = onCall({ region: REGION }, async (request) => {
                 }
             }
 
-            // d. Post Double-Entry Ledger Entries
-            if (shortage > 0) {
-                // 3-Leg Double-Entry Transaction
-                // Leg 1 (Debit): HUB_CASH_VAULT -> depositedAmount
-                if (depositedAmount > 0) {
-                    postLedgerEntry(transaction, {
-                        account: 'HUB_CASH_VAULT',
-                        type: 'DEBIT',
-                        amount: depositedAmount,
-                        description: `Hub Cash Vault Receipt for Settlement ${cleanSettlementId} (Rider: ${riderId})`,
-                        referenceId: cleanSettlementId,
-                        referenceType: 'CASH_SETTLEMENT',
-                        metadata: { settlementId: cleanSettlementId, riderId, hubId, shortage, totalCollected }
-                    });
-                }
-
-                // Leg 2 (Debit): RIDER_SHORTAGE_RECEIVABLE -> shortage
-                postLedgerEntry(transaction, {
-                    account: 'RIDER_SHORTAGE_RECEIVABLE',
-                    type: 'DEBIT',
-                    amount: shortage,
-                    description: `Cash Shortage Receivable from Rider ${riderId} on Settlement ${cleanSettlementId}`,
+            // d. Write audit entry to root collection rider_transactions
+            if (riderId) {
+                const rtId = `RT_${riderId}_SETTLE_${cleanSettlementId}`;
+                const rtRef = db.collection("rider_transactions").doc(rtId);
+                transaction.set(rtRef, {
+                    id: rtId,
+                    riderId: riderId,
+                    amount: depositedAmount,
+                    depositedAmount: depositedAmount,
+                    shortageAmount: shortage,
+                    category: "CASH_DEPOSITED",
+                    effectOnCashInHand: -totalCollected,
+                    effectOnNetPayable: 0,
+                    cashInHandAfter: 0,
+                    netPayableAfter: Number(riderSnap?.data()?.netPayable || 0),
                     referenceId: cleanSettlementId,
-                    referenceType: 'CASH_SETTLEMENT',
-                    metadata: { settlementId: cleanSettlementId, riderId, hubId, shortage, totalCollected }
-                });
-
-                // Leg 3 (Credit): RIDER_CASH_IN_HAND -> totalCollected
-                postLedgerEntry(transaction, {
-                    account: 'RIDER_CASH_IN_HAND',
-                    type: 'CREDIT',
-                    amount: totalCollected,
-                    description: `Rider ${riderId} Cash-in-Hand Cleared for Settlement ${cleanSettlementId}`,
-                    referenceId: cleanSettlementId,
-                    referenceType: 'CASH_SETTLEMENT',
-                    metadata: { settlementId: cleanSettlementId, riderId, hubId, shortage, totalCollected }
-                });
-            } else if (totalCollected > 0) {
-                // Standard 2-Leg Full Settlement
-                postLedgerEntry(transaction, {
-                    account: 'HUB_CASH_VAULT',
-                    type: 'DEBIT',
-                    amount: totalCollected,
-                    description: `Hub Cash Settlement for Rider ${riderId}`,
-                    referenceId: cleanSettlementId,
-                    referenceType: 'CASH_SETTLEMENT',
-                    metadata: { settlementId: cleanSettlementId, riderId, hubId }
-                });
-
-                postLedgerEntry(transaction, {
-                    account: 'RIDER_CASH_IN_HAND',
-                    type: 'CREDIT',
-                    amount: totalCollected,
-                    description: `Hub Cash Settlement for Rider ${riderId} cleared`,
-                    referenceId: cleanSettlementId,
-                    referenceType: 'CASH_SETTLEMENT',
-                    metadata: { settlementId: cleanSettlementId, riderId, hubId }
+                    journalEntryId: jeResult ? jeResult.entryId : null,
+                    idempotencyKey: `RT_SETTLE_${cleanSettlementId}`,
+                    narrative: shortage > 0
+                        ? `Cash settlement deposited ₹${depositedAmount} at hub, shortage recorded ₹${shortage}`
+                        : `Cash settlement deposited ₹${depositedAmount} in full at hub`,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
                 });
             }
+
+            executionResult = {
+                success: true,
+                settlementId: cleanSettlementId,
+                status: finalStatus,
+                totalCollected,
+                depositedAmount,
+                shortage,
+                journalEntryId: jeResult ? jeResult.entryId : null
+            };
         });
 
         console.log(`[confirmCashSettlement] Settlement ${cleanSettlementId} confirmed as ${finalStatus} by ${auth.uid} for Rider ${riderId} (Deposited: ₹${depositedAmount}, Shortage: ₹${shortage})`);
-        return {
-            success: true,
-            settlementId: cleanSettlementId,
-            status: finalStatus,
-            totalCollected,
-            depositedAmount,
-            shortage
-        };
+        return executionResult;
     } catch (error) {
         console.error(`[confirmCashSettlement] Transaction failed for settlement ${cleanSettlementId}:`, error);
         throw new HttpsError('internal', error.message);

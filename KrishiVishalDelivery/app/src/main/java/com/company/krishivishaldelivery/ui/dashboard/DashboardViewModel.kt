@@ -295,22 +295,6 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    fun markCashAsDeposited(onComplete: (com.company.krishivishaldelivery.data.model.CashDepositRecord?) -> Unit = {}) {
-        val riderId = currentRiderId
-        if (riderId.isNotEmpty()) {
-            viewModelScope.launch {
-                val record = orderRepository.markCashAsDeposited(riderId)
-                if (record != null) {
-                    syncData(riderId)
-                    loadCashDepositHistory(riderId)
-                }
-                onComplete(record)
-            }
-        } else {
-            onComplete(null)
-        }
-    }
-
     fun onSettlementConfirmed(onSuccess: () -> Unit = {}) {
         val riderId = currentRiderId
         if (riderId.isNotEmpty()) {

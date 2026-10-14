@@ -5,7 +5,7 @@
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db, admin } = require("../core/admin");
-const { postLedgerEntry } = require("../finance/ledger");
+const { postJournalEntry } = require("../finance/generalLedger");
 
 const REGION = 'asia-south1';
 const ALLOWED_PAYOUT_ROLES = ['hubmanager', 'admin', 'superadmin', 'ordermanager', 'financeadmin'];
@@ -341,86 +341,166 @@ const approveRiderPayout = onCall({ region: REGION, timeoutSeconds: 60, memory: 
     }
 
     const payoutRef = db.collection("rider_payouts").doc(payoutId);
-    const payoutSnap = await payoutRef.get();
 
-    if (!payoutSnap.exists) {
-        throw new HttpsError('not-found', `Payout record ${payoutId} not found.`);
-    }
+    try {
+        let executionResult = null;
+        await db.runTransaction(async (transaction) => {
+            // PHASE 1: ALL READS FIRST (Strict Firestore transaction Rule 1)
+            const payoutSnap = await transaction.get(payoutRef);
+            if (!payoutSnap.exists) {
+                throw new HttpsError('not-found', `Payout record ${payoutId} not found.`);
+            }
 
-    const payoutData = payoutSnap.data();
+            const payoutData = payoutSnap.data() || {};
 
-    if (payoutData.status === 'ON_HOLD_CASH_MISMATCH') {
-        throw new HttpsError(
-            'failed-precondition',
-            `Cannot approve payout ${payoutId}: Cash settlement mismatch or pending settlement exists for this rider.`
-        );
-    }
+            if (payoutData.status === 'ON_HOLD_CASH_MISMATCH') {
+                throw new HttpsError(
+                    'failed-precondition',
+                    `Cannot approve payout ${payoutId}: Cash settlement mismatch or pending settlement exists for this rider.`
+                );
+            }
 
-    if (payoutData.status === 'PAID') {
-        throw new HttpsError('already-exists', `Payout ${payoutId} is already paid.`);
-    }
+            if (payoutData.status === 'PAID') {
+                throw new HttpsError('already-exists', `Payout ${payoutId} is already paid.`);
+            }
 
-    const netPayable = Number(payoutData.netPayable || payoutData.netPayoutAmount || 0);
+            const riderId = payoutData.riderId;
+            let riderSnap = null;
+            let riderRef = null;
+            if (riderId) {
+                riderRef = db.collection("riders").doc(riderId);
+                riderSnap = await transaction.get(riderRef);
+            }
 
-    // 1. Post Double-Entry Ledger Entries
-    if (netPayable > 0) {
-        try {
-            await postLedgerEntry({
-                account: 'DELIVERY_EXPENSE',
-                type: 'DEBIT',
-                amount: netPayable,
-                referenceId: payoutId,
-                referenceType: 'RIDER_PAYOUT',
-                idempotencyKey: `PAYOUT_DR_${payoutId}`,
-                description: `Rider payout: ${payoutData.riderName} (${payoutData.riderId}) for ${payoutData.startDate} to ${payoutData.endDate}`
-            });
+            const riderData = (riderSnap && riderSnap.exists) ? (riderSnap.data() || {}) : {};
+            const grossEarnings = Number(payoutData.grossPayoutAmount ?? payoutData.grossEarnings ?? payoutData.netPayable ?? 0);
+            const riderPendingShortage = Number(riderData.pendingShortageAmount ?? payoutData.pendingShortageAmount ?? 0);
 
-            await postLedgerEntry({
-                account: 'BANK_ACCOUNT',
-                type: 'CREDIT',
-                amount: netPayable,
-                referenceId: payoutId,
-                referenceType: 'RIDER_PAYOUT',
-                idempotencyKey: `PAYOUT_CR_${payoutId}`,
-                description: `Bank disbursement (${paymentMode}) for Rider payout: ${payoutId}`
-            });
-        } catch (ledgerErr) {
-            console.error(`Ledger posting error for payout ${payoutId}:`, ledgerErr);
-            throw new HttpsError('internal', `Failed to post ledger entries: ${ledgerErr.message}`);
-        }
-    }
+            // Single point of shortage deduction:
+            // If grossEarnings >= pendingShortageAmount: deduct full shortage, remaining = 0
+            // If grossEarnings < pendingShortageAmount: deduct up to gross earnings, remaining shortage carried forward in 1015 (zero negative bank payout)
+            const shortageToDeduct = Math.min(grossEarnings, Math.max(0, riderPendingShortage));
+            const tdsAmount = Number(payoutData.tdsAmount || 0);
+            const netPayout = Math.max(0, Math.round((grossEarnings - shortageToDeduct - tdsAmount) * 100) / 100);
 
-    // 2. If shortage was deducted, reduce rider's pendingShortageAmount
-    const shortageDeducted = Number(payoutData.shortageDeducted || 0);
-    if (shortageDeducted > 0 && payoutData.riderId) {
-        try {
-            const riderRef = db.collection("riders").doc(payoutData.riderId);
-            await riderRef.update({
-                pendingShortageAmount: admin.firestore.FieldValue.increment(-shortageDeducted),
+            // PHASE 2: SYSTEM 2 JOURNAL ENTRY (Zero caller writes before postJournalEntry - Rule 2)
+            let jeResult = null;
+            const now = new Date();
+            const periodId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            const entryId = `JE_RIDER_WEEKLY_PAYOUT_${payoutId}`;
+
+            if (grossEarnings > 0) {
+                const lines = [
+                    { accountCode: '2015_RIDER_PAYOUTS_PAYABLE', debit: grossEarnings, credit: 0 }
+                ];
+                if (shortageToDeduct > 0) {
+                    lines.push({ accountCode: '1015_RIDER_RECEIVABLE_SHORTAGES', debit: 0, credit: shortageToDeduct });
+                }
+                if (tdsAmount > 0) {
+                    lines.push({ accountCode: '2050_TDS_PAYABLE_194C', debit: 0, credit: tdsAmount });
+                }
+                if (netPayout > 0) {
+                    lines.push({ accountCode: '1030_BANK_CURRENT_HDFC', debit: 0, credit: netPayout });
+                }
+
+                jeResult = await postJournalEntry({
+                    entryId,
+                    refType: 'RIDER_PAYOUT',
+                    refId: payoutId,
+                    periodId,
+                    date: new Date(),
+                    memo: `Weekly payout disbursed for rider ${riderId} (${payoutData.riderName || ''}) - Net ₹${netPayout}`,
+                    lines,
+                    createdBy: request.auth.uid
+                }, transaction);
+
+                // RULE 3: Replay idempotency guard
+                if (jeResult && (jeResult.alreadyProcessed || jeResult.alreadyExists)) {
+                    executionResult = {
+                        success: true,
+                        payoutId,
+                        status: 'PAID',
+                        grossEarnings,
+                        shortageDeducted: shortageToDeduct,
+                        netPayable: netPayout,
+                        netPayoutAmount: netPayout,
+                        paymentMode,
+                        alreadyProcessed: true
+                    };
+                    return;
+                }
+            }
+
+            // PHASE 3: ALL CALLER WRITES STAGED STRICTLY AFTER postJournalEntry (Rule 5)
+            // a. If shortage was deducted, reduce rider's pendingShortageAmount
+            if (shortageToDeduct > 0 && riderRef) {
+                transaction.update(riderRef, {
+                    pendingShortageAmount: admin.firestore.FieldValue.increment(-shortageToDeduct),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+
+            // b. Mark Payout as PAID
+            transaction.update(payoutRef, {
+                status: 'PAID',
+                paymentMode,
+                paymentReferenceNo: referenceNo || `REF_${Date.now()}`,
+                grossEarnings: grossEarnings,
+                grossPayoutAmount: grossEarnings,
+                shortageDeducted: shortageToDeduct,
+                netPayable: netPayout,
+                netPayoutAmount: netPayout,
+                paidAt: admin.firestore.FieldValue.serverTimestamp(),
+                approvedBy: request.auth.uid,
+                journalEntryId: jeResult ? jeResult.entryId : null,
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             });
-        } catch (rErr) {
-            console.warn(`Could not update pendingShortageAmount on rider ${payoutData.riderId}:`, rErr.message);
+
+            // c. Write audit entry to root collection rider_transactions
+            if (riderId) {
+                const rtId = `RT_${riderId}_PAYOUT_${payoutId}`;
+                const rtRef = db.collection("rider_transactions").doc(rtId);
+                transaction.set(rtRef, {
+                    id: rtId,
+                    riderId: riderId,
+                    amount: netPayout,
+                    netPayoutAmount: netPayout,
+                    grossAmount: grossEarnings,
+                    shortageDeducted: shortageToDeduct,
+                    category: "WEEKLY_PAYOUT_DISBURSED",
+                    effectOnCashInHand: 0,
+                    effectOnNetPayable: -grossEarnings,
+                    cashInHandAfter: Number(riderData.cash_in_hand ?? riderData.cashInHand ?? 0),
+                    netPayableAfter: 0,
+                    referenceId: payoutId,
+                    journalEntryId: jeResult ? jeResult.entryId : null,
+                    idempotencyKey: `RT_PAYOUT_${payoutId}`,
+                    narrative: `Weekly payout disbursed ₹${netPayout} via ${paymentMode}` + (shortageToDeduct > 0 ? ` (shortage deducted ₹${shortageToDeduct})` : ''),
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+
+            executionResult = {
+                success: true,
+                payoutId,
+                status: 'PAID',
+                grossEarnings,
+                shortageDeducted: shortageToDeduct,
+                netPayable: netPayout,
+                netPayoutAmount: netPayout,
+                paymentMode,
+                journalEntryId: jeResult ? jeResult.entryId : null
+            };
+        });
+
+        return executionResult;
+    } catch (error) {
+        if (error instanceof HttpsError) {
+            throw error;
         }
+        console.error(`[approveRiderPayout] Transaction failed for payout ${payoutId}:`, error);
+        throw new HttpsError('internal', error.message);
     }
-
-    // 3. Mark Payout as PAID
-    await payoutRef.update({
-        status: 'PAID',
-        paymentMode,
-        paymentReferenceNo: referenceNo || `REF_${Date.now()}`,
-        paidAt: admin.firestore.FieldValue.serverTimestamp(),
-        approvedBy: request.auth.uid
-    });
-
-    return {
-        success: true,
-        payoutId,
-        status: 'PAID',
-        netPayable,
-        netPayoutAmount: netPayable,
-        paymentMode
-    };
 });
 
 module.exports = {

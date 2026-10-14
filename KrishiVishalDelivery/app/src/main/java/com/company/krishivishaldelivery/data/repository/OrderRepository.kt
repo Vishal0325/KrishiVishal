@@ -868,57 +868,6 @@ class OrderRepository @Inject constructor(
         awaitClose { listener.remove() }
     }.flowOn(ioDispatcher)
 
-    suspend fun markCashAsDeposited(riderId: String): com.company.krishivishaldelivery.data.model.CashDepositRecord? = withContext(ioDispatcher) {
-        try {
-            deliveryDao.markOrdersAsDeposited(riderId, false)
-            val snapshot = firestore.collection("orders")
-                .whereEqualTo("riderId", riderId)
-                .whereEqualTo("status", OrderStatus.DELIVERED.name)
-                .whereEqualTo("isCOD", true)
-                .whereEqualTo("isCashDeposited", false)
-                .get().await()
-
-            var totalDeposited = 0.0
-            snapshot.documents.forEach { doc ->
-                val amt = doc.getDouble("codAmount") ?: 0.0
-                totalDeposited += amt
-            }
-            if (!snapshot.isEmpty) {
-                val depositLogRef = firestore.collection("cash_deposits").document()
-                val recordId = depositLogRef.id
-                val orderIds = snapshot.documents.map { it.id }
-                val now = System.currentTimeMillis()
-                
-                val batch = firestore.batch()
-                batch.set(depositLogRef, mapOf(
-                    "riderId" to riderId,
-                    "amount" to totalDeposited,
-                    "ordersCount" to snapshot.size(),
-                    "orderIds" to orderIds,
-                    "status" to "DEPOSITED_AT_WAREHOUSE",
-                    "timestamp" to now,
-                    "depositedAt" to FieldValue.serverTimestamp()
-                ))
-                snapshot.documents.forEach { doc ->
-                    batch.update(doc.reference, "isCashDeposited", true)
-                }
-                batch.commit().await()
-
-                com.company.krishivishaldelivery.data.model.CashDepositRecord(
-                    id = recordId,
-                    riderId = riderId,
-                    amount = totalDeposited,
-                    ordersCount = snapshot.size(),
-                    orderIds = orderIds,
-                    status = "DEPOSITED_AT_WAREHOUSE",
-                    depositedAtMillis = now
-                )
-            } else null
-        } catch (e: Exception) {
-            Timber.e(e, "markCashAsDeposited failed for rider: $riderId")
-            null
-        }
-    }
 
     suspend fun completeSettlementLocally(riderId: String) = withContext(ioDispatcher) {
         deliveryDao.markOrdersAsDeposited(riderId, false)
