@@ -31,7 +31,7 @@ data class GlobalSystemConfig(
                 return GlobalSystemConfig()
             }
 
-            // Maintenance Mode - Defensive parsing supporting nested & flat
+            return try {
             val killSwitches = snapshot.get("killSwitches") as? Map<*, *>
             val maintenanceMap = killSwitches?.get("maintenanceMode") as? Map<*, *>
 
@@ -111,9 +111,13 @@ data class GlobalSystemConfig(
 
             val adminWriteLock = snapshot.getBoolean("adminWriteLock") ?: false
             val version = snapshot.getLong("version") ?: 0L
-            val updatedAt = snapshot.getLong("updatedAt") ?: 0L
+            val updatedAt = when (val raw = snapshot.get("updatedAt")) {
+                is com.google.firebase.Timestamp -> raw.toDate().time
+                is Number -> raw.toLong()
+                else -> 0L
+            }
 
-            return GlobalSystemConfig(
+            GlobalSystemConfig(
                 maintenanceMode = MaintenanceMode(
                     isEnabled = maintenanceEnabled,
                     messages = finalMessages
@@ -134,7 +138,11 @@ data class GlobalSystemConfig(
                 version = version,
                 updatedAt = updatedAt
             )
+        } catch (e: Exception) {
+            timber.log.Timber.e(e, "Error parsing GlobalSystemConfig from document snapshot")
+            GlobalSystemConfig()
         }
+    }
     }
 }
 
@@ -206,28 +214,37 @@ data class HubSystemConfig(
                 return HubSystemConfig(hubId = hubId)
             }
 
-            val lockdownMap = snapshot.get("lockdown") as? Map<*, *>
-            val isLockdown = when {
-                lockdownMap?.get("active") is Boolean -> lockdownMap["active"] as Boolean
-                snapshot.get("lockdown") is Boolean -> snapshot.getBoolean("lockdown") ?: false
-                else -> false
+            return try {
+                val lockdownMap = snapshot.get("lockdown") as? Map<*, *>
+                val isLockdown = when {
+                    lockdownMap?.get("active") is Boolean -> lockdownMap["active"] as Boolean
+                    snapshot.get("lockdown") is Boolean -> snapshot.getBoolean("lockdown") ?: false
+                    else -> false
+                }
+
+                val acceptingOrders = snapshot.getBoolean("acceptingOrders") ?: true
+                val codEnabled = snapshot.getBoolean("codEnabled") ?: true
+
+                @Suppress("UNCHECKED_CAST")
+                val slotVisibility = (snapshot.get("slotVisibility") as? Map<String, Boolean>) ?: emptyMap()
+                val updatedAt = when (val raw = snapshot.get("updatedAt")) {
+                    is com.google.firebase.Timestamp -> raw.toDate().time
+                    is Number -> raw.toLong()
+                    else -> 0L
+                }
+
+                HubSystemConfig(
+                    hubId = hubId,
+                    isLockdown = isLockdown,
+                    acceptingOrders = acceptingOrders,
+                    codEnabled = codEnabled,
+                    slotVisibility = slotVisibility,
+                    updatedAt = updatedAt
+                )
+            } catch (e: Exception) {
+                timber.log.Timber.e(e, "Error parsing HubSystemConfig from document snapshot")
+                HubSystemConfig(hubId = hubId)
             }
-
-            val acceptingOrders = snapshot.getBoolean("acceptingOrders") ?: true
-            val codEnabled = snapshot.getBoolean("codEnabled") ?: true
-
-            @Suppress("UNCHECKED_CAST")
-            val slotVisibility = (snapshot.get("slotVisibility") as? Map<String, Boolean>) ?: emptyMap()
-            val updatedAt = snapshot.getLong("updatedAt") ?: 0L
-
-            return HubSystemConfig(
-                hubId = hubId,
-                isLockdown = isLockdown,
-                acceptingOrders = acceptingOrders,
-                codEnabled = codEnabled,
-                slotVisibility = slotVisibility,
-                updatedAt = updatedAt
-            )
         }
     }
 }
