@@ -57,7 +57,8 @@ const CHART_OF_ACCOUNTS = {
         "6020_PAYMENT_GATEWAY_FEES": { name: "Payment Gateway Merchant Fees", category: "FINANCIAL_EXPENSE", normalBalance: "DEBIT" },
         "6030_REFERRAL_PROMOTION_EXPENSE": { name: "Customer Referral & Marketing Credit", category: "OPERATING_EXPENSE", normalBalance: "DEBIT" },
         "6035_CUSTOMER_GOODWILL_EXPENSE": { name: "Customer Dispute & Goodwill Concessions", category: "OPERATING_EXPENSE", normalBalance: "DEBIT" },
-        "6040_CASH_SHORTAGE_LOSS": { name: "Hub & Transit Cash Shortage Loss", category: "OPERATING_EXPENSE", normalBalance: "DEBIT" }
+        "6040_CASH_SHORTAGE_LOSS": { name: "Hub & Transit Cash Shortage Loss", category: "OPERATING_EXPENSE", normalBalance: "DEBIT" },
+        "6050_GENERAL_ADMIN_EXPENSES": { name: "General & Administrative Operating Expenses", category: "OPERATING_EXPENSE", normalBalance: "DEBIT" }
     }
 };
 
@@ -108,6 +109,7 @@ function validateJournalEntry(entryData) {
         "SALES_RETURN",
         "INVENTORY_ADJUSTMENT",
         "GATEWAY_SETTLEMENT",
+        "BANK_PAYOUT",
         "BANK_RECONCILIATION",
         "CAPITAL",
         "WALLET_TRANSACTION",

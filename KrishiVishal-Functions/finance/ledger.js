@@ -2,6 +2,7 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onDocumentUpdated, onDocumentCreated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { db, admin } = require("../core/admin");
 const { isAdminRequest } = require("../core/utils");
+const { postJournalEntry, VALID_ACCOUNT_CODES } = require("./generalLedger");
 
 const REGION = 'asia-south1';
 
@@ -30,7 +31,25 @@ exports.LIABILITY_REVENUE_ACCOUNTS = LIABILITY_REVENUE_ACCOUNTS;
 exports.VALID_ACCOUNTS = VALID_ACCOUNTS;
 
 /**
+ * Helper to resolve appropriate System 2 Expense Account from CoA.
+ */
+function resolveSystem2ExpenseAccount(data) {
+    if (data.accountCode && VALID_ACCOUNT_CODES && VALID_ACCOUNT_CODES.includes(data.accountCode)) {
+        return data.accountCode;
+    }
+    const category = String(data.category || '').toUpperCase();
+    if (category.includes('GATEWAY') || category.includes('MDR')) return '6020_PAYMENT_GATEWAY_FEES';
+    if (category.includes('REFERRAL') || category.includes('MARKETING') || category.includes('PROMO')) return '6030_REFERRAL_PROMOTION_EXPENSE';
+    if (category.includes('GOODWILL') || category.includes('COMPENSATION') || category.includes('DISPUTE')) return '6035_CUSTOMER_GOODWILL_EXPENSE';
+    if (category.includes('SHORTAGE') || category.includes('LOSS')) return '6040_CASH_SHORTAGE_LOSS';
+    if (category.includes('RIDER') || category.includes('DELIVERY') || category.includes('TRIP')) return '6010_RIDER_DELIVERY_PAYOUTS';
+    if (VALID_ACCOUNT_CODES && VALID_ACCOUNT_CODES.includes(category)) return category;
+    return '6050_GENERAL_ADMIN_EXPENSES';
+}
+
+/**
  * recordExpensePayment: Admin only function to track expenses.
+ * Refactored to System 2 Double-Entry Accounting with postJournalEntry.
  */
 exports.recordExpensePayment = onCall({ region: REGION }, async (request) => {
     const data = request.data || {};
@@ -50,40 +69,72 @@ exports.recordExpensePayment = onCall({ region: REGION }, async (request) => {
     const expenseId = data.expenseId || `EXP_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     const paymentMode = (data.paymentMode || 'CASH').toUpperCase();
     const isBank = ['BANK', 'BANK_ACCOUNT', 'ONLINE', 'UPI', 'NEFT', 'RTGS', 'RAZORPAY'].includes(paymentMode);
-    const assetAccount = isBank ? 'BANK_ACCOUNT' : 'CASH_IN_HAND';
+    const creditAccount = isBank ? '1030_BANK_CURRENT_HDFC' : '1020_HUB_CASH_VAULT';
+    const expenseAccount = resolveSystem2ExpenseAccount(data);
 
+    const now = new Date();
+    const periodId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const entryId = `JE_EXPENSE_${expenseId}`;
+
+    // 1. Post System 2 Double-Entry Journal Entry
+    const lines = [
+        {
+            accountCode: expenseAccount,
+            debit: amount,
+            credit: 0,
+            description: `Expense: ${data.category}${data.description ? ` - ${data.description}` : ''}`
+        },
+        {
+            accountCode: creditAccount,
+            debit: 0,
+            credit: amount,
+            description: `Expense payment via ${paymentMode}`
+        }
+    ];
+
+    const jeResult = await postJournalEntry({
+        entryId,
+        refType: 'EXPENSE',
+        refId: expenseId,
+        periodId,
+        date: new Date(),
+        memo: `Expense [${expenseId}]: ${data.category}${data.description ? ` - ${data.description}` : ''} (${paymentMode})`,
+        lines,
+        createdBy: context.auth ? context.auth.uid : 'SYSTEM'
+    });
+
+    // Replay idempotency guard
+    if (jeResult && (jeResult.alreadyProcessed || jeResult.alreadyExists)) {
+        return {
+            success: true,
+            expenseId,
+            journalEntryId: entryId,
+            alreadyProcessed: true
+        };
+    }
+
+    // 2. Persist expense record
     await db.collection('expenses').doc(expenseId).set({
         expenseId,
         amount: amount,
         category: data.category,
+        expenseAccount,
+        creditAccount,
         description: data.description || '',
         paidAt: admin.firestore.FieldValue.serverTimestamp(),
         paidBy: context.auth ? context.auth.uid : 'SYSTEM',
-        paymentMode: data.paymentMode || 'CASH'
+        paymentMode: data.paymentMode || 'CASH',
+        journalEntryId: jeResult.entryId,
+        status: 'POSTED'
     });
 
-    // Post double-entry ledger records
-    await postLedgerEntry({
-        account: 'EXPENSE',
-        type: 'DEBIT',
-        amount: amount,
-        referenceId: expenseId,
-        referenceType: 'EXPENSE',
-        idempotencyKey: `EXP_DR_${expenseId}`,
-        description: `Expense: ${data.category}${data.description ? ` - ${data.description}` : ''}`
-    });
-
-    await postLedgerEntry({
-        account: assetAccount,
-        type: 'CREDIT',
-        amount: amount,
-        referenceId: expenseId,
-        referenceType: 'EXPENSE',
-        idempotencyKey: `EXP_CR_${expenseId}`,
-        description: `Expense payout (${data.paymentMode || 'CASH'}): ${data.category}`
-    });
-
-    return { success: true, expenseId };
+    return {
+        success: true,
+        expenseId,
+        journalEntryId: jeResult.entryId,
+        amount,
+        paymentMode
+    };
 });
 
 /**
@@ -99,6 +150,7 @@ exports.deleteExpenseAttachment = onCall({ region: REGION }, async (request) => 
 
 /**
  * recordBankPayout: Admin only function to record bank payouts / gateway settlements.
+ * Refactored to System 2 Double-Entry Accounting with postJournalEntry.
  */
 exports.recordBankPayout = onCall({ region: REGION }, async (request) => {
     const data = request.data || {};
@@ -107,55 +159,133 @@ exports.recordBankPayout = onCall({ region: REGION }, async (request) => {
         throw new HttpsError('permission-denied', 'Admin role required.');
     }
 
-    const { payoutId, grossAmount, netAmount, fees, taxOnFees } = data;
+    const { payoutId, referenceId, grossAmount, netAmount, fees, taxOnFees } = data;
     const gross = Number(grossAmount);
-    const net = Number(netAmount);
-    const fee = Number(fees || 0);
+    let net = Number(netAmount);
+    let fee = Number(fees || 0);
     const tax = Number(taxOnFees || 0);
-    const totalFees = Number((fee + tax).toFixed(2));
 
     if (!gross || isNaN(gross) || gross <= 0) {
-        throw new HttpsError('invalid-argument', 'Valid grossAmount is required.');
+        throw new HttpsError('invalid-argument', 'Valid positive grossAmount is required.');
     }
 
-    const refId = payoutId || `PO_${Date.now()}`;
+    if (!net || isNaN(net) || net <= 0) {
+        net = Math.max(0, Math.round((gross - fee - tax) * 100) / 100);
+    }
 
-    // 1. Debit BANK_ACCOUNT (Actual net money received)
-    await postLedgerEntry({
-        account: 'BANK_ACCOUNT',
-        type: 'DEBIT',
-        amount: net || gross,
-        referenceId: refId,
-        referenceType: 'BANK_PAYOUT',
-        idempotencyKey: `PAYOUT_BANK_${refId}`,
-        description: `Bank Payout Received [${refId}]`
-    });
+    if (!fee && gross > net) {
+        fee = Math.max(0, Math.round((gross - net - tax) * 100) / 100);
+    }
 
-    // 2. Debit EXPENSE for payment gateway fees
-    if (totalFees > 0) {
-        await postLedgerEntry({
-            account: 'EXPENSE',
-            type: 'DEBIT',
-            amount: totalFees,
-            referenceId: refId,
-            referenceType: 'GATEWAY_FEES',
-            idempotencyKey: `PAYOUT_FEES_${refId}`,
-            description: `Gateway Fees for Payout [${refId}]`
+    const cgst = Number(data.cgst !== undefined ? data.cgst : (tax > 0 ? (tax / 2).toFixed(2) : 0));
+    const sgst = Number(data.sgst !== undefined ? data.sgst : (tax > 0 ? (tax - cgst).toFixed(2) : 0));
+
+    // Ensure strict arithmetic balance: Debits must equal Credits
+    const calculatedDebits = Math.round((net + fee + cgst + sgst) * 100) / 100;
+    if (Math.abs(calculatedDebits - gross) > 0.0001 && Math.abs(calculatedDebits - gross) < 0.05) {
+        net = Math.round((gross - fee - cgst - sgst) * 100) / 100;
+    }
+
+    const refId = payoutId || referenceId || `PO_${Date.now()}`;
+    const entryId = `JE_GATEWAY_SETTLEMENT_${refId}`;
+    const now = new Date();
+    const periodId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    // System 2 Double-Entry Lines:
+    // Debit 1030_BANK_CURRENT_HDFC (Net amount received in bank)
+    // Debit 6020_PAYMENT_GATEWAY_FEES (Merchant fee / MDR)
+    // Debit 1060_INPUT_CGST & 1070_INPUT_SGST (GST on fees)
+    // Credit 1050_GATEWAY_RECEIVABLE (Gross amount cleared from gateway)
+    const lines = [
+        {
+            accountCode: '1030_BANK_CURRENT_HDFC',
+            debit: net,
+            credit: 0,
+            description: `Bank net settlement received [${refId}]`
+        }
+    ];
+
+    if (fee > 0) {
+        lines.push({
+            accountCode: '6020_PAYMENT_GATEWAY_FEES',
+            debit: fee,
+            credit: 0,
+            description: `Payment gateway fee / MDR [${refId}]`
         });
     }
 
-    // 3. Credit CASH_IN_HAND / SALES clearing
-    await postLedgerEntry({
-        account: 'SALES',
-        type: 'CREDIT',
-        amount: gross,
-        referenceId: refId,
-        referenceType: 'PAYOUT_RECONCILED',
-        idempotencyKey: `PAYOUT_GROSS_${refId}`,
-        description: `Gateway Payout Cleared [${refId}]`
+    if (cgst > 0) {
+        lines.push({
+            accountCode: '1060_INPUT_CGST',
+            debit: cgst,
+            credit: 0,
+            description: `Input CGST on gateway fee [${refId}]`
+        });
+    }
+
+    if (sgst > 0) {
+        lines.push({
+            accountCode: '1070_INPUT_SGST',
+            debit: sgst,
+            credit: 0,
+            description: `Input SGST on gateway fee [${refId}]`
+        });
+    }
+
+    lines.push({
+        accountCode: '1050_GATEWAY_RECEIVABLE',
+        debit: 0,
+        credit: gross,
+        description: `Gateway receivable cleared [${refId}]`
     });
 
-    return { success: true, message: `Payout [${refId}] reconciled successfully.`, payoutId: refId };
+    const jeResult = await postJournalEntry({
+        entryId,
+        refType: 'BANK_PAYOUT',
+        refId,
+        periodId,
+        date: new Date(),
+        memo: `Payment Gateway Settlement [${refId}]: Gross ₹${gross}, Net ₹${net}, Fees ₹${fee}`,
+        lines,
+        createdBy: context.auth ? context.auth.uid : 'SYSTEM'
+    });
+
+    // Replay idempotency guard
+    if (jeResult && (jeResult.alreadyProcessed || jeResult.alreadyExists)) {
+        return {
+            success: true,
+            payoutId: refId,
+            journalEntryId: entryId,
+            message: `Payout [${refId}] already processed.`,
+            alreadyProcessed: true
+        };
+    }
+
+    // Persist settlement record
+    await db.collection('gateway_settlements').doc(refId).set({
+        settlementId: refId,
+        payoutId: refId,
+        grossAmount: gross,
+        netAmount: net,
+        fees: fee,
+        cgst: cgst,
+        sgst: sgst,
+        totalFees: fee + cgst + sgst,
+        journalEntryId: jeResult.entryId,
+        settledAt: admin.firestore.FieldValue.serverTimestamp(),
+        recordedBy: context.auth ? context.auth.uid : 'SYSTEM',
+        status: 'SETTLED'
+    }, { merge: true });
+
+    return {
+        success: true,
+        message: `Payout [${refId}] reconciled successfully.`,
+        payoutId: refId,
+        journalEntryId: jeResult.entryId,
+        grossAmount: gross,
+        netAmount: net,
+        fees: fee
+    };
 });
 
 /**
