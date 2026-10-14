@@ -103,10 +103,11 @@ fun ProofOfDeliveryScreen(
     var otpValue by remember { mutableStateOf("") }
     var collectedCash by remember { mutableStateOf("") }
     var hasInitializedCash by remember { mutableStateOf(false) }
+    val isCashCollectionDisabled by viewModel.isCashCollectionDisabled.collectAsState()
     
     if (!hasInitializedCash && order != null) {
         if (order.isCOD) {
-            collectedCash = (if (order.codAmount > 0) order.codAmount else order.totalAmount).toInt().toString()
+            collectedCash = if (isCashCollectionDisabled) "0" else (if (order.codAmount > 0) order.codAmount else order.totalAmount).toInt().toString()
         }
         hasInitializedCash = true
     }
@@ -359,19 +360,54 @@ fun ProofOfDeliveryScreen(
 
             if (order?.isCOD == true) {
                 Spacer(modifier = Modifier.height(16.dp))
-                Text("Collected Cash Amount (₹)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                OutlinedTextField(
-                    value = collectedCash,
-                    onValueChange = { collectedCash = it.filter { char -> char.isDigit() } },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Enter amount collected") },
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
-                    ),
-                    leadingIcon = { Text(" ₹", fontWeight = FontWeight.Bold) },
-                    shape = RoundedCornerShape(12.dp)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
+                if (isCashCollectionDisabled) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
+                        border = BorderStroke(1.5.dp, Color(0xFFDC2626))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = null,
+                                    tint = Color(0xFFDC2626),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "⚠️ कैश स्वीकार करना प्रतिबंधित है",
+                                    color = Color(0xFFB91C1C),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "एडमिन/हब द्वारा कैश कलेक्शन बंद किया गया है। कृपया ग्राहक से केवल UPI QR या डिजिटल पेमेंट द्वारा ₹${(if (order.codAmount > 0) order.codAmount else order.totalAmount).toInt()} का भुगतान स्वीकार करें।",
+                                color = Color(0xFF7F1D1D),
+                                fontSize = 12.sp,
+                                lineHeight = 17.sp
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                } else {
+                    Text("Collected Cash Amount (₹)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    OutlinedTextField(
+                        value = collectedCash,
+                        onValueChange = { collectedCash = it.filter { char -> char.isDigit() } },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Enter amount collected") },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        leadingIcon = { Text(" ₹", fontWeight = FontWeight.Bold) },
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
             }
             
             // OTP Verification Section
@@ -412,12 +448,13 @@ fun ProofOfDeliveryScreen(
                     }
                     scope.launch {
                         isUploading = true
+                        val cashToSubmit = if (isCashCollectionDisabled) 0.0 else (collectedCash.toDoubleOrNull() ?: 0.0)
                         val deliveryResult = viewModel.completeDeliveryWithPOD(
                             orderId = orderId,
                             otp = otpValue,
                             photoBitmap = capturedPhoto,
                             signatureBitmap = null,
-                            collectedCash = collectedCash.toDoubleOrNull() ?: 0.0
+                            collectedCash = cashToSubmit
                         )
                         isUploading = false
 
@@ -433,7 +470,7 @@ fun ProofOfDeliveryScreen(
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                enabled = !isUploading && isParcelScanned && capturedPhoto != null && otpValue.length == 4 && (order?.isCOD != true || collectedCash.isNotEmpty()),
+                enabled = !isUploading && isParcelScanned && capturedPhoto != null && otpValue.length == 4 && (order?.isCOD != true || isCashCollectionDisabled || collectedCash.isNotEmpty()),
                 shape = RoundedCornerShape(8.dp)
             ) {
                 if (isUploading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))

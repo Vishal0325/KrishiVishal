@@ -36,6 +36,7 @@ class NotificationHelper @Inject constructor(
         const val EXTRA_TARGET_ID = "extra_target_id"
         const val EXTRA_IMAGE_URL = "extra_image_url"
         const val EXTRA_CAMPAIGN_ID = "extra_campaign_id"
+        const val EXTRA_CAMPAIGN_VARIANT = "extra_campaign_variant"
     }
 
     init {
@@ -114,6 +115,7 @@ class NotificationHelper @Inject constructor(
         type: String = "GENERAL",
         targetId: String? = null,
         campaignId: String? = null,
+        variant: String? = null,
         notificationId: Int = (System.currentTimeMillis() % 100000).toInt()
     ) {
         val channelId = when (type.uppercase()) {
@@ -129,6 +131,7 @@ class NotificationHelper @Inject constructor(
             targetId?.let { putExtra(EXTRA_TARGET_ID, it) }
             imageUrl?.let { putExtra(EXTRA_IMAGE_URL, it) }
             campaignId?.let { putExtra(EXTRA_CAMPAIGN_ID, it) }
+            variant?.let { putExtra(EXTRA_CAMPAIGN_VARIANT, it) }
         }
 
         val pendingIntent = PendingIntent.getActivity(

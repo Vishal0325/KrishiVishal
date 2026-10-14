@@ -9,6 +9,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.company.krishivishal.MainActivity
 import com.company.krishivishal.R
+import com.company.krishivishal.data.local.datastore.UserPreferences
 import com.company.krishivishal.data.repository.NotificationRepository
 import com.company.krishivishal.utils.NotificationHelper
 import com.google.firebase.auth.FirebaseAuth
@@ -34,20 +35,25 @@ open class KrishiVishalFirebaseMessagingService : FirebaseMessagingService() {
     @Inject
     lateinit var auth: FirebaseAuth
 
+    @Inject
+    lateinit var userPreferences: UserPreferences
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         val userId = auth.currentUser?.uid
-        if (userId != null) {
-            serviceScope.launch {
-                try {
+        serviceScope.launch {
+            try {
+                if (userId != null) {
                     repository.updateFcmToken(userId, token)
-                    com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic("all_customers")
-                    Timber.d("FCM token updated and subscribed to all_customers for user $userId")
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to update FCM token / topic for user $userId")
                 }
+                val abBucket = userPreferences.getOrInitAbBucket()
+                com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic("all_customers")
+                com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic(abBucket)
+                Timber.d("FCM token updated and subscribed to all_customers and $abBucket")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to update FCM token / topic for user $userId")
             }
         }
     }
@@ -62,13 +68,61 @@ open class KrishiVishalFirebaseMessagingService : FirebaseMessagingService() {
         val deepLink = message.data["deepLink"]
         val campaignId = message.data["campaignId"]
         val targetId = message.data["targetId"] ?: orderId ?: productId ?: deepLink
-        val title = message.notification?.title ?: message.data["title"] ?: if (type == "STOCK_AVAILABLE") "✅ Stock Available!" else "Notification"
-        val body = message.notification?.body ?: message.data["body"] ?: if (status != null && orderId != null) "Order #$orderId is now $status" else ""
-        val imageUrl = message.notification?.imageUrl?.toString()
+        val rawTitle = message.notification?.title ?: message.data["title"] ?: if (type == "STOCK_AVAILABLE") "✅ Stock Available!" else "Notification"
+        val rawBody = message.notification?.body ?: message.data["body"] ?: if (status != null && orderId != null) "Order #$orderId is now $status" else ""
+        val rawImageUrl = message.notification?.imageUrl?.toString()
             ?: message.data["imageUrl"]
             ?: message.data["image"]
             ?: message.data["bannerUrl"]
         val data = message.data["data"]
+
+        // ── A/B Testing Variant Resolution (Feature 4) ──
+        val isAbTest = message.data["isAbTest"] == "true"
+        val explicitVariant = message.data["variant"]
+        val splitRatio = message.data["splitRatio"]?.toIntOrNull() ?: 50
+
+        val chosenVariant = if (!explicitVariant.isNullOrBlank()) {
+            explicitVariant.trim().uppercase()
+        } else if (isAbTest) {
+            val hashSource = auth.currentUser?.uid ?: message.messageId ?: "client"
+            if (Math.abs(hashSource.hashCode()) % 100 < splitRatio) "A" else "B"
+        } else {
+            "A"
+        }
+
+        val title = if (isAbTest && chosenVariant == "B" && !message.data["variantB_title"].isNullOrBlank()) {
+            message.data["variantB_title"]!!
+        } else if (isAbTest && chosenVariant == "A" && !message.data["variantA_title"].isNullOrBlank()) {
+            message.data["variantA_title"]!!
+        } else {
+            rawTitle
+        }
+
+        val body = if (isAbTest && chosenVariant == "B" && !message.data["variantB_body"].isNullOrBlank()) {
+            message.data["variantB_body"]!!
+        } else if (isAbTest && chosenVariant == "A" && !message.data["variantA_body"].isNullOrBlank()) {
+            message.data["variantA_body"]!!
+        } else {
+            rawBody
+        }
+
+        val imageUrl = if (isAbTest && chosenVariant == "B" && !message.data["variantB_imageUrl"].isNullOrBlank()) {
+            message.data["variantB_imageUrl"]
+        } else if (isAbTest && chosenVariant == "A" && !message.data["variantA_imageUrl"].isNullOrBlank()) {
+            message.data["variantA_imageUrl"]
+        } else {
+            rawImageUrl
+        }
+
+        val resolvedDeepLink = if (isAbTest && chosenVariant == "B" && !message.data["variantB_deepLink"].isNullOrBlank()) {
+            message.data["variantB_deepLink"]
+        } else if (isAbTest && chosenVariant == "A" && !message.data["variantA_deepLink"].isNullOrBlank()) {
+            message.data["variantA_deepLink"]
+        } else {
+            deepLink
+        }
+
+        val finalTargetId = resolvedDeepLink ?: targetId
 
         if (title.isNotBlank() || body.isNotBlank() || type == "STOCK_AVAILABLE") {
             val notificationTitle = if (title.isBlank()) "Stock Available!" else title
@@ -78,7 +132,7 @@ open class KrishiVishalFirebaseMessagingService : FirebaseMessagingService() {
                 title = notificationTitle,
                 body = notificationBody,
                 type = type,
-                data = data ?: targetId ?: orderId ?: productId ?: deepLink
+                data = data ?: finalTargetId ?: orderId ?: productId ?: resolvedDeepLink
             )
 
             serviceScope.launch {
@@ -96,8 +150,9 @@ open class KrishiVishalFirebaseMessagingService : FirebaseMessagingService() {
                         message = notificationBody,
                         imageUrl = imageUrl,
                         type = type,
-                        targetId = targetId,
-                        campaignId = campaignId
+                        targetId = finalTargetId,
+                        campaignId = campaignId,
+                        variant = if (isAbTest || campaignId != null) chosenVariant else null
                     )
                 }
             }

@@ -37,11 +37,18 @@ import javax.inject.Inject
 import com.company.krishivishaldelivery.data.local.PreferencesManager
 import androidx.compose.foundation.isSystemInDarkTheme
 
+import com.company.krishivishaldelivery.data.repository.DeliveryFeatureFlagRepository
+import com.company.krishivishaldelivery.ui.DeliveryMaintenanceScreen
+import com.company.krishivishaldelivery.ui.DeliveryForceUpdateScreen
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     
     @Inject
     lateinit var preferencesManager: PreferencesManager
+
+    @Inject
+    lateinit var featureFlagRepository: DeliveryFeatureFlagRepository
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,28 +77,23 @@ class MainActivity : ComponentActivity() {
                 val dashboardViewModel: DashboardViewModel = hiltViewModel()
                 val context = LocalContext.current
                 
-                val appConfigResource by dashboardViewModel.appConfig.collectAsState()
-                var showUpdateDialog by remember { mutableStateOf(false) }
+                val globalConfig by featureFlagRepository.globalConfig.collectAsState()
 
-                LaunchedEffect(appConfigResource) {
-                    if (appConfigResource is Resource.Success) {
-                        val config = (appConfigResource as Resource.Success).data
-                        if (config != null && BuildConfig.VERSION_CODE < config.minAppVersion) {
-                            showUpdateDialog = true
+                // 1. Force Update Gate (Delivery Min Version & Blocked Versions)
+                if (globalConfig.isVersionBlocked(BuildConfig.VERSION_CODE)) {
+                    DeliveryForceUpdateScreen(config = globalConfig)
+                    return@KrishiVishalTheme
+                }
+
+                // 2. Fullscreen Maintenance Gate (with localized bilingual text & retry)
+                if (globalConfig.isMaintenanceMode) {
+                    DeliveryMaintenanceScreen(
+                        config = globalConfig,
+                        onRetry = {
+                            featureFlagRepository.refresh()
                         }
-                    }
-                }
-
-                if (showUpdateDialog) {
-                    UpdateRequiredDialog()
-                }
-
-                if (appConfigResource is Resource.Success) {
-                    val config = (appConfigResource as Resource.Success).data
-                    if (config?.maintenanceMode == true) {
-                        MaintenanceScreen()
-                        return@KrishiVishalTheme
-                    }
+                    )
+                    return@KrishiVishalTheme
                 }
 
                 LaunchedEffect(Unit) {

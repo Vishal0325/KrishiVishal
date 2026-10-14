@@ -32,7 +32,8 @@ class RiderRepository @Inject constructor(
                     id = snapshot.id,
                     cashInHand = snapshot.getDouble("cash_in_hand") ?: snapshot.getDouble("cashInHand") ?: 0.0,
                     lastCodDeliveryAt = snapshot.getTimestamp("last_cod_delivery_at") ?: snapshot.getTimestamp("lastCodDeliveryAt"),
-                    hubCode = snapshot.getString("hub_code") ?: snapshot.getString("hubCode") ?: ""
+                    hubCode = snapshot.getString("hub_code") ?: snapshot.getString("hubCode") ?: snapshot.getString("hubId") ?: "",
+                    hubId = snapshot.getString("hubId") ?: snapshot.getString("hub_id") ?: snapshot.getString("hubCode") ?: snapshot.getString("hub_code") ?: ""
                 )
                 trySend(rider)
             }

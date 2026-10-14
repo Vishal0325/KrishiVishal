@@ -27,7 +27,9 @@ class UserPreferences @Inject constructor(
         private val THEME_MODE = booleanPreferencesKey("theme_mode")
         private val LANGUAGE = stringPreferencesKey("language")
         private val ATTRIBUTED_CAMPAIGN_ID = stringPreferencesKey("attributed_campaign_id")
+        private val ATTRIBUTED_CAMPAIGN_VARIANT = stringPreferencesKey("attributed_campaign_variant")
         private val ATTRIBUTED_CAMPAIGN_TIME = longPreferencesKey("attributed_campaign_time")
+        private val AB_BUCKET = stringPreferencesKey("ab_bucket")
     }
 
     val isLoggedIn: Flow<Boolean> = context.dataStore.data.map { prefs ->
@@ -81,9 +83,10 @@ class UserPreferences @Inject constructor(
         }
     }
 
-    suspend fun saveAttributedCampaign(campaignId: String) {
+    suspend fun saveAttributedCampaign(campaignId: String, variant: String = "A") {
         context.dataStore.edit { prefs ->
             prefs[ATTRIBUTED_CAMPAIGN_ID] = campaignId
+            prefs[ATTRIBUTED_CAMPAIGN_VARIANT] = variant
             prefs[ATTRIBUTED_CAMPAIGN_TIME] = System.currentTimeMillis()
         }
     }
@@ -100,9 +103,34 @@ class UserPreferences @Inject constructor(
         }
     }
 
+    suspend fun getActiveAttributedVariant(): String? {
+        val prefs = context.dataStore.data.first()
+        val id = prefs[ATTRIBUTED_CAMPAIGN_ID]
+        val time = prefs[ATTRIBUTED_CAMPAIGN_TIME] ?: 0L
+        val maxAttributionMillis = 48 * 60 * 60 * 1000L
+        return if (!id.isNullOrBlank() && (System.currentTimeMillis() - time) <= maxAttributionMillis) {
+            prefs[ATTRIBUTED_CAMPAIGN_VARIANT] ?: "A"
+        } else {
+            null
+        }
+    }
+
+    suspend fun getOrInitAbBucket(): String {
+        val prefs = context.dataStore.data.first()
+        val existing = prefs[AB_BUCKET]
+        if (!existing.isNullOrBlank()) return existing
+
+        val chosen = if (java.util.UUID.randomUUID().hashCode() % 2 == 0) "ab_bucket_a" else "ab_bucket_b"
+        context.dataStore.edit { p ->
+            p[AB_BUCKET] = chosen
+        }
+        return chosen
+    }
+
     suspend fun clearAttributedCampaign() {
         context.dataStore.edit { prefs ->
             prefs.remove(ATTRIBUTED_CAMPAIGN_ID)
+            prefs.remove(ATTRIBUTED_CAMPAIGN_VARIANT)
             prefs.remove(ATTRIBUTED_CAMPAIGN_TIME)
         }
     }

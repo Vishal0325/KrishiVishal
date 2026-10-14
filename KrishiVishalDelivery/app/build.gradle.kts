@@ -140,6 +140,9 @@ dependencies {
     implementation(libs.hilt.work)
     ksp("androidx.hilt:hilt-compiler:1.2.0")
 
+    // DataStore Preferences
+    implementation(libs.androidx.datastore.preferences)
+
     // Coil
     implementation(libs.coil.compose)
 

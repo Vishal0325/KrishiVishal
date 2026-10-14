@@ -7,46 +7,88 @@ const { REGION } = require("./notifications");
 const ACTIVE_REGION = REGION || 'asia-south1';
 
 /**
- * Strict Input Validator (Zod-equivalent semantics without external binary overhead)
+/**
+ * Validates an individual notification message variant
  */
-function validateCampaignInput(data) {
-    if (!data || typeof data !== 'object') {
-        throw new HttpsError('invalid-argument', 'Payload must be an object.');
+function validateVariant(variantData, label = 'Message') {
+    if (!variantData || typeof variantData !== 'object') {
+        throw new HttpsError('invalid-argument', `${label} payload must be an object.`);
     }
 
-    const title = (data.title || '').trim();
+    const title = (variantData.title || '').trim();
     if (!title || title.length > 65) {
-        throw new HttpsError('invalid-argument', 'Title is required and must not exceed 65 characters.');
+        throw new HttpsError('invalid-argument', `${label} title is required and must not exceed 65 characters.`);
     }
 
-    const body = (data.body || '').trim();
+    const body = (variantData.body || '').trim();
     if (!body || body.length > 240) {
-        throw new HttpsError('invalid-argument', 'Body is required and must not exceed 240 characters.');
+        throw new HttpsError('invalid-argument', `${label} body is required and must not exceed 240 characters.`);
     }
 
     let imageUrl = null;
-    if (data.imageUrl !== undefined && data.imageUrl !== null && data.imageUrl !== '') {
-        if (typeof data.imageUrl !== 'string' || !data.imageUrl.startsWith('https://')) {
-            throw new HttpsError('invalid-argument', 'Image URL must be a valid HTTPS URL.');
+    if (variantData.imageUrl !== undefined && variantData.imageUrl !== null && variantData.imageUrl !== '') {
+        if (typeof variantData.imageUrl !== 'string' || !variantData.imageUrl.startsWith('https://')) {
+            throw new HttpsError('invalid-argument', `${label} Image URL must be a valid HTTPS URL.`);
         }
-        imageUrl = data.imageUrl.trim();
+        imageUrl = variantData.imageUrl.trim();
     }
 
     let deepLink = null;
-    if (data.deepLink !== undefined && data.deepLink !== null && data.deepLink !== '') {
-        if (typeof data.deepLink !== 'string') {
-            throw new HttpsError('invalid-argument', 'deepLink must be a string.');
+    if (variantData.deepLink !== undefined && variantData.deepLink !== null && variantData.deepLink !== '') {
+        if (typeof variantData.deepLink !== 'string') {
+            throw new HttpsError('invalid-argument', `${label} deepLink must be a string.`);
         }
-        const dl = data.deepLink.trim();
+        const dl = variantData.deepLink.trim();
         // Allow-list check: only /product, /order, and /cart paths are allowed (custom scheme or https domain)
         const isAllowedPath = dl.startsWith('/product') || dl.startsWith('/order') || dl.startsWith('/cart') ||
                               dl.startsWith('krishivishal://product') || dl.startsWith('krishivishal://order') || dl.startsWith('krishivishal://cart') ||
                               dl.startsWith('https://www.krishivishal.com/product') || dl.startsWith('https://www.krishivishal.com/order') || dl.startsWith('https://www.krishivishal.com/cart') ||
                               dl.startsWith('https://krishivishal.app/product') || dl.startsWith('https://krishivishal.app/order') || dl.startsWith('https://krishivishal.app/cart');
         if (!isAllowedPath) {
-            throw new HttpsError('invalid-argument', 'deepLink is not in allow-list. Only /product, /order, and /cart routes are allowed.');
+            throw new HttpsError('invalid-argument', `${label} deepLink is not in allow-list. Only /product, /order, and /cart routes are allowed.`);
         }
         deepLink = dl;
+    }
+
+    return { title, body, imageUrl, deepLink };
+}
+
+/**
+ * Strict Input Validator (Zod-equivalent semantics without external binary overhead)
+ * Supports standard broadcast messages as well as A/B testing (Variant A & Variant B)
+ */
+function validateCampaignInput(data) {
+    if (!data || typeof data !== 'object') {
+        throw new HttpsError('invalid-argument', 'Payload must be an object.');
+    }
+
+    const isAbTest = data.isAbTest === true;
+    let splitRatio = 50;
+    let variantA = null;
+    let variantB = null;
+
+    let title = (data.title || '').trim();
+    let body = (data.body || '').trim();
+    let imageUrl = null;
+    let deepLink = null;
+
+    if (isAbTest) {
+        variantA = validateVariant(data.variantA, 'Variant A');
+        variantB = validateVariant(data.variantB, 'Variant B');
+        splitRatio = Number(data.splitRatio) || 50;
+        if (splitRatio < 10 || splitRatio > 90) {
+            throw new HttpsError('invalid-argument', 'splitRatio must be between 10% and 90%.');
+        }
+        title = title || `[A/B] ${variantA.title} vs ${variantB.title}`;
+        body = body || variantA.body;
+        imageUrl = variantA.imageUrl;
+        deepLink = variantA.deepLink;
+    } else {
+        const validated = validateVariant(data, 'Title & Body');
+        title = validated.title;
+        body = validated.body;
+        imageUrl = validated.imageUrl;
+        deepLink = validated.deepLink;
     }
 
     let audience = { type: 'ALL', topic: 'all_customers' };
@@ -97,7 +139,17 @@ function validateCampaignInput(data) {
         }
     }
 
-    return { title, body, imageUrl, deepLink, audience };
+    return { 
+        title, 
+        body, 
+        imageUrl, 
+        deepLink, 
+        audience, 
+        isAbTest, 
+        splitRatio, 
+        variantA, 
+        variantB 
+    };
 }
 
 /**
@@ -331,7 +383,7 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
         scheduledTimestamp = admin.firestore.Timestamp.fromDate(schedDate);
     }
 
-    const { title, body, imageUrl, deepLink, audience } = validateCampaignInput(request.data);
+    const { title, body, imageUrl, deepLink, audience, isAbTest, splitRatio, variantA, variantB } = validateCampaignInput(request.data);
 
     // Consume management rate limit budget (15/hr) only after input/role validation
     await checkAdminRateLimit(caller.uid, 'mgmt');
@@ -357,6 +409,10 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         idempotencyKey,
         quietHoursBlocked: isQuiet,
+        isAbTest: Boolean(isAbTest),
+        splitRatio: isAbTest ? splitRatio : null,
+        variantA: isAbTest ? variantA : null,
+        variantB: isAbTest ? variantB : null,
         stats: { 
             requested: 0, 
             sent: 0, 
@@ -366,7 +422,12 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
             ctr: 0,
             conversions: 0,
             revenue: 0,
-            conversionRate: 0
+            conversionRate: 0,
+            winnerVariant: null,
+            ...(isAbTest ? {
+                variantA: { sent: 0, clicks: 0, uniqueClicks: 0, ctr: 0, conversions: 0, revenue: 0, conversionRate: 0 },
+                variantB: { sent: 0, clicks: 0, uniqueClicks: 0, ctr: 0, conversions: 0, revenue: 0, conversionRate: 0 }
+            } : {})
         }
     };
 
@@ -387,8 +448,31 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
  */
 exports.sendTestNotification = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
     const caller = verifyMarketingAdmin(request);
-    const { title, body, imageUrl, deepLink } = validateCampaignInput(request.data);
+    const validated = validateCampaignInput(request.data);
     const testUserUid = request.data.testUserUid ? String(request.data.testUserUid).trim() : null;
+    const testVariant = (request.data.testVariant || 'A').toString().trim().toUpperCase();
+
+    let title = validated.title;
+    let body = validated.body;
+    let imageUrl = validated.imageUrl;
+    let deepLink = validated.deepLink;
+    let selectedVariant = 'A';
+
+    if (validated.isAbTest) {
+        if (testVariant === 'B' && validated.variantB) {
+            title = validated.variantB.title;
+            body = validated.variantB.body;
+            imageUrl = validated.variantB.imageUrl;
+            deepLink = validated.variantB.deepLink;
+            selectedVariant = 'B';
+        } else if (validated.variantA) {
+            title = validated.variantA.title;
+            body = validated.variantA.body;
+            imageUrl = validated.variantA.imageUrl;
+            deepLink = validated.variantA.deepLink;
+            selectedVariant = 'A';
+        }
+    }
 
     if (testUserUid) {
         // 1. Verify target in allow-list BEFORE charging rate limit budget
@@ -427,7 +511,11 @@ exports.sendTestNotification = onCall({ region: ACTIVE_REGION, invoker: 'public'
             imageUrl,
             deepLink,
             isTest: true,
-            extraData: { targetUid: testUserUid }
+            extraData: { 
+                targetUid: testUserUid,
+                variant: selectedVariant,
+                isAbTest: validated.isAbTest ? 'true' : 'false'
+            }
         });
 
         const multiRes = await admin.messaging().sendEachForMulticast(multicastMessage);
@@ -584,6 +672,23 @@ exports.sendCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: 
     });
 
     const topic = (campaignToBroadcast.audience && campaignToBroadcast.audience.topic) || 'all_customers';
+    const isAbTest = campaignToBroadcast.isAbTest === true;
+
+    let extraData = {};
+    if (isAbTest && campaignToBroadcast.variantA && campaignToBroadcast.variantB) {
+        extraData = {
+            isAbTest: 'true',
+            splitRatio: String(campaignToBroadcast.splitRatio || 50),
+            variantA_title: campaignToBroadcast.variantA.title,
+            variantA_body: campaignToBroadcast.variantA.body,
+            variantA_imageUrl: campaignToBroadcast.variantA.imageUrl || '',
+            variantA_deepLink: campaignToBroadcast.variantA.deepLink || '',
+            variantB_title: campaignToBroadcast.variantB.title,
+            variantB_body: campaignToBroadcast.variantB.body,
+            variantB_imageUrl: campaignToBroadcast.variantB.imageUrl || '',
+            variantB_deepLink: campaignToBroadcast.variantB.deepLink || ''
+        };
+    }
 
     const message = buildFcmMessage({
         title: campaignToBroadcast.title,
@@ -591,7 +696,8 @@ exports.sendCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: 
         imageUrl: campaignToBroadcast.imageUrl,
         deepLink: campaignToBroadcast.deepLink,
         topic,
-        campaignId
+        campaignId,
+        extraData
     });
 
     try {
@@ -606,18 +712,24 @@ exports.sendCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: 
             deepLink: campaignToBroadcast.deepLink || null,
             type: 'PROMOTIONAL',
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            topic
+            topic,
+            isAbTest: Boolean(isAbTest)
         }, { merge: true });
 
         // Update campaign status to COMPLETED
-        await campaignRef.update({
+        const updatePayload = {
             status: 'COMPLETED',
             messageId,
             completedAt: admin.firestore.FieldValue.serverTimestamp(),
             quietHoursOverridden: isQuiet && overrideRequested,
             'stats.sent': 1,
             'stats.failed': 0
-        });
+        };
+        if (isAbTest) {
+            updatePayload['stats.variantA.sent'] = 1;
+            updatePayload['stats.variantB.sent'] = 1;
+        }
+        await campaignRef.update(updatePayload);
 
         // Audit Log Entry
         await db.collection("audit_logs").add({
@@ -831,13 +943,32 @@ async function processDueCampaigns(testNow = null) {
         }
 
         const topic = (campaignData.audience && campaignData.audience.topic) || 'all_customers';
+        const isAbTest = campaignData.isAbTest === true;
+
+        let extraData = {};
+        if (isAbTest && campaignData.variantA && campaignData.variantB) {
+            extraData = {
+                isAbTest: 'true',
+                splitRatio: String(campaignData.splitRatio || 50),
+                variantA_title: campaignData.variantA.title,
+                variantA_body: campaignData.variantA.body,
+                variantA_imageUrl: campaignData.variantA.imageUrl || '',
+                variantA_deepLink: campaignData.variantA.deepLink || '',
+                variantB_title: campaignData.variantB.title,
+                variantB_body: campaignData.variantB.body,
+                variantB_imageUrl: campaignData.variantB.imageUrl || '',
+                variantB_deepLink: campaignData.variantB.deepLink || ''
+            };
+        }
+
         const message = buildFcmMessage({
             title: campaignData.title,
             body: campaignData.body,
             imageUrl: campaignData.imageUrl,
             deepLink: campaignData.deepLink,
             topic,
-            campaignId
+            campaignId,
+            extraData
         });
 
         try {
@@ -851,16 +982,22 @@ async function processDueCampaigns(testNow = null) {
                 deepLink: campaignData.deepLink || null,
                 type: 'PROMOTIONAL',
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                topic
+                topic,
+                isAbTest: Boolean(isAbTest)
             }, { merge: true });
 
-            await doc.ref.update({
+            const updatePayload = {
                 status: 'COMPLETED',
                 messageId,
                 completedAt: admin.firestore.FieldValue.serverTimestamp(),
                 'stats.sent': 1,
                 'stats.failed': 0
-            });
+            };
+            if (isAbTest) {
+                updatePayload['stats.variantA.sent'] = 1;
+                updatePayload['stats.variantB.sent'] = 1;
+            }
+            await doc.ref.update(updatePayload);
 
             await db.collection("audit_logs").add({
                 action: 'NOTIFICATION_CAMPAIGN_SCHEDULED_DISPATCH',
@@ -924,6 +1061,7 @@ exports.recordCampaignClick = onCall({ region: ACTIVE_REGION, invoker: 'public',
     const platform = (data.platform || 'android').toString().trim().toLowerCase();
     const callerUid = request.auth ? request.auth.uid : null;
     const clientKey = (data.clientSessionId || callerUid || 'anon_' + Math.random().toString(36).substring(2, 12)).trim();
+    const variant = (data.variant || 'A').toString().trim().toUpperCase() === 'B' ? 'B' : 'A';
 
     const campaignRef = db.collection("notification_campaigns").doc(campaignId);
 
@@ -953,6 +1091,7 @@ exports.recordCampaignClick = onCall({ region: ACTIVE_REGION, invoker: 'public',
                 clientKey,
                 userId: callerUid || null,
                 platform,
+                variant,
                 firstClickedAt: admin.firestore.FieldValue.serverTimestamp(),
                 lastClickedAt: admin.firestore.FieldValue.serverTimestamp(),
                 clickCount: 1
@@ -967,16 +1106,57 @@ exports.recordCampaignClick = onCall({ region: ACTIVE_REGION, invoker: 'public',
         // Compute CTR (%)
         const ctr = Math.round((newUniqueClicks / sentCount) * 1000) / 10;
 
-        t.update(campaignRef, {
+        const updatePayload = {
             'stats.clicks': newClicks,
             'stats.uniqueClicks': newUniqueClicks,
             'stats.ctr': ctr,
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
+        };
+
+        if (campaign.isAbTest) {
+            const vStats = campaign.stats || {};
+            const curVarA = vStats.variantA || { sent: 0, clicks: 0, uniqueClicks: 0, ctr: 0, conversions: 0, revenue: 0 };
+            const curVarB = vStats.variantB || { sent: 0, clicks: 0, uniqueClicks: 0, ctr: 0, conversions: 0, revenue: 0 };
+
+            let newClicksA = Number(curVarA.clicks) || 0;
+            let newUniqueClicksA = Number(curVarA.uniqueClicks) || 0;
+            let newClicksB = Number(curVarB.clicks) || 0;
+            let newUniqueClicksB = Number(curVarB.uniqueClicks) || 0;
+
+            if (variant === 'B') {
+                newClicksB += 1;
+                if (isUnique) newUniqueClicksB += 1;
+            } else {
+                newClicksA += 1;
+                if (isUnique) newUniqueClicksA += 1;
+            }
+
+            const sentA = Math.max(1, Number(curVarA.sent) || Math.round(sentCount * ((campaign.splitRatio || 50) / 100)) || 1);
+            const sentB = Math.max(1, Number(curVarB.sent) || Math.round(sentCount * ((100 - (campaign.splitRatio || 50)) / 100)) || 1);
+
+            const ctrA = Math.round((newUniqueClicksA / sentA) * 1000) / 10;
+            const ctrB = Math.round((newUniqueClicksB / sentB) * 1000) / 10;
+
+            let winnerVariant = null;
+            if (ctrA > ctrB) winnerVariant = 'A';
+            else if (ctrB > ctrA) winnerVariant = 'B';
+            else if (ctrA > 0) winnerVariant = 'TIE';
+
+            updatePayload['stats.variantA.clicks'] = newClicksA;
+            updatePayload['stats.variantA.uniqueClicks'] = newUniqueClicksA;
+            updatePayload['stats.variantA.ctr'] = ctrA;
+            updatePayload['stats.variantB.clicks'] = newClicksB;
+            updatePayload['stats.variantB.uniqueClicks'] = newUniqueClicksB;
+            updatePayload['stats.variantB.ctr'] = ctrB;
+            updatePayload['stats.winnerVariant'] = winnerVariant;
+        }
+
+        t.update(campaignRef, updatePayload);
 
         return {
             success: true,
             campaignId,
+            variant,
             uniqueClick: isUnique,
             clicks: newClicks,
             uniqueClicks: newUniqueClicks,
@@ -1013,11 +1193,12 @@ exports.getCampaignAnalytics = onCall({ region: ACTIVE_REGION, invoker: 'public'
             const cd = doc.data();
             return {
                 orderId: doc.id,
-                totalAmount: cd.totalAmount || 0,
-                userName: cd.userName || 'Customer',
-                userPhone: cd.userPhone || '',
+                totalAmount: cd.amount || cd.totalAmount || 0,
+                userName: cd.customerName || cd.userName || 'Customer',
+                userPhone: cd.customerPhone || cd.userPhone || '',
                 itemsCount: cd.itemsCount || 0,
                 paymentMethod: cd.paymentMethod || 'COD',
+                variant: cd.variant || 'A',
                 convertedAt: cd.convertedAt ? cd.convertedAt.toDate().toISOString() : null
             };
         });
@@ -1032,6 +1213,70 @@ exports.getCampaignAnalytics = onCall({ region: ACTIVE_REGION, invoker: 'public'
         const conversionRate = Math.round((orderCount / Math.max(1, uniqueClicks || clicks || 1)) * 1000) / 10;
         const averageOrderValue = orderCount > 0 ? Math.round(revenue / orderCount) : 0;
 
+        let metricsVariantA = null;
+        let metricsVariantB = null;
+        let winnerVariant = stats.winnerVariant || null;
+
+        if (data.isAbTest) {
+            const vStatsA = stats.variantA || {};
+            const vStatsB = stats.variantB || {};
+
+            const sentA = Math.max(1, Number(vStatsA.sent) || Math.round(sent * ((data.splitRatio || 50) / 100)) || 1);
+            const sentB = Math.max(1, Number(vStatsB.sent) || Math.round(sent * ((100 - (data.splitRatio || 50)) / 100)) || 1);
+
+            const clicksA = Number(vStatsA.clicks) || 0;
+            const uniqueClicksA = Number(vStatsA.uniqueClicks) || 0;
+            const ctrA = Number(vStatsA.ctr) || (Math.round((uniqueClicksA / sentA) * 1000) / 10);
+            const convA = Number(vStatsA.conversions) || 0;
+            const revA = Number(vStatsA.revenue) || 0;
+            const convRateA = Math.round((convA / Math.max(1, uniqueClicksA || clicksA || 1)) * 1000) / 10;
+            const aovA = convA > 0 ? Math.round(revA / convA) : 0;
+
+            const clicksB = Number(vStatsB.clicks) || 0;
+            const uniqueClicksB = Number(vStatsB.uniqueClicks) || 0;
+            const ctrB = Number(vStatsB.ctr) || (Math.round((uniqueClicksB / sentB) * 1000) / 10);
+            const convB = Number(vStatsB.conversions) || 0;
+            const revB = Number(vStatsB.revenue) || 0;
+            const convRateB = Math.round((convB / Math.max(1, uniqueClicksB || clicksB || 1)) * 1000) / 10;
+            const aovB = convB > 0 ? Math.round(revB / convB) : 0;
+
+            metricsVariantA = {
+                title: data.variantA?.title || 'Variant A',
+                body: data.variantA?.body || '',
+                imageUrl: data.variantA?.imageUrl || null,
+                deepLink: data.variantA?.deepLink || null,
+                sent: sentA,
+                clicks: clicksA,
+                uniqueClicks: uniqueClicksA,
+                ctr: ctrA,
+                conversions: convA,
+                revenue: revA,
+                conversionRate: convRateA,
+                averageOrderValue: aovA
+            };
+
+            metricsVariantB = {
+                title: data.variantB?.title || 'Variant B',
+                body: data.variantB?.body || '',
+                imageUrl: data.variantB?.imageUrl || null,
+                deepLink: data.variantB?.deepLink || null,
+                sent: sentB,
+                clicks: clicksB,
+                uniqueClicks: uniqueClicksB,
+                ctr: ctrB,
+                conversions: convB,
+                revenue: revB,
+                conversionRate: convRateB,
+                averageOrderValue: aovB
+            };
+
+            if (!winnerVariant) {
+                if (ctrA > ctrB) winnerVariant = 'A';
+                else if (ctrB > ctrA) winnerVariant = 'B';
+                else if (ctrA > 0) winnerVariant = 'TIE';
+            }
+        }
+
         return {
             success: true,
             campaignId,
@@ -1039,6 +1284,10 @@ exports.getCampaignAnalytics = onCall({ region: ACTIVE_REGION, invoker: 'public'
             body: data.body,
             audience: data.audience,
             status: data.status,
+            isAbTest: Boolean(data.isAbTest),
+            splitRatio: data.splitRatio || 50,
+            variantA: data.variantA || null,
+            variantB: data.variantB || null,
             createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : null,
             completedAt: data.completedAt ? data.completedAt.toDate().toISOString() : null,
             metrics: {
@@ -1051,6 +1300,9 @@ exports.getCampaignAnalytics = onCall({ region: ACTIVE_REGION, invoker: 'public'
                 conversionRate,
                 averageOrderValue
             },
+            metricsVariantA,
+            metricsVariantB,
+            winnerVariant,
             recentOrders: conversions
         };
     }
@@ -1100,6 +1352,7 @@ exports.getCampaignAnalytics = onCall({ region: ACTIVE_REGION, invoker: 'public'
 exports.trackCampaignClick = onRequest({ region: ACTIVE_REGION, cors: true }, async (req, res) => {
     const campaignId = (req.query.c || req.query.campaignId || '').toString().trim();
     const deepLink = (req.query.dl || req.query.deepLink || '/').toString().trim();
+    const variant = (req.query.v || req.query.variant || 'A').toString().trim().toUpperCase() === 'B' ? 'B' : 'A';
 
     if (campaignId) {
         try {
@@ -1114,14 +1367,17 @@ exports.trackCampaignClick = onRequest({ region: ACTIVE_REGION, cors: true }, as
                 const curStats = cData.stats || {};
                 const clicks = (Number(curStats.clicks) || 0) + 1;
                 let uniqueClicks = Number(curStats.uniqueClicks) || 0;
+                let isUnique = false;
 
                 const clickRef = campaignRef.collection("clicks").doc(clientKey);
                 const clickSnap = await t.get(clickRef);
                 if (!clickSnap.exists) {
+                    isUnique = true;
                     uniqueClicks += 1;
                     t.set(clickRef, {
                         clientKey,
                         platform: 'web',
+                        variant,
                         firstClickedAt: admin.firestore.FieldValue.serverTimestamp(),
                         lastClickedAt: admin.firestore.FieldValue.serverTimestamp(),
                         clickCount: 1
@@ -1133,11 +1389,54 @@ exports.trackCampaignClick = onRequest({ region: ACTIVE_REGION, cors: true }, as
                     });
                 }
 
-                t.update(campaignRef, {
+                const sentCount = Math.max(1, Number(curStats.sent) || Number(cData.targetAudienceCount) || 1);
+                const ctr = Math.round((uniqueClicks / sentCount) * 1000) / 10;
+
+                const updatePayload = {
                     'stats.clicks': clicks,
                     'stats.uniqueClicks': uniqueClicks,
+                    'stats.ctr': ctr,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                });
+                };
+
+                if (cData.isAbTest) {
+                    const curVarA = curStats.variantA || { sent: 0, clicks: 0, uniqueClicks: 0, ctr: 0, conversions: 0, revenue: 0 };
+                    const curVarB = curStats.variantB || { sent: 0, clicks: 0, uniqueClicks: 0, ctr: 0, conversions: 0, revenue: 0 };
+
+                    let newClicksA = Number(curVarA.clicks) || 0;
+                    let newUniqueClicksA = Number(curVarA.uniqueClicks) || 0;
+                    let newClicksB = Number(curVarB.clicks) || 0;
+                    let newUniqueClicksB = Number(curVarB.uniqueClicks) || 0;
+
+                    if (variant === 'B') {
+                        newClicksB += 1;
+                        if (isUnique) newUniqueClicksB += 1;
+                    } else {
+                        newClicksA += 1;
+                        if (isUnique) newUniqueClicksA += 1;
+                    }
+
+                    const sentA = Math.max(1, Number(curVarA.sent) || Math.round(sentCount * ((cData.splitRatio || 50) / 100)) || 1);
+                    const sentB = Math.max(1, Number(curVarB.sent) || Math.round(sentCount * ((100 - (cData.splitRatio || 50)) / 100)) || 1);
+
+                    const ctrA = Math.round((newUniqueClicksA / sentA) * 1000) / 10;
+                    const ctrB = Math.round((newUniqueClicksB / sentB) * 1000) / 10;
+
+                    let winnerVariant = null;
+                    if (ctrA > ctrB) winnerVariant = 'A';
+                    else if (ctrB > ctrA) winnerVariant = 'B';
+                    else if (ctrA > 0) winnerVariant = 'TIE';
+
+                    updatePayload['stats.variantA.clicks'] = newClicksA;
+                    updatePayload['stats.variantA.uniqueClicks'] = newUniqueClicksA;
+                    updatePayload['stats.variantA.ctr'] = ctrA;
+                    updatePayload['stats.variantB.clicks'] = newClicksB;
+                    updatePayload['stats.variantB.uniqueClicks'] = newUniqueClicksB;
+                    updatePayload['stats.variantB.ctr'] = ctrB;
+                    updatePayload['stats.winnerVariant'] = winnerVariant;
+                }
+
+                t.update(campaignRef, updatePayload);
             });
         } catch (e) {
             console.warn('[trackCampaignClick] Click logging error:', e.message);

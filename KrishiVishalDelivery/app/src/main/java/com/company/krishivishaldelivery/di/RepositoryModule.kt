@@ -22,4 +22,10 @@ abstract class RepositoryModule {
     abstract fun bindServiceBookingRepository(
         serviceBookingRepositoryImpl: ServiceBookingRepositoryImpl
     ): ServiceBookingRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindDeliveryFeatureFlagRepository(
+        deliveryFeatureFlagRepositoryImpl: DeliveryFeatureFlagRepositoryImpl
+    ): DeliveryFeatureFlagRepository
 }

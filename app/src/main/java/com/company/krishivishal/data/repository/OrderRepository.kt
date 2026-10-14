@@ -192,11 +192,18 @@ class OrderRepositoryImpl @Inject constructor(
             null
         }
 
+        val attributedVariant = try {
+            userPreferences.getActiveAttributedVariant()
+        } catch (e: Exception) {
+            "A"
+        }
+
         val data = hashMapOf<String, Any?>(
             "idempotencyKey" to idempotencyKey,
             "destinationHubId" to resolvedHubId,
             "spokeHubId" to resolvedHubId,
             "attributedCampaignId" to (attributedCampaignId ?: ""),
+            "attributedVariant" to (attributedVariant ?: "A"),
             "cartItems" to cartItems.map { cwp ->
                 val variantLabel = cwp.displayVariantLabel()
                 val imgUrl = cwp.product?.imageUrl?.ifEmpty { cwp.product?.images?.firstOrNull() ?: "" } ?: ""

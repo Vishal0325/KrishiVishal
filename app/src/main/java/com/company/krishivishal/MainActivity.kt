@@ -400,19 +400,23 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     private fun handleIntent(intent: Intent?) {
         val campaignId = intent?.getStringExtra(NotificationHelper.EXTRA_CAMPAIGN_ID)
             ?: intent?.getStringExtra("campaignId")
+        val variant = intent?.getStringExtra(NotificationHelper.EXTRA_CAMPAIGN_VARIANT)
+            ?: intent?.getStringExtra("variant")
+            ?: "A"
         if (!campaignId.isNullOrBlank()) {
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
-                    userPreferences.saveAttributedCampaign(campaignId)
+                    userPreferences.saveAttributedCampaign(campaignId, variant)
                     val clickData = hashMapOf(
                         "campaignId" to campaignId,
+                        "variant" to variant,
                         "platform" to "android"
                     )
                     com.google.firebase.functions.FirebaseFunctions.getInstance("asia-south1")
                         .getHttpsCallable("recordCampaignClick")
                         .call(clickData)
                         .await()
-                    Timber.d("Recorded campaign click for $campaignId")
+                    Timber.d("Recorded campaign click for $campaignId (variant: $variant)")
                 } catch (e: Exception) {
                     Timber.w(e, "Failed to record campaign click for $campaignId")
                 }

@@ -14,6 +14,9 @@ import com.company.krishivishaldelivery.data.model.OptimizedStop
 import com.company.krishivishaldelivery.data.model.OptimizedTrip
 import com.company.krishivishaldelivery.data.model.Rider
 import com.company.krishivishaldelivery.data.model.ServiceBooking
+import com.company.krishivishaldelivery.data.model.DeliveryGlobalConfig
+import com.company.krishivishaldelivery.data.model.DeliveryHubConfig
+import com.company.krishivishaldelivery.data.repository.DeliveryFeatureFlagRepository
 import com.company.krishivishaldelivery.data.repository.ServiceBookingRepository
 import com.company.krishivishaldelivery.data.repository.ConfigRepository
 import com.company.krishivishaldelivery.data.repository.OrderRepository
@@ -34,12 +37,27 @@ class DashboardViewModel @Inject constructor(
     private val riderRepository: RiderRepository,
     private val configRepository: ConfigRepository,
     private val serviceBookingRepository: ServiceBookingRepository,
+    private val featureFlagRepository: DeliveryFeatureFlagRepository,
     connectivityObserver: ConnectivityObserver
 ) : ViewModel() {
 
     companion object {
         const val COD_VAULT_LIMIT = 15000.0
     }
+
+    // System Controls & Kill Switches
+    val globalConfig: StateFlow<DeliveryGlobalConfig> = featureFlagRepository.globalConfig
+    val hubConfig: StateFlow<DeliveryHubConfig> = featureFlagRepository.hubConfig
+
+    val isHubLockedDown: StateFlow<Boolean> = hubConfig.map { it.isLockdown || !it.acceptingOrders }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val isCashCollectionDisabled: StateFlow<Boolean> = combine(globalConfig, hubConfig) { global, hub ->
+        !global.delivery.cashCollectionEnabled || !hub.cashCollectionEnabled
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val isAutoAssignmentDisabled: StateFlow<Boolean> = globalConfig.map { !it.delivery.assignmentEnabled }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     private val _orders = MutableStateFlow<Resource<List<Order>>>(Resource.Loading())
     val orders: StateFlow<Resource<List<Order>>> = _orders.asStateFlow()
@@ -110,6 +128,10 @@ class DashboardViewModel @Inject constructor(
     }
 
     fun acceptIncomingOrder(orderId: String) {
+        if (isHubLockedDown.value) {
+            _uiErrorMessage.value = "हब लॉकडाउन सक्रिय होने के कारण नया ऑर्डर स्वीकार नहीं किया जा सकता।"
+            return
+        }
         viewModelScope.launch {
             try {
                 orderRepository.acceptAssignedOrder(orderId, currentRiderId)
@@ -264,6 +286,11 @@ class DashboardViewModel @Inject constructor(
                     _riderProfile.value = Resource.Success(rider)
                     _cashInHand.value = rider?.cashInHand ?: 0.0
                     _lastCodDeliveryAt.value = rider?.lastCodDeliveryAt
+
+                    val hub = rider?.hubCode?.ifBlank { rider.hubId } ?: ""
+                    if (hub.isNotBlank()) {
+                        featureFlagRepository.setRiderHubId(hub)
+                    }
                 }
         }
     }
@@ -420,6 +447,10 @@ class DashboardViewModel @Inject constructor(
     }
 
     fun updateStatus(orderId: String, nextStatus: String) {
+        if (isHubLockedDown.value && (nextStatus == OrderStatus.PICKED_UP.name || nextStatus == OrderStatus.OUT_FOR_DELIVERY.name)) {
+            _uiErrorMessage.value = "हब लॉकडाउन सक्रिय होने के कारण डिलीवरी रूट शुरू नहीं किया जा सकता।"
+            return
+        }
         viewModelScope.launch {
             orderRepository.updateOrderStatus(orderId, nextStatus)
             when (nextStatus) {

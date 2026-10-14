@@ -82,6 +82,12 @@ fun DashboardScreen(
     val riderProfileResource by viewModel.riderProfile.collectAsState()
     val rider = (riderProfileResource as? Resource.Success)?.data
 
+    val hubConfig by viewModel.hubConfig.collectAsState()
+    val isHubLockedDown by viewModel.isHubLockedDown.collectAsState()
+    val isCashCollectionDisabled by viewModel.isCashCollectionDisabled.collectAsState()
+    val isAutoAssignmentDisabled by viewModel.isAutoAssignmentDisabled.collectAsState()
+    var showLockdownDialog by remember { mutableStateOf(false) }
+
     val isServiceMan = partnerRole == "service_man"
     val isBoth = partnerRole == "both"
 
@@ -133,6 +139,32 @@ fun DashboardScreen(
         }
     }
 
+    if (showLockdownDialog) {
+        AlertDialog(
+            onDismissRequest = { showLockdownDialog = false },
+            title = {
+                Text(
+                    text = if (hubConfig.isLockdown) "🛑 हब लॉकडाउन सक्रिय" else "⏸️ हब सेवा स्थगित",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = if (hubConfig.isLockdown) {
+                        "आपके हब (${hubConfig.hubId}) पर लॉकडाउन सक्रिय है। प्रबंधन द्वारा नए ऑर्डर स्वीकार करना और डिलीवरी रूट शुरू करना अस्थायी रूप से प्रतिबंधित है।"
+                    } else {
+                        "वर्तमान में आपका हब (${hubConfig.hubId}) नए ऑर्डर स्वीकार नहीं कर रहा है। कृपया हब मैनेजर के अगले निर्देश की प्रतीक्षा करें।"
+                    }
+                )
+            },
+            confirmButton = {
+                Button(onClick = { showLockdownDialog = false }) {
+                    Text("समझ गया")
+                }
+            }
+        )
+    }
+
     val incomingOrderAlert by viewModel.incomingOrderAlert.collectAsState()
 
     if (incomingOrderAlert != null) {
@@ -147,7 +179,11 @@ fun DashboardScreen(
             itemsCountText = if (order.isCOD) "COD Payment" else "Prepaid Online",
             isCod = order.isCOD,
             onAccept = {
-                viewModel.acceptIncomingOrder(order.id)
+                if (isHubLockedDown) {
+                    showLockdownDialog = true
+                } else {
+                    viewModel.acceptIncomingOrder(order.id)
+                }
             },
             onDecline = {
                 viewModel.declineIncomingOrder(order.id)
@@ -360,6 +396,32 @@ fun DashboardScreen(
                                             )
                                         }
                                     }
+                                }
+                            }
+
+                            // System Controls & Operational Toggles
+                            if (isHubLockedDown) {
+                                item {
+                                    HubLockdownBanner(
+                                        hubConfig = hubConfig,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+                                }
+                            }
+
+                            if (isCashCollectionDisabled) {
+                                item {
+                                    CashCollectionNoticeBanner(
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+                                }
+                            }
+
+                            if (isAutoAssignmentDisabled) {
+                                item {
+                                    AutoAssignmentStatusChip(
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
                                 }
                             }
 
@@ -583,7 +645,19 @@ fun DashboardScreen(
                             } else {
                                 // Default "ALL" Unfiltered View (Shortest Route Sequence + Delivered Orders)
                                 if (trip != null && trip.stops.isNotEmpty()) {
-                                    item { TripSummaryCard(trip) }
+                                    item {
+                                        TripSummaryCard(
+                                            trip = trip,
+                                            isHubLockedDown = isHubLockedDown,
+                                            onStartRouteClick = {
+                                                if (isHubLockedDown) {
+                                                    showLockdownDialog = true
+                                                } else {
+                                                    onViewRouteClick()
+                                                }
+                                            }
+                                        )
+                                    }
                                     item { 
                                         Row(
                                             modifier = Modifier.fillMaxWidth(), 
@@ -599,16 +673,26 @@ fun DashboardScreen(
                                             order = stop.order, 
                                             stopNumber = stop.stopNumber,
                                             distanceKm = stop.distanceKmFromPrev,
-                                            onStatusClick = { viewModel.updateStatus(stop.order.id, it) }, 
-                                            onNavigateClick = {
-                                                val navUri = if (stop.order.targetLat != 0.0 && stop.order.targetLng != 0.0)
-                                                    "google.navigation:q=${stop.order.targetLat},${stop.order.targetLng}&mode=d"
-                                                else {
-                                                    val lm = stop.order.getEffectiveLandmark()
-                                                    val query = if (lm.isNotBlank()) "${stop.order.address} ($lm)" else stop.order.address
-                                                    "google.navigation:q=${Uri.encode(query)}&mode=d"
+                                            onStatusClick = { nextStatus ->
+                                                if (isHubLockedDown && (nextStatus == OrderStatus.PICKED_UP.name || nextStatus == OrderStatus.OUT_FOR_DELIVERY.name)) {
+                                                    showLockdownDialog = true
+                                                } else {
+                                                    viewModel.updateStatus(stop.order.id, nextStatus)
                                                 }
-                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(navUri)).setPackage("com.google.android.apps.maps"))
+                                            }, 
+                                            onNavigateClick = {
+                                                if (isHubLockedDown) {
+                                                    showLockdownDialog = true
+                                                } else {
+                                                    val navUri = if (stop.order.targetLat != 0.0 && stop.order.targetLng != 0.0)
+                                                        "google.navigation:q=${stop.order.targetLat},${stop.order.targetLng}&mode=d"
+                                                    else {
+                                                        val lm = stop.order.getEffectiveLandmark()
+                                                        val query = if (lm.isNotBlank()) "${stop.order.address} ($lm)" else stop.order.address
+                                                        "google.navigation:q=${Uri.encode(query)}&mode=d"
+                                                    }
+                                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(navUri)).setPackage("com.google.android.apps.maps"))
+                                                }
                                             }, 
                                             onCallClick = {
                                                 val phoneUri = Uri.parse("tel:${stop.order.userPhone}")
@@ -629,16 +713,26 @@ fun DashboardScreen(
                                             order = order, 
                                             stopNumber = null,
                                             distanceKm = null,
-                                            onStatusClick = { viewModel.updateStatus(order.id, it) }, 
-                                            onNavigateClick = {
-                                                val navUri = if (order.targetLat != 0.0 && order.targetLng != 0.0)
-                                                    "google.navigation:q=${order.targetLat},${order.targetLng}&mode=d"
-                                                else {
-                                                    val lm = order.getEffectiveLandmark()
-                                                    val query = if (lm.isNotBlank()) "${order.address} ($lm)" else order.address
-                                                    "google.navigation:q=${Uri.encode(query)}&mode=d"
+                                            onStatusClick = { nextStatus ->
+                                                if (isHubLockedDown && (nextStatus == OrderStatus.PICKED_UP.name || nextStatus == OrderStatus.OUT_FOR_DELIVERY.name)) {
+                                                    showLockdownDialog = true
+                                                } else {
+                                                    viewModel.updateStatus(order.id, nextStatus)
                                                 }
-                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(navUri)).setPackage("com.google.android.apps.maps"))
+                                            }, 
+                                            onNavigateClick = {
+                                                if (isHubLockedDown) {
+                                                    showLockdownDialog = true
+                                                } else {
+                                                    val navUri = if (order.targetLat != 0.0 && order.targetLng != 0.0)
+                                                        "google.navigation:q=${order.targetLat},${order.targetLng}&mode=d"
+                                                    else {
+                                                        val lm = order.getEffectiveLandmark()
+                                                        val query = if (lm.isNotBlank()) "${order.address} ($lm)" else order.address
+                                                        "google.navigation:q=${Uri.encode(query)}&mode=d"
+                                                    }
+                                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(navUri)).setPackage("com.google.android.apps.maps"))
+                                                }
                                             }, 
                                             onCallClick = {
                                                 val phoneUri = Uri.parse("tel:${order.userPhone}")
@@ -846,7 +940,11 @@ fun IncentiveProgressCard(progress: IncentiveProgress) {
  * Route Optimization (Shortest Route 1-2-3-4) Card
  */
 @Composable
-fun TripSummaryCard(trip: OptimizedTrip) {
+fun TripSummaryCard(
+    trip: OptimizedTrip,
+    isHubLockedDown: Boolean = false,
+    onStartRouteClick: () -> Unit = {}
+) {
     Card(
         modifier = Modifier.fillMaxWidth(), 
         shape = RoundedCornerShape(14.dp),
@@ -869,6 +967,29 @@ fun TripSummaryCard(trip: OptimizedTrip) {
                 TripStatChip("कुल दूरी", "~${trip.totalDistanceKm} km")
                 TripStatChip("पेट्रोल बचत", "~${trip.estimatedPetrolSavedLiters} L")
                 TripStatChip("अनुमानित समय", "~${trip.estimatedTimeMinutes} min")
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = onStartRouteClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isHubLockedDown) Color(0xFF9CA3AF) else MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Icon(
+                    imageVector = if (isHubLockedDown) Icons.Default.Lock else Icons.Default.Navigation,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isHubLockedDown) "🔒 हब लॉकडाउन - रूट बंद" else "पूरा रूट शुरू करें (Start Route)",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
             }
         }
     }

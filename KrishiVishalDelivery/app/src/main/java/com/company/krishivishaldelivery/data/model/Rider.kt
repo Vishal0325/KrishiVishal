@@ -37,6 +37,7 @@ data class Rider(
     val role: String = "rider",
     val partnerRole: String = "rider",
     val hubCode: String = "",
+    val hubId: String = "",
     val cashInHand: Double = 0.0,
     val lastCodDeliveryAt: com.google.firebase.Timestamp? = null
 )

@@ -114,12 +114,17 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
         destinationHubId,
         spokeHubId,
         vleCode,
-        attributedCampaignId
+        attributedCampaignId,
+        attributedVariant
     } = data;
 
     const cleanAttributedCampaignId = (attributedCampaignId && typeof attributedCampaignId === 'string')
         ? attributedCampaignId.trim()
         : null;
+
+    const cleanAttributedVariant = (attributedVariant && typeof attributedVariant === 'string')
+        ? (attributedVariant.trim().toUpperCase() === 'B' ? 'B' : 'A')
+        : 'A';
 
     if (!idempotencyKey || typeof idempotencyKey !== 'string' || idempotencyKey.trim().length === 0) {
         throw new HttpsError('invalid-argument', 'Missing idempotencyKey');
@@ -750,6 +755,7 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 targetLat: structuredAddress.lat || 0.0,
                 targetLng: structuredAddress.lng || 0.0,
                 attributedCampaignId: cleanAttributedCampaignId || null,
+                attributedVariant: cleanAttributedCampaignId ? cleanAttributedVariant : null,
                 attributionSource: cleanAttributedCampaignId ? 'PUSH_NOTIFICATION' : null,
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -1044,12 +1050,16 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
             }
         }
 
-        // ── Campaign Conversion Attribution (Feature 3) ──
+        // ── Campaign Conversion Attribution (Feature 3 & 4) ──
         if (cleanAttributedCampaignId) {
             try {
                 const campRef = db.collection("notification_campaigns").doc(cleanAttributedCampaignId);
                 const campSnap = await campRef.get();
                 if (campSnap.exists) {
+                    const cData = campSnap.data() || {};
+                    const isAb = cData.isAbTest === true;
+                    const variantToRecord = isAb ? cleanAttributedVariant : null;
+
                     const convRef = campRef.collection("conversions").doc(orderId);
                     await convRef.set({
                         orderId,
@@ -1059,15 +1069,36 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                         totalAmount: finalAmount,
                         itemsCount: Array.isArray(cartItems) ? cartItems.length : 0,
                         paymentMethod: paymentMethod || 'COD',
+                        variant: variantToRecord,
                         convertedAt: admin.firestore.FieldValue.serverTimestamp()
                     });
 
-                    await campRef.update({
+                    const updateFields = {
                         'stats.conversions': admin.firestore.FieldValue.increment(1),
                         'stats.revenue': admin.firestore.FieldValue.increment(finalAmount),
                         updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
-                    console.log(`[createOrder] Attributed conversion for campaign ${cleanAttributedCampaignId}, order ${orderId}, amount ₹${finalAmount}`);
+                    };
+
+                    if (isAb) {
+                        const targetKey = cleanAttributedVariant === 'B' ? 'variantB' : 'variantA';
+                        updateFields[`stats.${targetKey}.conversions`] = admin.firestore.FieldValue.increment(1);
+                        updateFields[`stats.${targetKey}.revenue`] = admin.firestore.FieldValue.increment(finalAmount);
+
+                        const curStats = cData.stats || {};
+                        const varA = curStats.variantA || {};
+                        const varB = curStats.variantB || {};
+                        const revA = (Number(varA.revenue) || 0) + (cleanAttributedVariant === 'A' ? finalAmount : 0);
+                        const revB = (Number(varB.revenue) || 0) + (cleanAttributedVariant === 'B' ? finalAmount : 0);
+
+                        if (revA > revB) {
+                            updateFields['stats.winnerVariant'] = 'A';
+                        } else if (revB > revA) {
+                            updateFields['stats.winnerVariant'] = 'B';
+                        }
+                    }
+
+                    await campRef.update(updateFields);
+                    console.log(`[createOrder] Attributed conversion for campaign ${cleanAttributedCampaignId} (${cleanAttributedVariant}), order ${orderId}, amount ₹${finalAmount}`);
                 }
             } catch (convErr) {
                 console.warn(`[createOrder] Failed to attribute campaign conversion for ${cleanAttributedCampaignId}:`, convErr.message);
