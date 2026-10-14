@@ -76,6 +76,7 @@ class CheckoutViewModel @Inject constructor(
     private val orderRepository: OrderRepository,
     private val walletRepository: WalletRepository,
     private val configRepository: com.company.krishivishal.data.repository.ConfigRepository,
+    private val featureFlagRepository: com.company.krishivishal.data.repository.FeatureFlagRepository,
     private val paymentResilienceManager: com.company.krishivishal.performance.PaymentResilienceManager,
     private val firebaseAuth: com.google.firebase.auth.FirebaseAuth,
     private val savedStateHandle: SavedStateHandle,
@@ -83,7 +84,7 @@ class CheckoutViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CheckoutUiState(
-        isOnlinePaymentEnabled = true
+        isOnlinePaymentEnabled = BuildConfig.IS_ONLINE_PAYMENT_ENABLED
     ))
     val uiState: StateFlow<CheckoutUiState> = _uiState.asStateFlow()
 
@@ -97,6 +98,8 @@ class CheckoutViewModel @Inject constructor(
     private var currentSource: CheckoutSource = CheckoutSource.CART
     private var quantityUpdateJob: Job? = null
     private var appConfig = AppConfig()
+    private var currentHubConfig = com.company.krishivishal.model.HubSystemConfig()
+    private var currentGlobalConfig = com.company.krishivishal.model.GlobalSystemConfig()
     
     private var pendingOrderId: String?
         get() = savedStateHandle.get<String>("pending_order_id")
@@ -117,6 +120,61 @@ class CheckoutViewModel @Inject constructor(
         initializePaymentOptions()
         observeWalletBalance()
         observeConfig()
+        observeFeatureFlags()
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun observeFeatureFlags() {
+        viewModelScope.launch {
+            featureFlagRepository.globalConfig.collectLatest { global ->
+                currentGlobalConfig = global
+                recomputeFlagsAndPayments()
+            }
+        }
+
+        viewModelScope.launch {
+            _uiState.map { it.selectedAddress?.assignedHubId ?: "" }
+                .distinctUntilChanged()
+                .flatMapLatest { hubId ->
+                    featureFlagRepository.observeHubConfig(hubId)
+                }
+                .collectLatest { hubConfig ->
+                    currentHubConfig = hubConfig
+                    recomputeFlagsAndPayments()
+                }
+        }
+    }
+
+    private fun recomputeFlagsAndPayments() {
+        val global = currentGlobalConfig
+        val hub = currentHubConfig
+
+        val isGlobalFrozen = global.isCheckoutFrozen
+        val isHubLockdown = hub.isLockdown
+        val isHubNotAccepting = !hub.acceptingOrders
+
+        val isFrozen = isGlobalFrozen || isHubLockdown || isHubNotAccepting
+        val frozenReason = when {
+            isGlobalFrozen -> global.checkoutFrozen.reason ?: "Checkout is temporarily paused for system maintenance."
+            isHubLockdown -> "This delivery zone is currently under lockdown. Orders cannot be placed at this time."
+            isHubNotAccepting -> "The local fulfillment hub is temporarily not accepting new orders."
+            else -> null
+        }
+
+        val isOnlineAllowed = global.payments.onlineEnabled && BuildConfig.IS_ONLINE_PAYMENT_ENABLED
+        val isCodAllowed = global.payments.codEnabled && hub.codEnabled
+
+        _uiState.update { state ->
+            state.copy(
+                isCheckoutFrozen = isFrozen,
+                checkoutFrozenReason = frozenReason,
+                isHubLockedDown = isHubLockdown,
+                isOnlinePaymentEnabled = isOnlineAllowed,
+                isCodAvailable = isCodAllowed
+            )
+        }
+
+        initializePaymentOptions()
     }
 
     private fun observeConfig() {
@@ -148,9 +206,12 @@ class CheckoutViewModel @Inject constructor(
 
     private fun initializePaymentOptions() {
         val options = mutableListOf<PaymentOption>()
-        val isOnlineEnabled = BuildConfig.IS_ONLINE_PAYMENT_ENABLED
-        val walletBalance = _uiState.value.walletBalance
-        val grandTotal = _uiState.value.totals.grandTotal
+        val currentState = _uiState.value
+        val isOnlineEnabled = currentState.isOnlinePaymentEnabled
+        val isCodAllowed = currentState.isCodAvailable
+        val walletBalance = currentState.walletBalance
+        val grandTotal = currentState.totals.grandTotal
+        val hasOverdue = _hasPendingCodOverdue.value
 
         // Wallet option — show if balance > 0
         if (walletBalance > 0) {
@@ -173,28 +234,33 @@ class CheckoutViewModel @Inject constructor(
             ))
         }
 
-        options.add(PaymentOption(
-            method = PaymentMethod.COD,
-            title = "Cash on delivery",
-            subtitle = "Pay when order arrives",
-            icon = Icons.Default.Payments,
-            iconColor = androidx.compose.ui.graphics.Color(0xFFFF9800)
-        ))
+        if (isCodAllowed) {
+            options.add(PaymentOption(
+                method = PaymentMethod.COD,
+                title = "Cash on delivery",
+                subtitle = if (hasOverdue) "Unavailable (Pending COD > 24 hrs)" else "Pay when order arrives",
+                icon = Icons.Default.Payments,
+                iconColor = androidx.compose.ui.graphics.Color(0xFFFF9800)
+            ))
+        }
 
-        val currentMethod = _uiState.value.selectedPaymentMethod
-        val hasOverdue = _hasPendingCodOverdue.value
+        val currentMethod = currentState.selectedPaymentMethod
         val defaultMethod = when {
             walletBalance >= grandTotal && grandTotal > 0 -> PaymentMethod.WALLET
             isOnlineEnabled -> PaymentMethod.ONLINE
-            hasOverdue -> PaymentMethod.ONLINE
+            isCodAllowed && !hasOverdue -> PaymentMethod.COD
+            walletBalance > 0 -> PaymentMethod.WALLET
             else -> PaymentMethod.COD
         }
+
+        val isCurrentStillValid = options.any { opt -> opt.method == currentMethod } &&
+                !(currentMethod == PaymentMethod.COD && hasOverdue)
 
         _uiState.update {
             it.copy(
                 paymentOptions = options,
                 // Only change default if current method is no longer available or COD is locked
-                selectedPaymentMethod = if (options.any { opt -> opt.method == currentMethod } && !(currentMethod == PaymentMethod.COD && hasOverdue)) currentMethod else defaultMethod
+                selectedPaymentMethod = if (isCurrentStillValid) currentMethod else defaultMethod
             )
         }
     }
@@ -392,8 +458,19 @@ class CheckoutViewModel @Inject constructor(
     }
 
     fun updatePaymentMethod(method: PaymentMethod) {
-        if (method == PaymentMethod.COD && _hasPendingCodOverdue.value) {
-            _uiState.update { it.copy(error = "COD is unavailable due to an overdue pending order. Please choose an alternate payment method.") }
+        val currentState = _uiState.value
+        if (method == PaymentMethod.COD) {
+            if (!currentState.isCodAvailable) {
+                _uiState.update { it.copy(error = "Cash on delivery is currently disabled.") }
+                return
+            }
+            if (_hasPendingCodOverdue.value) {
+                _uiState.update { it.copy(error = "COD is unavailable due to an overdue pending order. Please choose an alternate payment method.") }
+                return
+            }
+        }
+        if (method == PaymentMethod.ONLINE && !currentState.isOnlinePaymentEnabled) {
+            _uiState.update { it.copy(error = "Online payments are currently disabled.") }
             return
         }
         _uiState.update { it.copy(selectedPaymentMethod = method) }
@@ -440,12 +517,18 @@ class CheckoutViewModel @Inject constructor(
     }
 
     fun placeOrder(lat: Double = 0.0, lng: Double = 0.0) {
+        val currentState = _uiState.value
+
+        if (currentState.isCheckoutFrozen) {
+            _uiState.update { it.copy(error = currentState.checkoutFrozenReason ?: "Checkout is temporarily paused.") }
+            return
+        }
+
         if (!paymentResilienceManager.canAttemptPayment()) {
             val waitTime = paymentResilienceManager.getRemainingCooldownMinutes()
             _uiState.update { it.copy(error = "System maintenance chal rahi hai. Kripya $waitTime min baad prayas karein.") }
             return
         }
-        val currentState = _uiState.value
 
         if (currentState.isWeightLimitExceeded) {
             _uiState.update { it.copy(error = "Cart weight exceeds maximum allowed capacity (50 kg). Please reduce items.") }
@@ -738,6 +821,10 @@ data class CheckoutUiState(
     val addresses: List<Address> = emptyList(),
     val selectedAddress: Address? = null,
     val isOnlinePaymentEnabled: Boolean = false,
+    val isCodAvailable: Boolean = true,
+    val isCheckoutFrozen: Boolean = false,
+    val checkoutFrozenReason: String? = null,
+    val isHubLockedDown: Boolean = false,
     val paymentOptions: List<PaymentOption> = emptyList(),
     val selectedPaymentMethod: PaymentMethod = PaymentMethod.COD,
     val walletBalance: Double = 0.0,

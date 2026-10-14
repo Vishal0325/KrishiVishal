@@ -104,6 +104,12 @@ class CartRepositoryImpl @Inject constructor(
         cartDao.addToCart(cartItem)
         Timber.d("Item added to local cart")
 
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic("segment_abandoned_cart")
+        } catch (e: Exception) {
+            Timber.w("Failed to subscribe to segment_abandoned_cart: ${e.message}")
+        }
+
         syncManager.queueOperation(
             operationType = "ADD_TO_CART",
             entityType = "cart_item",
@@ -175,6 +181,12 @@ class CartRepositoryImpl @Inject constructor(
     override fun clearCart(userId: String): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
         cartDao.clearCart(userId)
         Timber.d("Local cart cleared")
+
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().unsubscribeFromTopic("segment_abandoned_cart")
+        } catch (e: Exception) {
+            Timber.w("Failed to unsubscribe from segment_abandoned_cart: ${e.message}")
+        }
 
         syncManager.queueOperation(
             operationType = "CLEAR_CART",

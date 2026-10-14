@@ -10,6 +10,7 @@ import com.company.krishivishal.ui.main.MainScreen
 fun AppNavigation(
     deepLinkProductId: String? = null,
     deepLinkOrderId: String? = null,
+    deepLinkCart: Boolean = false,
     deepLinkTrigger: Int = 0
 ) {
     val navController = rememberNavController()
@@ -19,6 +20,7 @@ fun AppNavigation(
             MainScreen(
                 initialProductId = deepLinkProductId,
                 initialOrderId = deepLinkOrderId,
+                initialCart = deepLinkCart,
                 deepLinkTrigger = deepLinkTrigger
             )
         }

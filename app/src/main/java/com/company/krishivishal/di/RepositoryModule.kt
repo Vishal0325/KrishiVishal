@@ -130,4 +130,10 @@ abstract class RepositoryModule {
     abstract fun bindWalletRepository(
         walletRepositoryImpl: WalletRepositoryImpl
     ): WalletRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindFeatureFlagRepository(
+        featureFlagRepositoryImpl: FeatureFlagRepositoryImpl
+    ): FeatureFlagRepository
 }

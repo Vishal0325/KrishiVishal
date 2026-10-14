@@ -9,6 +9,7 @@ process.env.GCLOUD_PROJECT = 'krishivishal-a9ed7';
 
 const { admin, db } = require('../core/admin');
 const campaigns = require('../messaging/campaigns');
+const customerSegments = require('../marketing/customerSegments');
 
 // Safety Check: Verify we are running against the Emulator, NEVER production
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
@@ -40,6 +41,12 @@ const mockMessaging = {
             failureCount: 0,
             responses: payload.tokens.map(t => ({ success: true, messageId: `mock-multi-${t}` }))
         };
+    },
+    subscribeToTopic: async (tokens, topic) => {
+        return { successCount: tokens.length, failureCount: 0, errors: [] };
+    },
+    unsubscribeFromTopic: async (tokens, topic) => {
+        return { successCount: tokens.length, failureCount: 0, errors: [] };
     }
 };
 
@@ -849,6 +856,136 @@ async function runIntegrationSuite() {
         reportPass("8.3 cancelCampaign: Successfully cancels a SCHEDULED campaign");
     } catch (e) {
         reportFail("8.3 cancelCampaign: Failed to cancel SCHEDULED campaign", e);
+    }
+
+    // ---------------------------------------------------------------
+    // 9. Testing Feature 2: Customer Segments (Abandoned Cart & Inactive Users)
+    // ---------------------------------------------------------------
+    console.log("\n--- 9. Testing Customer Segments (Abandoned Cart & Inactive Users) ---");
+
+    // 9.1 createCampaign: Support SEGMENT audience for ABANDONED_CART
+    try {
+        const segRes = await campaigns.createCampaign.run({
+            data: {
+                idempotencyKey: 'camp-seg-abandoned-test',
+                title: 'Cart Recovery Alert',
+                body: 'Your cart items are waiting. Complete order for 10% off!',
+                deepLink: '/cart',
+                audience: { type: 'SEGMENT', segment: 'ABANDONED_CART' }
+            },
+            auth: marketingAdminContext
+        });
+
+        assert.strictEqual(segRes.success, true);
+        const snap = await db.collection("notification_campaigns").doc('camp-seg-abandoned-test').get();
+        const data = snap.data();
+        assert.strictEqual(data.audience.type, 'SEGMENT');
+        assert.strictEqual(data.audience.segment, 'ABANDONED_CART');
+        assert.strictEqual(data.audience.topic, 'segment_abandoned_cart');
+        assert.strictEqual(data.deepLink, '/cart');
+        reportPass("9.1 createCampaign: Successfully creates campaign targeted to ABANDONED_CART segment (topic: segment_abandoned_cart)");
+    } catch (e) {
+        reportFail("9.1 createCampaign: Failed to create ABANDONED_CART segment campaign", e);
+    }
+
+    // 9.2 createCampaign: Support SEGMENT audience for INACTIVE_30D
+    try {
+        const segRes = await campaigns.createCampaign.run({
+            data: {
+                idempotencyKey: 'camp-seg-inactive-test',
+                title: 'We Miss You!',
+                body: 'New harvest supplies have arrived at Krishi Vishal.',
+                deepLink: '/product',
+                audience: { type: 'SEGMENT', segment: 'INACTIVE_30D' }
+            },
+            auth: marketingAdminContext
+        });
+
+        assert.strictEqual(segRes.success, true);
+        const snap = await db.collection("notification_campaigns").doc('camp-seg-inactive-test').get();
+        const data = snap.data();
+        assert.strictEqual(data.audience.type, 'SEGMENT');
+        assert.strictEqual(data.audience.segment, 'INACTIVE_30D');
+        assert.strictEqual(data.audience.topic, 'segment_inactive_30d');
+        reportPass("9.2 createCampaign: Successfully creates campaign targeted to INACTIVE_30D segment (topic: segment_inactive_30d)");
+    } catch (e) {
+        reportFail("9.2 createCampaign: Failed to create INACTIVE_30D segment campaign", e);
+    }
+
+    // 9.3 createCampaign: Reject unsupported segment
+    try {
+        await campaigns.createCampaign.run({
+            data: {
+                title: 'Invalid Segment Test',
+                body: 'This should fail validation',
+                deepLink: '/product',
+                audience: { type: 'SEGMENT', segment: 'INVALID_SEGMENT_NAME' }
+            },
+            auth: marketingAdminContext
+        });
+        reportFail("9.3 createCampaign: Should reject unsupported segment");
+    } catch (e) {
+        if (e.code === 'invalid-argument' && e.message.includes('Unsupported segment')) {
+            reportPass("9.3 createCampaign: Correctly rejects unsupported segment with invalid-argument error");
+        } else {
+            reportFail("9.3 createCampaign: Unexpected error for unsupported segment", e);
+        }
+    }
+
+    // 9.4 getSegmentCounts: Returns live counts for segments
+    try {
+        // Seed 2 abandoned cart docs
+        await db.collection("abandoned_carts").doc("ac-test-01").set({
+            userId: "user-ac-01",
+            status: "PENDING",
+            cartValue: 1200,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        await db.collection("abandoned_carts").doc("ac-test-02").set({
+            userId: "user-ac-02",
+            status: "PENDING",
+            cartValue: 450,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        const countsRes = await customerSegments.getSegmentCounts.run({
+            data: {},
+            auth: marketingAdminContext
+        });
+
+        assert.strictEqual(countsRes.success, true);
+        assert(countsRes.abandonedCartCount >= 2, "abandonedCartCount should be at least 2");
+        assert(typeof countsRes.inactive30dCount === 'number', "inactive30dCount should be a number");
+        assert.strictEqual(countsRes.segments.ABANDONED_CART.topic, 'segment_abandoned_cart');
+        assert.strictEqual(countsRes.segments.INACTIVE_30D.topic, 'segment_inactive_30d');
+        reportPass("9.4 getSegmentCounts: Successfully retrieves live segment counts and metadata");
+    } catch (e) {
+        reportFail("9.4 getSegmentCounts: Failed to get segment counts", e);
+    }
+
+    // 9.5 syncCustomerSegmentsCore: Syncs tokens and manages topic subscriptions
+    try {
+        // Seed an active user with FCM token
+        await db.collection("users").doc("user-ac-01").set({
+            fcmToken: "mock-token-ac-user-01",
+            name: "Farmer Ramesh",
+            lastActiveAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Seed an inactive user (>30 days ago) with token
+        const fortyDaysAgo = new Date(Date.now() - (40 * 24 * 60 * 60 * 1000));
+        await db.collection("users").doc("user-inactive-01").set({
+            fcmToken: "mock-token-inactive-user-01",
+            name: "Farmer Suresh",
+            lastActiveAt: admin.firestore.Timestamp.fromDate(fortyDaysAgo)
+        });
+
+        const syncResult = await customerSegments.syncCustomerSegmentsCore(db, mockMessaging);
+        assert(typeof syncResult.abandonedCart.subscribed === 'number');
+        assert(typeof syncResult.inactive30d.subscribed === 'number');
+        reportPass("9.5 syncCustomerSegmentsCore: Successfully executes segment topic token synchronization");
+    } catch (e) {
+        reportFail("9.5 syncCustomerSegmentsCore: Failed to sync customer segments", e);
     }
 
     // ---------------------------------------------------------------

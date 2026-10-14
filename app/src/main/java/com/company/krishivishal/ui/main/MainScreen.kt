@@ -116,6 +116,7 @@ fun MaintenanceScreen() {
 fun MainScreen(
     initialProductId: String? = null,
     initialOrderId: String? = null,
+    initialCart: Boolean = false,
     deepLinkTrigger: Int = 0,
     viewModel: MainViewModel = hiltViewModel(),
     supportViewModel: SupportViewModel = hiltViewModel()
@@ -214,6 +215,15 @@ fun MainScreen(
             navController.navigate(Screen.Tracking.createRoute(initialOrderId))
             consumedOrderLink = initialOrderId
             consumedOrderTrigger = deepLinkTrigger
+        }
+    }
+
+    var consumedCartTrigger by remember { mutableStateOf(0) }
+    LaunchedEffect(initialCart, currentUser, deepLinkTrigger) {
+        val isLoggedIn = currentUser != null && currentUser?.isAnonymous == false
+        if (initialCart && isLoggedIn && deepLinkTrigger != consumedCartTrigger) {
+            navController.navigate(Screen.Cart.route)
+            consumedCartTrigger = deepLinkTrigger
         }
     }
     

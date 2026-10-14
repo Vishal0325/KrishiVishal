@@ -37,13 +37,13 @@ function validateCampaignInput(data) {
             throw new HttpsError('invalid-argument', 'deepLink must be a string.');
         }
         const dl = data.deepLink.trim();
-        // Allow-list check: only /product and /order paths are allowed (custom scheme or https domain)
-        const isAllowedPath = dl.startsWith('/product') || dl.startsWith('/order') ||
-                              dl.startsWith('krishivishal://product') || dl.startsWith('krishivishal://order') ||
-                              dl.startsWith('https://www.krishivishal.com/product') || dl.startsWith('https://www.krishivishal.com/order') ||
-                              dl.startsWith('https://krishivishal.app/product') || dl.startsWith('https://krishivishal.app/order');
+        // Allow-list check: only /product, /order, and /cart paths are allowed (custom scheme or https domain)
+        const isAllowedPath = dl.startsWith('/product') || dl.startsWith('/order') || dl.startsWith('/cart') ||
+                              dl.startsWith('krishivishal://product') || dl.startsWith('krishivishal://order') || dl.startsWith('krishivishal://cart') ||
+                              dl.startsWith('https://www.krishivishal.com/product') || dl.startsWith('https://www.krishivishal.com/order') || dl.startsWith('https://www.krishivishal.com/cart') ||
+                              dl.startsWith('https://krishivishal.app/product') || dl.startsWith('https://krishivishal.app/order') || dl.startsWith('https://krishivishal.app/cart');
         if (!isAllowedPath) {
-            throw new HttpsError('invalid-argument', 'deepLink is not in allow-list. Only /product and /order routes are allowed.');
+            throw new HttpsError('invalid-argument', 'deepLink is not in allow-list. Only /product, /order, and /cart routes are allowed.');
         }
         deepLink = dl;
     }
@@ -72,10 +72,27 @@ function validateCampaignInput(data) {
                 pincode,
                 topic: `pin_${pincode}`
             };
+        } else if (audType === 'SEGMENT') {
+            const rawSegment = String(data.audience.segment || '').trim().toUpperCase();
+            if (rawSegment === 'ABANDONED_CART' || rawSegment === 'SEGMENT_ABANDONED_CART') {
+                audience = {
+                    type: 'SEGMENT',
+                    segment: 'ABANDONED_CART',
+                    topic: 'segment_abandoned_cart'
+                };
+            } else if (rawSegment === 'INACTIVE_30D' || rawSegment === 'SEGMENT_INACTIVE_30D') {
+                audience = {
+                    type: 'SEGMENT',
+                    segment: 'INACTIVE_30D',
+                    topic: 'segment_inactive_30d'
+                };
+            } else {
+                throw new HttpsError('invalid-argument', `Unsupported segment: ${rawSegment}. Supported segments: ABANDONED_CART, INACTIVE_30D.`);
+            }
         } else if (audType === 'ALL') {
             audience = { type: 'ALL', topic: 'all_customers' };
         } else {
-            throw new HttpsError('invalid-argument', `Unsupported audience type: ${audType}. Must be ALL, CROP, or PINCODE.`);
+            throw new HttpsError('invalid-argument', `Unsupported audience type: ${audType}. Must be ALL, CROP, PINCODE, or SEGMENT.`);
         }
     }
 
@@ -133,6 +150,9 @@ function buildFcmMessage({ title, body, imageUrl, deepLink, topic, tokens, campa
             inferredType = 'ORDER';
             orderId = orderMatch[1];
             targetId = orderMatch[1];
+        } else if (deepLink.startsWith('/cart') || deepLink.startsWith('krishivishal://cart') || deepLink.includes('/cart')) {
+            inferredType = 'CART';
+            targetId = '/cart';
         }
     }
 

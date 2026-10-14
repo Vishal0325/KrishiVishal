@@ -152,6 +152,33 @@ fun CheckoutScreen(
                             }
                         }
 
+                        if (uiState.isCheckoutFrozen) {
+                            Surface(
+                                color = Color(0xFFFFEBEE),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Warning,
+                                        contentDescription = "Orders Paused",
+                                        tint = Color(0xFFD32F2F),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = uiState.checkoutFrozenReason ?: "ऑर्डर अस्थायी रूप से रोक दिए गए हैं / Checkout is temporarily paused.",
+                                        color = Color(0xFFD32F2F),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+
                         if (uiState.isWeightLimitExceeded) {
                             Surface(
                                 color = Color(0xFFFFEBEE),
@@ -172,9 +199,11 @@ fun CheckoutScreen(
                             }
                         }
 
+                        val isFrozen = uiState.isCheckoutFrozen
+                        val canPlaceOrder = !isPlacingOrder && !uiState.isWeightLimitExceeded && !isFrozen
                         Button(
                             onClick = { 
-                                if (!isPlacingOrder && !uiState.isWeightLimitExceeded) {
+                                if (canPlaceOrder) {
                                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                                         scope.launch {
                                             try {
@@ -190,12 +219,17 @@ fun CheckoutScreen(
                                 }
                             },
                             modifier = Modifier.fillMaxWidth().height(52.dp),
-                            enabled = !isPlacingOrder && !uiState.isWeightLimitExceeded,
+                            enabled = canPlaceOrder,
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isFrozen) Color(0xFFB0BEC5) else PrimaryGreen,
+                                disabledContainerColor = if (isFrozen) Color(0xFFE0E0E0) else Color(0xFFA5D6A7)
+                            )
                         ) {
                             if (isPlacingOrder) {
                                 CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
+                            } else if (isFrozen) {
+                                Text("Orders Paused", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.DarkGray)
                             } else {
                                 Text("Confirm Order", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             }
@@ -324,6 +358,41 @@ fun CheckoutScreen(
                             SectionHeader("Payment Method")
                             Spacer(modifier = Modifier.height(8.dp))
 
+                            if (uiState.isCheckoutFrozen) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                                    border = BorderStroke(1.dp, Color(0xFFD32F2F)),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Warning,
+                                            contentDescription = "Checkout Paused",
+                                            tint = Color(0xFFD32F2F),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = "Checkout Temporarily Paused",
+                                                color = Color(0xFFD32F2F),
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = uiState.checkoutFrozenReason ?: "New orders are currently paused for system updates. Please try again later.",
+                                                color = Color(0xFFC62828),
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
                             if (uiState.hasPendingCodOverdue) {
                                 Card(
                                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -352,7 +421,32 @@ fun CheckoutScreen(
                                 }
                             }
                             
-                            if (uiState.paymentOptions.size > 1) {
+                            if (uiState.paymentOptions.isEmpty()) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Info,
+                                            contentDescription = null,
+                                            tint = Color(0xFFFF9800),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Text(
+                                            text = "No payment methods currently available for this delivery address.",
+                                            color = Color(0xFFE65100),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            } else if (uiState.paymentOptions.size > 1) {
                                 uiState.paymentOptions.forEach { option ->
                                     val isCodLocked = option.method == PaymentMethod.COD && uiState.hasPendingCodOverdue
                                     PaymentMethodItem(
@@ -373,14 +467,8 @@ fun CheckoutScreen(
                                     Spacer(modifier = Modifier.height(8.dp))
                                 }
                             } else {
-                                // Only one option available (usually COD if online disabled)
-                                val option = uiState.paymentOptions.firstOrNull() ?: PaymentOption(
-                                    method = PaymentMethod.COD,
-                                    title = "Cash on delivery",
-                                    subtitle = "Pay when order arrives",
-                                    icon = Icons.Default.Payments,
-                                    iconColor = Color(0xFFFF9800)
-                                )
+                                // Only one option available
+                                val option = uiState.paymentOptions.first()
                                 val isCodLocked = option.method == PaymentMethod.COD && uiState.hasPendingCodOverdue
                                 PaymentMethodItem(
                                     title = option.title,

@@ -161,6 +161,9 @@ const FUNCTION_MAP = {
     verifyVleKyc: ['./marketing/vleCommissionEngine', 'verifyVleKyc'],
     getVleDashboardSummary: ['./marketing/vleCommissionEngine', 'getVleDashboardSummary'],
     cronMaturityVleCommissions: ['./marketing/vleCommissionEngine', 'cronMaturityVleCommissions'],
+    getSegmentCounts: ['./marketing/customerSegments', 'getSegmentCounts'],
+    syncCustomerSegmentsNow: ['./marketing/customerSegments', 'syncCustomerSegmentsNow'],
+    syncCustomerSegmentsScheduled: ['./marketing/customerSegments', 'syncCustomerSegmentsScheduled'],
 
     // --- ADMIN & AI (5) ---
     aiSupervisor: ['./admin/aiSupervisor', 'aiSupervisor'],
