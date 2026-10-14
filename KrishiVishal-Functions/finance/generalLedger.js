@@ -12,6 +12,7 @@ const CHART_OF_ACCOUNTS = {
     // ASSETS (1000 - 1999)
     ASSETS: {
         "1010_CASH_IN_HAND_RIDERS": { name: "Cash in Hand - Riders", category: "CURRENT_ASSET", normalBalance: "DEBIT" },
+        "1015_RIDER_RECEIVABLE_SHORTAGES": { name: "Rider Cash Shortage Receivable", category: "CURRENT_ASSET", normalBalance: "DEBIT" },
         "1020_HUB_CASH_VAULT": { name: "Hub Cash Vault / Safe", category: "CURRENT_ASSET", normalBalance: "DEBIT" },
         "1030_BANK_CURRENT_HDFC": { name: "HDFC Current Account (Main Op)", category: "BANK_ACCOUNT", normalBalance: "DEBIT" },
         "1030_BANK_CURRENT_ACCOUNT": { name: "Bank Current Account", category: "BANK_ACCOUNT", normalBalance: "DEBIT" },
@@ -24,6 +25,7 @@ const CHART_OF_ACCOUNTS = {
     // LIABILITIES (2000 - 2999)
     LIABILITIES: {
         "2010_ACCOUNTS_PAYABLE_SUPPLIERS": { name: "Accounts Payable - Suppliers & Vendors", category: "CURRENT_LIABILITY", normalBalance: "CREDIT" },
+        "2015_RIDER_PAYOUTS_PAYABLE": { name: "Accrued Delivery Partner Payouts", category: "CURRENT_LIABILITY", normalBalance: "CREDIT" },
         "2020_OUTPUT_CGST_PAYABLE": { name: "Output CGST Payable", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
         "2030_OUTPUT_SGST_PAYABLE": { name: "Output SGST Payable", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
         "2040_OUTPUT_IGST_PAYABLE": { name: "Output IGST Payable", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
@@ -31,6 +33,7 @@ const CHART_OF_ACCOUNTS = {
         "2050_TDS_PAYABLE_194Q": { name: "TDS Payable (Sec 194Q / Purchase of Goods)", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
         "2050_TDS_PAYABLE_194H": { name: "TDS Payable (Sec 194H / Commission)", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
         "2060_CUSTOMER_REFUNDS_PAYABLE": { name: "Customer Refunds & Wallets Payable", category: "CURRENT_LIABILITY", normalBalance: "CREDIT" },
+        "2065_CUSTOMER_WALLET_LIABILITY": { name: "Customer Wallet Store Credit Liability", category: "CURRENT_LIABILITY", normalBalance: "CREDIT" },
         "2070_DEFERRED_REVENUE": { name: "Deferred Revenue (Prepaid Orders Unfulfilled)", category: "CURRENT_LIABILITY", normalBalance: "CREDIT" }
     },
     // EQUITY (3000 - 3999)
@@ -51,7 +54,10 @@ const CHART_OF_ACCOUNTS = {
     // EXPENSES (6000 - 6999)
     EXPENSES: {
         "6010_RIDER_DELIVERY_PAYOUTS": { name: "Rider Delivery Trip Payouts", category: "OPERATING_EXPENSE", normalBalance: "DEBIT" },
-        "6020_PAYMENT_GATEWAY_FEES": { name: "Payment Gateway Merchant Fees", category: "FINANCIAL_EXPENSE", normalBalance: "DEBIT" }
+        "6020_PAYMENT_GATEWAY_FEES": { name: "Payment Gateway Merchant Fees", category: "FINANCIAL_EXPENSE", normalBalance: "DEBIT" },
+        "6030_REFERRAL_PROMOTION_EXPENSE": { name: "Customer Referral & Marketing Credit", category: "OPERATING_EXPENSE", normalBalance: "DEBIT" },
+        "6035_CUSTOMER_GOODWILL_EXPENSE": { name: "Customer Dispute & Goodwill Concessions", category: "OPERATING_EXPENSE", normalBalance: "DEBIT" },
+        "6040_CASH_SHORTAGE_LOSS": { name: "Hub & Transit Cash Shortage Loss", category: "OPERATING_EXPENSE", normalBalance: "DEBIT" }
     }
 };
 
@@ -103,7 +109,9 @@ function validateJournalEntry(entryData) {
         "INVENTORY_ADJUSTMENT",
         "GATEWAY_SETTLEMENT",
         "BANK_RECONCILIATION",
-        "CAPITAL"
+        "CAPITAL",
+        "WALLET_TRANSACTION",
+        "RIDER_PAYOUT"
     ];
 
     if (!refType || !ALLOWED_REF_TYPES.includes(refType)) {
@@ -190,11 +198,14 @@ function computeCanonicalLinesHash(lines) {
 
 /**
  * Posts an immutable double-entry journal entry to Firestore atomically.
+ * Supports caller-provided Firestore transaction `tx` for multi-document ACID atomicity.
  * 
  * @param {object} entryData
- * @returns {Promise<{ success: boolean, entryId: string, totalAmount: number }>}
+ * @param {object|FirebaseFirestore.Transaction} [context] Context object or Transaction
+ * @param {FirebaseFirestore.Transaction} [externalTx] Optional caller's Firestore transaction
+ * @returns {Promise<{ success: boolean, entryId: string, totalAmount: number, alreadyExists?: boolean, alreadyProcessed?: boolean }>}
  */
-async function postJournalEntry(entryData, context = null) {
+async function postJournalEntry(entryData, context = null, externalTx = null) {
     // 1. Semantic and double-entry arithmetic validation
     const { totalDebit } = validateJournalEntry(entryData);
 
@@ -202,13 +213,43 @@ async function postJournalEntry(entryData, context = null) {
     const entryId = entryData.entryId || `JE_${periodId.replace('-', '')}_${Date.now()}_${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
     const proposedLinesHash = computeCanonicalLinesHash(entryData.lines);
 
-    // 2. Atomic Firestore transaction execution
-    const result = await db.runTransaction(async (transaction) => {
+    // Resolve caller transaction if passed as 2nd or 3rd argument
+    let tx = externalTx;
+    let actualContext = context;
+    if (!tx && context && typeof context.get === 'function' && typeof context.set === 'function') {
+        tx = context;
+        actualContext = null;
+    } else if (!tx && context?.tx) {
+        tx = context.tx;
+    } else if (!tx && context?.transaction) {
+        tx = context.transaction;
+    }
+
+    const executeInTx = async (transaction) => {
+        // --- 1. ALL READS (Must execute strictly before any writes) ---
         // Guard 1: Assert Fiscal Period is open (unlocked)
         await assertFiscalPeriodUnlocked(periodId, transaction);
 
         const entryRef = db.collection("journal_entries").doc(entryId);
         const existingDoc = await transaction.get(entryRef);
+
+        let linesSnap = null;
+        if (existingDoc.exists) {
+            const existing = existingDoc.data() || {};
+            // Legacy Journal verification (Pre-dating linesHash):
+            if (!existing.linesHash) {
+                const linesColRef = entryRef.collection("lines");
+                try {
+                    linesSnap = (typeof transaction.get === "function")
+                        ? await transaction.get(linesColRef).catch(() => linesColRef.get())
+                        : await linesColRef.get();
+                } catch (readErr) {
+                    linesSnap = null;
+                }
+            }
+        }
+
+        // --- 2. IDEMPOTENCY & CONFLICT VALIDATION ---
         if (existingDoc.exists) {
             const existing = existingDoc.data() || {};
             const amountDiff = Math.abs((Number(existing.totalAmount) || 0) - totalDebit);
@@ -218,18 +259,6 @@ async function postJournalEntry(entryData, context = null) {
             if (existing.linesHash) {
                 linesMatch = existing.linesHash === proposedLinesHash;
             } else {
-                // Legacy Journal verification (Pre-dating linesHash):
-                // Read persisted lines subcollection and calculate canonical hash from actual stored records.
-                const linesColRef = entryRef.collection("lines");
-                let linesSnap = null;
-                try {
-                    linesSnap = (typeof transaction.get === "function")
-                        ? await transaction.get(linesColRef).catch(() => linesColRef.get())
-                        : await linesColRef.get();
-                } catch (readErr) {
-                    linesSnap = null;
-                }
-
                 if (!linesSnap || linesSnap.empty || (typeof linesSnap.size === "number" && linesSnap.size === 0)) {
                     const err = new Error(`JOURNAL_ENTRY_CONFLICT: Legacy journal entry ${entryId} lacks linesHash and persisted lines subcollection is missing or empty.`);
                     err.code = "JOURNAL_ENTRY_CONFLICT";
@@ -277,10 +306,12 @@ async function postJournalEntry(entryData, context = null) {
                 success: true,
                 entryId,
                 totalAmount: Number(existing.totalAmount || totalDebit),
-                alreadyExists: true
+                alreadyExists: true,
+                alreadyProcessed: true
             };
         }
 
+        // --- 3. ALL WRITES (Execute only after all reads have completed) ---
         const timestamp = entryData.date instanceof Date ? entryData.date : (entryData.date ? new Date(entryData.date) : new Date());
 
         // Maker-Checker for manual entries
@@ -289,7 +320,7 @@ async function postJournalEntry(entryData, context = null) {
         let entryStatus = "POSTED";
 
         if (isManualEntry && !isApproved) {
-            const userRole = context?.auth?.token?.role;
+            const userRole = actualContext?.auth?.token?.role;
             if (!['CFO', 'SUPER_ADMIN', 'SuperAdmin'].includes(userRole)) {
                 entryStatus = 'PENDING_APPROVAL';
             }
@@ -305,7 +336,7 @@ async function postJournalEntry(entryData, context = null) {
             totalAmount: totalDebit,
             lineCount: entryData.lines.length,
             linesHash: proposedLinesHash,
-            createdBy: context?.auth?.uid || entryData.createdBy || "SYSTEM",
+            createdBy: actualContext?.auth?.uid || entryData.createdBy || "SYSTEM",
             status: entryStatus,
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         };
@@ -315,7 +346,7 @@ async function postJournalEntry(entryData, context = null) {
             transaction.set(approvalRef, {
                 type: 'MANUAL_JOURNAL_ENTRY',
                 referenceId: entryId,
-                requestedBy: context?.auth?.uid || entryData.createdBy,
+                requestedBy: actualContext?.auth?.uid || entryData.createdBy,
                 requestedAt: admin.firestore.FieldValue.serverTimestamp(),
                 status: 'PENDING',
                 notifyRoles: ['CFO', 'FINANCE_MANAGER']
@@ -344,9 +375,14 @@ async function postJournalEntry(entryData, context = null) {
             entryId,
             totalAmount: totalDebit
         };
-    });
+    };
 
-    return result;
+    // If caller provided an active transaction, execute inside it; otherwise start an isolated transaction
+    if (tx) {
+        return await executeInTx(tx);
+    } else {
+        return await db.runTransaction(executeInTx);
+    }
 }
 
 /**
