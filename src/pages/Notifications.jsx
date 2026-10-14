@@ -27,7 +27,11 @@ import {
   MapPin,
   ShoppingBag,
   UserX,
-  RefreshCw
+  RefreshCw,
+  BarChart3,
+  MousePointerClick,
+  TrendingUp,
+  IndianRupee
 } from 'lucide-react';
 import { formatDateTime } from '../utils/formatters';
 import toast from 'react-hot-toast';
@@ -228,6 +232,30 @@ const Notifications = () => {
   const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
   const [confirmInputText, setConfirmInputText] = useState('');
 
+  // Campaign Analytics Modal State (Feature 3)
+  const [analyticsModalOpen, setAnalyticsModalOpen] = useState(false);
+  const [selectedCampaignForAnalytics, setSelectedCampaignForAnalytics] = useState(null);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [analyticsData, setAnalyticsData] = useState(null);
+
+  const openCampaignAnalytics = async (campaign) => {
+    setSelectedCampaignForAnalytics(campaign);
+    setAnalyticsModalOpen(true);
+    setLoadingAnalytics(true);
+    setAnalyticsData(null);
+    try {
+      const getAnalyticsFn = httpsCallable(functions, 'getCampaignAnalytics');
+      const res = await getAnalyticsFn({ campaignId: campaign.id });
+      if (res.data?.success) {
+        setAnalyticsData(res.data);
+      }
+    } catch (err) {
+      console.warn("Failed to load deep analytics, falling back to local doc stats:", err.message);
+    } finally {
+      setLoadingAnalytics(false);
+    }
+  };
+
   // Preview language switcher
   const [previewLang, setPreviewLang] = useState('hi'); // 'hi' | 'en'
 
@@ -295,6 +323,36 @@ const Notifications = () => {
     });
     return unsubscribe;
   }, []);
+
+  const overallMetrics = useMemo(() => {
+    let completedCampaigns = 0;
+    let totalClicks = 0;
+    let totalUniqueClicks = 0;
+    let totalOrders = 0;
+    let totalRevenue = 0;
+
+    history.forEach(c => {
+      if (c.status === 'COMPLETED') completedCampaigns++;
+      const s = c.stats || {};
+      totalClicks += Number(s.clicks) || 0;
+      totalUniqueClicks += Number(s.uniqueClicks) || 0;
+      totalOrders += Number(s.conversions) || 0;
+      totalRevenue += Number(s.revenue) || 0;
+    });
+
+    const conversionRate = totalUniqueClicks > 0
+      ? Math.round((totalOrders / totalUniqueClicks) * 1000) / 10
+      : 0;
+
+    return {
+      completedCampaigns,
+      totalClicks,
+      totalUniqueClicks,
+      totalOrders,
+      totalRevenue,
+      conversionRate
+    };
+  }, [history]);
 
   // Listen to real crops in Firestore
   useEffect(() => {
@@ -701,7 +759,45 @@ const Notifications = () => {
       )
     },
     { 
-      header: 'Status', 
+      header: 'Clicks & CTR', 
+      render: (c) => {
+        const clicks = Number(c.stats?.clicks) || 0;
+        const uniqueClicks = Number(c.stats?.uniqueClicks) || 0;
+        const ctr = c.stats?.ctr != null ? c.stats.ctr : (c.stats?.uniqueClicks && c.stats?.sent ? Math.round((c.stats.uniqueClicks / c.stats.sent) * 1000) / 10 : 0);
+        return (
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 text-xs font-black text-gray-900">
+              <MousePointerClick size={13} className="text-blue-600" />
+              <span>{clicks}</span>
+              <span className="text-[10px] text-gray-400 font-bold">({uniqueClicks} unique)</span>
+            </div>
+            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-black bg-blue-50 text-blue-700 border border-blue-200/60">
+              {ctr}% CTR
+            </span>
+          </div>
+        );
+      }
+    },
+    { 
+      header: 'Orders & Sales', 
+      render: (c) => {
+        const conversions = Number(c.stats?.conversions) || 0;
+        const revenue = Number(c.stats?.revenue) || 0;
+        return (
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 text-xs font-black text-gray-900">
+              <ShoppingBag size={13} className="text-emerald-600" />
+              <span>{conversions} {conversions === 1 ? 'order' : 'orders'}</span>
+            </div>
+            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-50 text-emerald-800 border border-emerald-200/60">
+              ₹{Number(revenue).toLocaleString('en-IN')}
+            </span>
+          </div>
+        );
+      }
+    },
+    { 
+      header: 'Status & Report', 
       render: (c) => {
         const statusColors = {
           COMPLETED: 'text-emerald-700 bg-emerald-50 border-emerald-200',
@@ -717,6 +813,15 @@ const Notifications = () => {
             <span className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border ${statusColors[c.status] || 'text-gray-600'}`}>
               {c.status || 'DRAFT'}
             </span>
+            <button
+              type="button"
+              onClick={() => openCampaignAnalytics(c)}
+              className="text-[#1b5e20] bg-emerald-50 hover:bg-emerald-100 hover:border-emerald-300 border border-emerald-200/60 px-2 py-1 rounded-md text-[10px] font-black flex items-center gap-1 transition-colors"
+              title="View full performance analytics & converted orders"
+            >
+              <BarChart3 size={12} />
+              <span>Report</span>
+            </button>
             {c.status === 'SENDING' && (
               <button
                 type="button"
@@ -1503,6 +1608,53 @@ const Notifications = () => {
         </div>
       </div>
 
+      {/* Overall Campaign Performance Analytics (Feature 3) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-purple-50 text-purple-700 flex items-center justify-center flex-shrink-0">
+            <Send size={22} />
+          </div>
+          <div>
+            <p className="text-[11px] font-black text-gray-400 uppercase tracking-wider">Completed Broadcasts</p>
+            <h3 className="text-xl font-black text-gray-900">{overallMetrics.completedCampaigns}</h3>
+            <p className="text-[10px] text-purple-700 font-bold mt-0.5">{history.length} Total Campaigns</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-700 flex items-center justify-center flex-shrink-0">
+            <MousePointerClick size={22} />
+          </div>
+          <div>
+            <p className="text-[11px] font-black text-gray-400 uppercase tracking-wider">Total Clicks</p>
+            <h3 className="text-xl font-black text-gray-900">{overallMetrics.totalClicks}</h3>
+            <p className="text-[10px] text-blue-700 font-bold mt-0.5">{overallMetrics.totalUniqueClicks} Unique Farmers</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-700 flex items-center justify-center flex-shrink-0">
+            <ShoppingBag size={22} />
+          </div>
+          <div>
+            <p className="text-[11px] font-black text-gray-400 uppercase tracking-wider">Converted Orders</p>
+            <h3 className="text-xl font-black text-gray-900">{overallMetrics.totalOrders}</h3>
+            <p className="text-[10px] text-amber-700 font-bold mt-0.5">{overallMetrics.conversionRate}% Conversion Rate</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-[#1b5e20] flex items-center justify-center flex-shrink-0">
+            <TrendingUp size={22} />
+          </div>
+          <div>
+            <p className="text-[11px] font-black text-gray-400 uppercase tracking-wider">Direct Push Revenue</p>
+            <h3 className="text-xl font-black text-gray-900">₹{overallMetrics.totalRevenue.toLocaleString('en-IN')}</h3>
+            <p className="text-[10px] text-emerald-700 font-bold mt-0.5">Attributed to Push Notifications</p>
+          </div>
+        </div>
+      </div>
+
       {/* Campaign History Logs */}
       <div className="bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden">
         <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
@@ -1577,6 +1729,159 @@ const Notifications = () => {
                 className="flex-1 px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-200 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {submitting ? 'Broadcasting...' : 'Confirm & Broadcast'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Campaign Performance & Conversion Analytics Modal (Feature 3) */}
+      {analyticsModalOpen && selectedCampaignForAnalytics && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in duration-300 border border-gray-100">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#1b5e20] flex items-center justify-center font-black">
+                  <BarChart3 size={20} />
+                </div>
+                <div>
+                  <h2 className="text-sm font-black text-gray-900 tracking-tight">Campaign Performance & Conversion Analytics</h2>
+                  <p className="text-xs text-gray-500 font-medium truncate max-w-md">{selectedCampaignForAnalytics.title}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAnalyticsModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 p-2 rounded-xl hover:bg-gray-100 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-6">
+              {/* Campaign Highlights */}
+              <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                <div>
+                  <span className="text-gray-400 font-bold">Target Audience:</span>{' '}
+                  <span className="font-black text-gray-900">
+                    {selectedCampaignForAnalytics.audience?.type === 'CROP'
+                      ? `🌾 Crop: ${selectedCampaignForAnalytics.audience?.crop}`
+                      : selectedCampaignForAnalytics.audience?.type === 'PINCODE'
+                      ? `📍 Pincode: ${selectedCampaignForAnalytics.audience?.pincode}`
+                      : selectedCampaignForAnalytics.audience?.type === 'SEGMENT'
+                      ? `👥 Segment: ${selectedCampaignForAnalytics.audience?.segment}`
+                      : '👥 All Customers'}
+                  </span>
+                  <div className="text-[11px] text-gray-500 font-mono mt-0.5">Topic: {selectedCampaignForAnalytics.audience?.topic || 'all_customers'}</div>
+                </div>
+                <div className="text-right sm:text-right">
+                  <span className="px-2 py-1 rounded text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800">
+                    {selectedCampaignForAnalytics.status}
+                  </span>
+                  <div className="text-[10px] text-gray-400 mt-1">{formatDateTime(selectedCampaignForAnalytics.createdAt)}</div>
+                </div>
+              </div>
+
+              {/* KPI Cards for Selected Campaign */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-3.5 text-center">
+                  <p className="text-[10px] font-black uppercase text-blue-700 tracking-wider">Total Clicks</p>
+                  <p className="text-xl font-black text-blue-950 mt-0.5">
+                    {analyticsData?.metrics?.clicks ?? (selectedCampaignForAnalytics.stats?.clicks || 0)}
+                  </p>
+                  <p className="text-[9px] font-bold text-blue-600">
+                    ({analyticsData?.metrics?.uniqueClicks ?? (selectedCampaignForAnalytics.stats?.uniqueClicks || 0)} unique)
+                  </p>
+                </div>
+
+                <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-3.5 text-center">
+                  <p className="text-[10px] font-black uppercase text-indigo-700 tracking-wider">Click Rate (CTR)</p>
+                  <p className="text-xl font-black text-indigo-950 mt-0.5">
+                    {analyticsData?.metrics?.ctr ?? (selectedCampaignForAnalytics.stats?.ctr || 0)}%
+                  </p>
+                  <p className="text-[9px] font-bold text-indigo-600">Open Engagement</p>
+                </div>
+
+                <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-3.5 text-center">
+                  <p className="text-[10px] font-black uppercase text-amber-700 tracking-wider">Orders Converted</p>
+                  <p className="text-xl font-black text-amber-950 mt-0.5">
+                    {analyticsData?.metrics?.conversions ?? (selectedCampaignForAnalytics.stats?.conversions || 0)}
+                  </p>
+                  <p className="text-[9px] font-bold text-amber-600">
+                    {analyticsData?.metrics?.conversionRate ?? 0}% conversion
+                  </p>
+                </div>
+
+                <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3.5 text-center">
+                  <p className="text-[10px] font-black uppercase text-emerald-800 tracking-wider">Direct Sales</p>
+                  <p className="text-xl font-black text-emerald-950 mt-0.5">
+                    ₹{Number(analyticsData?.metrics?.revenue ?? (selectedCampaignForAnalytics.stats?.revenue || 0)).toLocaleString('en-IN')}
+                  </p>
+                  <p className="text-[9px] font-bold text-emerald-700">Attributed GMV</p>
+                </div>
+              </div>
+
+              {/* Converted Orders Section */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-black uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+                    <ShoppingBag size={14} className="text-[#1b5e20]" />
+                    <span>Converted Orders Attributed to this Notification</span>
+                  </h3>
+                  <span className="text-[11px] font-bold text-gray-400">
+                    {(analyticsData?.recentOrders?.length || 0)} Orders
+                  </span>
+                </div>
+
+                {loadingAnalytics ? (
+                  <div className="p-8 text-center text-xs text-gray-400 flex flex-col items-center gap-2">
+                    <RefreshCw className="animate-spin text-[#1b5e20]" size={20} />
+                    <span>Loading real-time conversion ledger...</span>
+                  </div>
+                ) : analyticsData?.recentOrders?.length > 0 ? (
+                  <div className="border border-gray-100 rounded-2xl overflow-hidden divide-y divide-gray-100">
+                    <div className="bg-gray-50/80 px-4 py-2.5 grid grid-cols-12 text-[10px] font-black uppercase tracking-wider text-gray-500">
+                      <div className="col-span-3">Order ID</div>
+                      <div className="col-span-4">Customer</div>
+                      <div className="col-span-3 text-right">Amount</div>
+                      <div className="col-span-2 text-right">Date</div>
+                    </div>
+                    {analyticsData.recentOrders.map((ord) => (
+                      <div key={ord.orderId} className="px-4 py-3 grid grid-cols-12 text-xs items-center hover:bg-gray-50/50 transition-colors">
+                        <div className="col-span-3 font-mono font-black text-blue-700 truncate">
+                          #{ord.orderId.slice(-8).toUpperCase()}
+                        </div>
+                        <div className="col-span-4">
+                          <p className="font-black text-gray-800 text-[11px] truncate">{ord.userName || 'Customer'}</p>
+                          <p className="text-[10px] text-gray-400 font-mono">{ord.userPhone || '-'}</p>
+                        </div>
+                        <div className="col-span-3 text-right font-black text-emerald-700">
+                          ₹{Number(ord.totalAmount).toLocaleString('en-IN')}
+                        </div>
+                        <div className="col-span-2 text-right text-[10px] text-gray-400">
+                          {ord.convertedAt ? formatDateTime(ord.convertedAt) : '-'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-6 rounded-2xl bg-gray-50 border border-gray-100 text-center text-xs text-gray-400">
+                    Abhi tak is campaign se koi direct order attribute nahi hua hai. (No orders converted yet)
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-gray-50/70 border-t border-gray-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setAnalyticsModalOpen(false)}
+                className="px-5 py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl text-xs font-black transition-colors"
+              >
+                Close Report
               </button>
             </div>
           </div>
