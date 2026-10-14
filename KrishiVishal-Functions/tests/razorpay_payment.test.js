@@ -43,16 +43,23 @@ async function callWebhook(req, res) {
     return await razorpayWebhook(req, res);
 }
 
+function createDocRef(colName, docId) {
+    const actualId = docId || `auto_${Date.now()}_${Math.random()}`;
+    return {
+        id: actualId,
+        collectionName: colName,
+        collection: (subColName) => {
+            return {
+                doc: (subDocId) => createDocRef(`${colName}/${actualId}/${subColName}`, subDocId)
+            };
+        }
+    };
+}
+
 // Mock Firestore Db Transaction implementation
 adminModule.db.collection = (colName) => {
     return {
-        doc: (docId) => {
-            const actualId = docId || `auto_${Date.now()}_${Math.random()}`;
-            return {
-                id: actualId,
-                collectionName: colName
-            };
-        }
+        doc: (docId) => createDocRef(colName, docId)
     };
 };
 
@@ -384,7 +391,7 @@ async function runTests() {
     try {
         const secret = "whsec_test_secret123";
         const eventId = "evt_ignored_004";
-        const payloadObj = { event: "refund.processed" };
+        const payloadObj = { event: "dummy.unhandled_event" };
 
         const rawBody = Buffer.from(JSON.stringify(payloadObj));
         const signature = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");

@@ -36,7 +36,7 @@ function getFiscalPeriodId(date = new Date()) {
  * @param {object} orderData
  * @returns {Promise<object>}
  */
-async function recognizeOrderDeliveryFinancials(orderData) {
+async function recognizeOrderDeliveryFinancials(orderData, options = {}) {
     const {
         orderId,
         periodId = getFiscalPeriodId(),
@@ -54,7 +54,7 @@ async function recognizeOrderDeliveryFinancials(orderData) {
 
     // 0. Idempotency Check: Guard against duplicate delivery recognition
     const orderRef = db.collection("orders").doc(orderId);
-    const orderSnap = await orderRef.get();
+    const orderSnap = options.tx ? await options.tx.get(orderRef) : await orderRef.get();
     const existingOrder = orderSnap.exists ? (orderSnap.data() || {}) : {};
 
     if (existingOrder.financialStatus === "RECOGNIZED") {
@@ -257,10 +257,9 @@ async function recognizeOrderDeliveryFinancials(orderData) {
         memo: `Sales & COGS recognition for Order #${orderId} (Invoice #${invoiceNumber})`,
         lines: journalLines,
         createdBy
-    });
+    }, options);
 
-    // 6. Update order document with recognized financial metadata
-    await orderRef.set({
+    const updatePayload = {
         invoiceNumber,
         financialStatus: "RECOGNIZED",
         financialPeriodId: periodId,
@@ -273,7 +272,14 @@ async function recognizeOrderDeliveryFinancials(orderData) {
         totalSales: grandTotal,
         totalCogs,
         recognizedAt: admin.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
+    };
+
+    // 6. Update order document with recognized financial metadata
+    if (options.tx) {
+        options.tx.set(orderRef, updatePayload, { merge: true });
+    } else {
+        await orderRef.set(updatePayload, { merge: true });
+    }
 
     return {
         success: true,

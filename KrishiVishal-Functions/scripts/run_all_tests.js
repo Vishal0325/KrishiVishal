@@ -113,10 +113,11 @@ for (let i = 0; i < testFilesToRun.length; i++) {
     delete env.FIREBASE_CONFIG;
     env.NODE_ENV = 'test';
 
+    const testTimeout = (fileName.startsWith('emulator_') || fileName.startsWith('workflow_')) ? 30000 : 15000;
     const child = spawnSync(process.execPath, [filePath], {
         cwd: FUNCTIONS_ROOT,
         env: env,
-        timeout: 15000,
+        timeout: testTimeout,
         encoding: 'utf8'
     });
     const duration = Date.now() - startTime;

@@ -273,7 +273,9 @@ async function generateCreditNoteForReturn({
     shippingState = "Bihar",
     createdBy = "SYSTEM",
     idempotencyKey = null,
-    returnRequestId = null
+    returnRequestId = null,
+    customJournalEntryId = null,
+    useCreditNoteEntryId = false
 }) {
     if (!returnRequestId || typeof returnRequestId !== "string" || !returnRequestId.trim()) {
         const err = new Error("MISSING_RETURN_REQUEST_ID: returnRequestId is strictly required as a stable business return identifier for statutory Credit Note issuance.");
@@ -507,6 +509,8 @@ async function generateCreditNoteForReturn({
         // 5. Post Reversal Journal Entry (if not already posted)
         let totalCostOfReturnedGoods = 0;
         if (!journalEntryId) {
+            let effectiveJournalEntryId = customJournalEntryId || (useCreditNoteEntryId && creditNoteNumber ? `JE_CREDIT_NOTE_${creditNoteNumber}` : deterministicJournalId);
+
             const journalLines = [
                 { accountCode: "4010_SALES_AGRI_INPUTS", debit: taxableAmount, credit: 0, description: `Sales Return: ${originalInvoiceNo}` }
             ];
@@ -553,7 +557,7 @@ async function generateCreditNoteForReturn({
             }
 
             const journalResult = await postJournalEntry({
-                entryId: deterministicJournalId,
+                entryId: effectiveJournalEntryId,
                 refType: "SALES_RETURN",
                 refId: creditNoteNumber,
                 periodId,

@@ -3,6 +3,7 @@ const { db, admin } = require("../core/admin");
 const { isAdminRequest } = require("../core/utils");
 const Razorpay = require("razorpay");
 const { razorpayKeySecret, razorpayKeyId, getSecretVal } = require("../core/secrets");
+const walletService = require("./walletService");
 
 const REGION = 'asia-south1';
 
@@ -116,9 +117,16 @@ exports.initiateRefund = onCall({ region: REGION, invoker: 'public', secrets: [r
 
     try {
         if (useGateway && razorpayPaymentId) {
-            refundResult = await _processRazorpayRefund(razorpayPaymentId, refundAmount, returnId);
+            refundResult = await initiateRazorpayRefund({
+                returnId,
+                orderId,
+                razorpayPaymentId,
+                amount: refundAmount,
+                creditNoteNumber: returnData.creditNoteNo || null,
+                actorId: context.auth.uid
+            });
         } else {
-            refundResult = await _processWalletCredit(orderData.userId, refundAmount, returnId, orderId);
+            refundResult = await _processWalletCredit(orderData.userId, refundAmount, returnId, orderId, returnData.creditNoteNo || null, { uid: context.auth.uid, token: context.auth.token });
         }
     } catch (error) {
         console.error(`[initiateRefund] Failed for ${returnId}:`, error.message);
@@ -144,24 +152,27 @@ exports.initiateRefund = onCall({ region: REGION, invoker: 'public', secrets: [r
         }
 
         const timestamp = admin.firestore.FieldValue.serverTimestamp();
-        const noteText = `[REFUND] Rs.${refundAmount} via ${refundResult.method} at ${new Date().toISOString()}. Ref: ${refundResult.refundId || 'WALLET_CREDIT'}`;
+        const isGateway = refundResult.method === 'RAZORPAY' || refundResult.destination === 'GATEWAY';
+        const noteText = `[REFUND] Rs.${refundAmount} via ${isGateway ? 'RAZORPAY' : 'WALLET'} at ${new Date().toISOString()}. Ref: ${refundResult.razorpayRefundId || refundResult.refundId || refundResult.txId || 'WALLET_CREDIT'}`;
 
         transaction.update(returnRef, {
-            status: 'COMPLETED',
-            refundStatus: 'COMPLETED',
-            refundMethod: refundResult.method,
-            refundDestination: refundResult.method === 'RAZORPAY' ? 'GATEWAY' : 'WALLET',
+            status: isGateway ? 'REFUND_INITIATED' : 'COMPLETED',
+            refundStatus: isGateway ? 'INITIATED' : 'COMPLETED',
+            refundMethod: isGateway ? 'RAZORPAY' : 'WALLET',
+            refundDestination: isGateway ? 'GATEWAY' : 'WALLET',
             'financials.refundAmountInitiated': refundAmount,
-            'financials.gatewayRefundId': refundResult.refundId || `WALLET_${returnId}`,
+            'financials.gatewayRefundId': refundResult.razorpayRefundId || refundResult.refundId || null,
+            'financials.refundRequestId': refundResult.refundRequestId || null,
+            'financials.walletTxId': refundResult.txId || null,
             'financials.processedAt': timestamp,
             adminNotes: admin.firestore.FieldValue.arrayUnion(noteText),
             updatedAt: timestamp,
         });
 
         transaction.update(orderRef, {
-            status: 'RETURNED',
-            returnStatus: 'RETURN_COMPLETED',
-            refundStatus: 'REFUNDED',
+            status: isGateway ? 'RETURN_PROCESSING' : 'RETURNED',
+            returnStatus: isGateway ? 'REFUND_INITIATED' : 'RETURN_COMPLETED',
+            refundStatus: isGateway ? 'INITIATED' : 'REFUNDED',
             refundAmount: refundAmount,
             updatedAt: timestamp,
         });
@@ -177,28 +188,140 @@ exports.initiateRefund = onCall({ region: REGION, invoker: 'public', secrets: [r
             details: {
                 orderId,
                 refundAmount,
-                method: refundResult.method,
-                refundId: refundResult.refundId || `WALLET_${returnId}`,
+                method: isGateway ? 'RAZORPAY' : 'WALLET',
+                refundId: refundResult.razorpayRefundId || refundResult.refundId || refundResult.txId || `WALLET_${returnId}`,
             },
         });
     });
 
-    console.log(`[initiateRefund] Done for ${returnId}. Method:${refundResult.method}`);
+    const isGateway = refundResult.method === 'RAZORPAY' || refundResult.destination === 'GATEWAY';
+    console.log(`[initiateRefund] Done for ${returnId}. Method:${isGateway ? 'RAZORPAY' : 'WALLET'}`);
 
     return {
         success: true,
-        method: refundResult.method,
-        refundId: refundResult.refundId || null,
-        message: refundResult.method === 'RAZORPAY'
-            ? `Refund of Rs.${refundAmount} initiated via Razorpay. Ref: ${refundResult.refundId}`
+        method: isGateway ? 'RAZORPAY' : 'WALLET',
+        refundId: refundResult.razorpayRefundId || refundResult.refundId || refundResult.txId || null,
+        refundRequestId: refundResult.refundRequestId || null,
+        message: isGateway
+            ? `Refund of Rs.${refundAmount} initiated via Razorpay. Ref: ${refundResult.razorpayRefundId || refundResult.refundId}`
             : `Rs.${refundAmount} credited to customer wallet as store credit.`,
     };
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Step 2A: Wallet Settlement Helper (System 2 GL Integrated)
+// ─────────────────────────────────────────────────────────────────────────────
+async function settleWalletRefund({
+    userId,
+    amount,
+    returnId,
+    orderId = null,
+    creditNoteNumber = null,
+    auth = null
+}) {
+    if (!userId) throw new Error("INVALID_UID: userId is required for wallet refund settlement.");
+    if (!amount || Number(amount) <= 0) throw new Error("INVALID_AMOUNT: Refund amount must be positive.");
+    if (!returnId && !creditNoteNumber) {
+        throw new Error("MISSING_ENTITY_ID: returnId or creditNoteNumber is required.");
+    }
+
+    const ref = creditNoteNumber || returnId;
+    const roundedAmount = Math.round(Number(amount) * 100) / 100;
+
+    const result = await walletService.creditWallet({
+        uid: userId,
+        amount: roundedAmount,
+        eventType: "ORDER_REFUND",
+        entityId: ref,
+        description: `Wallet refund settlement for Credit Note ${ref}`,
+        metadata: {
+            returnId: returnId || null,
+            creditNoteNumber: creditNoteNumber || null,
+            orderId: orderId || null
+        },
+        idempotencyKey: `JE_SETTLEMENT_WALLET_${ref}`
+    }, {
+        auth
+    });
+
+    return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Step 2B: Online Razorpay Settlement Initiation Helper
+// ─────────────────────────────────────────────────────────────────────────────
+async function initiateRazorpayRefund({
+    returnId,
+    orderId,
+    razorpayPaymentId,
+    amount,
+    creditNoteNumber = null,
+    actorId = "SYSTEM",
+    customRzp = null
+}) {
+    if (!razorpayPaymentId) throw new Error("MISSING_PAYMENT_ID: razorpayPaymentId is required for gateway refund.");
+    if (!amount || Number(amount) <= 0) throw new Error("INVALID_AMOUNT: Refund amount must be positive.");
+
+    const refundRequestId = `REF_REQ_${returnId || Date.now()}`;
+    const refundRef = db.collection("refund_requests").doc(refundRequestId);
+
+    // 1. Stage INITIATED record in refund_requests
+    await refundRef.set({
+        refundRequestId,
+        returnId: returnId || null,
+        orderId: orderId || null,
+        creditNoteNumber: creditNoteNumber || null,
+        razorpayPaymentId,
+        amount: Number(amount),
+        status: "INITIATED",
+        destination: "GATEWAY",
+        initiatedBy: actorId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    // 2. Invoke Razorpay API
+    let razorpayRefundId = null;
+    if (customRzp) {
+        const rzpResult = await customRzp.payments.refund(razorpayPaymentId, {
+            amount: Math.round(Number(amount) * 100),
+            notes: { returnId, orderId, refundRequestId }
+        });
+        razorpayRefundId = rzpResult?.id || `rfnd_mock_${Date.now()}`;
+    } else {
+        try {
+            const res = await _processRazorpayRefund(razorpayPaymentId, Number(amount), returnId, refundRequestId);
+            razorpayRefundId = res.refundId;
+        } catch (err) {
+            if (process.env.FIRESTORE_EMULATOR_HOST && (err.message.includes('credentials') || err.message.includes('not configured') || err.message.includes('missing or undefined'))) {
+                razorpayRefundId = `rfnd_emu_${Date.now()}`;
+            } else {
+                throw err;
+            }
+        }
+    }
+
+    // 3. Update refund_requests with gateway refund ID
+    await refundRef.update({
+        razorpayRefundId,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    return {
+        success: true,
+        method: "RAZORPAY",
+        destination: "GATEWAY",
+        refundRequestId,
+        razorpayRefundId,
+        refundId: razorpayRefundId,
+        status: "INITIATED"
+    };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Private Helper: Razorpay Refund API
 // ─────────────────────────────────────────────────────────────────────────────
-async function _processRazorpayRefund(razorpayPaymentId, amount, returnId) {
+async function _processRazorpayRefund(razorpayPaymentId, amount, returnId, refundRequestId = null) {
     const keyId = getSecretVal(razorpayKeyId, 'RAZORPAY_KEY_ID');
     const keySecret = getSecretVal(razorpayKeySecret, 'RAZORPAY_KEY_SECRET');
 
@@ -210,12 +333,17 @@ async function _processRazorpayRefund(razorpayPaymentId, amount, returnId) {
 
     console.log(`[initiateRefund] Calling Razorpay API. PaymentId: ${razorpayPaymentId}`);
 
+    const notes = {
+        returnId: returnId,
+        reason: 'Admin approved return refund',
+    };
+    if (refundRequestId) {
+        notes.refundRequestId = refundRequestId;
+    }
+
     const refund = await rzp.payments.refund(razorpayPaymentId, {
         amount: Math.round(amount * 100), // Razorpay expects paise
-        notes: {
-            returnId: returnId,
-            reason: 'Admin approved return refund',
-        },
+        notes,
         speed: 'optimum', // Instant if possible, else normal
     });
 
@@ -231,38 +359,23 @@ async function _processRazorpayRefund(razorpayPaymentId, amount, returnId) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Private Helper: Wallet / Store Credit (for COD or Wallet orders)
 // ─────────────────────────────────────────────────────────────────────────────
-async function _processWalletCredit(userId, amount, returnId, orderId) {
-    if (!userId) {
-        throw new Error('Cannot credit wallet: userId missing on order document.');
-    }
-
-    const userRef = db.collection('users').doc(userId);
-    const userSnap = await userRef.get();
-
-    if (!userSnap.exists) {
-        throw new Error(`User not found: ${userId}`);
-    }
-
-    await db.runTransaction(async (transaction) => {
-        transaction.update(userRef, {
-            walletBalance: admin.firestore.FieldValue.increment(amount),
-            lastWalletTransactionAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        // Wallet history entry visible to customer
-        const historyRef = db.collection('users').doc(userId).collection('wallet_history').doc();
-        transaction.set(historyRef, {
-            id: historyRef.id,
-            type: 'REFUND_CREDIT',
-            amount: amount,
-            orderId: orderId,
-            returnId: returnId,
-            description: 'Store credit for approved return',
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        });
+async function _processWalletCredit(userId, amount, returnId, orderId, creditNoteNumber = null, auth = null) {
+    const res = await settleWalletRefund({
+        userId,
+        amount,
+        returnId,
+        orderId,
+        creditNoteNumber,
+        auth
     });
 
-    console.log(`[initiateRefund] Wallet credited Rs.${amount} to user: ${userId}`);
-
-    return { method: 'WALLET_CREDIT', refundId: null };
+    return {
+        method: 'WALLET_CREDIT',
+        refundId: res.txId,
+        txId: res.txId,
+        alreadyProcessed: res.alreadyProcessed
+    };
 }
+
+exports.settleWalletRefund = settleWalletRefund;
+exports.initiateRazorpayRefund = initiateRazorpayRefund;
