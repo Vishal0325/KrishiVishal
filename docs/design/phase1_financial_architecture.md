@@ -275,6 +275,17 @@ Sales revenue (`4010`) and GST accounts (`2020`/`2030`) are debited **exclusivel
   * **Credit:** `1015_RIDER_RECEIVABLE_SHORTAGES` ₹100
   * *Remaining Deficit:* ₹100 remains in `1015_RIDER_RECEIVABLE_SHORTAGES` and `riders/{id}.pendingShortageAmount`, carried forward to the next cycle. Zero negative payout bank transfers.
 
+#### 5. postJournalEntry Transaction Contract (Caller ACID & Ordering Guidelines)
+
+To maintain ACID integrity across Firestore and Google Cloud Firestore SDK transactional constraints, all caller functions (e.g. `walletService`, `creditNoteEngine`, `riderPayoutEngine`) passing a caller-managed transaction `tx` into `postJournalEntry` must adhere to the following 4 statutory contract rules:
+
+1. **Rule 1 (All Caller Reads First):** The caller must perform all required `tx.get()` calls (e.g., fetching current user balance `users/{uid}`, checking order status `orders/{orderId}`) before invoking `postJournalEntry` or performing any writes.
+2. **Rule 2 (Zero Writes Before `postJournalEntry`):** The caller must **NEVER** stage any write (`tx.set`, `tx.update`, `tx.delete`) prior to calling `postJournalEntry`. Because `postJournalEntry` must read the fiscal period (`assertFiscalPeriodUnlocked`) and check existing entry idempotency via `tx.get(entryRef)`, any preceding write triggers Firestore's native constraint:
+   $$\text{"Firestore transactions require all reads to be executed before all writes"}$$
+   *(Empirically proven & verified against the real Firestore Emulator in Test suite `tests/package1_ledger_pass_through.test.js` Test (e)).* All caller writes must be staged strictly **after** `postJournalEntry` resolves.
+3. **Rule 3 (Replay Skip on `alreadyProcessed`):** If `postJournalEntry` returns `{ success: true, alreadyProcessed: true }`, the caller **MUST SKIP** subsequent balance mutations and state transitions. Replays must return the existing state idempotently without double-mutating balances.
+4. **Rule 4 (Deterministic `entryId` / Idempotency Key):** Callers must always provide a stable, deterministic `entryId` (e.g., `JE_WALLET_ORDER_PAYMENT_${orderId}`, `JE_REFUND_SETTLE_${returnId}`) rather than random UUIDs to ensure full replay deduplication.
+
 ---
 
 ## Section C: End-to-End Cash Lifecycle & System 1 Decommissioning
