@@ -198,7 +198,21 @@ Sales revenue (`4010`) and GST accounts (`2020`/`2030`) are debited **exclusivel
 * **Idempotency Key:** `JE_WALLET_ADMIN_DEBIT_${uid}_${auditRequestId}`
 * **Constraint:** Strictly asserts `currentBalance >= clawbackAmount`. Zero negative balances permitted.
 
-#### 5. Wallet Order Payment Consolidation Plan (`payWithWallet` vs `createOrder`)
+#### 5. Wallet Service Event Contracts & Required Entity Identifiers
+
+Every invocation of `walletService` must supply valid, non-empty business identifiers corresponding to the specific event domain. Replay attempts with matching idempotency keys are verified for parameter consistency; any collision on `uid`, `amount` (or `requestedAmount`), or `type` throws `IDEMPOTENCY_CONFLICT`.
+
+| Event Type | Direction | Required Business Entity Fields | Debit Account | Credit Account | Replay & Partial Mode Rules |
+| :--- | :---: | :--- | :--- | :--- | :--- |
+| `TOPUP` | `CREDIT` | `topUpId` | `1050_GATEWAY_RECEIVABLE` | `2065_CUSTOMER_WALLET_LIABILITY` | Controlled by `ENABLE_WALLET_TOPUP` kill switch. |
+| `ORDER_PAYMENT` | `DEBIT` | `orderId` | `2065_CUSTOMER_WALLET_LIABILITY` | `2070_DEFERRED_REVENUE` | Strict floor check ($balance - amount \ge 0$). Fails with `INSUFFICIENT_WALLET_BALANCE`. |
+| `ORDER_REFUND` | `CREDIT` | `returnId` or `creditNoteNumber` | `2060_CUSTOMER_REFUNDS_PAYABLE` | `2065_CUSTOMER_WALLET_LIABILITY` | Closed loop refund to wallet store credit. |
+| `REFERRAL_REWARD` | `CREDIT` | `referrerUid`, `refereeUid`, `orderId` | `6030_REFERRAL_PROMOTION_EXPENSE` | `2065_CUSTOMER_WALLET_LIABILITY` | Deterministic key: `JE_WALLET_REFERRAL_${referrerUid}_${refereeUid}_${orderId}`. |
+| `REFERRAL_REVERSAL` | `DEBIT` | `referrerUid`, `refereeUid`, `orderId` | `2065_CUSTOMER_WALLET_LIABILITY` | `6030_REFERRAL_PROMOTION_EXPENSE` | **Partial Mode:** Claw back $\min(\text{bonus}, \text{balance})$. If balance is 0, zero JE posted, `wallet_transactions` records $amount=0, requested=bonus, reversed=0$. |
+| `ADMIN_CREDIT` | `CREDIT` | `idempotencyKey` (explicit or 60s hash) | `6035_CUSTOMER_GOODWILL_EXPENSE` | `2065_CUSTOMER_WALLET_LIABILITY` | SuperAdmin / FinanceAdmin only. Cap ₹5,000. Min 10-char reason. |
+| `ADMIN_DEBIT` | `DEBIT` | `idempotencyKey` (explicit or 60s hash) | `2065_CUSTOMER_WALLET_LIABILITY` | `6035_CUSTOMER_GOODWILL_EXPENSE` | SuperAdmin / FinanceAdmin only. Strict floor check (no overdraft). Cap ₹5,000. |
+
+#### 6. Wallet Order Payment Consolidation Plan (`payWithWallet` vs `createOrder`)
 * **Single Canonical Flow:** `createOrder` (with `paymentMethod: 'WALLET'`) is designated as the **exclusive canonical path** for paying with wallet. Inventory allocation, order creation, wallet debit, and deferred revenue journal entry execute in a **single atomic transaction**.
 * **Deprecation of `payWithWallet`:** The standalone callable `payWithWallet` will be deprecated for checkout. If retained for payment retries on unfulfilled orders, it will execute the exact unified transaction contract with `JE_WALLET_ORDER_PAYMENT_${orderId}`.
 
@@ -740,4 +754,41 @@ TOTAL DEBITS: ₹ _______________  |  TOTAL CREDITS: ₹ _______________  (Diff 
 ```
 
 ---
-*End of Design Document v2.1.*
+
+## Section N: Deploy Impact Register & Breaking Changes Matrix
+
+This register details all interface changes, security claim requirements, environment variables, and client-side impacts introduced in Package 2a.
+
+### N.1 Cloud Functions Callable Contracts & Breaking Changes
+
+| Callable Function | Old Behavior | New Behavior (Package 2a) | Breaking? | Client Action Required |
+| :--- | :--- | :--- | :--- | :--- |
+| `adminAdjustWallet` | Permitted blanket `admin: true` or `role: 'admin'`. No minimum reason length. No amount cap. Unkeyed fallback did not include `adminUid`. | **Strict Role Gating:** Strictly requires `SuperAdmin` or `FinanceAdmin` (e.g., `{ role: 'SuperAdmin' }`, `{ role: 'FinanceAdmin' }`, or boolean flags `{ superadmin: true }`, `{ finance_admin: true }`). Blanket claims (`admin: true`, `role: 'admin'`) throw `permission-denied`.<br>**Validation:** `reason` strictly $\ge 10$ chars (`INVALID_REASON`); amount strictly $\le ₹5,000$ (`INVALID_AMOUNT`).<br>**Idempotency:** Fallback key includes `adminUid` in 60s hash slot. | **YES** (for non-Finance/SuperAdmin roles, short reasons, or adjustments > ₹5,000) | **Admin Panel (`Customers.jsx:1334`):** Ensure user has `SuperAdmin`/`FinanceAdmin` claim. Enforce `reason.length >= 10` in modal before submitting. Limit adjustment input to ₹5,000. |
+| `createWalletTopUpOrder` | Permitted Razorpay order generation if keys present. | Guarded by `ENABLE_WALLET_TOPUP === "true"`. Defaults to `false`. Throws `failed-precondition` (`WALLET_TOPUP_DISABLED`). | **YES** | **Android App (`WalletRepository.kt:114`):** Currently surfaces snackbar on `failed-precondition`. Recommended: Hide "Add Money" / "Top Up" button when flag is off. |
+| `verifyWalletTopUp` | Verified payment and credited wallet without System 2 JE. | Guarded by `ENABLE_WALLET_TOPUP === "true"`. When enabled, delegates credit to `walletService.creditWallet` posting balanced System 2 JE (Dr 1050 / Cr 2065). | **YES** | Top-up disabled at source. In-flight pending orders settled via webhook grace window before cutover. |
+| `getWalletHistory` | Read exclusively from `users/{uid}/wallet_history` subcollection. | **Dual-Read:** Reads root `wallet_transactions` first; if empty, falls back to legacy subcollection `users/{uid}/wallet_history`. Returns unified array. | **NO** | Transparent to mobile app. |
+
+### N.2 Environment Variables & Feature Flags
+
+| Variable Name | Canonical Name | Default | Purpose / Scope |
+| :--- | :--- | :--- | :--- |
+| `ENABLE_WALLET_TOPUP` | `ENABLE_WALLET_TOPUP` | `false` | Master kill switch for customer wallet top-ups. Evaluated dynamically in `walletService.js` and `walletTopUp.js`. Unset or empty strictly evaluates to `false`. |
+
+### N.3 Client-Side Audit & Error Handling Matrix
+
+1. **Admin Frontend (`KrishiVishal-Admin/src/pages/Customers.jsx`):**
+   * **Call Site:** Line 1334: `adminAdjustWallet({ userId, amount: Number(adjAmount), type: adjType, reason: adjReason })`.
+   * **Gaps Identified:** No client-side character length check on `adjReason` (empty strings or "test" currently permitted in UI input).
+   * **Action Required in Package 6:** Add form validation `adjReason.trim().length >= 10` and max cap ₹5,000 in `Customers.jsx`.
+
+2. **Android Customer App (`KrishiVishal` Repository):**
+   * **Call Sites:**
+     - `WalletRepository.kt:114` (`createWalletTopUpOrder`)
+     - `WalletRepository.kt:133` (`verifyWalletTopUp`)
+     - `WalletViewModel.kt:148, 180`
+   * **Observed UI Behavior:** When `createWalletTopUpOrder` throws `failed-precondition`, the app maps it via `e.asFriendlyError()` and emits `Resource.Error(message)` to the UI state. The Compose screen renders this error string inside a standard Snackbar.
+   * **Crash Risk:** **ZERO.** The app does not crash; it safely catches the Firebase Functions exception.
+   * **Action Recommended for UI Polish:** Update `WalletScreen.kt` to hide or disable the "Top Up" button or display a banner: *"Direct top-ups are temporarily paused. Wallets can be funded via returns & refunds."*
+
+---
+*End of Design Document v2.2.*

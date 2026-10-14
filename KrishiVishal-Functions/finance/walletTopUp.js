@@ -6,35 +6,34 @@ const { razorpayKeySecret, razorpayKeyId, getSecretVal } = require("../core/secr
 const walletService = require("./walletService");
 
 const REGION = 'asia-south1';
-const WALLET_TOPUP_ENABLED = process.env.WALLET_TOPUP_ENABLED === "true"; // Default false
+const isWalletTopUpEnabled = () => process.env.ENABLE_WALLET_TOPUP === "true"; // Default false
 const MAX_ADMIN_ADJUSTMENT = 5000;
 
 /**
- * Role gating helper for Admin adjustments: strictly SuperAdmin or FinanceAdmin
+ * Role gating helper for Admin adjustments: strictly SuperAdmin or FinanceAdmin.
+ * Blanket admin (role: 'admin', admin: true) is explicitly denied.
  */
 function isAuthorizedAdmin(context) {
     if (!context || !context.auth) return false;
     const token = context.auth.token || {};
-    const role = String(token.role || '').toLowerCase();
-    return (
-        role === 'superadmin' ||
-        role === 'super_admin' ||
-        role === 'finance_admin' ||
-        role === 'financeadmin' ||
-        token.superadmin === true ||
-        token.finance_admin === true ||
-        token.super_admin === true
-    );
+    const role = String(token.role || '').trim();
+    const normalizedRole = role.toLowerCase().replace(/[-_]/g, '');
+
+    const isPermittedRole = normalizedRole === 'superadmin' || normalizedRole === 'financeadmin';
+    const hasPermittedFlag = token.superadmin === true || token.finance_admin === true || token.super_admin === true;
+
+    return isPermittedRole || hasPermittedFlag;
 }
 
 /**
- * 60-second time-window deterministic fallback hash for unkeyed admin adjustments
+ * 60-second time-window deterministic fallback hash for unkeyed admin adjustments.
+ * Includes adminUid, targetUid, type, amount, cleanReason, and 60-second time slot.
  */
-function deriveTimeWindowKey(uid, amount, type, reason) {
+function deriveTimeWindowKey(adminUid, targetUid, amount, type, reason) {
     const windowSlot = Math.floor(Date.now() / 60000);
-    const raw = `${uid}_${amount}_${type}_${reason.trim()}_${windowSlot}`;
+    const raw = `${adminUid || 'UNKNOWN'}_${targetUid}_${type}_${amount}_${reason.trim()}_${windowSlot}`;
     const hash = crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
-    return `KEY_ADMIN_ADJ_${uid}_${windowSlot}_${hash}`;
+    return `KEY_ADMIN_ADJ_${targetUid}_${windowSlot}_${hash}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,7 +42,7 @@ function deriveTimeWindowKey(uid, amount, type, reason) {
 //   and return the orderId to the app so the SDK can open the payment sheet.
 // ─────────────────────────────────────────────────────────────────────────────
 exports.createWalletTopUpOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, async (request) => {
-    if (!WALLET_TOPUP_ENABLED) {
+    if (!isWalletTopUpEnabled()) {
         throw new HttpsError('failed-precondition', 'WALLET_TOPUP_DISABLED: Customer wallet top-up is temporarily disabled.');
     }
 
@@ -102,7 +101,7 @@ exports.createWalletTopUpOrder = onCall({ region: REGION, secrets: [razorpayKeyS
 //   Step 2: After Razorpay payment, verify signature + atomically credit wallet.
 // ─────────────────────────────────────────────────────────────────────────────
 exports.verifyWalletTopUp = onCall({ region: REGION, secrets: [razorpayKeySecret] }, async (request) => {
-    if (!WALLET_TOPUP_ENABLED) {
+    if (!isWalletTopUpEnabled()) {
         throw new HttpsError('failed-precondition', 'WALLET_TOPUP_DISABLED: Customer wallet top-up is temporarily disabled.');
     }
 
@@ -214,7 +213,7 @@ exports.adminAdjustWallet = onCall({ region: REGION }, async (request) => {
     }
 
     const cleanReason = reason.trim();
-    const effectiveKey = idempotencyKey || deriveTimeWindowKey(userId, amount, type, cleanReason);
+    const effectiveKey = idempotencyKey || deriveTimeWindowKey(context.auth.uid, userId, amount, type, cleanReason);
 
     let result;
     try {
@@ -489,4 +488,12 @@ exports.getWalletHistory = onCall({ region: REGION }, async (request) => {
 exports.isAuthorizedAdmin = isAuthorizedAdmin;
 exports.deriveTimeWindowKey = deriveTimeWindowKey;
 exports.MAX_ADMIN_ADJUSTMENT = MAX_ADMIN_ADJUSTMENT;
-exports.WALLET_TOPUP_ENABLED = WALLET_TOPUP_ENABLED;
+exports.isWalletTopUpEnabled = isWalletTopUpEnabled;
+Object.defineProperty(exports, "ENABLE_WALLET_TOPUP", {
+    get: () => isWalletTopUpEnabled(),
+    enumerable: true
+});
+Object.defineProperty(exports, "WALLET_TOPUP_ENABLED", {
+    get: () => isWalletTopUpEnabled(),
+    enumerable: true
+});
