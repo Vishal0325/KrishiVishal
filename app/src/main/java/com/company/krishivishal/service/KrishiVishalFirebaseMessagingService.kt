@@ -60,6 +60,7 @@ open class KrishiVishalFirebaseMessagingService : FirebaseMessagingService() {
         val status = message.data["status"]
         val productId = message.data["productId"]
         val deepLink = message.data["deepLink"]
+        val campaignId = message.data["campaignId"]
         val targetId = message.data["targetId"] ?: orderId ?: productId ?: deepLink
         val title = message.notification?.title ?: message.data["title"] ?: if (type == "STOCK_AVAILABLE") "✅ Stock Available!" else "Notification"
         val body = message.notification?.body ?: message.data["body"] ?: if (status != null && orderId != null) "Order #$orderId is now $status" else ""
@@ -95,7 +96,8 @@ open class KrishiVishalFirebaseMessagingService : FirebaseMessagingService() {
                         message = notificationBody,
                         imageUrl = imageUrl,
                         type = type,
-                        targetId = targetId
+                        targetId = targetId,
+                        campaignId = campaignId
                     )
                 }
             }

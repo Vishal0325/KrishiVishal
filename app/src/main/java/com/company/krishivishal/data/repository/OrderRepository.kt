@@ -76,6 +76,7 @@ class OrderRepositoryImpl @Inject constructor(
     private val orderDao: OrderDao,
     private val syncOperationDao: com.company.krishivishal.data.local.SyncOperationDao,
     private val auth: FirebaseAuth,
+    private val userPreferences: com.company.krishivishal.data.local.datastore.UserPreferences,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : OrderRepository {
 
@@ -185,10 +186,17 @@ class OrderRepositoryImpl @Inject constructor(
             }
 
         // Step 2: Build the data payload
-        val data = hashMapOf(
+        val attributedCampaignId = try {
+            userPreferences.getActiveAttributedCampaignId()
+        } catch (e: Exception) {
+            null
+        }
+
+        val data = hashMapOf<String, Any?>(
             "idempotencyKey" to idempotencyKey,
             "destinationHubId" to resolvedHubId,
             "spokeHubId" to resolvedHubId,
+            "attributedCampaignId" to (attributedCampaignId ?: ""),
             "cartItems" to cartItems.map { cwp ->
                 val variantLabel = cwp.displayVariantLabel()
                 val imgUrl = cwp.product?.imageUrl?.ifEmpty { cwp.product?.images?.firstOrNull() ?: "" } ?: ""
@@ -255,6 +263,11 @@ class OrderRepositoryImpl @Inject constructor(
                 val razorpayOrderId = resultMap["razorpayOrderId"] as? String
 
                 syncOperationDao.markAsSynced(opId)
+                try {
+                    userPreferences.clearAttributedCampaign()
+                } catch (e: Exception) {
+                    Timber.w(e, "Failed to clear attributed campaign after order success")
+                }
                 Timber.d("Order Success! ID: $orderId, RZP Order: $razorpayOrderId")
                 emit(Resource.Success(CreateOrderResult(
                     orderId = orderId,

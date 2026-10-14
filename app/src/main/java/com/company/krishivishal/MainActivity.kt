@@ -398,6 +398,27 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     }
 
     private fun handleIntent(intent: Intent?) {
+        val campaignId = intent?.getStringExtra(NotificationHelper.EXTRA_CAMPAIGN_ID)
+            ?: intent?.getStringExtra("campaignId")
+        if (!campaignId.isNullOrBlank()) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    userPreferences.saveAttributedCampaign(campaignId)
+                    val clickData = hashMapOf(
+                        "campaignId" to campaignId,
+                        "platform" to "android"
+                    )
+                    com.google.firebase.functions.FirebaseFunctions.getInstance("asia-south1")
+                        .getHttpsCallable("recordCampaignClick")
+                        .call(clickData)
+                        .await()
+                    Timber.d("Recorded campaign click for $campaignId")
+                } catch (e: Exception) {
+                    Timber.w(e, "Failed to record campaign click for $campaignId")
+                }
+            }
+        }
+
         val notifType = intent?.getStringExtra(NotificationHelper.EXTRA_NOTIFICATION_TYPE)
         val notifTargetId = intent?.getStringExtra(NotificationHelper.EXTRA_TARGET_ID)
         if (!notifTargetId.isNullOrBlank()) {

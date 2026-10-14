@@ -1,5 +1,6 @@
-const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const crypto = require("crypto");
 const { db, admin } = require("../core/admin");
 const { REGION } = require("./notifications");
 
@@ -356,7 +357,17 @@ exports.createCampaign = onCall({ region: ACTIVE_REGION, invoker: 'public', cors
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         idempotencyKey,
         quietHoursBlocked: isQuiet,
-        stats: { requested: 0, sent: 0, failed: 0 }
+        stats: { 
+            requested: 0, 
+            sent: 0, 
+            failed: 0,
+            clicks: 0,
+            uniqueClicks: 0,
+            ctr: 0,
+            conversions: 0,
+            revenue: 0,
+            conversionRate: 0
+        }
     };
 
     await campaignRef.set(campaignData, { merge: true });
@@ -898,6 +909,248 @@ exports.dispatchScheduledCampaigns = onSchedule({
     return null;
 });
 
+/**
+ * 8. recordCampaignClick
+ * Callable function invoked when a farmer taps a push notification on Android or web.
+ * Atomically updates clicks, unique clicks, and CTR in notification_campaigns/{campaignId}.
+ */
+exports.recordCampaignClick = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
+    const data = request.data || {};
+    const campaignId = (data.campaignId || '').toString().trim();
+    if (!campaignId) {
+        throw new HttpsError('invalid-argument', 'Valid campaignId is required.');
+    }
+
+    const platform = (data.platform || 'android').toString().trim().toLowerCase();
+    const callerUid = request.auth ? request.auth.uid : null;
+    const clientKey = (data.clientSessionId || callerUid || 'anon_' + Math.random().toString(36).substring(2, 12)).trim();
+
+    const campaignRef = db.collection("notification_campaigns").doc(campaignId);
+
+    return await db.runTransaction(async (t) => {
+        const campaignSnap = await t.get(campaignRef);
+        if (!campaignSnap.exists) {
+            throw new HttpsError('not-found', `Campaign ${campaignId} not found.`);
+        }
+
+        const campaign = campaignSnap.data();
+        const currentStats = campaign.stats || { requested: 0, sent: 0, failed: 0 };
+        const clicksSoFar = Number(currentStats.clicks) || 0;
+        const uniqueClicksSoFar = Number(currentStats.uniqueClicks) || 0;
+        const sentCount = Math.max(1, Number(currentStats.sent) || Number(campaign.targetAudienceCount) || 1);
+
+        const clickDocRef = campaignRef.collection("clicks").doc(clientKey);
+        const clickSnap = await t.get(clickDocRef);
+
+        let isUnique = false;
+        let newUniqueClicks = uniqueClicksSoFar;
+        let newClicks = clicksSoFar + 1;
+
+        if (!clickSnap.exists) {
+            isUnique = true;
+            newUniqueClicks = uniqueClicksSoFar + 1;
+            t.set(clickDocRef, {
+                clientKey,
+                userId: callerUid || null,
+                platform,
+                firstClickedAt: admin.firestore.FieldValue.serverTimestamp(),
+                lastClickedAt: admin.firestore.FieldValue.serverTimestamp(),
+                clickCount: 1
+            });
+        } else {
+            t.update(clickDocRef, {
+                lastClickedAt: admin.firestore.FieldValue.serverTimestamp(),
+                clickCount: admin.firestore.FieldValue.increment(1)
+            });
+        }
+
+        // Compute CTR (%)
+        const ctr = Math.round((newUniqueClicks / sentCount) * 1000) / 10;
+
+        t.update(campaignRef, {
+            'stats.clicks': newClicks,
+            'stats.uniqueClicks': newUniqueClicks,
+            'stats.ctr': ctr,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        return {
+            success: true,
+            campaignId,
+            uniqueClick: isUnique,
+            clicks: newClicks,
+            uniqueClicks: newUniqueClicks,
+            ctr
+        };
+    });
+});
+
+/**
+ * 9. getCampaignAnalytics
+ * Returns comprehensive performance analytics and converted orders for a campaign or overview.
+ */
+exports.getCampaignAnalytics = onCall({ region: ACTIVE_REGION, invoker: 'public', cors: true }, async (request) => {
+    verifyMarketingAdmin(request);
+    const campaignId = (request.data?.campaignId || '').toString().trim();
+
+    if (campaignId) {
+        const campaignDoc = await db.collection("notification_campaigns").doc(campaignId).get();
+        if (!campaignDoc.exists) {
+            throw new HttpsError('not-found', 'Campaign not found');
+        }
+        const data = campaignDoc.data();
+        const stats = data.stats || {};
+
+        // Fetch recent conversions
+        const convSnap = await db.collection("notification_campaigns")
+            .doc(campaignId)
+            .collection("conversions")
+            .orderBy("convertedAt", "desc")
+            .limit(50)
+            .get();
+
+        const conversions = convSnap.docs.map(doc => {
+            const cd = doc.data();
+            return {
+                orderId: doc.id,
+                totalAmount: cd.totalAmount || 0,
+                userName: cd.userName || 'Customer',
+                userPhone: cd.userPhone || '',
+                itemsCount: cd.itemsCount || 0,
+                paymentMethod: cd.paymentMethod || 'COD',
+                convertedAt: cd.convertedAt ? cd.convertedAt.toDate().toISOString() : null
+            };
+        });
+
+        const sent = Math.max(1, Number(stats.sent) || Number(data.targetAudienceCount) || 1);
+        const clicks = Number(stats.clicks) || 0;
+        const uniqueClicks = Number(stats.uniqueClicks) || 0;
+        const orderCount = Number(stats.conversions) || conversions.length;
+        const revenue = Number(stats.revenue) || conversions.reduce((sum, c) => sum + (c.totalAmount || 0), 0);
+
+        const ctr = Math.round((uniqueClicks / sent) * 1000) / 10;
+        const conversionRate = Math.round((orderCount / Math.max(1, uniqueClicks || clicks || 1)) * 1000) / 10;
+        const averageOrderValue = orderCount > 0 ? Math.round(revenue / orderCount) : 0;
+
+        return {
+            success: true,
+            campaignId,
+            title: data.title,
+            body: data.body,
+            audience: data.audience,
+            status: data.status,
+            createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : null,
+            completedAt: data.completedAt ? data.completedAt.toDate().toISOString() : null,
+            metrics: {
+                sent,
+                clicks,
+                uniqueClicks,
+                ctr,
+                conversions: orderCount,
+                revenue,
+                conversionRate,
+                averageOrderValue
+            },
+            recentOrders: conversions
+        };
+    }
+
+    // Overall summary across all campaigns
+    const allCampaignsSnap = await db.collection("notification_campaigns")
+        .where("status", "==", "COMPLETED")
+        .limit(100)
+        .get();
+
+    let totalBroadcasts = allCampaignsSnap.size;
+    let totalClicks = 0;
+    let totalUniqueClicks = 0;
+    let totalConversions = 0;
+    let totalRevenue = 0;
+
+    allCampaignsSnap.docs.forEach(doc => {
+        const s = doc.data().stats || {};
+        totalClicks += Number(s.clicks) || 0;
+        totalUniqueClicks += Number(s.uniqueClicks) || 0;
+        totalConversions += Number(s.conversions) || 0;
+        totalRevenue += Number(s.revenue) || 0;
+    });
+
+    const overallConversionRate = totalUniqueClicks > 0 
+        ? Math.round((totalConversions / totalUniqueClicks) * 1000) / 10 
+        : 0;
+
+    return {
+        success: true,
+        summary: {
+            totalBroadcasts,
+            totalClicks,
+            totalUniqueClicks,
+            totalConversions,
+            totalRevenue,
+            overallConversionRate
+        }
+    };
+});
+
+/**
+ * 10. trackCampaignClick
+ * Public HTTP endpoint for link tracking / web redirects.
+ * Increments click statistics and redirects browser or app to target link.
+ */
+exports.trackCampaignClick = onRequest({ region: ACTIVE_REGION, cors: true }, async (req, res) => {
+    const campaignId = (req.query.c || req.query.campaignId || '').toString().trim();
+    const deepLink = (req.query.dl || req.query.deepLink || '/').toString().trim();
+
+    if (campaignId) {
+        try {
+            const campaignRef = db.collection("notification_campaigns").doc(campaignId);
+            const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'web';
+            const clientKey = 'web_' + crypto.createHash('md5').update(clientIp).digest('hex').substring(0, 16);
+
+            await db.runTransaction(async (t) => {
+                const cSnap = await t.get(campaignRef);
+                if (!cSnap.exists) return;
+                const cData = cSnap.data();
+                const curStats = cData.stats || {};
+                const clicks = (Number(curStats.clicks) || 0) + 1;
+                let uniqueClicks = Number(curStats.uniqueClicks) || 0;
+
+                const clickRef = campaignRef.collection("clicks").doc(clientKey);
+                const clickSnap = await t.get(clickRef);
+                if (!clickSnap.exists) {
+                    uniqueClicks += 1;
+                    t.set(clickRef, {
+                        clientKey,
+                        platform: 'web',
+                        firstClickedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        lastClickedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        clickCount: 1
+                    });
+                } else {
+                    t.update(clickRef, {
+                        lastClickedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        clickCount: admin.firestore.FieldValue.increment(1)
+                    });
+                }
+
+                t.update(campaignRef, {
+                    'stats.clicks': clicks,
+                    'stats.uniqueClicks': uniqueClicks,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            });
+        } catch (e) {
+            console.warn('[trackCampaignClick] Click logging error:', e.message);
+        }
+    }
+
+    const redirectUrl = deepLink.startsWith('http') 
+        ? deepLink 
+        : `https://krishivishal-a9ed7.web.app${deepLink.startsWith('/') ? deepLink : '/' + deepLink}`;
+    
+    res.redirect(302, redirectUrl);
+});
+
 module.exports.validateCampaignInput = validateCampaignInput;
 module.exports.buildFcmMessage = buildFcmMessage;
 module.exports.isQuietHoursIST = isQuietHoursIST;
@@ -907,3 +1160,6 @@ module.exports.verifyMarketingAdmin = verifyMarketingAdmin;
 module.exports.checkDailyBroadcastRateLimit = checkDailyBroadcastRateLimit;
 module.exports.checkAdminRateLimit = checkAdminRateLimit;
 module.exports.processDueCampaigns = processDueCampaigns;
+module.exports.recordCampaignClick = exports.recordCampaignClick;
+module.exports.getCampaignAnalytics = exports.getCampaignAnalytics;
+module.exports.trackCampaignClick = exports.trackCampaignClick;

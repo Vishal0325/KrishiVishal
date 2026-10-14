@@ -5,9 +5,11 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,6 +26,8 @@ class UserPreferences @Inject constructor(
         private val USER_ID = stringPreferencesKey("user_id")
         private val THEME_MODE = booleanPreferencesKey("theme_mode")
         private val LANGUAGE = stringPreferencesKey("language")
+        private val ATTRIBUTED_CAMPAIGN_ID = stringPreferencesKey("attributed_campaign_id")
+        private val ATTRIBUTED_CAMPAIGN_TIME = longPreferencesKey("attributed_campaign_time")
     }
 
     val isLoggedIn: Flow<Boolean> = context.dataStore.data.map { prefs ->
@@ -63,6 +67,43 @@ class UserPreferences @Inject constructor(
     suspend fun setLanguage(langCode: String) {
         context.dataStore.edit { prefs ->
             prefs[LANGUAGE] = langCode
+        }
+    }
+
+    val attributedCampaignId: Flow<String?> = context.dataStore.data.map { prefs ->
+        val id = prefs[ATTRIBUTED_CAMPAIGN_ID]
+        val time = prefs[ATTRIBUTED_CAMPAIGN_TIME] ?: 0L
+        val maxAttributionMillis = 48 * 60 * 60 * 1000L // 48 hours attribution window
+        if (!id.isNullOrBlank() && (System.currentTimeMillis() - time) <= maxAttributionMillis) {
+            id
+        } else {
+            null
+        }
+    }
+
+    suspend fun saveAttributedCampaign(campaignId: String) {
+        context.dataStore.edit { prefs ->
+            prefs[ATTRIBUTED_CAMPAIGN_ID] = campaignId
+            prefs[ATTRIBUTED_CAMPAIGN_TIME] = System.currentTimeMillis()
+        }
+    }
+
+    suspend fun getActiveAttributedCampaignId(): String? {
+        val prefs = context.dataStore.data.first()
+        val id = prefs[ATTRIBUTED_CAMPAIGN_ID]
+        val time = prefs[ATTRIBUTED_CAMPAIGN_TIME] ?: 0L
+        val maxAttributionMillis = 48 * 60 * 60 * 1000L
+        return if (!id.isNullOrBlank() && (System.currentTimeMillis() - time) <= maxAttributionMillis) {
+            id
+        } else {
+            null
+        }
+    }
+
+    suspend fun clearAttributedCampaign() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(ATTRIBUTED_CAMPAIGN_ID)
+            prefs.remove(ATTRIBUTED_CAMPAIGN_TIME)
         }
     }
 }

@@ -113,8 +113,13 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
         deliverySlotId,
         destinationHubId,
         spokeHubId,
-        vleCode
+        vleCode,
+        attributedCampaignId
     } = data;
+
+    const cleanAttributedCampaignId = (attributedCampaignId && typeof attributedCampaignId === 'string')
+        ? attributedCampaignId.trim()
+        : null;
 
     if (!idempotencyKey || typeof idempotencyKey !== 'string' || idempotencyKey.trim().length === 0) {
         throw new HttpsError('invalid-argument', 'Missing idempotencyKey');
@@ -744,6 +749,8 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 deliverySlot: reservedSlot || null,
                 targetLat: structuredAddress.lat || 0.0,
                 targetLng: structuredAddress.lng || 0.0,
+                attributedCampaignId: cleanAttributedCampaignId || null,
+                attributionSource: cleanAttributedCampaignId ? 'PUSH_NOTIFICATION' : null,
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             };
@@ -1034,6 +1041,36 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 });
             } catch (jeError) {
                 console.error('[createOrder] Failed to post deferred revenue JE:', jeError);
+            }
+        }
+
+        // ── Campaign Conversion Attribution (Feature 3) ──
+        if (cleanAttributedCampaignId) {
+            try {
+                const campRef = db.collection("notification_campaigns").doc(cleanAttributedCampaignId);
+                const campSnap = await campRef.get();
+                if (campSnap.exists) {
+                    const convRef = campRef.collection("conversions").doc(orderId);
+                    await convRef.set({
+                        orderId,
+                        userId,
+                        userName: userName || 'Customer',
+                        userPhone: userPhone || '',
+                        totalAmount: finalAmount,
+                        itemsCount: Array.isArray(cartItems) ? cartItems.length : 0,
+                        paymentMethod: paymentMethod || 'COD',
+                        convertedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    await campRef.update({
+                        'stats.conversions': admin.firestore.FieldValue.increment(1),
+                        'stats.revenue': admin.firestore.FieldValue.increment(finalAmount),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                    console.log(`[createOrder] Attributed conversion for campaign ${cleanAttributedCampaignId}, order ${orderId}, amount ₹${finalAmount}`);
+                }
+            } catch (convErr) {
+                console.warn(`[createOrder] Failed to attribute campaign conversion for ${cleanAttributedCampaignId}:`, convErr.message);
             }
         }
 
