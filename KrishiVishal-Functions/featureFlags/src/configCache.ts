@@ -3,8 +3,13 @@
  * call within one function instance. Keeps Firestore reads to at most
  * 1 read / doc / TTL / instance regardless of order volume.
  */
-import { getApps, initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import * as admin from 'firebase-admin';
+
+try {
+  admin.app();
+} catch {
+  admin.initializeApp();
+}
 
 export type ConfigData = Record<string, unknown> | null;
 
@@ -71,8 +76,12 @@ export class ConfigCache {
 
 class FirestoreReader implements ConfigReader {
   async get(path: string): Promise<ConfigData> {
-    if (getApps().length === 0) initializeApp();
-    const snap = await getFirestore().doc(path).get();
+    try {
+      admin.app();
+    } catch {
+      admin.initializeApp();
+    }
+    const snap = await admin.firestore().doc(path).get();
     return snap.exists ? (snap.data() as Record<string, unknown>) : null;
   }
 }

@@ -9,11 +9,18 @@
  * atomic commit of config write AND audit append). A plain batch cannot do the
  * expectedVersion check because it cannot read.
  */
-import { getApps, initializeApp } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
-import { FieldValue, Firestore, getFirestore } from 'firebase-admin/firestore';
+import * as admin from 'firebase-admin';
 import { CallableRequest, HttpsError, onCall } from 'firebase-functions/v2/https';
 import { getDefaultCache } from './configCache';
+
+try {
+  admin.app();
+} catch {
+  admin.initializeApp();
+}
+
+const FieldValue = admin.firestore.FieldValue;
+export type Firestore = admin.firestore.Firestore;
 import {
   FlagValue,
   HUB_ID_RE,
@@ -284,14 +291,18 @@ export const updateFeatureFlag = onCall(
     if (!request.auth?.uid) {
       throw new HttpsError('unauthenticated', 'Login required.');
     }
-    if (getApps().length === 0) initializeApp();
+    try {
+      admin.app();
+    } catch {
+      admin.initializeApp();
+    }
 
     // Validate the shape first (no I/O), so malformed calls are cheap.
     const input = validateInput(request.data);
 
     // Authoritative claims: a demoted/disabled admin loses access immediately,
     // not after the ID token expires.
-    const record = await getAuth().getUser(request.auth.uid);
+    const record = await admin.auth().getUser(request.auth.uid);
     if (record.disabled) throw new HttpsError('permission-denied', 'Account disabled.');
     const claims = (record.customClaims ?? {}) as Record<string, unknown>;
 
@@ -305,11 +316,11 @@ export const updateFeatureFlag = onCall(
     };
 
     try {
-      return await applyFlagUpdate(getFirestore(), caller, input, role);
+      return await applyFlagUpdate(admin.firestore(), caller, input, role);
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       console.error('[updateFeatureFlag] Unexpected failure', err);
-      throw new HttpsError('internal', 'Failed to update the flag.');
+      throw new HttpsError('internal', err instanceof Error ? err.message : 'Failed to update the flag.');
     }
   },
 );
