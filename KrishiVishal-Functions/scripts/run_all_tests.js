@@ -51,7 +51,16 @@ const results = [];
 function requiresEmulator(fileName) {
     return fileName.startsWith('emulator_') ||
            fileName.startsWith('workflow_') ||
-           fileName === 'package1_ledger_pass_through.test.js';
+           fileName === 'package1_ledger_pass_through.test.js' ||
+           fileName === 'package2_wallet_service.test.js';
+}
+
+// Helper to determine if a test interacts with external unmocked services
+function isExternalServiceTest(fileName) {
+    const externalServicesTests = [
+        'order_delivery_notification.test.js'
+    ];
+    return externalServicesTests.includes(fileName);
 }
 
 for (let i = 0; i < testFilesToRun.length; i++) {
@@ -83,8 +92,26 @@ for (let i = 0; i < testFilesToRun.length; i++) {
         continue;
     }
 
+    if (isExternalServiceTest(fileName)) {
+        results.push({
+            index: i + 1,
+            file: fileName,
+            status: 'SKIPPED (external)',
+            exitCode: 0,
+            duration: 0,
+            note: 'Skipped to prevent unmocked external network/service side effects'
+        });
+        console.log(`${String(i + 1).padStart(2, ' ')}. ⏭️ [SKIPPED (external)] ${fileName.padEnd(35)} (0ms) - External service test skipped`);
+        continue;
+    }
+
     const startTime = Date.now();
     const env = { ...process.env };
+    // Hard security guard: strip all Google/GCloud/Firebase service credentials
+    delete env.GOOGLE_APPLICATION_CREDENTIALS;
+    delete env.GCLOUD_KEY_FILE;
+    delete env.FIREBASE_CONFIG;
+    env.NODE_ENV = 'test';
 
     const child = spawnSync(process.execPath, [filePath], {
         cwd: FUNCTIONS_ROOT,
@@ -128,8 +155,8 @@ for (let i = 0; i < testFilesToRun.length; i++) {
         note: note
     });
 
-    const icon = status === 'PASS' ? '✅' : (status === 'NOT RUN' ? '⏸️' : '❌');
-    console.log(`${String(i + 1).padStart(2, ' ')}. ${icon} [${status.padEnd(7)}] ${fileName.padEnd(42)} (${duration}ms) ${note ? '- ' + note : ''}`);
+    const icon = status === 'PASS' ? '✅' : (status === 'SKIPPED (external)' ? '⏭️' : (status === 'NOT RUN' ? '⏸️' : '❌'));
+    console.log(`${String(i + 1).padStart(2, ' ')}. ${icon} [${status.padEnd(18)}] ${fileName.padEnd(35)} (${duration}ms) ${note ? '- ' + note : ''}`);
 }
 
 console.log("\n================================================================================");
@@ -145,8 +172,9 @@ for (const r of results) {
 const passedCount = results.filter(r => r.status === 'PASS').length;
 const failedCount = results.filter(r => r.status === 'FAIL' || r.status === 'ERROR' || r.status === 'TIMEOUT').length;
 const notRunCount = results.filter(r => r.status === 'NOT RUN').length;
+const skippedExternalCount = results.filter(r => r.status === 'SKIPPED (external)').length;
 
-console.log(`\nTOTAL: ${results.length} | PASSED: ${passedCount} | FAILED: ${failedCount} | NOT RUN: ${notRunCount}\n`);
+console.log(`\nTOTAL: ${results.length} | PASSED: ${passedCount} | FAILED: ${failedCount} | SKIPPED (external): ${skippedExternalCount} | NOT RUN: ${notRunCount}\n`);
 
 // Write JSON artifact of run for auditing
 const outputPath = path.resolve(FUNCTIONS_ROOT, 'test_results_harness.json');
@@ -156,6 +184,7 @@ fs.writeFileSync(outputPath, JSON.stringify({
     total: results.length,
     passed: passedCount,
     failed: failedCount,
+    skippedExternal: skippedExternalCount,
     notRun: notRunCount,
     results: results
 }, null, 2));
