@@ -3,8 +3,39 @@ const { db, admin } = require("../core/admin");
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
 const { razorpayKeySecret, razorpayKeyId, getSecretVal } = require("../core/secrets");
+const walletService = require("./walletService");
 
 const REGION = 'asia-south1';
+const WALLET_TOPUP_ENABLED = process.env.WALLET_TOPUP_ENABLED === "true"; // Default false
+const MAX_ADMIN_ADJUSTMENT = 5000;
+
+/**
+ * Role gating helper for Admin adjustments: strictly SuperAdmin or FinanceAdmin
+ */
+function isAuthorizedAdmin(context) {
+    if (!context || !context.auth) return false;
+    const token = context.auth.token || {};
+    const role = String(token.role || '').toLowerCase();
+    return (
+        role === 'superadmin' ||
+        role === 'super_admin' ||
+        role === 'finance_admin' ||
+        role === 'financeadmin' ||
+        token.superadmin === true ||
+        token.finance_admin === true ||
+        token.super_admin === true
+    );
+}
+
+/**
+ * 60-second time-window deterministic fallback hash for unkeyed admin adjustments
+ */
+function deriveTimeWindowKey(uid, amount, type, reason) {
+    const windowSlot = Math.floor(Date.now() / 60000);
+    const raw = `${uid}_${amount}_${type}_${reason.trim()}_${windowSlot}`;
+    const hash = crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
+    return `KEY_ADMIN_ADJ_${uid}_${windowSlot}_${hash}`;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // createWalletTopUpOrder
@@ -12,6 +43,10 @@ const REGION = 'asia-south1';
 //   and return the orderId to the app so the SDK can open the payment sheet.
 // ─────────────────────────────────────────────────────────────────────────────
 exports.createWalletTopUpOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, async (request) => {
+    if (!WALLET_TOPUP_ENABLED) {
+        throw new HttpsError('failed-precondition', 'WALLET_TOPUP_DISABLED: Customer wallet top-up is temporarily disabled.');
+    }
+
     const data = request.data || {};
     const context = { auth: request.auth };
 
@@ -67,6 +102,10 @@ exports.createWalletTopUpOrder = onCall({ region: REGION, secrets: [razorpayKeyS
 //   Step 2: After Razorpay payment, verify signature + atomically credit wallet.
 // ─────────────────────────────────────────────────────────────────────────────
 exports.verifyWalletTopUp = onCall({ region: REGION, secrets: [razorpayKeySecret] }, async (request) => {
+    if (!WALLET_TOPUP_ENABLED) {
+        throw new HttpsError('failed-precondition', 'WALLET_TOPUP_DISABLED: Customer wallet top-up is temporarily disabled.');
+    }
+
     const data = request.data || {};
     const context = { auth: request.auth };
 
@@ -115,99 +154,123 @@ exports.verifyWalletTopUp = onCall({ region: REGION, secrets: [razorpayKeySecret
 
     const amount = topUpData.amount;
 
-    // 6. Atomic wallet credit
-    await db.runTransaction(async (transaction) => {
-        const userRef = db.collection('users').doc(context.auth.uid);
-        const userSnap = await transaction.get(userRef);
+    // 6. Credit wallet via Unified Wallet Service
+    const creditResult = await walletService.creditWallet({
+        uid: context.auth.uid,
+        amount: amount,
+        eventType: 'TOPUP',
+        entityId: topUpId,
+        description: `Wallet recharge via Razorpay (${razorpayPaymentId})`,
+        metadata: {
+            topUpId,
+            razorpayPaymentId,
+            razorpayOrderId
+        },
+        idempotencyKey: `JE_WALLET_TOPUP_${topUpId}`
+    });
 
-        if (!userSnap.exists) throw new Error('User not found.');
-
-        // Credit wallet
-        transaction.update(userRef, {
-            walletBalance: admin.firestore.FieldValue.increment(amount),
-            lastWalletTransactionAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        // Mark top-up as completed
-        transaction.update(topUpRef, {
-            status: 'COMPLETED',
-            razorpayPaymentId: razorpayPaymentId,
-            completedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        // Wallet history entry
-        const historyRef = db.collection('users').doc(context.auth.uid)
-            .collection('wallet_history').doc();
-        transaction.set(historyRef, {
-            id: historyRef.id,
-            type: 'TOP_UP',
-            amount: amount,
-            razorpayPaymentId: razorpayPaymentId,
-            razorpayOrderId: razorpayOrderId,
-            description: 'Wallet recharge via Razorpay',
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        });
+    // Mark top-up as completed
+    await topUpRef.update({
+        status: 'COMPLETED',
+        razorpayPaymentId: razorpayPaymentId,
+        walletTxId: creditResult.txId,
+        completedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     console.log(`[verifyWalletTopUp] ₹${amount} credited to user: ${context.auth.uid}`);
-    return { success: true, creditedAmount: amount };
+    return { success: true, creditedAmount: amount, txId: creditResult.txId };
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// adminAdjustWallet  (Admin-only)
-//   Allows admin to manually credit/debit a customer's wallet (for goodwill,
-//   corrections, etc.). Accessible from Admin Panel Customers > Wallet tab.
+// adminAdjustWallet  (SuperAdmin / FinanceAdmin only)
+//   Allows authorized finance admin to manually credit/debit customer wallet
+//   with strict reason, ₹5,000 limit, idempotency, and System 2 GL logging.
 // ─────────────────────────────────────────────────────────────────────────────
 exports.adminAdjustWallet = onCall({ region: REGION }, async (request) => {
     const data = request.data || {};
     const context = { auth: request.auth };
 
-    const { isAdminRequest } = require('../core/utils');
     if (!context.auth) throw new HttpsError('unauthenticated', 'Login required.');
-    if (!(await isAdminRequest(context))) {
-        throw new HttpsError('permission-denied', 'Admin access required.');
+    if (!isAuthorizedAdmin(context)) {
+        throw new HttpsError('permission-denied', 'UNAUTHORIZED: Only SuperAdmin and FinanceAdmin are permitted to perform manual wallet adjustments.');
     }
 
-    const { userId, amount, type, reason } = data;
+    const { userId, amount, type, reason, idempotencyKey } = data;
     // type: 'CREDIT' | 'DEBIT'
-    if (!userId || typeof amount !== 'number' || amount <= 0) {
-        throw new HttpsError('invalid-argument', 'userId and positive amount are required.');
+    if (!userId || typeof userId !== 'string') {
+        throw new HttpsError('invalid-argument', 'userId is required.');
     }
+
+    if (!reason || typeof reason !== 'string' || reason.trim().length < 10) {
+        throw new HttpsError('invalid-argument', 'INVALID_REASON: Reason must be at least 10 characters describing the justification.');
+    }
+
+    if (typeof amount !== 'number' || isNaN(amount) || amount <= 0 || amount > MAX_ADMIN_ADJUSTMENT) {
+        throw new HttpsError('invalid-argument', `INVALID_AMOUNT: Amount must be a positive number up to ₹${MAX_ADMIN_ADJUSTMENT}.`);
+    }
+
     if (!['CREDIT', 'DEBIT'].includes(type)) {
         throw new HttpsError('invalid-argument', 'type must be CREDIT or DEBIT.');
     }
 
-    const delta = type === 'CREDIT' ? amount : -amount;
+    const cleanReason = reason.trim();
+    const effectiveKey = idempotencyKey || deriveTimeWindowKey(userId, amount, type, cleanReason);
 
-    await db.runTransaction(async (transaction) => {
-        const userRef = db.collection('users').doc(userId);
-        const userSnap = await transaction.get(userRef);
-        if (!userSnap.exists) throw new Error('User not found.');
-
-        const currentBalance = userSnap.data().walletBalance || 0;
-        if (type === 'DEBIT' && currentBalance < amount) {
-            throw new Error(`Insufficient balance. Current: ₹${currentBalance}`);
+    let result;
+    try {
+        if (type === 'CREDIT') {
+            result = await walletService.creditWallet({
+                uid: userId,
+                amount,
+                eventType: 'ADMIN_CREDIT',
+                entityId: effectiveKey,
+                description: `Admin credit: ${cleanReason}`,
+                metadata: {
+                    adjustedBy: context.auth.uid,
+                    reason: cleanReason
+                },
+                idempotencyKey: `JE_WALLET_ADMIN_CREDIT_${effectiveKey}`
+            }, {
+                auth: { uid: context.auth.uid, token: context.auth.token }
+            });
+        } else {
+            result = await walletService.debitWallet({
+                uid: userId,
+                amount,
+                eventType: 'ADMIN_DEBIT',
+                entityId: effectiveKey,
+                description: `Admin debit: ${cleanReason}`,
+                metadata: {
+                    adjustedBy: context.auth.uid,
+                    reason: cleanReason
+                },
+                idempotencyKey: `JE_WALLET_ADMIN_DEBIT_${effectiveKey}`
+            }, {
+                auth: { uid: context.auth.uid, token: context.auth.token }
+            });
         }
+    } catch (err) {
+        if (err.code === 'INSUFFICIENT_WALLET_BALANCE') {
+            throw new HttpsError('failed-precondition', err.message);
+        }
+        if (err.code === 'USER_NOT_FOUND') {
+            throw new HttpsError('not-found', err.message);
+        }
+        throw new HttpsError('internal', err.message || 'Failed to process admin wallet adjustment.');
+    }
 
-        transaction.update(userRef, {
-            walletBalance: admin.firestore.FieldValue.increment(delta),
-            lastWalletTransactionAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        const historyRef = db.collection('users').doc(userId)
-            .collection('wallet_history').doc();
-        transaction.set(historyRef, {
-            id: historyRef.id,
-            type: type === 'CREDIT' ? 'ADMIN_CREDIT' : 'ADMIN_DEBIT',
-            amount: amount,
-            reason: reason || 'Admin adjustment',
-            adjustedBy: context.auth.uid,
-            description: `Admin ${type.toLowerCase()}: ${reason || ''}`,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        });
-    });
-
-    return { success: true, message: `Wallet ${type} of ₹${amount} completed.` };
+    return {
+        success: true,
+        alreadyProcessed: result.alreadyProcessed,
+        balanceBefore: result.balanceBefore,
+        balanceAfter: result.balanceAfter,
+        amount: result.amount,
+        txId: result.txId,
+        journalEntryId: result.journalEntryId,
+        message: result.alreadyProcessed
+            ? 'Wallet adjustment was previously processed (Idempotent replay).'
+            : `Wallet ${type} of ₹${amount} completed successfully.`
+    };
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -422,3 +485,8 @@ exports.getWalletHistory = onCall({ region: REGION }, async (request) => {
 
     return { success: true, transactions: formattedTxns };
 });
+
+exports.isAuthorizedAdmin = isAuthorizedAdmin;
+exports.deriveTimeWindowKey = deriveTimeWindowKey;
+exports.MAX_ADMIN_ADJUSTMENT = MAX_ADMIN_ADJUSTMENT;
+exports.WALLET_TOPUP_ENABLED = WALLET_TOPUP_ENABLED;
