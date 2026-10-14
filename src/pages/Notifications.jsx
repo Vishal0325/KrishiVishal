@@ -24,7 +24,10 @@ import {
   Ban,
   UserCheck,
   Wheat,
-  MapPin
+  MapPin,
+  ShoppingBag,
+  UserX,
+  RefreshCw
 } from 'lucide-react';
 import { formatDateTime } from '../utils/formatters';
 import toast from 'react-hot-toast';
@@ -43,6 +46,18 @@ const POPULAR_CROPS = [
 ];
 
 const PRESET_TEMPLATES = [
+  {
+    label: '🛒 Abandoned Cart Recovery (छूटा हुआ कार्ट)',
+    title: '🛒 आपके कार्ट में उत्पाद छूट गए हैं!',
+    body: 'धान व फसल सुरक्षा के उत्पाद आपके कार्ट में सुरक्षित हैं। आज ही ऑर्डर पूरा करें और पाएं स्पेशल डिस्काउंट!',
+    deepLink: '/cart'
+  },
+  {
+    label: '💤 Inactive Farmers Re-engagement',
+    title: '🌱 कृषि विशाल पर नए फसल उत्पाद आ चुके हैं!',
+    body: 'मौसम के अनुसार प्रमाणित बीज, खाद और कीटनाशक पर स्पेशल छूट उपलब्ध है। आज ही ऐप खोलें और चेक करें!',
+    deepLink: '/product'
+  },
   {
     label: '🍄 Amistar Fungicide (Syngenta)',
     title: '🍄 अमिस्टार फफूंदनाशक पर विशेष छूट',
@@ -94,11 +109,47 @@ const Notifications = () => {
   const [realPincodes, setRealPincodes] = useState([]);
   const [loadingPincodes, setLoadingPincodes] = useState(true);
 
-  // Audience Targeting State: 'ALL' | 'CROP' | 'PINCODE'
+  // Audience Targeting State: 'ALL' | 'CROP' | 'PINCODE' | 'SEGMENT'
   const [audienceType, setAudienceType] = useState('ALL');
   const [selectedCrop, setSelectedCrop] = useState('');
   const [customCrop, setCustomCrop] = useState('');
   const [targetPincode, setTargetPincode] = useState('');
+  const [selectedSegment, setSelectedSegment] = useState('ABANDONED_CART'); // 'ABANDONED_CART' | 'INACTIVE_30D'
+  const [segmentCounts, setSegmentCounts] = useState({ abandonedCartCount: 0, inactive30dCount: 0, loading: true });
+  const [syncingSegments, setSyncingSegments] = useState(false);
+
+  const fetchSegmentCounts = async () => {
+    try {
+      const getCountsFn = httpsCallable(functions, 'getSegmentCounts');
+      const res = await getCountsFn();
+      if (res.data?.success) {
+        setSegmentCounts({
+          abandonedCartCount: res.data.abandonedCartCount || 0,
+          inactive30dCount: res.data.inactive30dCount || 0,
+          loading: false
+        });
+      }
+    } catch (err) {
+      console.warn("Could not fetch segment counts:", err.message);
+      setSegmentCounts(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleSyncSegments = async () => {
+    setSyncingSegments(true);
+    try {
+      const syncFn = httpsCallable(functions, 'syncCustomerSegmentsNow');
+      const res = await syncFn();
+      if (res.data?.success) {
+        toast.success(`Segments synced! Subscribed: ${res.data.abandonedCart?.subscribed || 0} cart, ${res.data.inactive30d?.subscribed || 0} inactive`);
+        fetchSegmentCounts();
+      }
+    } catch (err) {
+      toast.error('Sync failed: ' + err.message);
+    } finally {
+      setSyncingSegments(false);
+    }
+  };
 
   const getAudiencePayload = () => {
     if (audienceType === 'CROP') {
@@ -107,6 +158,9 @@ const Notifications = () => {
     }
     if (audienceType === 'PINCODE') {
       return { type: 'PINCODE', pincode: targetPincode.trim() };
+    }
+    if (audienceType === 'SEGMENT') {
+      return { type: 'SEGMENT', segment: selectedSegment };
     }
     return { type: 'ALL' };
   };
@@ -120,6 +174,9 @@ const Notifications = () => {
     if (audienceType === 'PINCODE') {
       return targetPincode.trim() ? `pin_${targetPincode.trim()}` : 'pin_...';
     }
+    if (audienceType === 'SEGMENT') {
+      return selectedSegment === 'ABANDONED_CART' ? 'segment_abandoned_cart' : 'segment_inactive_30d';
+    }
     return 'all_customers';
   };
 
@@ -130,6 +187,11 @@ const Notifications = () => {
     }
     if (audienceType === 'PINCODE') {
       return `Targeted to Farmers in Pincode ${targetPincode.trim() || '...'}`;
+    }
+    if (audienceType === 'SEGMENT') {
+      return selectedSegment === 'ABANDONED_CART'
+        ? `Targeted to Farmers with pending items in cart (${segmentCounts.abandonedCartCount} users)`
+        : `Targeted to Farmers inactive for 30+ days (${segmentCounts.inactive30dCount} users)`;
     }
     return 'ALL Registered Customers';
   };
@@ -145,6 +207,11 @@ const Notifications = () => {
       const pin = targetPincode.trim();
       if (!/^[1-9][0-9]{5}$/.test(pin)) {
         toast.error('Kripya valid 6-digit Indian pincode enter karein (e.g. 844101)');
+        return false;
+      }
+    } else if (audienceType === 'SEGMENT') {
+      if (!selectedSegment) {
+        toast.error('Kripya target user segment select karein / Please select user segment');
         return false;
       }
     }
@@ -210,6 +277,11 @@ const Notifications = () => {
     setScheduledDateTime(formatted);
     setIsScheduled(true);
   };
+
+  // Fetch live segment counts on mount
+  useEffect(() => {
+    fetchSegmentCounts();
+  }, []);
 
   // Listen to notification_campaigns collection
   useEffect(() => {
@@ -592,6 +664,8 @@ const Notifications = () => {
           ? `🌾 Crop: ${c.audience?.crop || 'Custom'}`
           : audType === 'PINCODE'
           ? `📍 Pin: ${c.audience?.pincode || ''}`
+          : audType === 'SEGMENT'
+          ? (c.audience?.segment === 'ABANDONED_CART' ? '🛒 Segment: Abandoned Cart' : '💤 Segment: Inactive (30d)')
           : '👥 All Customers';
 
         return (
@@ -758,7 +832,7 @@ const Notifications = () => {
               <div className="bg-emerald-100/70 border border-emerald-300/80 px-3 py-1.5 rounded-xl text-center">
                 <p className="text-[9px] font-black uppercase text-emerald-900 tracking-wider">Audience</p>
                 <p className="text-xs font-black font-mono text-emerald-950">
-                  {audienceType === 'ALL' ? 'ALL Customers' : audienceType === 'CROP' ? 'By Crop' : 'By Pincode'}
+                  {audienceType === 'ALL' ? 'ALL Customers' : audienceType === 'CROP' ? 'By Crop' : audienceType === 'PINCODE' ? 'By Pincode' : 'By Segment'}
                 </p>
               </div>
             </div>
@@ -775,7 +849,7 @@ const Notifications = () => {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
                   <button
                     type="button"
                     onClick={() => setAudienceType('ALL')}
@@ -822,6 +896,22 @@ const Notifications = () => {
                       <span className="text-xs font-black">By Pincode</span>
                     </div>
                     <span className="text-[10px] text-gray-400 font-mono mt-1">pin_&lt;pincode&gt;</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAudienceType('SEGMENT')}
+                    className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                      audienceType === 'SEGMENT'
+                        ? 'bg-emerald-50 border-[#1b5e20] text-[#1b5e20] shadow-sm'
+                        : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <ShoppingBag size={14} />
+                      <span className="text-xs font-black">By Segment</span>
+                    </div>
+                    <span className="text-[10px] text-gray-400 font-mono mt-1">segment_&lt;name&gt;</span>
                   </button>
                 </div>
 
@@ -959,6 +1049,125 @@ const Notifications = () => {
                     </div>
                   </div>
                 )}
+
+                {/* Segment Options if SEGMENT selected */}
+                {audienceType === 'SEGMENT' && (
+                  <div className="pt-2 space-y-3 border-t border-gray-200/60 animate-in fade-in">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-wider block">
+                        Customer Lifecycle Segments (लाइव ग्राहक वर्ग)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleSyncSegments}
+                        disabled={syncingSegments}
+                        className="text-[10px] text-emerald-800 font-bold bg-emerald-100/80 hover:bg-emerald-200/80 px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors"
+                        title="Sync active tokens to FCM segment topics right now"
+                      >
+                        <RefreshCw size={11} className={syncingSegments ? "animate-spin" : ""} />
+                        <span>{syncingSegments ? "Syncing..." : "Sync FCM Topics Now"}</span>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Abandoned Cart Segment */}
+                      <div
+                        onClick={() => setSelectedSegment('ABANDONED_CART')}
+                        className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                          selectedSegment === 'ABANDONED_CART'
+                            ? 'bg-emerald-50/80 border-[#1b5e20] ring-1 ring-[#1b5e20] shadow-sm'
+                            : 'bg-white border-gray-200 hover:border-emerald-300'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="p-1.5 bg-amber-100 text-amber-800 rounded-lg">
+                              <ShoppingBag size={16} />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-black text-gray-900">Abandoned Cart</h4>
+                              <p className="text-[10px] text-gray-500 font-medium">सामान कार्ट में छोड़ दिया</p>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-mono font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full">
+                            {segmentCounts.loading ? '...' : `${segmentCounts.abandonedCartCount} Pending`}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-gray-500 mt-2 font-mono">
+                          Topic: <strong className="text-gray-700">segment_abandoned_cart</strong>
+                        </p>
+                        <div className="mt-2.5 pt-2 border-t border-gray-100 flex items-center justify-between">
+                          <span className="text-[10px] text-gray-400">Routes to: <code className="text-emerald-700 font-bold">/cart</code></span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedSegment('ABANDONED_CART');
+                              setFormData(prev => ({
+                                ...prev,
+                                title: "🛒 आपकी कार्ट में कुछ सामान बाकी है!",
+                                body: "कृषि विशाल पर आपकी चुनी हुई खाद/दवाएं कार्ट में सुरक्षित हैं। अभी आर्डर पूरा करें और विशेष छूट पाएं!",
+                                deepLink: "/cart"
+                              }));
+                              toast.success("Applied Abandoned Cart template & /cart deepLink");
+                            }}
+                            className="text-[10px] font-bold text-emerald-700 hover:underline"
+                          >
+                            1-Click Fill
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Inactive 30d Segment */}
+                      <div
+                        onClick={() => setSelectedSegment('INACTIVE_30D')}
+                        className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                          selectedSegment === 'INACTIVE_30D'
+                            ? 'bg-emerald-50/80 border-[#1b5e20] ring-1 ring-[#1b5e20] shadow-sm'
+                            : 'bg-white border-gray-200 hover:border-emerald-300'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="p-1.5 bg-purple-100 text-purple-800 rounded-lg">
+                              <UserX size={16} />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-black text-gray-900">Inactive Farmers (30d+)</h4>
+                              <p className="text-[10px] text-gray-500 font-medium">30 दिनों से कोई गतिविधि नहीं</p>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-mono font-bold bg-purple-100 text-purple-900 px-2 py-0.5 rounded-full">
+                            {segmentCounts.loading ? '...' : `${segmentCounts.inactive30dCount} Inactive`}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-gray-500 mt-2 font-mono">
+                          Topic: <strong className="text-gray-700">segment_inactive_30d</strong>
+                        </p>
+                        <div className="mt-2.5 pt-2 border-t border-gray-100 flex items-center justify-between">
+                          <span className="text-[10px] text-gray-400">Routes to: <code className="text-emerald-700 font-bold">/product</code></span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedSegment('INACTIVE_30D');
+                              setFormData(prev => ({
+                                ...prev,
+                                title: "🌱 किसान भाई, आपकी फसल कैसी है?",
+                                body: "कृषि विशाल पर नई कीटनाशक और पोषण उत्पाद उपलब्ध हैं। अपनी फसल की सुरक्षा के लिए अभी देखें।",
+                                deepLink: "/product"
+                              }));
+                              toast.success("Applied Re-engagement template & /product deepLink");
+                            }}
+                            className="text-[10px] font-bold text-emerald-700 hover:underline"
+                          >
+                            1-Click Fill
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
               {/* Title */}
               <div className="space-y-1.5">
@@ -1017,7 +1226,7 @@ const Notifications = () => {
 
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                    Deep Link (Allow-list: /product, /order)
+                    Deep Link (Allow-list: /product, /order, /cart)
                   </label>
                   <select
                     value={formData.deepLink}
@@ -1025,6 +1234,7 @@ const Notifications = () => {
                     className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold"
                   >
                     <option value="/product">/product (Product Catalog)</option>
+                    <option value="/cart">/cart (Shopping Cart / Abandoned Bag)</option>
                     <option value="/product?id=CzAzFSJcsAvCAYApgYGD">/product?id=CzAzFSJcsAvCAYApgYGD (Amistar Fungicide - Syngenta)</option>
                     <option value="/order">/order (My Orders)</option>
                   </select>
