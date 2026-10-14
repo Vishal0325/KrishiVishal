@@ -227,7 +227,7 @@ exports.getFinanceSummary = onCall({ region: REGION, cors: true }, async (reques
         throw new HttpsError('permission-denied', 'Unauthorized. Only Authorized Admins can view finance summary.');
     }
 
-    const { startDate, endDate } = request.data || {};
+    const { startDate, endDate, warehouseId } = request.data || {};
 
     try {
         let q = db.collection("orders");
@@ -242,18 +242,27 @@ exports.getFinanceSummary = onCall({ region: REGION, cors: true }, async (reques
         let orderCount = 0;
         let refunds = 0;
         let returnsCount = 0;
+        const matchedOrderIds = new Set();
+        const isAllHubs = !warehouseId || warehouseId.toUpperCase() === 'ALL';
 
         ordersSnap.forEach(doc => {
             const o = doc.data();
-            if (o.status !== 'CANCELLED') {
-                const amt = Number(o.totalAmount || 0);
-                totalRevenue += amt;
-                grossProfit += Number(o.grossProfit) || (amt * 0.18);
-                gstCollected += (Number(o.cgst || 0) + Number(o.sgst || 0) + Number(o.igst || 0)) || (amt * 0.05);
-                orderCount++;
-            } else {
-                refunds += Number(o.totalAmount || 0);
-                returnsCount++;
+            const orderWh = (o.fulfillmentWarehouseId || o.warehouseId || o.hubId || o.hubCode || '').toString().trim().toUpperCase();
+            const targetWh = (warehouseId || '').toString().trim().toUpperCase();
+            const matchesHub = isAllHubs || (orderWh && (orderWh === targetWh));
+
+            if (matchesHub) {
+                matchedOrderIds.add(doc.id);
+                if (o.status !== 'CANCELLED') {
+                    const amt = Number(o.totalAmount || 0);
+                    totalRevenue += amt;
+                    grossProfit += Number(o.grossProfit) || (amt * 0.18);
+                    gstCollected += (Number(o.cgst || 0) + Number(o.sgst || 0) + Number(o.igst || 0)) || (amt * 0.05);
+                    orderCount++;
+                } else {
+                    refunds += Number(o.totalAmount || 0);
+                    returnsCount++;
+                }
             }
         });
 
@@ -266,13 +275,25 @@ exports.getFinanceSummary = onCall({ region: REGION, cors: true }, async (reques
         try {
             const ledgerSnap = await ledgerQ.get();
             ledgerSnap.forEach(doc => {
-                totalExpenses += Number(doc.data().amount || 0);
+                const d = doc.data();
+                const docWh = (d.warehouseId || d.hubId || d.metadata?.warehouseId || d.metadata?.hubId || '').toString().trim().toUpperCase();
+                const targetWh = (warehouseId || '').toString().trim().toUpperCase();
+                const matchesHub = isAllHubs || (docWh && docWh === targetWh) || (d.referenceId && matchedOrderIds.has(d.referenceId));
+                if (matchesHub) {
+                    totalExpenses += Number(d.amount || 0);
+                }
             });
         } catch (e) {
             // If composite index is pending, fallback to reading expenses collection
             const expSnap = await db.collection("expenses").limit(100).get();
             expSnap.forEach(doc => {
-                totalExpenses += Number(doc.data().amount || 0);
+                const d = doc.data();
+                const docWh = (d.warehouseId || d.hubId || '').toString().trim().toUpperCase();
+                const targetWh = (warehouseId || '').toString().trim().toUpperCase();
+                const matchesHub = isAllHubs || (docWh && docWh === targetWh);
+                if (matchesHub) {
+                    totalExpenses += Number(d.amount || 0);
+                }
             });
         }
 

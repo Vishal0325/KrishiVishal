@@ -836,37 +836,89 @@ class OrderRepository @Inject constructor(
     }
 
     fun getCashDepositHistory(riderId: String): Flow<List<com.company.krishivishaldelivery.data.model.CashDepositRecord>> = callbackFlow {
-        val listener = firestore.collection("cash_deposits")
+        if (riderId.isBlank()) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+
+        // System 2 Double-Entry Passbook: Listen to root collection rider_transactions
+        val listener = firestore.collection("rider_transactions")
             .whereEqualTo("riderId", riderId)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    close(error)
+            .addSnapshotListener { txSnapshot, txError ->
+                if (txError != null || txSnapshot == null || txSnapshot.isEmpty) {
+                    // Fallback to legacy cash_deposits
+                    firestore.collection("cash_deposits")
+                        .whereEqualTo("riderId", riderId)
+                        .addSnapshotListener { snapshot, error ->
+                            if (error != null) {
+                                close(error)
+                                return@addSnapshotListener
+                            }
+                            val records = snapshot?.documents?.mapNotNull { doc ->
+                                mapDocToCashDepositRecord(doc)
+                            }?.sortedByDescending { it.depositedAtMillis } ?: emptyList()
+                            trySend(records)
+                        }
                     return@addSnapshotListener
                 }
-                val records = snapshot?.documents?.mapNotNull { doc ->
-                    val id = doc.id
-                    val rider = doc.getString("riderId") ?: ""
-                    val amount = doc.getDouble("amount") ?: (doc.get("amount") as? Number)?.toDouble() ?: 0.0
-                    @Suppress("UNCHECKED_CAST")
-                    val orderIds = doc.get("orderIds") as? List<String> ?: emptyList()
-                    val count = doc.getLong("ordersCount")?.toInt()
-                        ?: (doc.get("orderCount") as? Number)?.toInt()
-                        ?: if (orderIds.isNotEmpty()) orderIds.size else 1
-                    val status = doc.getString("status") ?: "DEPOSITED_AT_WAREHOUSE"
-                    val timestamp = try {
-                        doc.getTimestamp("depositedAt")?.toDate()?.time
-                            ?: (doc.get("timestamp") as? Number)?.toLong()
-                            ?: System.currentTimeMillis()
-                    } catch (e: Exception) {
-                        (doc.get("timestamp") as? Number)?.toLong() ?: System.currentTimeMillis()
-                    }
-                    com.company.krishivishaldelivery.data.model.CashDepositRecord(id, rider, amount, count, orderIds, status, timestamp)
-                }?.sortedByDescending { it.depositedAtMillis } ?: emptyList()
 
-                trySend(records)
+                val records = txSnapshot.documents.filter {
+                    val cat = it.getString("category")
+                    cat == "CASH_DEPOSITED" || cat == "CASH_SETTLEMENT"
+                }.mapNotNull { doc ->
+                    val id = doc.getString("referenceId") ?: doc.id
+                    val rider = doc.getString("riderId") ?: riderId
+                    val amount = doc.getDouble("depositedAmount") ?: doc.getDouble("amount") ?: 0.0
+                    val status = "CONFIRMED_AT_HUB"
+                    val timestamp = doc.getTimestamp("createdAt")?.toDate()?.time ?: System.currentTimeMillis()
+                    com.company.krishivishaldelivery.data.model.CashDepositRecord(
+                        id = id,
+                        riderId = rider,
+                        amount = amount,
+                        ordersCount = 1,
+                        orderIds = emptyList(),
+                        status = status,
+                        depositedAtMillis = timestamp
+                    )
+                }.sortedByDescending { it.depositedAtMillis }
+
+                if (records.isNotEmpty()) {
+                    trySend(records)
+                } else {
+                    firestore.collection("cash_deposits")
+                        .whereEqualTo("riderId", riderId)
+                        .get()
+                        .addOnSuccessListener { fallbackSnap ->
+                            val fallbackRecords = fallbackSnap.documents.mapNotNull { doc ->
+                                mapDocToCashDepositRecord(doc)
+                            }.sortedByDescending { it.depositedAtMillis }
+                            trySend(fallbackRecords)
+                        }
+                }
             }
         awaitClose { listener.remove() }
     }.flowOn(ioDispatcher)
+
+    private fun mapDocToCashDepositRecord(doc: com.google.firebase.firestore.DocumentSnapshot): com.company.krishivishaldelivery.data.model.CashDepositRecord? {
+        val id = doc.id
+        val rider = doc.getString("riderId") ?: ""
+        val amount = doc.getDouble("amount") ?: (doc.get("amount") as? Number)?.toDouble() ?: 0.0
+        @Suppress("UNCHECKED_CAST")
+        val orderIds = doc.get("orderIds") as? List<String> ?: emptyList()
+        val count = doc.getLong("ordersCount")?.toInt()
+            ?: (doc.get("orderCount") as? Number)?.toInt()
+            ?: if (orderIds.isNotEmpty()) orderIds.size else 1
+        val status = doc.getString("status") ?: "DEPOSITED_AT_WAREHOUSE"
+        val timestamp = try {
+            doc.getTimestamp("depositedAt")?.toDate()?.time
+                ?: (doc.get("timestamp") as? Number)?.toLong()
+                ?: System.currentTimeMillis()
+        } catch (e: Exception) {
+            (doc.get("timestamp") as? Number)?.toLong() ?: System.currentTimeMillis()
+        }
+        return com.company.krishivishaldelivery.data.model.CashDepositRecord(id, rider, amount, count, orderIds, status, timestamp)
+    }
 
 
     suspend fun completeSettlementLocally(riderId: String) = withContext(ioDispatcher) {

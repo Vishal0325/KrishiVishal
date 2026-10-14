@@ -69,21 +69,39 @@ exports.confirmCashSettlement = onCall({ region: REGION }, async (request) => {
     const cleanSettlementId = settlementId.trim();
     const settlementRef = db.collection("cash_settlements").doc(cleanSettlementId);
 
-    const settlementSnap = await settlementRef.get();
+    let settlementSnap = await settlementRef.get();
     if (!settlementSnap.exists) {
-        throw new HttpsError('not-found', `Settlement ${cleanSettlementId} not found.`);
+        if (data.riderId) {
+            const deposited = Number(data.depositedAmount ?? 0);
+            const shortageVal = Number(data.shortageAmount ?? data.shortage ?? 0);
+            const totalColl = Number(data.totalCollected ?? (deposited + shortageVal));
+            await settlementRef.set({
+                id: cleanSettlementId,
+                riderId: data.riderId,
+                hubId: data.hubId || 'HUB_CENTRAL',
+                totalCollected: totalColl,
+                totalAmount: totalColl,
+                status: 'PENDING_VERIFICATION',
+                pendingOrderIds: data.pendingOrderIds || [],
+                notes: data.notes || '',
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+            settlementSnap = await settlementRef.get();
+        } else {
+            throw new HttpsError('not-found', `Settlement ${cleanSettlementId} not found.`);
+        }
     }
 
     const settlementData = settlementSnap.data() || {};
-    if (settlementData.status !== 'PENDING_VERIFICATION') {
+    if (settlementData.status !== 'PENDING_VERIFICATION' && settlementData.status !== 'PENDING') {
         throw new HttpsError(
             'failed-precondition',
-            `Settlement is not in PENDING_VERIFICATION state. Current status: ${settlementData.status}`
+            `Settlement is not in pending state. Current status: ${settlementData.status}`
         );
     }
 
-    const { riderId, pendingOrderIds = [] } = settlementData;
-    const totalCollected = Number(settlementData.totalCollected ?? settlementData.totalAmount ?? 0);
+    const { riderId = data.riderId, pendingOrderIds = data.pendingOrderIds || [] } = settlementData;
+    const totalCollected = Number(settlementData.totalCollected ?? settlementData.totalAmount ?? (Number(data.depositedAmount || 0) + Number(data.shortageAmount || data.shortage || 0)));
     
     // Partial deposit handling
     let depositedAmount = totalCollected;
@@ -94,7 +112,9 @@ exports.confirmCashSettlement = onCall({ region: REGION }, async (request) => {
         }
     }
 
-    const shortage = Math.max(0, totalCollected - depositedAmount);
+    const shortage = (data.shortageAmount !== undefined && data.shortageAmount !== null)
+        ? Math.max(0, Number(data.shortageAmount))
+        : Math.max(0, totalCollected - depositedAmount);
     const finalStatus = shortage > 0 ? 'SETTLED_WITH_SHORTAGE' : 'CONFIRMED';
     const hubId = data.hubId || settlementData.hubId || 'HUB_CENTRAL';
     const verifiedBy = data.verifiedBy || auth.uid;
@@ -108,7 +128,7 @@ exports.confirmCashSettlement = onCall({ region: REGION }, async (request) => {
                 throw new Error("Settlement document does not exist.");
             }
             const currentSettlement = currentSettlementSnap.data();
-            if (currentSettlement.status !== 'PENDING_VERIFICATION') {
+            if (currentSettlement.status !== 'PENDING_VERIFICATION' && currentSettlement.status !== 'PENDING') {
                 throw new Error(`Settlement already processed. Current status: ${currentSettlement.status}`);
             }
 
