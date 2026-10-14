@@ -50,6 +50,24 @@ function getTimestampMillis(ts) {
 }
 
 /**
+ * Normalizes financial year string to Rule 53 short 5-char format (e.g. "26-27").
+ * Guarantees KVCN/26-27/00001 never exceeds the 16-character statutory ceiling.
+ */
+function getNormalizedCreditNoteFY(fyInput) {
+    if (fyInput) {
+        if (/^\d{4}-\d{4}$/.test(fyInput)) {
+            return `${fyInput.slice(2, 4)}-${fyInput.slice(7, 9)}`;
+        }
+        return fyInput;
+    }
+    const d = new Date();
+    const month = d.getMonth() + 1;
+    const fullYear = d.getFullYear();
+    const startYear = month >= 4 ? fullYear : fullYear - 1;
+    return `${String(startYear).slice(-2)}-${String(startYear + 1).slice(-2)}`;
+}
+
+/**
  * Concurrency-safe consecutive credit note number generator.
  * Format: KVCN/{FY}/{SEQUENCE_5_DIGITS} (e.g. KVCN/26-27/00001)
  * Statutory limit: <= 16 characters (Rule 53 CGST).
@@ -59,7 +77,7 @@ function getTimestampMillis(ts) {
  * @returns {Promise<{ creditNoteNumber: string, sequence: number, financialYear: string }>}
  */
 async function getNextCreditNoteNumber(financialYear = null, prefix = "KVCN") {
-    const fy = financialYear || getCurrentFinancialYear();
+    const fy = getNormalizedCreditNoteFY(financialYear);
     const counterRef = db.collection("credit_note_counters").doc(fy);
 
     const result = await db.runTransaction(async (transaction) => {
@@ -115,7 +133,7 @@ async function reserveNextCreditNoteNumberForLock(lockRef, financialYear = null,
     if (!lockRef) {
         throw new Error("INVALID_LOCK_REF: lockRef is required for atomic reservation.");
     }
-    const fy = financialYear || getCurrentFinancialYear();
+    const fy = getNormalizedCreditNoteFY(financialYear);
     const counterRef = db.collection("credit_note_counters").doc(fy);
 
     const result = await db.runTransaction(async (transaction) => {

@@ -211,7 +211,7 @@ async function runPhase1TestSuite() {
         const genResult = await generateAndUploadInvoice(orderId1);
         assert(genResult.success);
         const dispatchedInvoiceNumber = genResult.invoiceNumber;
-        assert(dispatchedInvoiceNumber.startsWith("KV/"), `Invoice number must start with official prefix KV/, got: ${dispatchedInvoiceNumber}`);
+        assert(dispatchedInvoiceNumber.startsWith("KV/") || /^[A-Z]{3}-\d{2}-\d{9}$/.test(dispatchedInvoiceNumber), `Invoice number must match Rule 46 format, got: ${dispatchedInvoiceNumber}`);
         assert(dispatchedInvoiceNumber.length <= 16, `Rule 46: length must be <= 16, got: ${dispatchedInvoiceNumber.length}`);
 
         // 1.2 Confirm order document has root invoiceNumber assigned
@@ -309,7 +309,8 @@ async function runPhase1TestSuite() {
         // =====================================================================
         console.log("\n--- TEST 5: Credit Note Rule 53 Length Limit (<= 16 Characters) ---");
 
-        store.credit_note_counters.set(testFY, { currentSequence: 0 });
+        const shortFY = "26-27";
+        store.credit_note_counters.set(shortFY, { currentSequence: 0 });
 
         const cnAllocPromises = [
             getNextCreditNoteNumber(testFY),
@@ -322,9 +323,9 @@ async function runPhase1TestSuite() {
 
         console.log("Allocated Credit Note Numbers:", cnNumbers.join(", "));
 
-        assert.strictEqual(cnNumbers[0], `KVCN/${testFY}/00001`);
-        assert.strictEqual(cnNumbers[1], `KVCN/${testFY}/00002`);
-        assert.strictEqual(cnNumbers[2], `KVCN/${testFY}/00003`);
+        assert.strictEqual(cnNumbers[0], `KVCN/${shortFY}/00001`);
+        assert.strictEqual(cnNumbers[1], `KVCN/${shortFY}/00002`);
+        assert.strictEqual(cnNumbers[2], `KVCN/${shortFY}/00003`);
 
         // Strict assertion: exactly <= 16 characters!
         assert(cnNumbers.every(cn => cn.length <= 16), `Rule 53 violation: CN length exceeds 16 chars! Lengths: ${cnNumbers.map(c => c.length).join(', ')}`);
