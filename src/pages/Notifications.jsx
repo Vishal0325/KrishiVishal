@@ -31,7 +31,10 @@ import {
   BarChart3,
   MousePointerClick,
   TrendingUp,
-  IndianRupee
+  IndianRupee,
+  Trophy,
+  Sliders,
+  GitCompare
 } from 'lucide-react';
 import { formatDateTime } from '../utils/formatters';
 import toast from 'react-hot-toast';
@@ -102,6 +105,112 @@ const Notifications = () => {
     imageUrl: '',
     deepLink: '/product'
   });
+
+  // A/B Testing State (Feature 4)
+  const [isAbTest, setIsAbTest] = useState(false);
+  const [splitRatio, setSplitRatio] = useState(50); // Variant A percentage (10 to 90)
+  const [activeVariantTab, setActiveVariantTab] = useState('A'); // 'A' | 'B'
+  const [variantA, setVariantA] = useState({
+    title: '',
+    body: '',
+    imageUrl: '',
+    deepLink: '/product'
+  });
+  const [variantB, setVariantB] = useState({
+    title: '',
+    body: '',
+    imageUrl: '',
+    deepLink: '/product'
+  });
+  const [previewVariant, setPreviewVariant] = useState('A'); // 'A' | 'B'
+  const [testVariant, setTestVariant] = useState('A'); // 'A' | 'B'
+
+  // Helper to get active editable variant
+  const currentVariantData = isAbTest
+    ? (activeVariantTab === 'A' ? variantA : variantB)
+    : formData;
+
+  const updateCurrentVariantField = (field, value) => {
+    if (isAbTest) {
+      if (activeVariantTab === 'A') {
+        setVariantA(prev => ({ ...prev, [field]: value }));
+        setFormData(prev => ({ ...prev, [field]: value }));
+      } else {
+        setVariantB(prev => ({ ...prev, [field]: value }));
+      }
+    } else {
+      setFormData(prev => ({ ...prev, [field]: value }));
+      setVariantA(prev => ({ ...prev, [field]: value }));
+    }
+  };
+
+  const validateNotificationContent = () => {
+    if (isAbTest) {
+      if (!variantA.title?.trim() || !variantA.body?.trim()) {
+        toast.error('Variant A (Control) ka Title aur Body enter karein / Please enter Variant A title & body');
+        setActiveVariantTab('A');
+        setPreviewVariant('A');
+        return false;
+      }
+      if (!variantB.title?.trim() || !variantB.body?.trim()) {
+        toast.error('Variant B (Challenger) ka Title aur Body enter karein / Please enter Variant B title & body');
+        setActiveVariantTab('B');
+        setPreviewVariant('B');
+        return false;
+      }
+      if (splitRatio < 10 || splitRatio > 90) {
+        toast.error('Split ratio 10% se 90% ke beech hona chahiye');
+        return false;
+      }
+    } else {
+      if (!formData.title?.trim() || !formData.body?.trim()) {
+        toast.error('Pehle Title aur Message Body enter karein / Please enter title and body first');
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const getCampaignPayload = () => {
+    const base = {
+      title: isAbTest ? variantA.title.trim() : formData.title.trim(),
+      body: isAbTest ? variantA.body.trim() : formData.body.trim(),
+      imageUrl: (isAbTest ? variantA.imageUrl?.trim() : formData.imageUrl?.trim()) || null,
+      deepLink: (isAbTest ? variantA.deepLink?.trim() : formData.deepLink?.trim()) || '/product',
+      audience: getAudiencePayload(),
+      isAbTest: Boolean(isAbTest),
+      splitRatio: isAbTest ? Number(splitRatio) : 50
+    };
+
+    if (isAbTest) {
+      base.variantA = {
+        title: variantA.title.trim(),
+        body: variantA.body.trim(),
+        imageUrl: variantA.imageUrl?.trim() || null,
+        deepLink: variantA.deepLink?.trim() || '/product'
+      };
+      base.variantB = {
+        title: variantB.title.trim(),
+        body: variantB.body.trim(),
+        imageUrl: variantB.imageUrl?.trim() || null,
+        deepLink: variantB.deepLink?.trim() || '/product'
+      };
+    }
+
+    return base;
+  };
+
+  const resetCampaignForm = () => {
+    setFormData({ title: '', body: '', imageUrl: '', deepLink: '/product' });
+    setVariantA({ title: '', body: '', imageUrl: '', deepLink: '/product' });
+    setVariantB({ title: '', body: '', imageUrl: '', deepLink: '/product' });
+    setIsAbTest(false);
+    setSplitRatio(50);
+    setActiveVariantTab('A');
+    setPreviewVariant('A');
+    setIsScheduled(false);
+    setScheduledDateTime('');
+  };
 
   // Scheduling State
   const [isScheduled, setIsScheduled] = useState(false);
@@ -405,6 +514,26 @@ const Notifications = () => {
   }, []);
 
   const applyTemplate = (tpl) => {
+    if (isAbTest) {
+      if (activeVariantTab === 'B') {
+        setVariantB(prev => ({
+          ...prev,
+          title: tpl.title,
+          body: tpl.body,
+          deepLink: tpl.deepLink || '/product',
+          imageUrl: tpl.imageUrl || ''
+        }));
+        toast.success(`Template applied to Variant B: ${tpl.label}`);
+        return;
+      }
+      setVariantA(prev => ({
+        ...prev,
+        title: tpl.title,
+        body: tpl.body,
+        deepLink: tpl.deepLink || '/product',
+        imageUrl: tpl.imageUrl || ''
+      }));
+    }
     setFormData(prev => ({ 
       ...prev, 
       title: tpl.title, 
@@ -445,26 +574,33 @@ const Notifications = () => {
 
   // 1a. Send Test Notification (Caller's own device or safe test_all topic)
   const handleTestSend = async (useTestTopic = false) => {
-    if (!formData.title || !formData.body) {
-      return toast.error('Pehle Title aur Message Body enter karein / Please enter title and body first');
+    const targetData = isAbTest
+      ? (testVariant === 'B' ? variantB : variantA)
+      : formData;
+
+    if (!targetData.title?.trim() || !targetData.body?.trim()) {
+      return toast.error(`Pehle ${isAbTest ? `Variant ${testVariant} ka ` : ''}Title aur Message Body enter karein`);
     }
 
     setTesting(true);
     try {
       const sendTestFn = httpsCallable(functions, 'sendTestNotification');
       const res = await sendTestFn({
-        title: formData.title,
-        body: formData.body,
-        imageUrl: formData.imageUrl || null,
-        deepLink: formData.deepLink || null,
-        useTestTopic
+        title: targetData.title.trim(),
+        body: targetData.body.trim(),
+        imageUrl: targetData.imageUrl?.trim() || null,
+        deepLink: targetData.deepLink?.trim() || '/product',
+        useTestTopic,
+        testVariant: isAbTest ? testVariant : undefined,
+        variantA: isAbTest ? variantA : undefined,
+        variantB: isAbTest ? variantB : undefined
       });
 
       if (res.data?.success) {
         toast.success(
           useTestTopic 
-            ? 'Test broadcast dispatched safely to topic: test_all' 
-            : `Test notification sent to your registered device tokens! (${res.data?.tokenCount || 1} device)`
+            ? `Test broadcast dispatched safely to topic: test_all ${isAbTest ? `(Variant ${testVariant})` : ''}` 
+            : `Test notification sent to your registered device tokens! (${res.data?.tokenCount || 1} device) ${isAbTest ? `[Variant ${testVariant}]` : ''}`
         );
       }
     } catch (err) {
@@ -477,8 +613,12 @@ const Notifications = () => {
 
   // 1b. Test on Specific Tester UID (Task D direct user targeting)
   const handleTestOnUser = async () => {
-    if (!formData.title || !formData.body) {
-      return toast.error('Pehle Title aur Message Body enter karein / Please enter title and body first');
+    const targetData = isAbTest
+      ? (testVariant === 'B' ? variantB : variantA)
+      : formData;
+
+    if (!targetData.title?.trim() || !targetData.body?.trim()) {
+      return toast.error(`Pehle ${isAbTest ? `Variant ${testVariant} ka ` : ''}Title aur Message Body enter karein`);
     }
     if (!testUserUid || !testUserUid.trim()) {
       return toast.error('Target tester UID enter karein / Please enter target tester UID');
@@ -488,16 +628,19 @@ const Notifications = () => {
     try {
       const sendTestFn = httpsCallable(functions, 'sendTestNotification');
       const res = await sendTestFn({
-        title: formData.title,
-        body: formData.body,
-        imageUrl: formData.imageUrl || null,
-        deepLink: formData.deepLink || null,
-        testUserUid: testUserUid.trim()
+        title: targetData.title.trim(),
+        body: targetData.body.trim(),
+        imageUrl: targetData.imageUrl?.trim() || null,
+        deepLink: targetData.deepLink?.trim() || '/product',
+        testUserUid: testUserUid.trim(),
+        testVariant: isAbTest ? testVariant : undefined,
+        variantA: isAbTest ? variantA : undefined,
+        variantB: isAbTest ? variantB : undefined
       });
 
       if (res.data?.success) {
         toast.success(
-          `✅ Test notification safalta se bheja gaya! (${res.data.tokensAttempted} tokens targeted, ${res.data.successCount} delivered)`
+          `✅ Test notification safalta se bheja gaya! (${res.data.tokensAttempted} tokens targeted, ${res.data.successCount} delivered) ${isAbTest ? `[Variant ${testVariant}]` : ''}`
         );
       }
     } catch (err) {
@@ -510,25 +653,17 @@ const Notifications = () => {
 
   // 2. Draft Campaign creation
   const handleSaveDraft = async () => {
-    if (!formData.title || !formData.body) {
-      return toast.error('Please enter title and body');
-    }
+    if (!validateNotificationContent()) return;
     if (!validateAudience()) return;
 
     setSubmitting(true);
     try {
       const createCampaignFn = httpsCallable(functions, 'createCampaign');
-      const res = await createCampaignFn({
-        title: formData.title,
-        body: formData.body,
-        imageUrl: formData.imageUrl || null,
-        deepLink: formData.deepLink || null,
-        audience: getAudiencePayload()
-      });
+      const res = await createCampaignFn(getCampaignPayload());
 
       if (res.data?.success) {
-        toast.success(`Campaign created as ${res.data.status}! ID: ${res.data.campaignId.substring(0, 8)}...`);
-        setFormData({ title: '', body: '', imageUrl: '', deepLink: '/product' });
+        toast.success(`Campaign created as ${res.data.status}! ID: ${res.data.campaignId.substring(0, 8)}... ${isAbTest ? '(A/B Test)' : ''}`);
+        resetCampaignForm();
       }
     } catch (err) {
       console.error("Create campaign failed:", err);
@@ -540,9 +675,7 @@ const Notifications = () => {
 
   // 2b. Schedule Campaign for Automated Dispatch
   const handleScheduleCampaign = async () => {
-    if (!formData.title || !formData.body) {
-      return toast.error('Pehle Title aur Message Body enter karein / Please enter title and body first');
-    }
+    if (!validateNotificationContent()) return;
     if (!validateAudience()) return;
 
     if (!scheduledDateTime) {
@@ -571,20 +704,14 @@ const Notifications = () => {
     try {
       const createCampaignFn = httpsCallable(functions, 'createCampaign');
       const res = await createCampaignFn({
-        title: formData.title,
-        body: formData.body,
-        imageUrl: formData.imageUrl || null,
-        deepLink: formData.deepLink || null,
-        audience: getAudiencePayload(),
+        ...getCampaignPayload(),
         scheduledAt: schedDate.toISOString(),
         overrideQuietHours: Boolean(canOverrideQuietHours && overrideQuietHours)
       });
 
       if (res.data?.success) {
-        toast.success(`📅 Broadcast scheduled successfully for ${formatDateTime(schedDate)}!`);
-        setFormData({ title: '', body: '', imageUrl: '', deepLink: '/product' });
-        setIsScheduled(false);
-        setScheduledDateTime('');
+        toast.success(`📅 Broadcast scheduled successfully for ${formatDateTime(schedDate)}! ${isAbTest ? '(A/B Test)' : ''}`);
+        resetCampaignForm();
       }
     } catch (err) {
       console.error("Schedule campaign failed:", err);
@@ -596,9 +723,7 @@ const Notifications = () => {
 
   // 3. Dispatch Live Broadcast with 'SEND' confirmation
   const promptBroadcastConfirm = () => {
-    if (!formData.title || !formData.body) {
-      return toast.error('Please enter title and body for the broadcast');
-    }
+    if (!validateNotificationContent()) return;
     if (!validateAudience()) return;
 
     if (isQuietHoursNow && !overrideQuietHours && !canOverrideQuietHours) {
@@ -617,15 +742,9 @@ const Notifications = () => {
     setBroadcastModalOpen(false);
     setSubmitting(true);
     try {
-      // Step A: Create the campaign first with audience targeting
+      // Step A: Create the campaign first with audience targeting & A/B payload
       const createCampaignFn = httpsCallable(functions, 'createCampaign');
-      const createRes = await createCampaignFn({
-        title: formData.title,
-        body: formData.body,
-        imageUrl: formData.imageUrl || null,
-        deepLink: formData.deepLink || null,
-        audience: getAudiencePayload()
-      });
+      const createRes = await createCampaignFn(getCampaignPayload());
 
       const campaignId = createRes.data?.campaignId;
       if (!campaignId) throw new Error("Failed to initialize campaign");
@@ -639,8 +758,8 @@ const Notifications = () => {
 
       if (sendRes.data?.success) {
         const topicName = sendRes.data?.topic || getTargetTopic();
-        toast.success(`🚀 Broadcast successfully dispatched to topic: ${topicName}!`);
-        setFormData({ title: '', body: '', imageUrl: '', deepLink: '/product' });
+        toast.success(`🚀 Broadcast successfully dispatched to topic: ${topicName}! ${isAbTest ? '(A/B Test Live)' : ''}`);
+        resetCampaignForm();
         setConfirmInputText('');
       }
     } catch (err) {
@@ -700,9 +819,23 @@ const Notifications = () => {
     { 
       header: 'Campaign Title & Message', 
       render: (c) => (
-        <div className="space-y-0.5 max-w-sm">
-          <div className="flex items-center gap-2">
+        <div className="space-y-1 max-w-sm">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className="font-black text-gray-900 tracking-tight text-xs block">{c.title}</span>
+            {c.isAbTest && (
+              <span className="text-[9px] bg-purple-100 text-purple-900 border border-purple-200/80 px-1.5 py-0.5 rounded font-black font-mono">
+                🧪 A/B ({c.splitRatio || 50}/{100 - (c.splitRatio || 50)})
+              </span>
+            )}
+            {c.stats?.winnerVariant && (
+              <span className={`text-[9px] px-1.5 py-0.5 rounded font-black flex items-center gap-0.5 ${
+                c.stats.winnerVariant === 'TIE'
+                  ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                  : 'bg-emerald-100 text-emerald-900 border border-emerald-200'
+              }`}>
+                🏆 {c.stats.winnerVariant === 'TIE' ? 'Tie' : `Var ${c.stats.winnerVariant}`}
+              </span>
+            )}
             {c.deepLink && (
               <span className="text-[9px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono font-bold">
                 {c.deepLink}
@@ -710,6 +843,11 @@ const Notifications = () => {
             )}
           </div>
           <span className="text-gray-500 font-medium text-[11px] line-clamp-2">{c.body}</span>
+          {c.isAbTest && c.variantB?.title && (
+            <div className="text-[10px] text-purple-800 font-medium bg-purple-50/70 px-2 py-0.5 rounded-md border border-purple-100 line-clamp-1">
+              <span className="font-black">B:</span> {c.variantB.title}
+            </div>
+          )}
         </div>
       )
     },
@@ -774,6 +912,13 @@ const Notifications = () => {
             <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-black bg-blue-50 text-blue-700 border border-blue-200/60">
               {ctr}% CTR
             </span>
+            {c.isAbTest && (c.stats?.variantA || c.stats?.variantB) && (
+              <div className="text-[9px] font-mono font-bold text-gray-500 pt-0.5 flex gap-1.5">
+                <span className="text-blue-700">A: {c.stats.variantA?.clicks || 0} clk</span>
+                <span>•</span>
+                <span className="text-purple-700">B: {c.stats.variantB?.clicks || 0} clk</span>
+              </div>
+            )}
           </div>
         );
       }
@@ -792,6 +937,13 @@ const Notifications = () => {
             <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-50 text-emerald-800 border border-emerald-200/60">
               ₹{Number(revenue).toLocaleString('en-IN')}
             </span>
+            {c.isAbTest && (c.stats?.variantA || c.stats?.variantB) && (
+              <div className="text-[9px] font-mono font-bold text-gray-500 pt-0.5 flex gap-1.5">
+                <span className="text-blue-700">A: ₹{Number(c.stats.variantA?.revenue || 0).toLocaleString('en-IN')}</span>
+                <span>•</span>
+                <span className="text-purple-700">B: ₹{Number(c.stats.variantB?.revenue || 0).toLocaleString('en-IN')}</span>
+              </div>
+            )}
           </div>
         );
       }
@@ -1274,68 +1426,220 @@ const Notifications = () => {
                   </div>
                 )}
               </div>
+
+              {/* A/B Testing Experiment Card (Feature 4) */}
+              <div className="p-4 bg-gradient-to-r from-violet-50 via-purple-50 to-indigo-50 border border-purple-200/80 rounded-2xl space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-purple-600 text-white rounded-xl shadow-sm">
+                      <FlaskConical size={16} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xs font-black uppercase tracking-wider text-purple-950">A/B Testing Experiment</h3>
+                        <span className="text-[9px] bg-purple-200 text-purple-900 px-2 py-0.5 rounded-full font-black uppercase">
+                          Split Experiment
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-purple-700 font-medium mt-0.5">
+                        दो अलग-अलग हेडलाइन/मैसेज का टेस्ट करें और रियल टाइम में ऑटोमैटिक विनर (CTR & Revenue) जानें
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer bg-white px-3.5 py-1.5 rounded-xl border border-purple-300 hover:border-purple-400 shadow-sm transition-all flex-shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={isAbTest}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setIsAbTest(val);
+                        if (val) {
+                          if (!variantA.title && formData.title) {
+                            setVariantA({ ...formData });
+                          }
+                          if (!variantB.title) {
+                            setVariantB({
+                              title: formData.title ? `${formData.title} [Special Offer]` : '',
+                              body: formData.body ? `${formData.body} सीमित समय के लिए!` : '',
+                              imageUrl: formData.imageUrl || '',
+                              deepLink: formData.deepLink || '/product'
+                            });
+                          }
+                        }
+                      }}
+                      className="w-4 h-4 text-purple-600 rounded border-purple-400 focus:ring-purple-500"
+                    />
+                    <span className="text-xs font-black text-purple-950">
+                      {isAbTest ? 'A/B Test ON' : 'Enable A/B'}
+                    </span>
+                  </label>
+                </div>
+
+                {isAbTest && (
+                  <div className="pt-2 border-t border-purple-200/70 space-y-3 animate-in fade-in">
+                    {/* Split Ratio Slider */}
+                    <div className="bg-white/90 p-3 rounded-xl border border-purple-200/70 space-y-2">
+                      <div className="flex items-center justify-between text-xs font-black text-purple-950">
+                        <span className="flex items-center gap-1.5">
+                          <Sliders size={13} className="text-purple-700" />
+                          Audience Split Ratio:
+                        </span>
+                        <span className="font-mono text-purple-900 bg-purple-100 px-2 py-0.5 rounded-md text-[11px]">
+                          Variant A: {splitRatio}% | Variant B: {100 - splitRatio}%
+                        </span>
+                      </div>
+
+                      <input
+                        type="range"
+                        min="10"
+                        max="90"
+                        step="5"
+                        value={splitRatio}
+                        onChange={(e) => setSplitRatio(Number(e.target.value))}
+                        className="w-full accent-purple-600 cursor-pointer h-2 bg-purple-200 rounded-lg"
+                      />
+
+                      <div className="h-2 w-full bg-indigo-100 rounded-full overflow-hidden flex shadow-inner">
+                        <div
+                          className="bg-blue-600 transition-all duration-200"
+                          style={{ width: `${splitRatio}%` }}
+                        />
+                        <div
+                          className="bg-purple-600 transition-all duration-200"
+                          style={{ width: `${100 - splitRatio}%` }}
+                        />
+                      </div>
+
+                      <div className="flex justify-between text-[10px] font-bold text-gray-500 font-mono">
+                        <span className="text-blue-700">🔵 Variant A (Control): {splitRatio}%</span>
+                        <span className="text-purple-700">🟣 Variant B (Challenger): {100 - splitRatio}%</span>
+                      </div>
+                    </div>
+
+                    {/* Variant Tabs */}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { setActiveVariantTab('A'); setPreviewVariant('A'); }}
+                        className={`flex-1 py-2.5 px-3 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-1.5 border ${
+                          activeVariantTab === 'A'
+                            ? 'bg-blue-600 text-white border-blue-700 shadow-md shadow-blue-500/20'
+                            : 'bg-white text-gray-700 border-gray-200 hover:bg-blue-50/50'
+                        }`}
+                      >
+                        <span className="w-4 h-4 rounded-full bg-white/20 flex items-center justify-center text-[10px]">A</span>
+                        <span>Variant A (Control) — {splitRatio}%</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setActiveVariantTab('B'); setPreviewVariant('B'); }}
+                        className={`flex-1 py-2.5 px-3 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-1.5 border ${
+                          activeVariantTab === 'B'
+                            ? 'bg-purple-600 text-white border-purple-700 shadow-md shadow-purple-500/20'
+                            : 'bg-white text-gray-700 border-gray-200 hover:bg-purple-50/50'
+                        }`}
+                      >
+                        <span className="w-4 h-4 rounded-full bg-white/20 flex items-center justify-center text-[10px]">B</span>
+                        <span>Variant B (Challenger) — {100 - splitRatio}%</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Title */}
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center ml-1">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center">
-                    <Info size={12} className="mr-1" /> Alert Title (Headline)
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">
+                    <Info size={12} />
+                    <span>Alert Title (Headline)</span>
+                    {isAbTest && (
+                      <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-black ${
+                        activeVariantTab === 'A' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
+                      }`}>
+                        Editing Variant {activeVariantTab}
+                      </span>
+                    )}
                   </label>
-                  <span className={`text-[10px] font-mono ${formData.title.length > 65 ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
-                    {formData.title.length}/65 chars
+                  <span className={`text-[10px] font-mono ${(currentVariantData.title?.length || 0) > 65 ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
+                    {(currentVariantData.title?.length || 0)}/65 chars
                   </span>
                 </div>
                 <input
                   required
                   maxLength={65}
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  value={currentVariantData.title || ''}
+                  onChange={(e) => updateCurrentVariantField('title', e.target.value)}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#1b5e20]/20 focus:border-[#1b5e20] outline-none font-black text-gray-900 text-xs shadow-inner"
-                  placeholder="e.g. 🌾 धान कीट रोकथाम स्पेशल ऑफर"
+                  placeholder={
+                    isAbTest && activeVariantTab === 'B'
+                      ? "e.g. ⚡ सीमित समय छूट: धान फसल सुरक्षा उत्पाद!"
+                      : "e.g. 🌾 धान कीट रोकथाम स्पेशल ऑफर"
+                  }
                 />
               </div>
 
               {/* Body */}
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center ml-1">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                    Message Body (Hindi / English)
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">
+                    <span>Message Body (Hindi / English)</span>
+                    {isAbTest && (
+                      <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-black ${
+                        activeVariantTab === 'A' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
+                      }`}>
+                        Editing Variant {activeVariantTab}
+                      </span>
+                    )}
                   </label>
-                  <span className={`text-[10px] font-mono ${formData.body.length > 240 ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
-                    {formData.body.length}/240 chars
+                  <span className={`text-[10px] font-mono ${(currentVariantData.body?.length || 0) > 240 ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
+                    {(currentVariantData.body?.length || 0)}/240 chars
                   </span>
                 </div>
                 <textarea
                   required
                   rows="3"
                   maxLength={240}
-                  value={formData.body}
-                  onChange={(e) => setFormData({ ...formData, body: e.target.value })}
+                  value={currentVariantData.body || ''}
+                  onChange={(e) => updateCurrentVariantField('body', e.target.value)}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#1b5e20]/20 focus:border-[#1b5e20] outline-none font-bold text-gray-800 text-xs leading-relaxed shadow-inner"
-                  placeholder="Enter customized Hindi/English notification copy..."
+                  placeholder={
+                    isAbTest && activeVariantTab === 'B'
+                      ? "Enter challenger variant copy (e.g., offer urgency, alternative emoji, question hook)..."
+                      : "Enter customized Hindi/English notification copy..."
+                  }
                 />
               </div>
 
               {/* Image URL & DeepLink */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                    Banner Image (HTTPS only)
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1">
+                    <span>Banner Image (HTTPS only)</span>
+                    {isAbTest && (
+                      <span className="text-[9px] font-mono text-gray-400">Var {activeVariantTab}</span>
+                    )}
                   </label>
                   <input
-                    value={formData.imageUrl}
-                    onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+                    value={currentVariantData.imageUrl || ''}
+                    onChange={(e) => updateCurrentVariantField('imageUrl', e.target.value)}
                     className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono"
                     placeholder="https://..."
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                    Deep Link (Allow-list: /product, /order, /cart)
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1">
+                    <span>Deep Link (Allow-list)</span>
+                    {isAbTest && (
+                      <span className="text-[9px] font-mono text-gray-400">Var {activeVariantTab}</span>
+                    )}
                   </label>
                   <select
-                    value={formData.deepLink}
-                    onChange={(e) => setFormData({ ...formData, deepLink: e.target.value })}
+                    value={currentVariantData.deepLink || '/product'}
+                    onChange={(e) => updateCurrentVariantField('deepLink', e.target.value)}
                     className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold"
                   >
                     <option value="/product">/product (Product Catalog)</option>
@@ -1348,9 +1652,31 @@ const Notifications = () => {
 
               {/* Staging & Direct Test Options */}
               <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200/80 space-y-3">
-                <div className="flex items-center gap-2">
-                  <FlaskConical size={14} className="text-emerald-700" />
-                  <span className="text-[11px] font-black uppercase tracking-wider text-gray-700">Pre-Broadcast Testing Tools</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FlaskConical size={14} className="text-emerald-700" />
+                    <span className="text-[11px] font-black uppercase tracking-wider text-gray-700">Pre-Broadcast Testing Tools</span>
+                  </div>
+
+                  {isAbTest && (
+                    <div className="flex items-center gap-1 bg-white border border-purple-200 px-2 py-0.5 rounded-lg text-[10px] font-black">
+                      <span className="text-purple-900 mr-1">Test Variant:</span>
+                      <button
+                        type="button"
+                        onClick={() => setTestVariant('A')}
+                        className={`px-1.5 py-0.5 rounded ${testVariant === 'A' ? 'bg-blue-600 text-white' : 'text-gray-600'}`}
+                      >
+                        A
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTestVariant('B')}
+                        className={`px-1.5 py-0.5 rounded ${testVariant === 'B' ? 'bg-purple-600 text-white' : 'text-gray-600'}`}
+                      >
+                        B
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Test on User UID Input */}
@@ -1365,11 +1691,11 @@ const Notifications = () => {
                   <button
                     type="button"
                     onClick={handleTestOnUser}
-                    disabled={testingUser || !formData.title || !formData.body || !testUserUid.trim()}
+                    disabled={testingUser || !(isAbTest ? (testVariant === 'B' ? variantB.title : variantA.title) : formData.title) || !testUserUid.trim()}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
                   >
                     <UserCheck size={13} />
-                    <span>{testingUser ? 'Sending...' : 'Test on User Device'}</span>
+                    <span>{testingUser ? 'Sending...' : `Test on User Device ${isAbTest ? `(Var ${testVariant})` : ''}`}</span>
                   </button>
                 </div>
 
@@ -1377,21 +1703,21 @@ const Notifications = () => {
                   <button
                     type="button"
                     onClick={() => handleTestSend(false)}
-                    disabled={testing || !formData.title || !formData.body}
+                    disabled={testing || !(isAbTest ? (testVariant === 'B' ? variantB.title : variantA.title) : formData.title)}
                     className="px-3.5 py-2 bg-white hover:bg-emerald-50 text-emerald-900 border border-emerald-200 rounded-xl text-[11px] font-black transition-all flex items-center gap-1.5 disabled:opacity-50"
                   >
                     <Smartphone size={13} />
-                    <span>{testing ? 'Sending...' : 'Test on My Device'}</span>
+                    <span>{testing ? 'Sending...' : `Test on My Device ${isAbTest ? `(Var ${testVariant})` : ''}`}</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleTestSend(true)}
-                    disabled={testing || !formData.title || !formData.body}
+                    disabled={testing || !(isAbTest ? (testVariant === 'B' ? variantB.title : variantA.title) : formData.title)}
                     className="px-3.5 py-2 bg-white hover:bg-blue-50 text-blue-900 border border-blue-200 rounded-xl text-[11px] font-black transition-all flex items-center gap-1.5 disabled:opacity-50"
                   >
                     <Target size={13} />
-                    <span>Test Topic (test_all)</span>
+                    <span>Test Topic (test_all) {isAbTest ? `[Var ${testVariant}]` : ''}</span>
                   </button>
                 </div>
               </div>
@@ -1504,34 +1830,34 @@ const Notifications = () => {
                 <button
                   type="button"
                   onClick={handleSaveDraft}
-                  disabled={submitting || !formData.title || !formData.body}
+                  disabled={submitting || !(isAbTest ? (variantA.title && variantA.body && variantB.title && variantB.body) : (formData.title && formData.body))}
                   className="px-5 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-black transition-all disabled:opacity-50"
                 >
-                  Save Draft
+                  Save Draft {isAbTest ? '(A/B)' : ''}
                 </button>
 
                 {isScheduled ? (
                   <button
                     type="button"
                     onClick={handleScheduleCampaign}
-                    disabled={submitting || !formData.title || !formData.body || !scheduledDateTime || (isScheduledTimeInQuietHours && !overrideQuietHours && !canOverrideQuietHours)}
+                    disabled={submitting || !(isAbTest ? (variantA.title && variantA.body && variantB.title && variantB.body) : (formData.title && formData.body)) || !scheduledDateTime || (isScheduledTimeInQuietHours && !overrideQuietHours && !canOverrideQuietHours)}
                     className="flex-1 bg-purple-700 text-white py-3.5 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-purple-900/20 hover:bg-purple-800 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     <Calendar size={15} />
                     <span>
-                      {submitting ? 'Scheduling...' : `Schedule for ${scheduledDateTime ? formatDateTime(scheduledDateTime) : '...'}`}
+                      {submitting ? 'Scheduling...' : `Schedule for ${scheduledDateTime ? formatDateTime(scheduledDateTime) : '...'} ${isAbTest ? '(A/B)' : ''}`}
                     </span>
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={promptBroadcastConfirm}
-                    disabled={submitting || !formData.title || !formData.body || (isQuietHoursNow && !overrideQuietHours && !canOverrideQuietHours)}
+                    disabled={submitting || !(isAbTest ? (variantA.title && variantA.body && variantB.title && variantB.body) : (formData.title && formData.body)) || (isQuietHoursNow && !overrideQuietHours && !canOverrideQuietHours)}
                     className="flex-1 bg-[#1b5e20] text-white py-3.5 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-900/20 hover:bg-[#2e7d32] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     <Send size={15} />
                     <span>
-                      Broadcast to {audienceType === 'CROP' ? (selectedCrop === 'CUSTOM' ? (customCrop || 'Crop') : selectedCrop) : audienceType === 'PINCODE' ? `Pincode ${targetPincode || ''}` : 'ALL Customers'} Now
+                      Broadcast {isAbTest ? `A/B (${splitRatio}% : ${100 - splitRatio}%)` : ''} to {audienceType === 'CROP' ? (selectedCrop === 'CUSTOM' ? (customCrop || 'Crop') : selectedCrop) : audienceType === 'PINCODE' ? `Pincode ${targetPincode || ''}` : 'ALL Customers'} Now
                     </span>
                   </button>
                 )}
@@ -1549,61 +1875,106 @@ const Notifications = () => {
                 <h3 className="text-xs font-black uppercase tracking-wider text-gray-800">Live Device Preview</h3>
               </div>
 
-              {/* Language Switcher */}
-              <div className="flex bg-gray-100 p-0.5 rounded-lg text-[10px] font-black">
-                <button
-                  type="button"
-                  onClick={() => setPreviewLang('hi')}
-                  className={`px-2 py-0.5 rounded ${previewLang === 'hi' ? 'bg-[#1b5e20] text-white' : 'text-gray-600'}`}
-                >
-                  हिंदी
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPreviewLang('en')}
-                  className={`px-2 py-0.5 rounded ${previewLang === 'en' ? 'bg-[#1b5e20] text-white' : 'text-gray-600'}`}
-                >
-                  ENG
-                </button>
+              {/* Preview Controls (Variant Switcher + Language Switcher) */}
+              <div className="flex items-center gap-2">
+                {isAbTest && (
+                  <div className="flex bg-gray-100 p-0.5 rounded-lg text-[10px] font-black">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewVariant('A')}
+                      className={`px-2 py-0.5 rounded transition-all ${previewVariant === 'A' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600'}`}
+                    >
+                      Var A
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewVariant('B')}
+                      className={`px-2 py-0.5 rounded transition-all ${previewVariant === 'B' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-600'}`}
+                    >
+                      Var B
+                    </button>
+                  </div>
+                )}
+
+                {/* Language Switcher */}
+                <div className="flex bg-gray-100 p-0.5 rounded-lg text-[10px] font-black">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewLang('hi')}
+                    className={`px-2 py-0.5 rounded ${previewLang === 'hi' ? 'bg-[#1b5e20] text-white' : 'text-gray-600'}`}
+                  >
+                    हिंदी
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewLang('en')}
+                    className={`px-2 py-0.5 rounded ${previewLang === 'en' ? 'bg-[#1b5e20] text-white' : 'text-gray-600'}`}
+                  >
+                    ENG
+                  </button>
+                </div>
               </div>
             </div>
 
             {/* Android Notification Shade Simulator */}
-            <div className="bg-gray-900 rounded-2xl p-4 text-white shadow-inner font-sans space-y-3">
-              <div className="flex items-center justify-between text-[11px] text-gray-400 border-b border-gray-800 pb-2">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-4 h-4 rounded-full bg-emerald-600 flex items-center justify-center text-[9px] font-black text-white">
-                    KV
+            {(() => {
+              const activePreview = isAbTest
+                ? (previewVariant === 'B' ? variantB : variantA)
+                : formData;
+
+              return (
+                <div className="bg-gray-900 rounded-2xl p-4 text-white shadow-inner font-sans space-y-3">
+                  <div className="flex items-center justify-between text-[11px] text-gray-400 border-b border-gray-800 pb-2">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-4 h-4 rounded-full bg-emerald-600 flex items-center justify-center text-[9px] font-black text-white">
+                        KV
+                      </div>
+                      <span className="font-bold text-gray-200">Krishi Vishal</span>
+                      {isAbTest && (
+                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-black ${
+                          previewVariant === 'A' ? 'bg-blue-600/40 text-blue-300' : 'bg-purple-600/40 text-purple-300'
+                        }`}>
+                          Variant {previewVariant}
+                        </span>
+                      )}
+                      <span>•</span>
+                      <span>{isScheduled && scheduledDateTime ? `📅 ${formatDateTime(scheduledDateTime)}` : 'just now'}</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-emerald-400">krishi_offers_channel</span>
                   </div>
-                  <span className="font-bold text-gray-200">Krishi Vishal</span>
-                  <span>•</span>
-                  <span>{isScheduled && scheduledDateTime ? `📅 ${formatDateTime(scheduledDateTime)}` : 'just now'}</span>
+
+                  <div className="space-y-1">
+                    <p className="text-xs font-black text-white leading-tight">
+                      {activePreview.title || (
+                        isAbTest && previewVariant === 'B'
+                          ? (previewLang === 'hi' ? '⚡ सीमित समय: धान सुरक्षा उत्पाद!' : '⚡ Flash Deal: Crop Protection Inside!')
+                          : (previewLang === 'hi' ? '🌾 धान कीट रोकथाम स्पेशल ऑफर' : '🌾 Paddy Pest Control Special Alert')
+                      )}
+                    </p>
+                    <p className="text-[11px] text-gray-300 leading-snug font-medium">
+                      {activePreview.body || (
+                        isAbTest && previewVariant === 'B'
+                          ? (previewLang === 'hi' ? 'सीमित समय के लिए स्पेशल डिस्काउंट। अपनी धान फसल को सुरक्षित रखें और अभी आर्डर करें!' : 'Special limited time deal on pest defense! Secure your harvest today.')
+                          : (previewLang === 'hi' ? 'धान की फसल को कीटों से बचाने के लिए प्रमाणित कीटनाशक 20% छूट के साथ आज ही ऑर्डर करें।' : 'Protect your paddy crop from insects. Order certified crop protection with 20% discount today.')
+                      )}
+                    </p>
+                  </div>
+
+                  {activePreview.imageUrl && (
+                    <div className="mt-2 rounded-xl overflow-hidden border border-gray-800 max-h-36 bg-black">
+                      <img src={activePreview.imageUrl} alt="Banner Preview" className="w-full object-cover" />
+                    </div>
+                  )}
+
+                  <div className="pt-1 flex items-center justify-between text-[10px] text-gray-400 font-mono">
+                    <span>Deep link: {activePreview.deepLink || '/product'}</span>
+                    <span className="text-emerald-400 flex items-center gap-1">
+                      <ShieldCheck size={12} /> Verified
+                    </span>
+                  </div>
                 </div>
-                <span className="text-[10px] font-mono text-emerald-400">krishi_offers_channel</span>
-              </div>
-
-              <div className="space-y-1">
-                <p className="text-xs font-black text-white leading-tight">
-                  {formData.title || (previewLang === 'hi' ? '🌾 धान कीट रोकथाम स्पेशल ऑफर' : '🌾 Paddy Pest Control Special Alert')}
-                </p>
-                <p className="text-[11px] text-gray-300 leading-snug font-medium">
-                  {formData.body || (previewLang === 'hi' ? 'धान की फसल को कीटों से बचाने के लिए प्रमाणित कीटनाशक 20% छूट के साथ आज ही ऑर्डर करें।' : 'Protect your paddy crop from insects. Order certified crop protection with 20% discount today.')}
-                </p>
-              </div>
-
-              {formData.imageUrl && (
-                <div className="mt-2 rounded-xl overflow-hidden border border-gray-800 max-h-36 bg-black">
-                  <img src={formData.imageUrl} alt="Banner Preview" className="w-full object-cover" />
-                </div>
-              )}
-
-              <div className="pt-1 flex items-center justify-between text-[10px] text-gray-400 font-mono">
-                <span>Deep link: {formData.deepLink || '/product'}</span>
-                <span className="text-emerald-400 flex items-center gap-1">
-                  <ShieldCheck size={12} /> Verified
-                </span>
-              </div>
-            </div>
+              );
+            })()}
           </div>
         </div>
       </div>
@@ -1698,6 +2069,28 @@ const Notifications = () => {
                 )}
               </div>
 
+              {isAbTest && (
+                <div className="bg-purple-50/90 border border-purple-200 rounded-xl p-3 text-left space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between font-black text-purple-900">
+                    <span className="flex items-center gap-1.5">
+                      <FlaskConical size={13} className="text-purple-700" />
+                      A/B Testing Experiment Enabled
+                    </span>
+                    <span className="font-mono text-[10px] bg-purple-200 text-purple-900 px-2 py-0.5 rounded-md font-bold">
+                      {splitRatio}% A / {100 - splitRatio}% B
+                    </span>
+                  </div>
+                  <div className="text-[11px] space-y-1 pt-1 border-t border-purple-200/60">
+                    <p className="text-blue-900 font-medium">
+                      <span className="font-black">🔵 Variant A:</span> {variantA.title}
+                    </p>
+                    <p className="text-purple-900 font-medium">
+                      <span className="font-black">🟣 Variant B:</span> {variantB.title}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="text-left space-y-2 pt-2">
                 <label className="text-[11px] font-black text-gray-700 block">
                   Confirm karne ke liye <span className="text-red-600 font-mono font-bold">SEND</span> type karein:
@@ -1764,16 +2157,23 @@ const Notifications = () => {
               {/* Campaign Highlights */}
               <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
                 <div>
-                  <span className="text-gray-400 font-bold">Target Audience:</span>{' '}
-                  <span className="font-black text-gray-900">
-                    {selectedCampaignForAnalytics.audience?.type === 'CROP'
-                      ? `🌾 Crop: ${selectedCampaignForAnalytics.audience?.crop}`
-                      : selectedCampaignForAnalytics.audience?.type === 'PINCODE'
-                      ? `📍 Pincode: ${selectedCampaignForAnalytics.audience?.pincode}`
-                      : selectedCampaignForAnalytics.audience?.type === 'SEGMENT'
-                      ? `👥 Segment: ${selectedCampaignForAnalytics.audience?.segment}`
-                      : '👥 All Customers'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 font-bold">Target Audience:</span>
+                    <span className="font-black text-gray-900">
+                      {selectedCampaignForAnalytics.audience?.type === 'CROP'
+                        ? `🌾 Crop: ${selectedCampaignForAnalytics.audience?.crop}`
+                        : selectedCampaignForAnalytics.audience?.type === 'PINCODE'
+                        ? `📍 Pincode: ${selectedCampaignForAnalytics.audience?.pincode}`
+                        : selectedCampaignForAnalytics.audience?.type === 'SEGMENT'
+                        ? `👥 Segment: ${selectedCampaignForAnalytics.audience?.segment}`
+                        : '👥 All Customers'}
+                    </span>
+                    {selectedCampaignForAnalytics.isAbTest && (
+                      <span className="text-[10px] bg-purple-100 text-purple-900 border border-purple-200 px-2 py-0.5 rounded-full font-black font-mono">
+                        🧪 A/B Test ({selectedCampaignForAnalytics.splitRatio || 50}/{100 - (selectedCampaignForAnalytics.splitRatio || 50)})
+                      </span>
+                    )}
+                  </div>
                   <div className="text-[11px] text-gray-500 font-mono mt-0.5">Topic: {selectedCampaignForAnalytics.audience?.topic || 'all_customers'}</div>
                 </div>
                 <div className="text-right sm:text-right">
@@ -1784,42 +2184,217 @@ const Notifications = () => {
                 </div>
               </div>
 
-              {/* KPI Cards for Selected Campaign */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-3.5 text-center">
-                  <p className="text-[10px] font-black uppercase text-blue-700 tracking-wider">Total Clicks</p>
-                  <p className="text-xl font-black text-blue-950 mt-0.5">
-                    {analyticsData?.metrics?.clicks ?? (selectedCampaignForAnalytics.stats?.clicks || 0)}
-                  </p>
-                  <p className="text-[9px] font-bold text-blue-600">
-                    ({analyticsData?.metrics?.uniqueClicks ?? (selectedCampaignForAnalytics.stats?.uniqueClicks || 0)} unique)
-                  </p>
-                </div>
+              {/* A/B Test Outcome Trophy Banner (Feature 4) */}
+              {selectedCampaignForAnalytics.isAbTest && (() => {
+                const winner = analyticsData?.winnerVariant || selectedCampaignForAnalytics.stats?.winnerVariant;
+                return (
+                  <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+                    winner === 'A'
+                      ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200 text-blue-950'
+                      : winner === 'B'
+                      ? 'bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200 text-purple-950'
+                      : winner === 'TIE'
+                      ? 'bg-amber-50 border-amber-200 text-amber-950'
+                      : 'bg-gray-50 border-gray-200 text-gray-800'
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-amber-400 text-amber-950 flex items-center justify-center font-black shadow-sm flex-shrink-0">
+                        <Trophy size={22} />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-black uppercase tracking-wider">
+                          {winner === 'A'
+                            ? '🏆 Winner: Variant A (Control)'
+                            : winner === 'B'
+                            ? '🏆 Winner: Variant B (Challenger)'
+                            : winner === 'TIE'
+                            ? '🤝 Result: Tie (Equal Performance)'
+                            : '⏳ Experiment Active — Gathering Farmer Responses'}
+                        </h4>
+                        <p className="text-[11px] text-gray-600 font-medium mt-0.5">
+                          {winner && winner !== 'TIE'
+                            ? `Variant ${winner} has produced superior customer conversions and click-through metrics.`
+                            : 'Real-time algorithm dynamically declares the winner as orders and clicks arrive.'}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="font-mono text-xs font-black px-3 py-1 bg-white rounded-xl shadow-sm border border-gray-200 flex-shrink-0">
+                      Ratio: {selectedCampaignForAnalytics.splitRatio || 50}% / {100 - (selectedCampaignForAnalytics.splitRatio || 50)}%
+                    </span>
+                  </div>
+                );
+              })()}
 
-                <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-3.5 text-center">
-                  <p className="text-[10px] font-black uppercase text-indigo-700 tracking-wider">Click Rate (CTR)</p>
-                  <p className="text-xl font-black text-indigo-950 mt-0.5">
-                    {analyticsData?.metrics?.ctr ?? (selectedCampaignForAnalytics.stats?.ctr || 0)}%
-                  </p>
-                  <p className="text-[9px] font-bold text-indigo-600">Open Engagement</p>
-                </div>
+              {/* Side-by-Side Head-to-Head Comparison Matrix for A/B Campaigns */}
+              {selectedCampaignForAnalytics.isAbTest && (() => {
+                const winner = analyticsData?.winnerVariant || selectedCampaignForAnalytics.stats?.winnerVariant;
+                const mA = analyticsData?.metricsVariantA || selectedCampaignForAnalytics.stats?.variantA || {};
+                const mB = analyticsData?.metricsVariantB || selectedCampaignForAnalytics.stats?.variantB || {};
+                const split = selectedCampaignForAnalytics.splitRatio || 50;
 
-                <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-3.5 text-center">
-                  <p className="text-[10px] font-black uppercase text-amber-700 tracking-wider">Orders Converted</p>
-                  <p className="text-xl font-black text-amber-950 mt-0.5">
-                    {analyticsData?.metrics?.conversions ?? (selectedCampaignForAnalytics.stats?.conversions || 0)}
-                  </p>
-                  <p className="text-[9px] font-bold text-amber-600">
-                    {analyticsData?.metrics?.conversionRate ?? 0}% conversion
-                  </p>
-                </div>
+                return (
+                  <div className="space-y-3">
+                    <h3 className="text-xs font-black uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+                      <GitCompare size={14} className="text-purple-700" />
+                      <span>Head-to-Head Variant Performance Comparison</span>
+                    </h3>
 
-                <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3.5 text-center">
-                  <p className="text-[10px] font-black uppercase text-emerald-800 tracking-wider">Direct Sales</p>
-                  <p className="text-xl font-black text-emerald-950 mt-0.5">
-                    ₹{Number(analyticsData?.metrics?.revenue ?? (selectedCampaignForAnalytics.stats?.revenue || 0)).toLocaleString('en-IN')}
-                  </p>
-                  <p className="text-[9px] font-bold text-emerald-700">Attributed GMV</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Variant A Card */}
+                      <div className={`p-4 rounded-2xl border transition-all ${
+                        winner === 'A'
+                          ? 'border-blue-400 bg-blue-50/40 ring-2 ring-blue-400/80 shadow-sm'
+                          : 'border-gray-200 bg-white'
+                      }`}>
+                        <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded-full text-xs font-black bg-blue-600 text-white">
+                              Variant A
+                            </span>
+                            <span className="text-xs font-bold text-gray-500">
+                              Control ({split}% Traffic)
+                            </span>
+                          </div>
+                          {winner === 'A' && (
+                            <span className="text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <Trophy size={11} /> WINNER
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="mt-2.5 space-y-1">
+                          <p className="text-xs font-black text-gray-900">
+                            {selectedCampaignForAnalytics.variantA?.title || selectedCampaignForAnalytics.title}
+                          </p>
+                          <p className="text-[11px] text-gray-500 line-clamp-2">
+                            {selectedCampaignForAnalytics.variantA?.body || selectedCampaignForAnalytics.body}
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-gray-100 text-center">
+                          <div className="bg-gray-50 p-2 rounded-xl">
+                            <p className="text-[9px] font-bold text-gray-400 uppercase">Clicks</p>
+                            <p className="text-xs font-black text-blue-900">{mA.clicks || 0}</p>
+                            <p className="text-[9px] text-gray-400 font-bold">({mA.uniqueClicks || 0} unq)</p>
+                          </div>
+                          <div className="bg-gray-50 p-2 rounded-xl">
+                            <p className="text-[9px] font-bold text-gray-400 uppercase">CTR</p>
+                            <p className="text-xs font-black text-indigo-900">{mA.ctr || 0}%</p>
+                            <p className="text-[9px] text-indigo-600 font-bold">rate</p>
+                          </div>
+                          <div className="bg-gray-50 p-2 rounded-xl">
+                            <p className="text-[9px] font-bold text-gray-400 uppercase">Revenue</p>
+                            <p className="text-xs font-black text-emerald-800">₹{Number(mA.revenue || 0).toLocaleString('en-IN')}</p>
+                            <p className="text-[9px] text-emerald-600 font-bold">{mA.conversions || 0} orders</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-2.5 text-[10px] text-gray-500 flex justify-between font-bold pt-1">
+                          <span>Converted Orders: <strong className="text-gray-800">{mA.conversions || 0}</strong></span>
+                          <span>Conv. Rate: <strong className="text-gray-800">{mA.conversionRate || 0}%</strong></span>
+                        </div>
+                      </div>
+
+                      {/* Variant B Card */}
+                      <div className={`p-4 rounded-2xl border transition-all ${
+                        winner === 'B'
+                          ? 'border-purple-400 bg-purple-50/40 ring-2 ring-purple-400/80 shadow-sm'
+                          : 'border-gray-200 bg-white'
+                      }`}>
+                        <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded-full text-xs font-black bg-purple-600 text-white">
+                              Variant B
+                            </span>
+                            <span className="text-xs font-bold text-gray-500">
+                              Challenger ({100 - split}% Traffic)
+                            </span>
+                          </div>
+                          {winner === 'B' && (
+                            <span className="text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <Trophy size={11} /> WINNER
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="mt-2.5 space-y-1">
+                          <p className="text-xs font-black text-gray-900">
+                            {selectedCampaignForAnalytics.variantB?.title || 'Variant B Headline'}
+                          </p>
+                          <p className="text-[11px] text-gray-500 line-clamp-2">
+                            {selectedCampaignForAnalytics.variantB?.body || 'Challenger copy text'}
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-gray-100 text-center">
+                          <div className="bg-gray-50 p-2 rounded-xl">
+                            <p className="text-[9px] font-bold text-gray-400 uppercase">Clicks</p>
+                            <p className="text-xs font-black text-purple-900">{mB.clicks || 0}</p>
+                            <p className="text-[9px] text-gray-400 font-bold">({mB.uniqueClicks || 0} unq)</p>
+                          </div>
+                          <div className="bg-gray-50 p-2 rounded-xl">
+                            <p className="text-[9px] font-bold text-gray-400 uppercase">CTR</p>
+                            <p className="text-xs font-black text-indigo-900">{mB.ctr || 0}%</p>
+                            <p className="text-[9px] text-indigo-600 font-bold">rate</p>
+                          </div>
+                          <div className="bg-gray-50 p-2 rounded-xl">
+                            <p className="text-[9px] font-bold text-gray-400 uppercase">Revenue</p>
+                            <p className="text-xs font-black text-emerald-800">₹{Number(mB.revenue || 0).toLocaleString('en-IN')}</p>
+                            <p className="text-[9px] text-emerald-600 font-bold">{mB.conversions || 0} orders</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-2.5 text-[10px] text-gray-500 flex justify-between font-bold pt-1">
+                          <span>Converted Orders: <strong className="text-gray-800">{mB.conversions || 0}</strong></span>
+                          <span>Conv. Rate: <strong className="text-gray-800">{mB.conversionRate || 0}%</strong></span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Overall KPI Cards for Selected Campaign */}
+              <div className="space-y-1.5">
+                <span className="text-[11px] font-black uppercase tracking-wider text-gray-500 block">
+                  Overall Aggregate Campaign KPIs
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-3.5 text-center">
+                    <p className="text-[10px] font-black uppercase text-blue-700 tracking-wider">Total Clicks</p>
+                    <p className="text-xl font-black text-blue-950 mt-0.5">
+                      {analyticsData?.metrics?.clicks ?? (selectedCampaignForAnalytics.stats?.clicks || 0)}
+                    </p>
+                    <p className="text-[9px] font-bold text-blue-600">
+                      ({analyticsData?.metrics?.uniqueClicks ?? (selectedCampaignForAnalytics.stats?.uniqueClicks || 0)} unique)
+                    </p>
+                  </div>
+
+                  <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-3.5 text-center">
+                    <p className="text-[10px] font-black uppercase text-indigo-700 tracking-wider">Click Rate (CTR)</p>
+                    <p className="text-xl font-black text-indigo-950 mt-0.5">
+                      {analyticsData?.metrics?.ctr ?? (selectedCampaignForAnalytics.stats?.ctr || 0)}%
+                    </p>
+                    <p className="text-[9px] font-bold text-indigo-600">Open Engagement</p>
+                  </div>
+
+                  <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-3.5 text-center">
+                    <p className="text-[10px] font-black uppercase text-amber-700 tracking-wider">Orders Converted</p>
+                    <p className="text-xl font-black text-amber-950 mt-0.5">
+                      {analyticsData?.metrics?.conversions ?? (selectedCampaignForAnalytics.stats?.conversions || 0)}
+                    </p>
+                    <p className="text-[9px] font-bold text-amber-600">
+                      {analyticsData?.metrics?.conversionRate ?? 0}% conversion
+                    </p>
+                  </div>
+
+                  <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3.5 text-center">
+                    <p className="text-[10px] font-black uppercase text-emerald-800 tracking-wider">Direct Sales</p>
+                    <p className="text-xl font-black text-emerald-950 mt-0.5">
+                      ₹{Number(analyticsData?.metrics?.revenue ?? (selectedCampaignForAnalytics.stats?.revenue || 0)).toLocaleString('en-IN')}
+                    </p>
+                    <p className="text-[9px] font-bold text-emerald-700">Attributed GMV</p>
+                  </div>
                 </div>
               </div>
 
@@ -1844,8 +2419,9 @@ const Notifications = () => {
                   <div className="border border-gray-100 rounded-2xl overflow-hidden divide-y divide-gray-100">
                     <div className="bg-gray-50/80 px-4 py-2.5 grid grid-cols-12 text-[10px] font-black uppercase tracking-wider text-gray-500">
                       <div className="col-span-3">Order ID</div>
-                      <div className="col-span-4">Customer</div>
-                      <div className="col-span-3 text-right">Amount</div>
+                      <div className="col-span-3">Customer</div>
+                      <div className="col-span-2 text-center">Variant</div>
+                      <div className="col-span-2 text-right">Amount</div>
                       <div className="col-span-2 text-right">Date</div>
                     </div>
                     {analyticsData.recentOrders.map((ord) => (
@@ -1853,11 +2429,24 @@ const Notifications = () => {
                         <div className="col-span-3 font-mono font-black text-blue-700 truncate">
                           #{ord.orderId.slice(-8).toUpperCase()}
                         </div>
-                        <div className="col-span-4">
+                        <div className="col-span-3">
                           <p className="font-black text-gray-800 text-[11px] truncate">{ord.userName || 'Customer'}</p>
                           <p className="text-[10px] text-gray-400 font-mono">{ord.userPhone || '-'}</p>
                         </div>
-                        <div className="col-span-3 text-right font-black text-emerald-700">
+                        <div className="col-span-2 text-center">
+                          {selectedCampaignForAnalytics.isAbTest ? (
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-black font-mono ${
+                              ord.variant === 'B'
+                                ? 'bg-purple-100 text-purple-900 border border-purple-200'
+                                : 'bg-blue-100 text-blue-900 border border-blue-200'
+                            }`}>
+                              Var {ord.variant || 'A'}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-gray-400 font-mono">-</span>
+                          )}
+                        </div>
+                        <div className="col-span-2 text-right font-black text-emerald-700">
                           ₹{Number(ord.totalAmount).toLocaleString('en-IN')}
                         </div>
                         <div className="col-span-2 text-right text-[10px] text-gray-400">
