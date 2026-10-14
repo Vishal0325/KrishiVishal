@@ -285,6 +285,9 @@ To maintain ACID integrity across Firestore and Google Cloud Firestore SDK trans
    *(Empirically proven & verified against the real Firestore Emulator in Test suite `tests/package1_ledger_pass_through.test.js` Test (e)).* All caller writes must be staged strictly **after** `postJournalEntry` resolves.
 3. **Rule 3 (Replay Skip on `alreadyProcessed`):** If `postJournalEntry` returns `{ success: true, alreadyProcessed: true }`, the caller **MUST SKIP** subsequent balance mutations and state transitions. Replays must return the existing state idempotently without double-mutating balances.
 4. **Rule 4 (Deterministic `entryId` / Idempotency Key):** Callers must always provide a stable, deterministic `entryId` (e.g., `JE_WALLET_ORDER_PAYMENT_${orderId}`, `JE_REFUND_SETTLE_${returnId}`) rather than random UUIDs to ensure full replay deduplication.
+5. **Rule 5 (Single Journal Entry Per Transaction - No Multi-JE Transactions):** Exactly one `postJournalEntry` call is permitted per Firestore transaction. Calling `postJournalEntry` a second time inside the same transaction attempts to read the fiscal period (`tx.get(periodRef)`) and entry lock (`tx.get(entryRef)`) after the first call has already staged writes (`tx.set`), which triggers Firestore SDK's fatal constraint:
+   $$\text{"Firestore transactions require all reads to be executed before all writes"}$$
+   *(Empirically proven & verified against the real Firestore Emulator in Test suite `tests/package1_ledger_pass_through.test.js` Test (f)).* Multi-step financial workflows (such as Two-Step Refund: Step 1 Credit Note issuance $\rightarrow$ Step 2 Settlement) **MUST** execute as two separate, sequential transactions.
 
 ---
 

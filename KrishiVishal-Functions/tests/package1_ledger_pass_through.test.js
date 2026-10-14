@@ -437,6 +437,71 @@ async function runPackage1TestSuite() {
         fail("Test (f): Legacy callers compatible and new CoA accounts validated successfully in Firestore Emulator", err);
     }
 
+    // =================================================================
+    // TEST (g): Rule 5 Contract Guard - Two postJournalEntry in Same Tx
+    // Attempting to call postJournalEntry a second time in the same
+    // transaction MUST fail because the second call tries to read
+    // periodRef/entryRef after the first call has staged writes (tx.set).
+    // =================================================================
+    console.log("--- TEST (g): Rule 5 Single-JE-per-Transaction Enforcement ---");
+    try {
+        let secondCallFailedWithReadAfterWrite = false;
+        let caughtErrorMessage = "";
+
+        try {
+            await db.runTransaction(async (transaction) => {
+                // First postJournalEntry: reads period, stages writes (tx.set)
+                const je1 = await postJournalEntry({
+                    entryId: "JE_MULTI_TX_FIRST_001",
+                    periodId: "2026-10",
+                    date: new Date("2026-10-14"),
+                    refType: "ORDER_DELIVERY",
+                    refId: "ORD_MULTI_001",
+                    lines: [
+                        { accountCode: "1010_CASH_IN_HAND_RIDERS", debit: 100, credit: 0 },
+                        { accountCode: "4010_SALES_AGRI_INPUTS", debit: 0, credit: 100 }
+                    ]
+                }, { tx: transaction });
+
+                assert.strictEqual(je1.success, true);
+
+                // Second postJournalEntry inside the SAME transaction:
+                // Attempts tx.get() on periodRef/entryRef AFTER tx.set() has already occurred
+                await postJournalEntry({
+                    entryId: "JE_MULTI_TX_SECOND_002",
+                    periodId: "2026-10",
+                    date: new Date("2026-10-14"),
+                    refType: "SALES_RETURN",
+                    refId: "RET_MULTI_002",
+                    lines: [
+                        { accountCode: "4010_SALES_AGRI_INPUTS", debit: 50, credit: 0 },
+                        { accountCode: "2060_CUSTOMER_REFUNDS_PAYABLE", debit: 0, credit: 50 }
+                    ]
+                }, { tx: transaction });
+            });
+        } catch (txErr) {
+            caughtErrorMessage = txErr.message || "";
+            if (/reads to be executed before all writes|read-after-write|Firestore transactions require all reads/i.test(caughtErrorMessage)) {
+                secondCallFailedWithReadAfterWrite = true;
+            } else {
+                throw txErr;
+            }
+        }
+
+        assert.strictEqual(secondCallFailedWithReadAfterWrite, true, 
+            `Expected Firestore read-after-write error on second postJournalEntry in same tx, got: ${caughtErrorMessage}`);
+
+        // Verify that neither entry was committed to the database (atomic rollback)
+        const checkSnap1 = await db.collection("journal_entries").doc("JE_MULTI_TX_FIRST_001").get();
+        const checkSnap2 = await db.collection("journal_entries").doc("JE_MULTI_TX_SECOND_002").get();
+        assert.strictEqual(checkSnap1.exists, false, "First JE must be rolled back by transaction failure");
+        assert.strictEqual(checkSnap2.exists, false, "Second JE must not exist");
+
+        pass("Test (g): Rule 5 enforced - calling postJournalEntry twice in same transaction triggers Firestore read-after-write error and rolls back atomically");
+    } catch (err) {
+        fail("Test (g): Rule 5 enforced - calling postJournalEntry twice in same transaction", err);
+    }
+
     console.log("\n=================================================================");
     console.log(`PACKAGE 1 TEST RESULTS: ${passed} PASSED, ${failed} FAILED`);
     console.log("=================================================================\n");
