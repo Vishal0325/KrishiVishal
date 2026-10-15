@@ -15,7 +15,7 @@ exports.setUserRole = onCall({ region: REGION, cors: true }, async (request) => 
     }
 
     const token = context.auth.token || {};
-    const isSuperAdmin = token.role === 'SuperAdmin';
+    const isSuperAdmin = token.role === 'SuperAdmin' || token.role === 'SUPER_ADMIN' || token.isSuperAdmin === true;
     if (!isSuperAdmin) {
         throw new HttpsError('permission-denied', 'SuperAdmin privileges required to assign user roles.');
     }
@@ -53,17 +53,33 @@ exports.setUserRole = onCall({ region: REGION, cors: true }, async (request) => 
             throw new HttpsError('invalid-argument', 'hubId is required for DepartmentManager role.');
         }
         effectiveHubAccess = 'SINGLE';
+    } else if (role === 'Customer') {
+        effectiveHubAccess = null;
+        effectiveHubId = null;
     } else {
         effectiveHubAccess = effectiveHubAccess || 'ALL';
     }
 
-    // Fetch existing claims to preserve other claims (admin, isAdmin, isStaff, etc.)
+    // Fetch existing claims
     const userRecord = await auth.getUser(targetUid);
     const existingClaims = userRecord.customClaims || {};
+
+    // Role-to-Claims Recalculation (No blind inheritance of admin/superadmin privileges)
+    const adminRoles = ['SuperAdmin', 'SUPER_ADMIN', 'Admin', 'ADMIN'];
+    const isFullAdmin = adminRoles.includes(role);
+    const isTargetSuper = role === 'SuperAdmin' || role === 'SUPER_ADMIN';
+    const isStaffRole = [
+        'SuperAdmin', 'SUPER_ADMIN', 'Admin', 'ADMIN', 'FinanceAdmin',
+        'HubManager', 'DepartmentManager', 'Viewer', 'OrderManager', 'CatalogManager'
+    ].includes(role);
 
     const updatedClaims = {
         ...existingClaims,
         role: role,
+        isAdmin: isFullAdmin,
+        admin: isFullAdmin,
+        isSuperAdmin: isTargetSuper,
+        isStaff: isStaffRole,
         hubAccess: effectiveHubAccess
     };
 
@@ -73,13 +89,25 @@ exports.setUserRole = onCall({ region: REGION, cors: true }, async (request) => 
         delete updatedClaims.hubId;
     }
 
+    if (role === 'Customer') {
+        updatedClaims.isAdmin = false;
+        updatedClaims.admin = false;
+        updatedClaims.isSuperAdmin = false;
+        updatedClaims.isStaff = false;
+        updatedClaims.hubAccess = null;
+        delete updatedClaims.hubId;
+    }
+
     await auth.setCustomUserClaims(targetUid, updatedClaims);
 
     // Update Firestore users/{targetUid} document
     await db.collection("users").doc(targetUid).set({
         role: role,
-        hubAccess: effectiveHubAccess,
+        hubAccess: effectiveHubAccess || null,
         hubId: effectiveHubId || null,
+        isAdmin: isFullAdmin,
+        isSuperAdmin: isTargetSuper,
+        isStaff: isStaffRole,
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 

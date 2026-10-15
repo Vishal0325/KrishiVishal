@@ -840,7 +840,7 @@ async function runTests() {
         }
     }
 
-    // Test 6.7: SuperAdmin -> succeeds, resets role to Customer, revokes tokens, updates users doc
+    // Test 6.7: SuperAdmin -> succeeds, resets role to Deactivated, clears isSuperAdmin, revokes tokens, updates users doc
     try {
         userClaimsStore['offboard_uid'] = { role: 'Rider', someOtherClaim: 'ok' };
         ridersStore['offboard_uid'] = { status: 'ACTIVE', online: true };
@@ -849,10 +849,11 @@ async function runTests() {
             auth: { uid: 'superadmin_1', token: { role: 'SuperAdmin' } }
         });
         assert.strictEqual(dRes.success, true);
-        assert.strictEqual(dRes.role, 'Customer');
-        assert.strictEqual(userClaimsStore['offboard_uid'].role, 'Customer');
+        assert.strictEqual(dRes.role, 'Deactivated');
+        assert.strictEqual(userClaimsStore['offboard_uid'].role, 'Deactivated');
         assert.strictEqual(userClaimsStore['offboard_uid'].admin, false);
-        assert.strictEqual(usersStore['offboard_uid'].role, 'Customer');
+        assert.strictEqual(userClaimsStore['offboard_uid'].isSuperAdmin, false);
+        assert.strictEqual(usersStore['offboard_uid'].role, 'Deactivated');
         assert.strictEqual(usersStore['offboard_uid'].deactivated, true);
         assert.strictEqual(ridersStore['offboard_uid'].status, 'INACTIVE');
         assert.strictEqual(revokedTokens.includes('offboard_uid'), true);

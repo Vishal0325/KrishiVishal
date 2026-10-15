@@ -131,7 +131,8 @@ exports.setUserRole = staffFunctions.setUserRole;
 /**
  * deactivateUser:
  * SuperAdmin-only offboarding callable.
- * Resets user's custom claim role to 'Customer' and calls auth.revokeRefreshTokens(targetUid).
+ * Resets user's custom claim role to 'Deactivated' and calls auth.revokeRefreshTokens(targetUid).
+ * Explicitly clears isSuperAdmin, admin, isAdmin, isStaff, and hubAccess.
  * Updates users/{targetUid} and deactivates any riders/{targetUid} doc.
  */
 exports.deactivateUser = onCall({ region: REGION }, async (request) => {
@@ -141,7 +142,8 @@ exports.deactivateUser = onCall({ region: REGION }, async (request) => {
     }
 
     const token = context.auth.token || {};
-    if (token.role !== 'SuperAdmin') {
+    const isSuperAdminCaller = token.role === 'SuperAdmin' || token.role === 'SUPER_ADMIN' || token.isSuperAdmin === true;
+    if (!isSuperAdminCaller) {
         throw new HttpsError('permission-denied', 'SuperAdmin privileges required to deactivate users.');
     }
 
@@ -159,20 +161,25 @@ exports.deactivateUser = onCall({ region: REGION }, async (request) => {
     const existingClaims = userRecord.customClaims || {};
 
     // Prevent deactivating the last SuperAdmin
-    if (existingClaims.role === 'SuperAdmin') {
+    if (existingClaims.role === 'SuperAdmin' || existingClaims.role === 'SUPER_ADMIN' || existingClaims.isSuperAdmin === true) {
         const superAdminsSnap = await db.collection("users").where("role", "==", "SuperAdmin").get();
         if (superAdminsSnap.size <= 1) {
             throw new HttpsError('failed-precondition', 'Cannot deactivate the last SuperAdmin.');
         }
     }
 
-    // 1. Reset role to 'Customer' in custom claims, clear admin flags
+    // 1. Reset role in custom claims, explicitly clear all privileged claims
     const updatedClaims = {
         ...existingClaims,
-        role: 'Customer',
+        role: 'Deactivated',
         admin: false,
-        isAdmin: false
+        isAdmin: false,
+        isSuperAdmin: false,
+        isStaff: false,
+        hubAccess: null,
+        deactivated: true
     };
+    delete updatedClaims.hubId;
     await auth.setCustomUserClaims(targetUid, updatedClaims);
 
     // 2. Revoke refresh tokens to force re-authentication / claim invalidation
@@ -180,7 +187,8 @@ exports.deactivateUser = onCall({ region: REGION }, async (request) => {
 
     // 3. Update Firestore users doc
     await db.collection("users").doc(targetUid).set({
-        role: 'Customer',
+        role: 'Deactivated',
+        status: 'DEACTIVATED',
         deactivated: true,
         deactivatedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -225,6 +233,6 @@ exports.deactivateUser = onCall({ region: REGION }, async (request) => {
     return {
         success: true,
         uid: targetUid,
-        role: 'Customer'
+        role: 'Deactivated'
     };
 });

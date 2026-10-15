@@ -44,7 +44,8 @@ class AdminRepositoryImpl @Inject constructor(
             "targetUid" to userId,
             "role" to role
         )
-        functions.getHttpsCallable("assignUserRole").call(data).await()
+        // Fixed: Mapped to backend exported callable 'setUserRole'
+        functions.getHttpsCallable("setUserRole").call(data).await()
         Unit
     }
 
@@ -62,8 +63,19 @@ class AdminRepositoryImpl @Inject constructor(
     }
 
     override fun logActivity(log: AdminLog): Flow<Resource<Unit>> = safeCall(ioDispatcher) {
-        val id = firestore.collection("admin_logs").document().id
+        val id = log.id.ifEmpty { firestore.collection("admin_logs").document().id }
         firestore.collection("admin_logs").document(id).set(log.copy(id = id)).await()
+        try {
+            val payload = hashMapOf(
+                "action" to log.action,
+                "module" to (log.targetType.ifEmpty { "ADMIN" }),
+                "entityId" to (log.targetId.ifEmpty { id }),
+                "details" to mapOf("adminName" to log.adminName, "details" to log.details)
+            )
+            functions.getHttpsCallable("addSecureAuditLog").call(payload).await()
+        } catch (e: Exception) {
+            // Keep direct admin_log write authoritative if callable fails
+        }
     }
 
     override fun getActivityLogs(): Flow<Resource<List<AdminLog>>> = safeCall(ioDispatcher) {

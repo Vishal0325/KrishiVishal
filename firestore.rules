@@ -1006,6 +1006,13 @@ service cloud.firestore {
       allow write: if false; // Immutable audit log, only Cloud Functions can write
     }
 
+    // ============================================================
+    // ADMIN LOGS
+    // ============================================================
+    match /admin_logs/{id} {
+      allow read, write: if isAdmin() || isSuperAdmin();
+    }
+
 
     // ============================================================
     // REFERRALS & WALLET

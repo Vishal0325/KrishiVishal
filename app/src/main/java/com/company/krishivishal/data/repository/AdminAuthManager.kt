@@ -13,8 +13,16 @@ class AdminAuthManager @Inject constructor(
         val user = auth.currentUser ?: return false
         return try {
             val tokenResult = user.getIdToken(false).await()
-            val role = tokenResult.claims["role"] as? String
-            role in listOf("SuperAdmin", "CatalogManager", "OrderManager", "Viewer")
+            val claims = tokenResult.claims
+            val role = claims["role"] as? String
+            val isAdminClaim = claims["isAdmin"] as? Boolean ?: false
+            val adminClaim = claims["admin"] as? Boolean ?: false
+            val isSuperAdminClaim = claims["isSuperAdmin"] as? Boolean ?: false
+
+            isAdminClaim || adminClaim || isSuperAdminClaim || role in listOf(
+                "SuperAdmin", "SUPER_ADMIN", "Admin", "ADMIN", "FinanceAdmin",
+                "CatalogManager", "OrderManager", "Viewer"
+            )
         } catch (e: Exception) {
             false
         }

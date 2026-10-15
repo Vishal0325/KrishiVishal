@@ -54,6 +54,13 @@ async function isAdminRequest(obj) {
            ["ADMIN", "SuperAdmin", "SUPER_ADMIN", "CatalogManager", "OrderManager", "FinanceAdmin", "FinanceManager", "Accountant", "OperationsAdmin", "Admin"].includes(auth.token.role);
 }
 
+async function isSuperAdminRequest(obj) {
+    const auth = obj.auth || obj;
+    if (!auth || !auth.uid || !auth.token) return false;
+    return auth.token.isSuperAdmin === true ||
+           ["SuperAdmin", "SUPER_ADMIN"].includes(auth.token.role);
+}
+
 function addToOutbox(transaction, type, payload) {
     const outboxRef = db.collection("outbox").doc();
     const docData = {
@@ -67,4 +74,4 @@ function addToOutbox(transaction, type, payload) {
     }
 }
 
-module.exports = { CircuitBreaker, checkFeatureFlag, isAdminRequest, addToOutbox };
+module.exports = { CircuitBreaker, checkFeatureFlag, isAdminRequest, isSuperAdminRequest, addToOutbox };
