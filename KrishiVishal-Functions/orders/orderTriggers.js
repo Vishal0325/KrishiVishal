@@ -48,9 +48,94 @@ function findVariantIndex(variants, item) {
 }
 
 /**
+ * Processes prepaid wallet refund on order cancellation.
+ * Step 1: Post Credit Note Journal Entry (Dr 2070_DEFERRED_REVENUE / Cr 2060_CUSTOMER_REFUNDS_PAYABLE).
+ * Step 2: Settle refund into customer wallet (Dr 2060_CUSTOMER_REFUNDS_PAYABLE / Cr 2065_CUSTOMER_WALLET_LIABILITY).
+ * Both steps use deterministic idempotency keys and are safe for automatic retries.
+ * 
+ * @param {string} orderId 
+ * @param {object} orderData 
+ * @param {object} [options]
+ * @returns {Promise<object>}
+ */
+async function processOrderCancellationRefund(orderId, orderData, options = {}) {
+    const walletService = require('../finance/walletService');
+    const { postJournalEntry } = require('../finance/generalLedger');
+
+    const totalRefundAmount = Math.round(Number(orderData.totalAmount || 0) * 100) / 100;
+    if (totalRefundAmount <= 0) {
+        return { success: true, skipped: true, reason: "Zero totalAmount" };
+    }
+
+    const userId = orderData.userId || orderData.customerId;
+    if (!userId) {
+        throw new Error(`Cannot process cancellation refund: missing userId for order ${orderId}`);
+    }
+
+    const periodId = walletService.getFiscalPeriodId();
+    const cancelJeId = `JE_CREDIT_NOTE_CANCEL_${orderId}`;
+
+    // Step 1: Clear deferred revenue to customer refunds payable
+    await postJournalEntry({
+        entryId: cancelJeId,
+        refType: "SALES_RETURN",
+        refId: orderId,
+        periodId,
+        date: new Date(),
+        memo: `Prepaid Wallet Order Cancelled: ${orderId}`,
+        lines: [
+            {
+                accountCode: "2070_DEFERRED_REVENUE",
+                debit: totalRefundAmount,
+                credit: 0,
+                description: `Clear Deferred Revenue for Cancelled Order ${orderId}`
+            },
+            {
+                accountCode: "2060_CUSTOMER_REFUNDS_PAYABLE",
+                debit: 0,
+                credit: totalRefundAmount,
+                description: `Customer Refund Payable for Cancelled Order ${orderId}`
+            }
+        ]
+    });
+
+    // Step 2: Settle refund into customer wallet
+    // (If Step 2 fails, error is thrown so trigger/sweeper retries. When retried, Step 1 is idempotent no-op)
+    const walletCreditResult = await walletService.creditWallet({
+        uid: userId,
+        amount: totalRefundAmount,
+        eventType: "ORDER_REFUND",
+        entityId: orderId,
+        description: `Refund for Cancelled Order #${orderId.slice(-6).toUpperCase()}`,
+        metadata: {
+            orderId: orderId,
+            returnId: `CANCEL_${orderId}`
+        },
+        idempotencyKey: `JE_SETTLEMENT_WALLET_${orderId}`
+    });
+
+    const orderRef = options.orderRef || db.collection("orders").doc(orderId);
+    await orderRef.update({
+        walletRefundProcessed: true,
+        refundStatus: "COMPLETED",
+        walletRefundAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    return {
+        success: true,
+        orderId,
+        refundAmount: totalRefundAmount,
+        cancelJeId,
+        walletCreditResult
+    };
+}
+
+exports.processOrderCancellationRefund = processOrderCancellationRefund;
+
+/**
  * Triggered when an order status is updated.
  */
-exports.onOrderStatusUpdate = onDocumentUpdated({ document: "orders/{orderId}", region: REGION }, async (event) => {
+exports.onOrderStatusUpdate = onDocumentUpdated({ document: "orders/{orderId}", region: REGION, retry: true }, async (event) => {
     const change = event.data;
     const context = { params: event.params };
     const newData = change.after.data();
@@ -83,61 +168,11 @@ exports.onOrderStatusUpdate = onDocumentUpdated({ document: "orders/{orderId}", 
         const isPaid = (newData.paymentStatus === 'PAID' || oldData.paymentStatus === 'PAID');
         if (isWalletOrder && isPaid && !newData.walletRefundProcessed) {
             try {
-                const walletService = require('../finance/walletService');
-                const { postJournalEntry } = require('../finance/generalLedger');
-                const totalRefundAmount = Math.round(Number(newData.totalAmount || oldData.totalAmount || 0) * 100) / 100;
-
-                if (totalRefundAmount > 0) {
-                    const periodId = walletService.getFiscalPeriodId();
-                    const cancelJeId = `JE_CREDIT_NOTE_CANCEL_${context.params.orderId}`;
-
-                    // Step 1: Clear deferred revenue to customer refunds payable
-                    await postJournalEntry({
-                        entryId: cancelJeId,
-                        refType: "SALES_RETURN",
-                        refId: context.params.orderId,
-                        periodId,
-                        date: new Date(),
-                        memo: `Prepaid Wallet Order Cancelled: ${context.params.orderId}`,
-                        lines: [
-                            {
-                                accountCode: "2070_DEFERRED_REVENUE",
-                                debit: totalRefundAmount,
-                                credit: 0,
-                                description: `Clear Deferred Revenue for Cancelled Order ${context.params.orderId}`
-                            },
-                            {
-                                accountCode: "2060_CUSTOMER_REFUNDS_PAYABLE",
-                                debit: 0,
-                                credit: totalRefundAmount,
-                                description: `Customer Refund Payable for Cancelled Order ${context.params.orderId}`
-                            }
-                        ]
-                    });
-
-                    // Step 2: Settle refund into customer wallet
-                    await walletService.creditWallet({
-                        uid: userId,
-                        amount: totalRefundAmount,
-                        eventType: "ORDER_REFUND",
-                        entityId: context.params.orderId,
-                        description: `Refund for Cancelled Order #${context.params.orderId.slice(-6).toUpperCase()}`,
-                        metadata: {
-                            orderId: context.params.orderId,
-                            returnId: `CANCEL_${context.params.orderId}`
-                        },
-                        idempotencyKey: `JE_SETTLEMENT_WALLET_${context.params.orderId}`
-                    });
-
-                    await change.after.ref.update({
-                        walletRefundProcessed: true,
-                        refundStatus: "COMPLETED",
-                        walletRefundAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
-                    console.log(`[Cancellation Refund] Processed ₹${totalRefundAmount} wallet refund for order ${context.params.orderId}`);
-                }
+                await processOrderCancellationRefund(context.params.orderId, newData, { orderRef: change.after.ref });
+                console.log(`[Cancellation Refund] Processed wallet refund for order ${context.params.orderId}`);
             } catch (refErr) {
                 console.error(`[Cancellation Refund] Failed for order ${context.params.orderId}:`, refErr);
+                throw refErr; // Rethrow to trigger Eventarc / Cloud Functions retry!
             }
         }
     }

@@ -274,16 +274,24 @@ async function recognizeOrderDeliveryFinancials(orderData, options = {}) {
         recognizedAt: admin.firestore.FieldValue.serverTimestamp()
     };
 
-    // 6. Update order document with recognized financial metadata
+    // 6. Check and mark rider cash credit flag (Strict Idempotency Guard)
+    const riderId = orderData.riderId || orderData.assignedRiderId;
+    const isAlreadyCashCredited = existingOrder.riderCashCredited === true;
+
+    if (isCod && riderId && !isAlreadyCashCredited) {
+        updatePayload.riderCashCredited = true;
+        updatePayload.riderCashCreditedAt = admin.firestore.FieldValue.serverTimestamp();
+    }
+
+    // 7. Update order document with recognized financial metadata
     if (options.tx) {
         options.tx.set(orderRef, updatePayload, { merge: true });
     } else {
         await orderRef.set(updatePayload, { merge: true });
     }
 
-    // 7. Update Rider Cash-in-Hand on COD delivery
-    const riderId = orderData.riderId || orderData.assignedRiderId;
-    if (isCod && riderId) {
+    // 8. Update Rider Cash-in-Hand on COD delivery (Exclusively if not already credited)
+    if (isCod && riderId && !isAlreadyCashCredited) {
         const riderRef = db.collection("riders").doc(riderId);
         const riderUpdate = {
             cash_in_hand: admin.firestore.FieldValue.increment(grandTotal),

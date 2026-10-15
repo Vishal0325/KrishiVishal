@@ -180,18 +180,15 @@ service cloud.firestore {
     }
 
     match /ledger/{id} {
-      allow read: if canViewFinance();
-      allow write: if false;
+      allow read, write: if canViewFinance();
     }
 
     match /finance/{document=**} {
-      allow read: if canViewFinance();
-      allow write: if false;
+      allow read, write: if canViewFinance();
     }
 
     match /accounts/{accountId} {
-      allow read: if canViewFinance();
-      allow write: if false;
+      allow read, write: if canViewFinance();
     }
 
     match /expenseCategories/{id} {
@@ -675,33 +672,26 @@ service cloud.firestore {
 
     match /payout_requests/{reqId} {
       allow read: if (isAdmin() || isSuperAdmin() || isViewer() || canViewFinance() || isHubManager()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
-      allow write: if false; // Retired legacy collection - Payouts managed via approveRiderPayout & rider_payouts
+      allow write: if isAdmin() || isSuperAdmin();
     }
 
     match /riders/{riderId} {
       allow read: if isAdmin() || isViewer() || isOwner(riderId) || isHubManager();
       // Self-creation blocked: Only Admin can onboard/create rider profiles
       allow create: if isAdmin();
-      // Rider updates: client updates to cash balances and earnings strictly blocked for all clients
-      allow update: if !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-        'cash_in_hand',
-        'cashInHand',
-        'pendingShortageAmount',
-        'earnings'
-      ]) && (
-        isAdmin() || (
-          isOwner(riderId) &&
-          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['kycStatus']) ||
-            request.resource.data.kycStatus == 'PENDING_VERIFICATION'
-          ) &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'name', 'phone', 'address', 'vehicleDetails', 'isAvailable', 'currentLocation', 'location', 'fcmToken', 'updatedAt',
-            'currentLat', 'currentLng', 'lastLocationUpdate',
-            'online', 'isOnline', 'shiftStartTime', 'shiftEndTime',
-            'bankAccount', 'bankName', 'ifscCode', 'vehicleNumber', 'vehicleType',
-            'documents', 'kycStatus', 'lastKycSubmissionAt'
-          ])
-        )
+      // Rider self-updates restricted to non-sensitive profile fields
+      allow update: if isAdmin() || (
+        isOwner(riderId) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['kycStatus']) ||
+          request.resource.data.kycStatus == 'PENDING_VERIFICATION'
+        ) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'phone', 'address', 'vehicleDetails', 'isAvailable', 'currentLocation', 'location', 'fcmToken', 'updatedAt',
+          'currentLat', 'currentLng', 'lastLocationUpdate',
+          'online', 'isOnline', 'shiftStartTime', 'shiftEndTime',
+          'bankAccount', 'bankName', 'ifscCode', 'vehicleNumber', 'vehicleType',
+          'documents', 'kycStatus', 'lastKycSubmissionAt'
+        ])
       );
       allow delete: if isAdmin();
 
@@ -1216,8 +1206,10 @@ service cloud.firestore {
     }
 
     match /cash_settlements/{settlementId} {
-      allow read: if (isAdmin() || isSuperAdmin() || isHubManager() || canViewFinance()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
-      allow write: if false; // Exclusively mutated via confirmCashSettlement backend Cloud Function
+      allow read: if (isAdmin() || isSuperAdmin() || isHubManager()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow create: if isAuthenticated() && (isAdmin() || isSuperAdmin() || (isRider() && request.resource.data.riderId == request.auth.uid));
+      allow update: if isAdmin() || isSuperAdmin() || isHubManager();
+      allow delete: if false;
     }
 
     match /hub_bank_deposits/{id} {

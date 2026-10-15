@@ -79,18 +79,8 @@ exports.riderMutations = onCall({ region: REGION, invoker: 'public' }, async (re
         }
         
         if (Object.keys(safeUpdates).length > 0) {
-            const isCOD = String(orderData.paymentMethod).toUpperCase() === 'COD' && safeUpdates.status === 'DELIVERED';
-            const riderRef = db.collection('riders').doc(context.auth.uid);
-            
             await db.runTransaction(async (t) => {
                 t.update(orderRef, safeUpdates);
-                if (isCOD) {
-                    const amount = Number(orderData.grandTotal || orderData.totalAmount || 0);
-                    t.set(riderRef, {
-                        cash_in_hand: admin.firestore.FieldValue.increment(amount),
-                        last_cod_delivery_at: admin.firestore.FieldValue.serverTimestamp()
-                    }, { merge: true });
-                }
             });
         }
         return { success: true };
