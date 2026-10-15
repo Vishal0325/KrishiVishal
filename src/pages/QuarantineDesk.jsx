@@ -25,6 +25,9 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { getOrCreateDurableRequestId, clearDurableRequestId } from '../utils/durableIdempotency';
+
+export { getOrCreateDurableRequestId, clearDurableRequestId };
 
 export default function QuarantineDesk() {
   const { user } = useAuth();
@@ -129,14 +132,10 @@ export default function QuarantineDesk() {
         writeOffReason: actionType === 'WRITE_OFF' ? writeOffReason : ''
       };
 
-      const payloadSignature = JSON.stringify(payload);
-      let requestId = resolutionRequestIds.current.get(payloadSignature);
-      if (!requestId) {
-        requestId = crypto.randomUUID();
-        resolutionRequestIds.current.set(payloadSignature, requestId);
-      }
+      const { requestId } = getOrCreateDurableRequestId(selectedItem.id, payload);
 
       await resolveFn({ ...payload, requestId });
+      clearDurableRequestId(selectedItem.id);
       resolutionRequestIds.current.clear();
       toast.success(
         actionType === 'RETURN_TO_VENDOR'
