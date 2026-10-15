@@ -2,7 +2,7 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const crypto = require("crypto");
 const { db, admin } = require("../core/admin");
-const { isAdminRequest } = require("../core/utils");
+const { isAdminRequest, isFinanceRequest } = require("../core/utils");
 
 const REGION = 'asia-south1';
 
@@ -30,12 +30,24 @@ const REGION = 'asia-south1';
  */
 exports.aiSupervisor = onCall({ region: REGION }, async (request) => {
     const context = { auth: request.auth };
-    if (!(await isAdminRequest(context))) {
-        throw new HttpsError('permission-denied', 'Only admins can access AI Supervisor.');
+    if (!context.auth) {
+        throw new HttpsError('unauthenticated', 'Authentication required.');
     }
 
     const data = request.data || {};
     const { prompt, agentType } = data;
+    const supportedAgentTypes = ['INVENTORY', 'FINANCE', 'SUPPORT', 'GENERAL'];
+    if (typeof prompt !== 'string' || prompt.length > 5000 ||
+        (agentType !== undefined && !supportedAgentTypes.includes(agentType))) {
+        throw new HttpsError('invalid-argument', 'A prompt of at most 5000 characters and a supported agentType are required.');
+    }
+    if (agentType === 'FINANCE') {
+        if (!(await isFinanceRequest(context))) {
+            throw new HttpsError('permission-denied', 'Finance role required for the finance assistant.');
+        }
+    } else if (!(await isAdminRequest(context))) {
+        throw new HttpsError('permission-denied', 'Only admins can access AI Supervisor.');
+    }
 
     try {
         // M4: Hash PII and sanitize prompt
@@ -44,7 +56,10 @@ exports.aiSupervisor = onCall({ region: REGION }, async (request) => {
         const rawPrompt = typeof prompt === 'string' ? prompt : '';
         const sanitizedPrompt = rawPrompt
             .substring(0, 500)
-            .replace(/\b\d{12,16}\b/g, '****');
+            .replace(/\b[A-Z]{5}\d{4}[A-Z]\b/gi, '[REDACTED_PAN]')
+            .replace(/\b\d{12,16}\b/g, '[REDACTED_NUMBER]')
+            .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[REDACTED_EMAIL]')
+            .replace(/(?:\+91[\s-]?)?[6-9]\d{9}\b/g, '[REDACTED_PHONE]');
 
         await db.collection("ai_activity_logs").add({
             promptLength: rawPrompt.length,
@@ -70,14 +85,14 @@ exports.aiSupervisor = onCall({ region: REGION }, async (request) => {
             case 'FINANCE':
                 const accounts = await db.collection("accounts").get();
                 response = {
-                    message: "Financial summary generated. All ledgers are balanced.",
+                    message: "Financial account balances retrieved. Reconciliation status must be checked separately.",
                     data: accounts.docs.map(doc => ({ id: doc.id, balance: doc.data().balance }))
                 };
                 break;
             case 'SUPPORT':
                 response = {
-                    message: "Support analysis: 95% of tickets are resolved. No high-risk fraud detected in the last 24 hours.",
-                    data: { status: 'GREEN', riskScore: 0.05 }
+                    message: "Support analytics are not connected to this assistant yet.",
+                    data: { status: 'UNAVAILABLE' }
                 };
                 break;
             default:
@@ -86,7 +101,8 @@ exports.aiSupervisor = onCall({ region: REGION }, async (request) => {
 
         return response;
     } catch (error) {
-        throw new HttpsError('internal', error.message);
+        console.error('AI Supervisor request failed:', error);
+        throw new HttpsError('internal', 'AI Supervisor request failed.');
     }
 });
 
@@ -105,19 +121,30 @@ exports.processAiAction = onDocumentUpdated({ document: "ai_action_requests/{req
         const { action, params } = newData;
 
         try {
+            if (action !== 'UPDATE_PRICE') {
+                throw new Error(`Unsupported AI action: ${action || 'unknown'}`);
+            }
             if (action === 'UPDATE_PRICE') {
                 const { productId, newPrice } = params;
 
-                if (!productId || typeof newPrice !== 'number' || newPrice <= 0) {
+                if (typeof productId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(productId) ||
+                    typeof newPrice !== 'number' || !Number.isFinite(newPrice) || newPrice <= 0) {
                     throw new Error("Invalid Product ID or Price amount.");
                 }
 
                 await db.runTransaction(async (transaction) => {
+                    const actionRef = change.after.ref;
+                    const actionSnap = await transaction.get(actionRef);
+                    if (!actionSnap.exists || actionSnap.data().status !== 'APPROVED') return;
+
                     const productRef = db.collection("products").doc(productId);
                     const pSnap = await transaction.get(productRef);
                     if (!pSnap.exists) throw new Error("Product does not exist.");
 
-                    const oldPrice = pSnap.data().price || 0;
+                    const oldPrice = Number(pSnap.data().price || 0);
+                    if (!Number.isFinite(oldPrice) || oldPrice < 0) {
+                        throw new Error("Existing Product Price is invalid.");
+                    }
 
                     // Business Rule: Guard against extreme price fluctuations (> 80% change)
                     const percentChange = Math.abs((newPrice - oldPrice) / oldPrice);
@@ -133,7 +160,7 @@ exports.processAiAction = onDocumentUpdated({ document: "ai_action_requests/{req
                     });
 
                     // Log Audit for AI Action
-                    const auditRef = db.collection("audit_logs").doc();
+                    const auditRef = db.collection("audit_logs").doc(`AI_PRICE_UPDATE_${event.params.requestId}`);
                     transaction.set(auditRef, {
                         action: "AI_PRICE_UPDATE",
                         productId,
@@ -142,16 +169,26 @@ exports.processAiAction = onDocumentUpdated({ document: "ai_action_requests/{req
                         approvedBy: newData.approvedBy || "Admin",
                         timestamp: admin.firestore.FieldValue.serverTimestamp()
                     });
+                    transaction.update(actionRef, {
+                        processedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        status: 'COMPLETED'
+                    });
                 });
             }
-
-            return change.after.ref.update({
-                processedAt: admin.firestore.FieldValue.serverTimestamp(),
-                status: 'COMPLETED'
-            });
+            return null;
         } catch (error) {
             console.error("Error processing AI action:", error);
-            return change.after.ref.update({ status: 'FAILED', error: error.message });
+            await db.runTransaction(async (transaction) => {
+                const actionRef = change.after.ref;
+                const actionSnap = await transaction.get(actionRef);
+                if (!actionSnap.exists || actionSnap.data().status !== 'APPROVED') return;
+                transaction.update(actionRef, {
+                    status: 'FAILED',
+                    error: String(error.message || error).slice(0, 500),
+                    processedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            });
+            return null;
         }
     }
     return null;
@@ -161,38 +198,45 @@ exports.processAiAction = onDocumentUpdated({ document: "ai_action_requests/{req
  * Approve AI Action
  */
 exports.approveAiAction = onCall({ region: REGION }, async (request) => {
-    const context = { auth: request.auth };
-    if (!context.auth) {
+    if (!request.auth) {
         throw new HttpsError('unauthenticated', 'Authentication required');
     }
 
-    const token = context.auth.token || {};
-    const isAuthorized = token.admin === true || 
-                         token.role === 'ADMIN' || 
-                         token.role === 'SuperAdmin';
-    if (!isAuthorized) {
+    const context = { auth: request.auth };
+    if (!(await isAdminRequest(context))) {
         throw new HttpsError('permission-denied', 'Admin role required to approve/reject AI actions');
     }
 
     const data = request.data || {};
     const actionId = data.actionId || data.requestId;
-    if (!actionId) {
-        throw new HttpsError('invalid-argument', 'RequestId or actionId is required');
+    if (typeof actionId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(actionId)) {
+        throw new HttpsError('invalid-argument', 'A valid requestId or actionId is required');
     }
 
-    await db.collection("ai_action_requests").doc(actionId).update({
-        status: "APPROVED",
-        approvedBy: context.auth.token?.email || context.auth.uid || "Admin",
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    await db.collection("audit_logs").add({
-        actionId,
-        decision: 'APPROVED',
-        reviewedBy: context.auth.uid,
-        reviewerRole: token.role || 'ADMIN',
-        reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
-        notes: data.notes || ''
+    const requestRef = db.collection("ai_action_requests").doc(actionId);
+    const auditRef = db.collection("audit_logs").doc(`AI_ACTION_DECISION_${actionId}`);
+    const token = request.auth.token || {};
+    await db.runTransaction(async (transaction) => {
+        const actionSnapshot = await transaction.get(requestRef);
+        if (!actionSnapshot.exists) throw new HttpsError('not-found', 'AI action request was not found.');
+        const status = actionSnapshot.data().status;
+        if (status === 'APPROVED' || status === 'COMPLETED') return;
+        if (status !== 'PENDING') {
+            throw new HttpsError('failed-precondition', `Cannot approve an AI action in ${status || 'unknown'} state.`);
+        }
+        transaction.update(requestRef, {
+            status: "APPROVED",
+            approvedBy: request.auth.uid,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        transaction.create(auditRef, {
+            actionId,
+            decision: 'APPROVED',
+            reviewedBy: request.auth.uid,
+            reviewerRole: token.role || 'ADMIN',
+            reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+            notes: typeof data.notes === 'string' ? data.notes.slice(0, 1000) : ''
+        });
     });
 
     return { success: true };
@@ -202,41 +246,48 @@ exports.approveAiAction = onCall({ region: REGION }, async (request) => {
  * Reject AI Action
  */
 exports.rejectAiAction = onCall({ region: REGION }, async (request) => {
-    const context = { auth: request.auth };
-    if (!context.auth) {
+    if (!request.auth) {
         throw new HttpsError('unauthenticated', 'Authentication required');
     }
 
-    const token = context.auth.token || {};
-    const isAuthorized = token.admin === true || 
-                         token.role === 'ADMIN' || 
-                         token.role === 'SuperAdmin';
-    if (!isAuthorized) {
+    const context = { auth: request.auth };
+    if (!(await isAdminRequest(context))) {
         throw new HttpsError('permission-denied', 'Admin role required to approve/reject AI actions');
     }
 
     const data = request.data || {};
     const actionId = data.actionId || data.requestId;
-    if (!actionId) {
-        throw new HttpsError('invalid-argument', 'RequestId or actionId is required');
+    if (typeof actionId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(actionId)) {
+        throw new HttpsError('invalid-argument', 'A valid requestId or actionId is required');
     }
 
-    const reason = data.reason || data.notes || "Rejected by Admin";
-
-    await db.collection("ai_action_requests").doc(actionId).update({
-        status: "REJECTED",
-        reason: reason,
-        rejectedBy: context.auth.token?.email || context.auth.uid || "Admin",
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    await db.collection("audit_logs").add({
-        actionId,
-        decision: 'REJECTED',
-        reviewedBy: context.auth.uid,
-        reviewerRole: token.role || 'ADMIN',
-        reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
-        notes: data.notes || reason || ''
+    const reason = typeof data.reason === 'string' ? data.reason.slice(0, 1000)
+        : (typeof data.notes === 'string' ? data.notes.slice(0, 1000) : 'Rejected by Admin');
+    const requestRef = db.collection("ai_action_requests").doc(actionId);
+    const auditRef = db.collection("audit_logs").doc(`AI_ACTION_DECISION_${actionId}`);
+    const token = request.auth.token || {};
+    await db.runTransaction(async (transaction) => {
+        const actionSnapshot = await transaction.get(requestRef);
+        if (!actionSnapshot.exists) throw new HttpsError('not-found', 'AI action request was not found.');
+        const status = actionSnapshot.data().status;
+        if (status === 'REJECTED') return;
+        if (status !== 'PENDING') {
+            throw new HttpsError('failed-precondition', `Cannot reject an AI action in ${status || 'unknown'} state.`);
+        }
+        transaction.update(requestRef, {
+            status: "REJECTED",
+            reason,
+            rejectedBy: request.auth.uid,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        transaction.create(auditRef, {
+            actionId,
+            decision: 'REJECTED',
+            reviewedBy: request.auth.uid,
+            reviewerRole: token.role || 'ADMIN',
+            reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+            notes: reason
+        });
     });
 
     return { success: true };

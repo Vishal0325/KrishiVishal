@@ -69,6 +69,7 @@ async function runSmokeTest() {
     console.log(`\n[2] Executing RTV Resolution (5 units)...`);
     const rtvPayload = {
         quarantineId,
+        requestId: `SMOKE_RTV_${quarantineId}`,
         action: 'RETURN_TO_VENDOR',
         quantity: 5,
         vendorId: 'VEND_TEST_BIHAR',
@@ -81,6 +82,7 @@ async function runSmokeTest() {
     console.log(`\n[3] Executing Write-Off Resolution (5 units)...`);
     const scrapPayload = {
         quarantineId,
+        requestId: `SMOKE_SCRAP_${quarantineId}`,
         action: 'WRITE_OFF',
         quantity: 5,
         writeOffReason: 'UNSALVAGEABLE_MOISTURE',

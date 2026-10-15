@@ -1,5 +1,6 @@
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { db, admin } = require("../core/admin");
+const crypto = require("crypto");
 
 const REGION = 'asia-south1';
 
@@ -11,7 +12,6 @@ exports.monitorOrderSLA = onSchedule({ schedule: "every 30 minutes", region: REG
     const twoHoursAgo = new Date(now.toDate().getTime() - 2 * 60 * 60 * 1000);
     const oneHourAgo = new Date(now.toDate().getTime() - 1 * 60 * 60 * 1000);
 
-    const batch = db.batch();
     const escalationsRef = db.collection("escalations");
 
     try {
@@ -21,53 +21,60 @@ exports.monitorOrderSLA = onSchedule({ schedule: "every 30 minutes", region: REG
             .limit(50)
             .get();
 
-        delayedPacking.forEach(doc => {
-            const escRef = escalationsRef.doc();
-            batch.set(escRef, {
-                orderId: doc.id,
-                type: "DELAYED_PACKING",
-                message: `Order #${doc.id.substring(0, 8)} delayed in packing (> 2h)`,
-                severity: "HIGH",
-                status: "OPEN",
-                timestamp: admin.firestore.FieldValue.serverTimestamp()
-            });
-        });
-
         const delayedPickup = await db.collection("orders")
             .where("status", "==", "ASSIGNED")
             .where("updatedAt", "<", oneHourAgo)
             .limit(50)
             .get();
 
-        delayedPickup.forEach(doc => {
-            const escRef = escalationsRef.doc();
-            batch.set(escRef, {
-                orderId: doc.id,
+        const candidates = [
+            ...delayedPacking.docs.map(doc => ({
+                doc,
+                type: "DELAYED_PACKING",
+                message: `Order #${doc.id.substring(0, 8)} delayed in packing (> 2h)`,
+                severity: "HIGH"
+            })),
+            ...delayedPickup.docs.map(doc => ({
+                doc,
                 type: "DELAYED_PICKUP",
                 message: `Order #${doc.id.substring(0, 8)} assigned but not picked up (> 1h)`,
-                severity: "MEDIUM",
-                status: "OPEN",
-                timestamp: admin.firestore.FieldValue.serverTimestamp()
+                severity: "MEDIUM"
+            }))
+        ];
+        const createdFlags = await Promise.all(candidates.map(async ({ doc, type, message, severity }) => {
+            const id = crypto.createHash('sha256').update(`${doc.id}:${type}`).digest('hex');
+            const escalationRef = escalationsRef.doc(id);
+            return db.runTransaction(async (transaction) => {
+                const prior = await transaction.get(escalationRef);
+                if (prior.exists) return false;
+                transaction.create(escalationRef, {
+                    orderId: doc.id,
+                    type,
+                    message,
+                    severity,
+                    status: "OPEN",
+                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                });
+                return true;
             });
-        });
+        }));
+        const newlyCreated = createdFlags.filter(Boolean).length;
 
-        await batch.commit();
-
-        if (delayedPacking.size > 0 || delayedPickup.size > 0) {
-            console.log(`Logged ${delayedPacking.size + delayedPickup.size} new escalations.`);
+        if (newlyCreated > 0) {
+            console.log(`Logged ${newlyCreated} new escalations.`);
             const adminMessage = {
                 notification: {
                     title: "SLA Alert",
-                    body: `There are ${delayedPacking.size + delayedPickup.size} delayed orders requiring attention.`,
+                    body: `There are ${newlyCreated} delayed orders requiring attention.`,
                 },
                 topic: "admin_alerts",
             };
             await admin.messaging().send(adminMessage);
         }
 
-        return null;
+        return { created: newlyCreated };
     } catch (error) {
         console.error("Error monitoring SLA:", error);
-        return null;
+        throw error;
     }
 });

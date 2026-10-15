@@ -53,14 +53,14 @@ When goods arrive and fail QC, defective quantity is moved from inward dock to q
 When vendor agrees to accept rejected stock and KrishiVishal issues an official Debit Note:
 * **Dr `2010_ACCOUNTS_PAYABLE_SUPPLIERS`** (Reduces statutory liability owed to vendor)
 * **Cr `1045_INVENTORY_QUARANTINE_ASSET`** (Relieves quarantine asset from books)
-* **Idempotency Key:** `JE_QUARANTINE_RTV_${quarantineId}_${resolutionId}`
+* **Idempotency Key:** `JE_QUARANTINE_RTV_${requestId}`
 * **Memo:** `RTV Settlement: Debit Note #${debitNoteNumber} for ${qty} units of SKU ${skuCode} returned to Supplier ${supplierId}`
 
 #### Stage 2B: Scrap / Damage Write-Off (Scrap Approval)
 When defective stock cannot be returned to vendor and warehouse manager scrap resolution is approved:
 * **Dr `5020_INVENTORY_SHRINKAGE_SCRAP_LOSS`** (Recognizes direct P&L shrinkage expense)
 * **Cr `1045_INVENTORY_QUARANTINE_ASSET`** (Clears asset balance to zero)
-* **Idempotency Key:** `JE_QUARANTINE_SCRAP_${quarantineId}_${resolutionId}`
+* **Idempotency Key:** `JE_QUARANTINE_SCRAP_${requestId}`
 * **Memo:** `Scrap Write-Off: Approved write-off of ${qty} units of SKU ${skuCode} (Quarantine #${quarantineId})`
 
 ### 1.4 Open Questions for Vishal / CA
@@ -68,6 +68,11 @@ When defective stock cannot be returned to vendor and warehouse manager scrap re
    * Dr `5020_INVENTORY_SHRINKAGE_SCRAP_LOSS` (Gross cost including reversed tax)
    * Cr `1060_INPUT_CGST` & Cr `1070_INPUT_SGST`?
 2. **Vendor Debit Note GST Compliance:** When doing RTV, does KrishiVishal issue a formal Tax Debit Note with GST (reported under Table 9B of GSTR-1), or does the supplier issue a Credit Note to KrishiVishal?
+
+### 1.5 Callable Client Contract
+All clients must call the `resolveQuarantinedStock` Cloud Function; clients must not write quarantine, inventory, or ledger records directly. Each resolution request must include a `requestId` matching `^[A-Za-z0-9_-]{1,128}$`.
+
+Generate and persist one ID when the user confirms a resolution, then reuse that same ID for every retry of that exact operation. Do not generate a new ID for a network retry, and do not reuse an ID for a different payload. A separate partial resolution is a separate operation and must have a new ID. The server derives the actor ID from authentication, checks hub scope, and returns the original result for an identical replay; reusing an ID with different operation details is rejected.
 
 ---
 

@@ -23,6 +23,19 @@ async function runEmulatorRulesTests() {
         projectId: PROJECT_ID,
         firestore: { rules }
     });
+    const activeRuleTestUsers = [
+        'rider1', 'admin1', 'charlie', 'stranger', 'rider_kyc_test', 'anon_user',
+        'anon_stranger', 'anon_customer', 'serviceman1', 'rider_ramesh', 'admin_super',
+        'rider_suresh', 'rider_other', 'customer_charlie', 'admin_vikash', 'finance_user',
+        'hub_manager_1', 'user_finance', 'user_dept_mgr', 'user_viewer', 'user_rider',
+        'user_legacy', 'user_founder', 'pure_viewer_user', 'pure_dept_mgr_user',
+        'pure_hub_mgr_user'
+    ];
+    await env.withSecurityRulesDisabled(async (context) => {
+        await Promise.all(activeRuleTestUsers.map((uid) =>
+            context.firestore().collection('users').doc(uid).set({ status: 'ACTIVE', deactivated: false })
+        ));
+    });
 
     let passed = 0;
     let failed = 0;
@@ -145,8 +158,8 @@ async function runEmulatorRulesTests() {
         }));
     });
 
-    // 4. Rider self-assign only
-    await testRule("4.1 Rider CAN self-assign unassigned order", async (env) => {
+    // 4. Rider assignment is server-authoritative
+    await testRule("4.1 Rider CANNOT self-assign unassigned order", async (env) => {
         await env.withSecurityRulesDisabled(async (context) => {
             await context.firestore().collection('orders').doc('ord_unassigned').set({
                 userId: 'bob',
@@ -156,7 +169,7 @@ async function runEmulatorRulesTests() {
             });
         });
         const rider1 = env.authenticatedContext('rider1', { role: 'Rider' });
-        await assertSucceeds(rider1.firestore().collection('orders').doc('ord_unassigned').update({
+        await assertFails(rider1.firestore().collection('orders').doc('ord_unassigned').update({
             riderId: 'rider1',
             status: 'ASSIGNED',
             updatedAt: '2026-09-19'
@@ -522,8 +535,8 @@ async function runEmulatorRulesTests() {
         }));
     });
 
-    // 10.6: Rider can self-assign unassigned order with status: 'ASSIGNED'
-    await testRule("10.6 Rider can self-assign unassigned order with status: 'ASSIGNED'", async (env) => {
+    // 10.6: Rider cannot self-assign unassigned order with status: 'ASSIGNED'
+    await testRule("10.6 Rider cannot self-assign unassigned order with status: 'ASSIGNED'", async (env) => {
         await env.withSecurityRulesDisabled(async (context) => {
             await context.firestore().collection('orders').doc('ord_unassigned_1').set({
                 userId: 'farmer_alice',
@@ -533,14 +546,14 @@ async function runEmulatorRulesTests() {
             });
         });
         const riderCtx = env.authenticatedContext('rider_suresh', { role: 'Rider' });
-        await assertSucceeds(riderCtx.firestore().collection('orders').doc('ord_unassigned_1').update({
+        await assertFails(riderCtx.firestore().collection('orders').doc('ord_unassigned_1').update({
             status: 'ASSIGNED',
             riderId: 'rider_suresh'
         }));
     });
 
-    // 10.7: Rider can self-assign unassigned order with status: 'RIDER_ASSIGNED'
-    await testRule("10.7 Rider can self-assign unassigned order with status: 'RIDER_ASSIGNED'", async (env) => {
+    // 10.7: Rider cannot self-assign unassigned order with status: 'RIDER_ASSIGNED'
+    await testRule("10.7 Rider cannot self-assign unassigned order with status: 'RIDER_ASSIGNED'", async (env) => {
         await env.withSecurityRulesDisabled(async (context) => {
             await context.firestore().collection('orders').doc('ord_unassigned_2').set({
                 userId: 'farmer_alice',
@@ -550,7 +563,7 @@ async function runEmulatorRulesTests() {
             });
         });
         const riderCtx = env.authenticatedContext('rider_suresh', { role: 'Rider' });
-        await assertSucceeds(riderCtx.firestore().collection('orders').doc('ord_unassigned_2').update({
+        await assertFails(riderCtx.firestore().collection('orders').doc('ord_unassigned_2').update({
             status: 'RIDER_ASSIGNED',
             riderId: 'rider_suresh'
         }));
@@ -624,8 +637,8 @@ async function runEmulatorRulesTests() {
         }));
     });
 
-    // 10.12: Rider CAN take READY_FOR_PICKUP order
-    await testRule("10.12 Rider CAN take READY_FOR_PICKUP order", async (env) => {
+    // 10.12: Rider cannot self-assign READY_FOR_PICKUP orders
+    await testRule("10.12 Rider cannot self-assign READY_FOR_PICKUP order", async (env) => {
         await env.withSecurityRulesDisabled(async (context) => {
             await context.firestore().collection('orders').doc('ord_unassigned_pickup').set({
                 userId: 'farmer_alice',
@@ -635,7 +648,7 @@ async function runEmulatorRulesTests() {
             });
         });
         const riderCtx = env.authenticatedContext('rider_suresh', { role: 'Rider' });
-        await assertSucceeds(riderCtx.firestore().collection('orders').doc('ord_unassigned_pickup').update({
+        await assertFails(riderCtx.firestore().collection('orders').doc('ord_unassigned_pickup').update({
             status: 'ASSIGNED',
             riderId: 'rider_suresh'
         }));
@@ -828,6 +841,9 @@ async function runEmulatorRulesTests() {
             amount: 300,
             status: 'DEPOSITED_AT_WAREHOUSE'
         }));
+        await assertFails(riderSuresh.firestore().collection('cash_deposits').doc('dep_suresh_new').update({
+            status: 'VERIFIED'
+        }));
         await assertFails(riderSuresh.firestore().collection('cash_deposits').doc('dep_ramesh').get());
         await assertFails(riderSuresh.firestore().collection('cash_deposits').doc('dep_ramesh').update({
             amount: 0
@@ -843,10 +859,10 @@ async function runEmulatorRulesTests() {
         await assertFails(riderSuresh.firestore().collection('hub_bank_deposits').doc('bank_hack').set({ amount: 1000 }));
     });
 
-    // 11.4: Admin CAN read and write hub_bank_deposits
-    await testRule("11.4 Admin CAN read and write hub_bank_deposits", async (env) => {
+    // 11.4: Admin can read hub bank deposits, but writes are server-only
+    await testRule("11.4 Admin CAN read but CANNOT write hub_bank_deposits directly", async (env) => {
         await assertSucceeds(adminVikash.firestore().collection('hub_bank_deposits').doc('bank_dep_1').get());
-        await assertSucceeds(adminVikash.firestore().collection('hub_bank_deposits').doc('bank_dep_new').set({
+        await assertFails(adminVikash.firestore().collection('hub_bank_deposits').doc('bank_dep_new').set({
             warehouseId: 'HUB-SAM-001',
             amount: 50000,
             status: 'DEPOSITED'
@@ -935,7 +951,11 @@ async function runEmulatorRulesTests() {
     await testRule("12.3 FinanceAdmin ALLOWED on finance collections, BLOCKED on corporate_* collections", async (env) => {
         for (const col of financeCollections) {
             await assertSucceeds(financeUser.firestore().collection(col).doc('test_doc_1').get());
-            await assertSucceeds(financeUser.firestore().collection(col).doc(`finance_write_${col}`).set({ ok: true }));
+            if (['expenseCategories', 'expense_categories', 'expenseVendors', 'expense_vendors'].includes(col)) {
+                await assertSucceeds(financeUser.firestore().collection(col).doc(`finance_write_${col}`).set({ ok: true }));
+            } else {
+                await assertFails(financeUser.firestore().collection(col).doc(`finance_write_${col}`).set({ ok: true }));
+            }
         }
         for (const col of corporateCollections) {
             await assertFails(financeUser.firestore().collection(col).doc('test_doc_1').get());
@@ -943,10 +963,10 @@ async function runEmulatorRulesTests() {
         }
     });
 
-    // 12.4: HubManager (opsRoles) ALLOWED to write journal_vouchers (PhysicalStockAudit & ReturnToVendor)
-    await testRule("12.4 HubManager (opsRoles) ALLOWED to write journal_vouchers for stock audit & return to vendor", async (env) => {
-        const hubManager = env.authenticatedContext('hub_manager_1', { role: 'HubManager' });
-        await assertSucceeds(hubManager.firestore().collection('journal_vouchers').doc('jv_stock_audit').set({
+    // 12.4: Journal vouchers are only written by validated backend workflows
+    await testRule("12.4 HubManager CANNOT write journal_vouchers directly", async (env) => {
+        const hubManager = env.authenticatedContext('hub_manager_1', { role: 'HubManager', hubId: 'HUB-1' });
+        await assertFails(hubManager.firestore().collection('journal_vouchers').doc('jv_stock_audit').set({
             voucherNumber: 'JV-AUD-001',
             narration: 'Physical Stock Shortage Write-off',
             amount: 500
@@ -957,14 +977,19 @@ async function runEmulatorRulesTests() {
         }
     });
 
-    // 12.5: SuperAdmin ALLOWED to read/write all 13 collections
-    await testRule("12.5 SuperAdmin ALLOWED to read/write all 13 collections including corporate data", async (env) => {
+    // 12.5: SuperAdmin reads all collections; financial writes remain backend-only
+    await testRule("12.5 SuperAdmin reads all collections and only writes authorized finance config", async (env) => {
         for (const col of [...corporateCollections, ...financeCollections]) {
             await assertSucceeds(adminVikash.firestore().collection(col).doc('test_doc_1').get());
-            await assertSucceeds(adminVikash.firestore().collection(col).doc(`admin_write_${col}`).set({ ok: true }));
+            const isFinanceConfig = ['expenseCategories', 'expense_categories', 'expenseVendors', 'expense_vendors'].includes(col);
+            if (corporateCollections.includes(col) || isFinanceConfig) {
+                await assertSucceeds(adminVikash.firestore().collection(col).doc(`admin_write_${col}`).set({ ok: true }));
+            } else {
+                await assertFails(adminVikash.firestore().collection(col).doc(`admin_write_${col}`).set({ ok: true }));
+            }
         }
         await assertSucceeds(adminVikash.firestore().collection('sales_stats').doc('test_doc_1').get());
-        await assertSucceeds(adminVikash.firestore().collection('sales_stats').doc('admin_stat').set({ count: 1 }));
+        await assertFails(adminVikash.firestore().collection('sales_stats').doc('admin_stat').set({ count: 1 }));
     });
 
     // 12.6: Prove non-SuperAdmin accounts with blanket admin:true claims are BLOCKED on corporate collections
@@ -1014,16 +1039,16 @@ async function runEmulatorRulesTests() {
             { col: 'employees', id: 'emp_test_v13', data: { name: 'Staff A', role: 'Staff' } },
             { col: 'employee_documents', id: 'doc_test_v13', data: { type: 'Aadhaar' } },
             { col: 'system_summaries', id: 'summary_v13', data: { revenue: 50000 } },
-            { col: 'stock_transfers', id: 'transfer_v13', data: { fromHub: 'REG-1', toHub: 'REG-2' } },
+            { col: 'stock_transfers', id: 'transfer_v13', data: { fromHub: 'REG-1', toHub: 'REG-2', fromHubId: 'REG-KHA-003' } },
             { col: 'stock_movements', id: 'movement_v13', data: { qty: 50 } },
             { col: 'payout_logs', id: 'payout_log_v13', data: { txId: 'TX1' } },
             { col: 'rider_performance', id: 'perf_v13', data: { rating: 4.8 } },
             { col: 'suppliers', id: 'sup_test_v13', data: { name: 'Supplier Bihar' } },
             { col: 'procurement_queue', id: 'item_test_v13', data: { item: 'Urea' } },
             { col: 'purchase_orders', id: 'po_test_v13', data: { poNumber: 'PO-001' } },
-            { col: 'goods_receipts', id: 'grn_test_v13', data: { grnNumber: 'GRN-001' } },
+            { col: 'goods_receipts', id: 'grn_test_v13', data: { grnNumber: 'GRN-001', hubId: 'REG-KHA-003' } },
             { col: 'inventory_movements', id: 'inv_mov_v13', data: { movementType: 'IN' } },
-            { col: 'warehouse_stock', id: 'wh_stock_v13', data: { availableStock: 250 } },
+            { col: 'warehouse_stock', id: 'wh_stock_v13', data: { availableStock: 250, warehouseId: 'REG-KHA-003' } },
             { col: 'supplier_ledger', id: 'sup_led_v13', data: { balance: 12000 } },
             { col: 'customer_ledger', id: 'cust_led_v13', data: { balance: 400 } },
             { col: 'unit_economics', id: 'ord_ue_v13', data: { grossMargin: 120 } },

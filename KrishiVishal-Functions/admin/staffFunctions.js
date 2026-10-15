@@ -1,5 +1,6 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db, admin, auth } = require("../core/admin");
+const { isAccountActive } = require("../core/utils");
 
 const REGION = 'asia-south1';
 
@@ -12,6 +13,9 @@ exports.setUserRole = onCall({ region: REGION, cors: true }, async (request) => 
     const context = { auth: request.auth };
     if (!context.auth) {
         throw new HttpsError('unauthenticated', 'User must be authenticated.');
+    }
+    if (!(await isAccountActive(context.auth.uid))) {
+        throw new HttpsError('permission-denied', 'Deactivated accounts cannot assign roles.');
     }
 
     const token = context.auth.token || {};

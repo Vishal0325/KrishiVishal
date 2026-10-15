@@ -49,7 +49,7 @@ async function runP0Tests() {
 
     // Test 3: Verify firestore.rules blocks direct client orders create
     const rulesPath = path.join(__dirname, "../../firestore.rules");
-    const rulesContent = fs.readFileSync(rulesPath, 'utf8');
+    const rulesContent = fs.readFileSync(rulesPath, 'utf8').replace(/\r\n/g, '\n');
 
     const ordersBlockMatch = rulesContent.includes("match /orders/{orderId}") &&
                              rulesContent.includes("allow create: if isAdmin();");
@@ -107,8 +107,8 @@ async function runP0Tests() {
 
     // Test 8: Verify hub_bank_deposits is properly restricted
     const hubBankDepositsSecure = rulesContent.includes("match /hub_bank_deposits/{id}") &&
-                                  rulesContent.includes("allow read: if isAdmin() || isSuperAdmin() || isViewer() || isHubManager() || canViewFinance();") &&
-                                  rulesContent.includes("allow write: if isAdmin() || isSuperAdmin();");
+                                  rulesContent.includes("allow read: if isAdmin() || isSuperAdmin() || isViewer() || isHubManagerFor(resource.data) || canViewFinance();") &&
+                                  rulesContent.includes("match /hub_bank_deposits/{id} {\n      allow read: if isAdmin() || isSuperAdmin() || isViewer() || isHubManagerFor(resource.data) || canViewFinance();\n      allow write: if false;");
     if (hubBankDepositsSecure) {
         console.log("PASS: Test 8 (hub_bank_deposits is restricted properly)");
         passed++;

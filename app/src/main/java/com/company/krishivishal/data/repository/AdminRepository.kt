@@ -8,6 +8,7 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.tasks.await
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.company.krishivishal.di.IoDispatcher
@@ -66,6 +67,7 @@ class AdminRepositoryImpl @Inject constructor(
         // Server-authoritative audit logging: delegates to Cloud Function addSecureAuditLog
         // which stamps actorId, ipAddress, server timestamp, and writes to both audit_logs and admin_logs.
         val payload = hashMapOf(
+            "eventId" to UUID.randomUUID().toString(),
             "action" to log.action,
             "module" to (log.targetType.ifEmpty { "ADMIN" }),
             "entityId" to (log.targetId.ifEmpty { "N/A" }),

@@ -11,12 +11,19 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isActiveAccount() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('deactivated', false) != true &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('status', '') != 'DEACTIVATED';
+    }
+
     function isNotAnonymous() {
       return isAuthenticated() && request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
 
     function isAdmin() {
-      return isAuthenticated() && (
+      return isActiveAccount() && (
         (('admin' in request.auth.token) && request.auth.token.admin == true) ||
         (('isAdmin' in request.auth.token) && request.auth.token.isAdmin == true) ||
         (('role' in request.auth.token) && request.auth.token.role in ["ADMIN", "SuperAdmin", "SUPER_ADMIN", "CatalogManager", "OrderManager", "FinanceAdmin", "Admin"])
@@ -24,20 +31,18 @@ service cloud.firestore {
     }
 
     function isSuperAdmin() {
-      return isAuthenticated() && (
+      return isActiveAccount() && (
         (('role' in request.auth.token) && request.auth.token.role in ["SuperAdmin", "SUPER_ADMIN"]) ||
         (('isSuperAdmin' in request.auth.token) && request.auth.token.isSuperAdmin == true)
       );
     }
 
     function isFinanceRole() {
-      return isAuthenticated() && (
-        isSuperAdmin() ||
-        isAdmin() ||
+      return isActiveAccount() && (
         (('role' in request.auth.token) && request.auth.token.role in [
-          "SuperAdmin", "SUPER_ADMIN", "super_admin", "Admin", "ADMIN", "admin",
+          "SuperAdmin", "SUPER_ADMIN",
           "FinanceAdmin", "FINANCE_ADMIN", "finance_manager", "FinanceManager",
-          "director", "Director", "CFO", "Accountant", "Auditor"
+          "CFO", "Accountant", "Auditor"
         ])
       );
     }
@@ -47,15 +52,35 @@ service cloud.firestore {
     }
 
     function isViewer() {
-      return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role == "Viewer";
+      return isActiveAccount() && ('role' in request.auth.token) && request.auth.token.role == "Viewer";
     }
 
     function isHubManager() {
-      return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role in ["HubManager", "WarehouseManager"];
+      return isActiveAccount() && ('role' in request.auth.token) &&
+        request.auth.token.role in ["HubManager", "WarehouseManager"] &&
+        ('hubId' in request.auth.token) && request.auth.token.hubId is string &&
+        request.auth.token.hubId.size() > 0;
+    }
+
+    function isHubManagerFor(data) {
+      return isHubManager() && (
+        (data.keys().hasAny(['hubId']) && data.hubId == request.auth.token.hubId) ||
+        (data.keys().hasAny(['hubCode']) && data.hubCode == request.auth.token.hubId) ||
+        (data.keys().hasAny(['warehouseId']) && data.warehouseId == request.auth.token.hubId) ||
+        (data.keys().hasAny(['assignedWarehouse']) && data.assignedWarehouse == request.auth.token.hubId) ||
+        (data.keys().hasAny(['sourceHubId']) && data.sourceHubId == request.auth.token.hubId) ||
+        (data.keys().hasAny(['destinationHubId']) && data.destinationHubId == request.auth.token.hubId) ||
+        (data.keys().hasAny(['fromHubId']) && data.fromHubId == request.auth.token.hubId) ||
+        (data.keys().hasAny(['toHubId']) && data.toHubId == request.auth.token.hubId)
+      );
+    }
+
+    function hubManagerUpdateWithinScope() {
+      return isHubManagerFor(resource.data) && isHubManagerFor(request.resource.data);
     }
 
     function isDepartmentManager() {
-      return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role in ["DepartmentManager", "HRAdmin"];
+      return isActiveAccount() && ('role' in request.auth.token) && request.auth.token.role in ["DepartmentManager", "HRAdmin"];
     }
 
     function isOwner(userId) {
@@ -64,17 +89,17 @@ service cloud.firestore {
     }
 
     function isRider() {
-      return isAuthenticated() && ('role' in request.auth.token) && (
+      return isActiveAccount() && ('role' in request.auth.token) && (
         request.auth.token.role in ["Rider", "rider", "Serviceman", "serviceman", "Partner", "partner", "DELIVERY"]
       );
     }
 
     function isAuditor() {
-      return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role in ["Auditor", "StockAuditor", "WarehouseAuditor"];
+      return isActiveAccount() && ('role' in request.auth.token) && request.auth.token.role in ["Auditor", "StockAuditor", "WarehouseAuditor"];
     }
 
     function isTelecaller() {
-      return isAuthenticated() && ('role' in request.auth.token) && request.auth.token.role in ["Telecaller", "KisanCallCenter", "SupportAgent", "CRMExecutive"];
+      return isActiveAccount() && ('role' in request.auth.token) && request.auth.token.role in ["Telecaller", "KisanCallCenter", "SupportAgent", "CRMExecutive"];
     }
 
 
@@ -128,14 +153,14 @@ service cloud.firestore {
       allow write: if false;
 
       match /batches/{batchId} {
-        allow read: if isAdmin() || isViewer() || isHubManager();
-        allow write: if isAdmin();
+        allow read: if isAdmin() || isViewer();
+        allow write: if false;
       }
     }
     
     match /inventory_movements/{movementId} {
-      allow create: if isAuthenticated() && (isAdmin() || isHubManager());
-      allow read: if isAuthenticated() && (isFinanceRole() || isHubManager() || isAdmin());
+      allow create: if false;
+      allow read: if isFinanceRole() || isAdmin() || isHubManagerFor(resource.data);
       allow update: if false; // IMMUTABLE
       allow delete: if false; // IMMUTABLE
     }
@@ -180,15 +205,18 @@ service cloud.firestore {
     }
 
     match /ledger/{id} {
-      allow read, write: if canViewFinance();
+      allow read: if canViewFinance();
+      allow write: if false; // Ledger mutations are server-authoritative
     }
 
     match /finance/{document=**} {
-      allow read, write: if canViewFinance();
+      allow read: if canViewFinance();
+      allow write: if false; // Finance records are mutated through Cloud Functions
     }
 
     match /accounts/{accountId} {
-      allow read, write: if canViewFinance();
+      allow read: if canViewFinance();
+      allow write: if false; // Account balances are mutated through Cloud Functions
     }
 
     match /expenseCategories/{id} {
@@ -283,75 +311,72 @@ service cloud.firestore {
 
     match /fiscal_periods/{periodId} {
       allow read:  if isAuthenticated() && isFinanceRole();
-      allow write: if isAuthenticated() &&
-        (request.auth.token.role == 'CFO' ||
-         request.auth.token.role == 'SUPER_ADMIN' ||
-         request.auth.token.role == 'SuperAdmin');
+      allow write: if false;
     }
 
     match /approval_requests/{requestId} {
-      allow read, write: if isFinanceRole();
+      allow read: if isFinanceRole();
+      allow write: if false;
     }
 
     match /supplier_invoices/{invoiceId} {
-      allow read, write: if isFinanceRole() || isHubManager();
+      allow read: if isFinanceRole() || isHubManagerFor(resource.data);
+      allow write: if false;
     }
 
     match /credit_notes/{cnId} {
-      allow read, write: if isFinanceRole();
+      allow read: if isFinanceRole();
+      allow write: if false;
     }
 
     match /invoice_counters/{counterId} {
-      allow read, write: if isFinanceRole();
+      allow read: if isFinanceRole();
+      allow write: if false;
     }
 
     match /credit_note_counters/{counterId} {
-      allow read, write: if isFinanceRole();
+      allow read: if isFinanceRole();
+      allow write: if false;
     }
 
     match /gateway_settlements/{settlementId} {
-      allow read, write: if isFinanceRole();
+      allow read: if isFinanceRole();
+      allow write: if false;
     }
 
     match /cash_deposits/{depositId} {
-      allow read, write: if isFinanceRole() || isHubManager();
+      allow read: if isFinanceRole() || isHubManagerFor(resource.data);
+      allow write: if false;
     }
 
     match /quarantine/{quarantineId} {
-      allow read, write: if isFinanceRole() || isHubManager() || isAdmin();
+      allow read: if isFinanceRole() || isHubManagerFor(resource.data) || isAdmin();
+      allow write: if false;
     }
 
     match /quarantine_items/{itemId} {
-      allow read, write: if isFinanceRole() || isHubManager() || isAdmin();
+      allow read: if isFinanceRole() || isHubManagerFor(resource.data) || isAdmin();
+      allow write: if false;
     }
 
     match /inventory_quarantine/{itemId} {
-      allow read, write: if isFinanceRole() || isHubManager() || isAdmin();
+      allow read: if isFinanceRole() || isHubManagerFor(resource.data) || isAdmin();
+      allow write: if false;
     }
 
-    // TODO: journal_vouchers ka HubManager/WarehouseManager write access
-    // temporary hai. Long-term isse Cloud Function (Admin SDK) route karo
-    // taaki entry type (STOCK_AUDIT/RTV) validate ho sake, client arbitrary
-    // journal entry na bana sake. — added 2026-09-25
     match /journal_vouchers/{id} {
       allow read: if canViewFinance() || isAdmin() || isSuperAdmin();
-      allow write: if canViewFinance() || isAdmin() || isSuperAdmin() || (('role' in request.auth.token) && request.auth.token.role in ["HubManager", "WarehouseManager"]);
+      allow write: if false; // Journal vouchers are created by validated backend workflows only
     }
 
     match /expenses/{id} {
       allow read: if canViewFinance();
-      allow create: if canViewFinance() &&
-        request.resource.data.createdBy == request.auth.uid &&
-        request.resource.data.keys().hasAll(['amount', 'category', 'description', 'date']) &&
-        request.resource.data.amount > 0 &&
-        request.resource.data.amount <= 10000000;
-      allow update: if canViewFinance() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['expenseNumber', 'createdBy']);
-      allow delete: if isSuperAdmin();
+      allow write: if false; // Validated finance callable is the only expense writer
     }
 
     match /sales_stats/{statId} {
       allow read: if isAdmin() || isSuperAdmin() || isViewer();
-      allow write: if isAdmin() || isSuperAdmin();
+      allow write: if false;
     }
 
 
@@ -366,14 +391,7 @@ service cloud.firestore {
 
     match /ai_action_requests/{id} {
       allow read: if isAdmin();
-
-      allow update: if isAdmin() &&
-        request.resource.data
-          .diff(resource.data)
-          .affectedKeys()
-          .hasOnly(['status', 'reason', 'reviewedBy', 'reviewedAt']);
-
-      allow create, delete: if false;
+      allow write: if false; // Approval/rejection must pass backend state validation
     }
 
 
@@ -434,7 +452,7 @@ service cloud.firestore {
 
       allow read: if isAdmin() || isViewer() || isDepartmentManager() ||
         (
-          isHubManager() && resource.data.hubCode == request.auth.token.hubId
+          isHubManagerFor(resource.data)
         ) ||
         (
           isAuthenticated() &&
@@ -525,7 +543,7 @@ service cloud.firestore {
 
     match /returns/{returnId} {
 
-      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager() ||
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data) || isDepartmentManager() ||
         (
           isAuthenticated() &&
           resource.data.userId == request.auth.uid
@@ -582,7 +600,9 @@ service cloud.firestore {
           'customClaims'
         ]);
 
-      allow update: if !request.resource.data.diff(resource.data).affectedKeys().hasAny(['walletBalance', 'pendingPromoClawback']) &&
+      allow update: if !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'walletBalance', 'pendingPromoClawback', 'status', 'deactivated', 'hubId', 'hubAccess', 'isStaff'
+      ]) &&
         (
           isSuperAdmin() ||
           (
@@ -652,7 +672,7 @@ service cloud.firestore {
     // ============================================================
 
     match /whitelisted_riders/{id} {
-      allow get: if isAdmin() || isViewer() || isHubManager() || (
+      allow get: if isAdmin() || isViewer() || (
         isAuthenticated() && ('phone_number' in request.auth.token) && (
           request.auth.token.phone_number == id ||
           request.auth.token.phone_number == ('+91' + id) ||
@@ -660,7 +680,7 @@ service cloud.firestore {
           (resource.data.phone != null && ('+91' + resource.data.phone) == request.auth.token.phone_number)
         )
       );
-      allow list: if isAdmin() || isViewer() || isHubManager() || (
+      allow list: if isAdmin() || isViewer() || (
         isAuthenticated() && ('phone_number' in request.auth.token) && (
           resource.data.phone == request.auth.token.phone_number ||
           ('+91' + resource.data.phone) == request.auth.token.phone_number ||
@@ -671,12 +691,12 @@ service cloud.firestore {
     }
 
     match /payout_requests/{reqId} {
-      allow read: if (isAdmin() || isSuperAdmin() || isViewer() || canViewFinance() || isHubManager()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow read: if isAdmin() || isSuperAdmin() || isViewer() || canViewFinance() || isHubManagerFor(resource.data) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
       allow write: if false; // Retired legacy collection - Payouts managed via approveRiderPayout & rider_payouts
     }
 
     match /riders/{riderId} {
-      allow read: if isAdmin() || isViewer() || isOwner(riderId) || isHubManager();
+      allow read: if isAdmin() || isViewer() || isOwner(riderId) || isHubManagerFor(resource.data);
       // Self-creation blocked: Only Admin can onboard/create rider profiles
       allow create: if isAdmin();
       // Rider self-updates restricted to non-sensitive profile fields
@@ -697,7 +717,8 @@ service cloud.firestore {
 
       // Attendance subcollection for daily shift logs
       match /attendance/{attendanceId} {
-        allow read: if isAdmin() || isViewer() || isOwner(riderId) || isHubManager();
+        allow read: if isAdmin() || isViewer() || isOwner(riderId) ||
+          (isHubManager() && isHubManagerFor(get(/databases/$(database)/documents/riders/$(riderId)).data));
         allow create, update: if isAdmin() || isOwner(riderId);
         allow delete: if isAdmin();
       }
@@ -759,12 +780,12 @@ service cloud.firestore {
     }
 
     match /statutory_licenses/{id} {
-      allow read: if isAdmin() || isViewer() || isDepartmentManager() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
       allow write: if isAdmin() || isDepartmentManager();
     }
 
     match /agri_licenses/{id} {
-      allow read: if isAdmin() || isViewer() || isDepartmentManager() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isDepartmentManager();
       allow write: if isAdmin() || isDepartmentManager();
     }
 
@@ -834,78 +855,84 @@ service cloud.firestore {
     }
 
     match /b2b_sales_deals/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
-      allow write: if isAdmin() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data);
+      allow create: if isAdmin() || isHubManagerFor(request.resource.data);
+      allow update: if isAdmin() || hubManagerUpdateWithinScope();
+      allow delete: if isAdmin() || isHubManagerFor(resource.data);
     }
 
     match /b2bOffers/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
-      allow write: if isAdmin() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data);
+      allow create: if isAdmin() || isHubManagerFor(request.resource.data);
+      allow update: if isAdmin() || hubManagerUpdateWithinScope();
+      allow delete: if isAdmin() || isHubManagerFor(resource.data);
     }
 
     match /coupons/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow read: if isAdmin() || isViewer();
       allow write: if isAdmin();
     }
 
     match /expenseAuditLogs/{id} {
       allow read: if isAdmin() || isViewer() || canViewFinance();
-      allow write: if isAdmin() || canViewFinance();
+      allow write: if false;
     }
 
     match /expensePayments/{id} {
       allow read: if isAdmin() || isViewer() || canViewFinance();
-      allow write: if isAdmin() || canViewFinance();
+      allow write: if false;
     }
 
     match /farmer_crop_profiles/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
-      allow write: if isAdmin() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data);
+      allow write: if isAdmin() || (isHubManagerFor(resource.data) && hubManagerUpdateWithinScope());
     }
 
     match /interHubTransfers/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
-      allow write: if isAdmin() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data);
+      allow write: if isAdmin() || (isHubManagerFor(resource.data) && hubManagerUpdateWithinScope());
     }
 
     match /kisan_call_logs/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
-      allow write: if isAdmin() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data);
+      allow write: if isAdmin() || (isHubManagerFor(resource.data) && hubManagerUpdateWithinScope());
     }
 
     match /physical_stock_audits/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
-      allow write: if isAdmin() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data);
+      allow write: if isAdmin() || (isHubManagerFor(resource.data) && hubManagerUpdateWithinScope());
     }
 
     match /rtv_returns/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
-      allow write: if isAdmin() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data);
+      allow write: if isAdmin() || (isHubManagerFor(resource.data) && hubManagerUpdateWithinScope());
     }
 
     match /supplier_debit_notes/{id} {
       allow read: if isAdmin() || isViewer() || canViewFinance();
-      allow write: if isAdmin() || canViewFinance();
+      allow write: if false;
     }
 
     match /supplierDebitNotes/{id} {
       allow read: if isAdmin() || isViewer() || canViewFinance();
-      allow write: if isAdmin() || canViewFinance();
+      allow write: if false;
     }
 
     match /trips/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
-      allow write: if isAdmin() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data);
+      allow write: if isAdmin() || (isHubManagerFor(resource.data) && hubManagerUpdateWithinScope());
     }
 
     match /dispatch_batches/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager() || isRider();
-      allow write: if isAdmin() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data) || isRider();
+      allow write: if isAdmin() || (isHubManagerFor(resource.data) && hubManagerUpdateWithinScope());
     }
 
     match /warehouse_inventory/{id} {
-      allow read: if isAdmin() || isViewer() || isDepartmentManager() || (isHubManager() && resource.data.hubCode == request.auth.token.hubId);
-      allow write: if isAdmin() || (isHubManager() && resource.data.hubCode == request.auth.token.hubId);
+      allow read: if isAdmin() || isViewer() || isDepartmentManager() || isHubManagerFor(resource.data);
+      allow create: if isAdmin() || isHubManagerFor(request.resource.data);
+      allow update: if isAdmin() || hubManagerUpdateWithinScope();
+      allow delete: if isAdmin();
     }
 
 
@@ -951,26 +978,26 @@ service cloud.firestore {
 
     match /system_summaries/{allPaths=**} {
       allow read: if canViewFinance() || isAdmin() || isSuperAdmin() || isViewer();
-      allow write: if canViewFinance() || isAdmin() || isSuperAdmin();
+      allow write: if false;
     }
 
     match /stock_transfers/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data);
       allow write: if isAdmin();
     }
 
     match /stock_movements/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data);
       allow write: if isAdmin();
     }
 
     match /payout_logs/{id} {
       allow read: if isAdmin() || isViewer() || canViewFinance();
-      allow write: if isAdmin();
+      allow write: if false;
     }
 
     match /rider_performance/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data);
       allow write: if isAdmin();
     }
 
@@ -992,7 +1019,7 @@ service cloud.firestore {
     }
 
     match /admin_alerts/{alertId} {
-      allow read: if isAdmin() || isSuperAdmin() || isViewer() || isHubManager();
+      allow read: if isAdmin() || isSuperAdmin() || isViewer() || isHubManagerFor(resource.data);
       allow write: if isAdmin() || isSuperAdmin();
     }
 
@@ -1042,7 +1069,7 @@ service cloud.firestore {
         request.auth.uid == resource.data.riderId ||
         isAdmin() ||
         canViewFinance() ||
-        isHubManager()
+        isHubManagerFor(resource.data)
       );
       allow write: if false; // Only Cloud Functions mutate this
     }
@@ -1052,14 +1079,14 @@ service cloud.firestore {
     // ============================================================
 
     match /vle_profiles/{vleId} {
-      allow read: if isAuthenticated() && (request.auth.uid == vleId || isAdmin() || isHubManager() || isTelecaller() || isViewer());
+      allow read: if isAuthenticated() && (request.auth.uid == vleId || isAdmin() || isHubManagerFor(resource.data) || isTelecaller() || isViewer());
       allow create: if isAuthenticated() && request.auth.uid == vleId;
-      allow update: if isAuthenticated() && (isAdmin() || isHubManager() || (request.auth.uid == vleId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['kycStatus', 'walletBalance', 'totalCommissionEarned', 'totalGmvGenerated'])));
+      allow update: if isAuthenticated() && (isAdmin() || (isHubManagerFor(resource.data) && hubManagerUpdateWithinScope()) || (request.auth.uid == vleId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['kycStatus', 'walletBalance', 'totalCommissionEarned', 'totalGmvGenerated'])));
       allow delete: if isAdmin();
     }
 
     match /vle_commissions/{commId} {
-      allow read: if isAuthenticated() && (request.auth.uid == resource.data.vleId || isAdmin() || isHubManager() || isViewer());
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.vleId || isAdmin() || isHubManagerFor(resource.data) || isViewer());
       allow write: if false; // Server Cloud Functions authoritative only
     }
 
@@ -1074,30 +1101,34 @@ service cloud.firestore {
     }
 
     match /procurement_queue/{itemId} {
-      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data) || isDepartmentManager();
       allow write: if isAdmin();
     }
 
     match /purchase_orders/{poId} {
-      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data) || isDepartmentManager();
       allow write: if isAdmin();
       match /{document=**} {
-        allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
+        allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data) || isDepartmentManager();
         allow write: if isAdmin();
       }
     }
 
     match /goods_receipts/{grnId} {
-      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
-      allow write: if isAdmin() || isHubManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data) || isDepartmentManager();
+      allow create: if isAdmin() || isHubManagerFor(request.resource.data);
+      allow update: if isAdmin() || (isHubManagerFor(resource.data) && hubManagerUpdateWithinScope());
+      allow delete: if isAdmin();
       match /{document=**} {
-        allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
-        allow write: if isAdmin() || isHubManager();
+        allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data) || isDepartmentManager();
+        allow create: if isAdmin() || isHubManagerFor(request.resource.data);
+        allow update: if isAdmin() || (isHubManagerFor(resource.data) && hubManagerUpdateWithinScope());
+        allow delete: if isAdmin();
       }
     }
 
     match /inventory_movements/{movementId} {
-      allow read: if isAdmin() || isViewer() || isHubManager() || isDepartmentManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data) || isDepartmentManager();
       allow write: if false; // Immutable ledger: mutated strictly via Cloud Functions / Admin SDK
     }
 
@@ -1208,21 +1239,24 @@ service cloud.firestore {
     // ============================================================
     
     match /cash_deposits/{id} {
-      allow read: if (isAdmin() || isSuperAdmin() || isViewer() || isHubManager() || canViewFinance()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
-      allow create: if (isAdmin() || isSuperAdmin()) || (isRider() && request.resource.data.riderId == request.auth.uid);
-      allow update, delete: if isAdmin() || isSuperAdmin();
+      allow read: if isAdmin() || isSuperAdmin() || isViewer() || isHubManagerFor(resource.data) || canViewFinance() || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow create: if isRider() &&
+        request.resource.data.riderId == request.auth.uid &&
+        request.resource.data.amount is number &&
+        request.resource.data.amount > 0 &&
+        request.resource.data.status in ['PENDING', 'DEPOSITED_AT_WAREHOUSE'] &&
+        request.resource.data.keys().hasOnly(['riderId', 'amount', 'status', 'createdAt', 'receiptUrl', 'notes']);
+      allow update, delete: if false;
     }
 
     match /cash_settlements/{settlementId} {
-      allow read: if (isAdmin() || isSuperAdmin() || isHubManager()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
-      allow create: if isAuthenticated() && (isAdmin() || isSuperAdmin() || (isRider() && request.resource.data.riderId == request.auth.uid));
-      allow update: if isAdmin() || isSuperAdmin() || isHubManager();
-      allow delete: if false;
+      allow read: if isAdmin() || isSuperAdmin() || isHubManagerFor(resource.data) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow write: if false;
     }
 
     match /hub_bank_deposits/{id} {
-      allow read: if isAdmin() || isSuperAdmin() || isViewer() || isHubManager() || canViewFinance();
-      allow write: if isAdmin() || isSuperAdmin();
+      allow read: if isAdmin() || isSuperAdmin() || isViewer() || isHubManagerFor(resource.data) || canViewFinance();
+      allow write: if false;
     }
 
     // ============================================================
@@ -1278,35 +1312,42 @@ service cloud.firestore {
     // RIDER PAYOUTS & COMMISSIONS
     // ============================================================
     match /rider_payouts/{payoutId} {
-      allow read: if isAdmin() || isHubManager() || (isRider() && request.auth.uid == resource.data.riderId);
-      allow write: if isAdmin() || isSuperAdmin();
+      allow read: if isAdmin() || isHubManagerFor(resource.data) || (isRider() && request.auth.uid == resource.data.riderId);
+      allow write: if false;
     }
 
     // ============================================================
     // WMS CYCLE COUNTING & BLIND AUDIT SESSIONS
     // ============================================================
     match /audit_sessions/{sessionId} {
-      allow read: if isAdmin() || isHubManager() || isAuditor();
-      allow write: if isAdmin() || isHubManager();
+      allow read: if isAdmin() || isHubManagerFor(resource.data) || isAuditor();
+      allow create: if isAdmin() || isHubManagerFor(request.resource.data);
+      allow update: if isAdmin() || hubManagerUpdateWithinScope();
+      allow delete: if isAdmin();
 
       // Blind Audit Security: Auditors CANNOT view live system snapshot
       match /system_snapshot/{docId} {
-        allow read, write: if isAdmin() || isHubManager();
+        allow read: if isAdmin();
+        allow write: if false;
       }
     }
 
     match /quarantine_stock/{stockId} {
-      allow read: if isAdmin() || isHubManager() || isAuditor();
-      allow write: if isAdmin() || isHubManager();
+      allow read: if isAdmin() || isHubManagerFor(resource.data) || isAuditor();
+      allow create: if isAdmin() || isHubManagerFor(request.resource.data);
+      allow update: if isAdmin() || hubManagerUpdateWithinScope();
+      allow delete: if isAdmin();
     }
 
     match /inventory_adjustments/{adjId} {
-      allow read: if isAdmin() || isHubManager() || isAuditor();
-      allow write: if isAdmin() || isHubManager();
+      allow read: if isAdmin() || isHubManagerFor(resource.data) || isAuditor();
+      allow create: if isAdmin() || isHubManagerFor(request.resource.data);
+      allow update: if isAdmin() || hubManagerUpdateWithinScope();
+      allow delete: if isAdmin();
     }
 
     match /hub_debit_notes/{noteId} {
-      allow read: if isAdmin() || isHubManager() || canViewFinance();
+      allow read: if isAdmin() || isHubManagerFor(resource.data) || canViewFinance();
       allow write: if isAdmin() || isSuperAdmin();
     }
 
@@ -1314,8 +1355,10 @@ service cloud.firestore {
     // MARKETING & DIGITAL LEADS (META ADS)
     // ============================================================
     match /leads/{leadId} {
-      allow read: if isAdmin() || isSuperAdmin() || isHubManager() || isTelecaller();
-      allow write: if isAdmin() || isSuperAdmin() || isHubManager() || isTelecaller();
+      allow read: if isAdmin() || isSuperAdmin() || isHubManagerFor(resource.data) || isTelecaller();
+      allow create: if isAdmin() || isSuperAdmin() || isTelecaller() || isHubManagerFor(request.resource.data);
+      allow update: if isAdmin() || isSuperAdmin() || isTelecaller() || hubManagerUpdateWithinScope();
+      allow delete: if isAdmin() || isSuperAdmin() || isTelecaller() || isHubManagerFor(resource.data);
     }
 
 

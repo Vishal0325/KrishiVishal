@@ -13,8 +13,6 @@ import com.company.krishivishal.utils.CSVUtil
 import kotlinx.coroutines.flow.flowOn
 import timber.log.Timber
 import kotlinx.coroutines.Dispatchers
-import java.io.BufferedReader
-import java.io.InputStreamReader
 
 /**
  * UseCase to handle CSV import and export of products.
@@ -27,59 +25,83 @@ class BulkManageProductsUseCase @Inject constructor(
         emit(Resource.Loading())
         try {
             val inputStream = context.contentResolver.openInputStream(uri)
-            val reader = BufferedReader(InputStreamReader(inputStream))
-            
-            val header = reader.readLine() // Read header
-            if (header == null) {
-                emit(Resource.Error("Empty CSV file"))
-                return@flow
-            }
-
-            val products = mutableListOf<Product>()
-            var line = reader.readLine()
-            var count = 0
-            
-            while (line != null) {
-                val values = CSVUtil.parseLine(line)
-                if (values.size >= 5) {
-                    // Mapping CSV: name, brand, category, mrp, basePrice, discountedPrice, stockQuantity, unit, weight, description
-                    val name = values.getOrNull(0) ?: ""
-                    val weight = values.getOrNull(8) ?: ""
-                    val unit = values.getOrNull(7) ?: ""
-                    
-                    // Validation: Skip rows with missing critical data or invalid weight
-                    val weightGrams = CSVUtil.parseWeightToGrams(weight)
-                    val isWeightValid = weightGrams != null && weightGrams > 0
-                    
-                    if (name.isNotBlank() && isWeightValid) {
-                        val product = Product(
-                            id = java.util.UUID.randomUUID().toString(),
-                            name = name,
-                            brand = values.getOrNull(1) ?: "",
-                            category = values.getOrNull(2) ?: "",
-                            mrp = values.getOrNull(3)?.toDoubleOrNull() ?: 0.0,
-                            basePrice = values.getOrNull(4)?.toDoubleOrNull() ?: 0.0,
-                            discountedPrice = values.getOrNull(5)?.toDoubleOrNull() ?: 0.0,
-                            stockQuantity = values.getOrNull(6)?.toIntOrNull() ?: 0,
-                            unit = unit,
-                            weight = weight,
-                            weightGrams = weightGrams,
-                            description = values.getOrNull(9) ?: ""
-                        )
-                        products.add(product)
-                        count++
-                    } else {
-                        Timber.w("CSVImport: Skipping invalid row: name='$name', rawWeight='$weight', parsedWeightGrams=$weightGrams")
-                    }
+                ?: error("Unable to open the selected CSV file")
+            var importedCount = 0
+            var failedCount = 0
+            inputStream.bufferedReader().use { reader ->
+                if (reader.readLine() == null) {
+                    emit(Resource.Error("Empty CSV file"))
+                    return@flow
                 }
-                line = reader.readLine()
-            }
-            reader.close()
 
-            // Bulk save (simulated or via loop for now since repository.saveProduct handles single)
-            products.forEach { repository.saveProduct(it).collect {} }
-            
-            emit(Resource.Success(count))
+                var line = reader.readLine()
+                var rowNumber = 1
+                while (line != null) {
+                    rowNumber++
+                    val values = CSVUtil.parseLine(line)
+                    val name = values.getOrNull(0).orEmpty()
+                    val weight = values.getOrNull(8).orEmpty()
+                    val weightGrams = CSVUtil.parseWeightToGrams(weight)
+                    val mrp = values.getOrNull(3)?.toDoubleOrNull()
+                    val basePrice = values.getOrNull(4)?.toDoubleOrNull()
+                    val discountValue = values.getOrNull(5).orEmpty()
+                    val stockValue = values.getOrNull(6).orEmpty()
+                    val discountedPrice = if (discountValue.isBlank()) 0.0 else discountValue.toDoubleOrNull() ?: Double.NaN
+                    val stockQuantity = if (stockValue.isBlank()) 0 else stockValue.toIntOrNull() ?: -1
+                    val validRow = values.size >= 5 && name.isNotBlank() &&
+                        weightGrams != null && weightGrams > 0 &&
+                        mrp != null && mrp.isFinite() && mrp >= 0.0 &&
+                        basePrice != null && basePrice.isFinite() && basePrice >= 0.0 &&
+                        discountedPrice.isFinite() && discountedPrice >= 0.0 && stockQuantity >= 0
+
+                    if (!validRow) {
+                        failedCount++
+                        Timber.w("CSVImport: Skipping invalid row $rowNumber")
+                        line = reader.readLine()
+                        continue
+                    }
+
+                    val product = Product(
+                        id = java.util.UUID.randomUUID().toString(),
+                        name = name,
+                        brand = values.getOrNull(1) ?: "",
+                        category = values.getOrNull(2) ?: "",
+                        mrp = requireNotNull(mrp),
+                        basePrice = requireNotNull(basePrice),
+                        discountedPrice = discountedPrice,
+                        stockQuantity = stockQuantity,
+                        unit = values.getOrNull(7) ?: "",
+                        weight = weight,
+                        weightGrams = weightGrams,
+                        description = values.getOrNull(9) ?: ""
+                    )
+                    var saved = false
+                    var saveError: String? = null
+                    repository.saveProduct(product).collect { result ->
+                        when (result) {
+                            is Resource.Success -> saved = true
+                            is Resource.Error -> saveError = result.message
+                            is Resource.Loading -> Unit
+                            is Resource.Idle -> Unit
+                        }
+                    }
+                    if (saved) {
+                        importedCount++
+                    } else {
+                        failedCount++
+                        Timber.e("CSVImport: Product save failed on row $rowNumber: ${saveError ?: "No success result"}")
+                    }
+                    line = reader.readLine()
+                }
+            }
+
+            if (failedCount > 0) {
+                emit(Resource.Error("Imported $importedCount products; $failedCount rows failed validation or saving."))
+            } else if (importedCount == 0) {
+                emit(Resource.Error("CSV file contained no valid products"))
+            } else {
+                emit(Resource.Success(importedCount))
+            }
         } catch (e: Exception) {
             emit(Resource.Error(e.message ?: "CSV Import Failed"))
         }

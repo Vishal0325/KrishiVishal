@@ -3,6 +3,7 @@ const { db, admin } = require("../core/admin");
 const { getWarehouseStockRef, recordMovement, DEFAULT_WAREHOUSE_ID } = require("./inventoryEngine");
 const { postJournalEntry } = require("../finance/generalLedger");
 const { isSystem1Frozen } = require("../finance/ledger");
+const { isAccountActive, isAdminRequest } = require("../core/utils");
 
 const REGION = 'asia-south1';
 
@@ -13,6 +14,7 @@ const REGION = 'asia-south1';
 async function resolveQuarantinedStockLogic(payload) {
     const {
         quarantineId,
+        requestId,
         action,
         quantity,
         vendorId = "",
@@ -20,11 +22,12 @@ async function resolveQuarantinedStockLogic(payload) {
         debitNoteRef = "",
         writeOffReason = "",
         unitCost = 0,
-        actorId = "SYSTEM"
+        actorId = "SYSTEM",
+        allowedHubId = null
     } = payload || {};
 
-    if (!quarantineId) {
-        throw new Error("INVALID_ARGUMENT: quarantineId is required.");
+    if (!quarantineId || typeof requestId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(requestId)) {
+        throw new Error("INVALID_ARGUMENT: quarantineId and a valid requestId are required.");
     }
     if (!['RETURN_TO_VENDOR', 'WRITE_OFF'].includes(action)) {
         throw new Error("INVALID_ARGUMENT: action must be RETURN_TO_VENDOR or WRITE_OFF.");
@@ -33,8 +36,41 @@ async function resolveQuarantinedStockLogic(payload) {
     if (!resolveQty || isNaN(resolveQty) || resolveQty <= 0) {
         throw new Error("INVALID_ARGUMENT: quantity must be greater than 0.");
     }
+    const operationFingerprint = JSON.stringify({
+        quarantineId,
+        action,
+        quantity: resolveQty,
+        actorId,
+        vendorId,
+        vendorName,
+        debitNoteRef,
+        writeOffReason,
+        unitCost
+    });
 
     return await db.runTransaction(async (transaction) => {
+        const requestRef = db.collection("quarantine_resolution_requests").doc(requestId);
+        const requestSnap = await transaction.get(requestRef);
+        if (requestSnap.exists) {
+            const prior = requestSnap.data();
+            if (prior.quarantineId !== quarantineId || prior.action !== action ||
+                prior.quantity !== resolveQty || prior.actorId !== actorId ||
+                (prior.operationFingerprint && prior.operationFingerprint !== operationFingerprint)) {
+                throw new Error("INVALID_ARGUMENT: requestId was already used for a different resolution.");
+            }
+            if (allowedHubId) {
+                const priorQuarantineSnap = await transaction.get(
+                    db.collection("inventory_quarantine").doc(quarantineId)
+                );
+                const priorQuarantine = priorQuarantineSnap.exists ? priorQuarantineSnap.data() : {};
+                const priorHubId = priorQuarantine.hubId || priorQuarantine.warehouseId || DEFAULT_WAREHOUSE_ID;
+                if (priorHubId !== allowedHubId) {
+                    throw new HttpsError('permission-denied', 'Hub Managers may only resolve quarantine stock assigned to their hub.');
+                }
+            }
+            return prior.result;
+        }
+
         const qRef = db.collection("inventory_quarantine").doc(quarantineId);
         const qSnap = await transaction.get(qRef);
 
@@ -59,6 +95,9 @@ async function resolveQuarantinedStockLogic(payload) {
         const skuCode = qData.skuCode;
         const batchId = qData.batchId;
         const hubId = qData.hubId || qData.warehouseId || DEFAULT_WAREHOUSE_ID;
+        if (allowedHubId && hubId !== allowedHubId) {
+            throw new HttpsError('permission-denied', 'Hub Managers may only resolve quarantine stock assigned to their hub.');
+        }
 
         // Fetch warehouse_stock doc to get current quarantinedQty
         const wsRef = getWarehouseStockRef(skuCode, batchId, hubId);
@@ -89,13 +128,14 @@ async function resolveQuarantinedStockLogic(payload) {
         let journalEntryId = null;
 
         if (action === 'RETURN_TO_VENDOR') {
-            const rtvEntryId = debitNoteRef
-                ? `JE_QUARANTINE_RTV_${debitNoteRef}_${quarantineId}_${alreadyResolved + resolveQty}`
-                : `JE_QUARANTINE_RTV_${quarantineId}_${alreadyResolved + resolveQty}`;
+            const rtvEntryId = `JE_QUARANTINE_RTV_${requestId}`;
+            const rtvReferenceId = debitNoteRef
+                ? `${debitNoteRef}_${quarantineId}_${alreadyResolved + resolveQty}`
+                : `${quarantineId}_${alreadyResolved + resolveQty}`;
             const jeResult = await postJournalEntry({
                 entryId: rtvEntryId,
                 refType: 'QUARANTINE_RESOLUTION',
-                refId: debitNoteRef ? `${debitNoteRef}_${quarantineId}_${alreadyResolved + resolveQty}` : `${quarantineId}_${alreadyResolved + resolveQty}`,
+                refId: rtvReferenceId,
                 periodId,
                 date: now,
                 memo: `RTV Settlement: Debit Note #${debitNoteRef || 'N/A'} for ${resolveQty} units of SKU ${skuCode} returned to Supplier ${vendorId || 'N/A'}`,
@@ -118,7 +158,7 @@ async function resolveQuarantinedStockLogic(payload) {
             journalEntryId = jeResult?.entryId || rtvEntryId;
         } else {
             // WRITE_OFF action
-            const scrapEntryId = `JE_QUARANTINE_SCRAP_${quarantineId}_${alreadyResolved + resolveQty}`;
+            const scrapEntryId = `JE_QUARANTINE_SCRAP_${requestId}`;
             const jeResult = await postJournalEntry({
                 entryId: scrapEntryId,
                 refType: 'QUARANTINE_RESOLUTION',
@@ -201,12 +241,12 @@ async function resolveQuarantinedStockLogic(payload) {
                 actorId,
                 actorRole: "HUB_MANAGER",
                 reason: `Returned to Vendor [${vendorName || vendorId || 'Supplier'}] - Debit Note: ${debitNoteRef || 'N/A'}`,
-                idempotencyKey: `RTV_${quarantineId}_${Date.now()}`
+                idempotencyKey: `RTV_${requestId}`
             });
 
             // Backward-compatible ledger record (only active when System 1 is not frozen)
             if (!isSystem1Frozen()) {
-                const leg1 = db.collection("ledger").doc(`LEDGER_RTV_DR_${quarantineId}_${Date.now()}`);
+                const leg1 = db.collection("ledger").doc(`LEDGER_RTV_DR_${requestId}`);
                 transaction.set(leg1, {
                     account: 'ACCOUNTS_PAYABLE',
                     type: 'DEBIT',
@@ -216,7 +256,7 @@ async function resolveQuarantinedStockLogic(payload) {
                     description: `Debit Note against vendor for defective stock return [${skuCode}]`,
                     timestamp: admin.firestore.FieldValue.serverTimestamp()
                 });
-                const leg2 = db.collection("ledger").doc(`LEDGER_RTV_CR_${quarantineId}_${Date.now()}`);
+                const leg2 = db.collection("ledger").doc(`LEDGER_RTV_CR_${requestId}`);
                 transaction.set(leg2, {
                     account: 'INVENTORY_QUARANTINE_ASSET',
                     type: 'CREDIT',
@@ -244,12 +284,12 @@ async function resolveQuarantinedStockLogic(payload) {
                 actorId,
                 actorRole: "HUB_MANAGER",
                 reason: `Stock Scrap/Write-Off: ${writeOffReason || 'Defective/Expired on arrival'}`,
-                idempotencyKey: `WRITEOFF_${quarantineId}_${Date.now()}`
+                idempotencyKey: `WRITEOFF_${requestId}`
             });
 
             // Backward-compatible ledger record (only active when System 1 is not frozen)
             if (!isSystem1Frozen()) {
-                const leg1 = db.collection("ledger").doc(`LEDGER_SCRAP_DR_${quarantineId}_${Date.now()}`);
+                const leg1 = db.collection("ledger").doc(`LEDGER_SCRAP_DR_${requestId}`);
                 transaction.set(leg1, {
                     account: 'INVENTORY_SHRINKAGE_LOSS',
                     type: 'DEBIT',
@@ -259,7 +299,7 @@ async function resolveQuarantinedStockLogic(payload) {
                     description: `Expense loss for scrap/damaged stock write-off [${skuCode}]`,
                     timestamp: admin.firestore.FieldValue.serverTimestamp()
                 });
-                const leg2 = db.collection("ledger").doc(`LEDGER_SCRAP_CR_${quarantineId}_${Date.now()}`);
+                const leg2 = db.collection("ledger").doc(`LEDGER_SCRAP_CR_${requestId}`);
                 transaction.set(leg2, {
                     account: 'INVENTORY_QUARANTINE_ASSET',
                     type: 'CREDIT',
@@ -272,9 +312,10 @@ async function resolveQuarantinedStockLogic(payload) {
             }
         }
 
-        return {
+        const result = {
             success: true,
             quarantineId,
+            requestId,
             action,
             resolvedQty: resolveQty,
             totalResolutionValue,
@@ -282,6 +323,16 @@ async function resolveQuarantinedStockLogic(payload) {
             remainingDamaged: totalDamaged - newResolvedTotal,
             journalEntryId
         };
+        transaction.create(requestRef, {
+            quarantineId,
+            action,
+            quantity: resolveQty,
+            actorId,
+            operationFingerprint,
+            result,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        return result;
     });
 }
 
@@ -290,19 +341,31 @@ async function resolveQuarantinedStockLogic(payload) {
  */
 const resolveQuarantinedStock = onCall({ region: REGION }, async (request) => {
     const token = request.auth?.token || {};
-    const allowed = token.admin === true || token.isAdmin === true ||
-        ['SuperAdmin', 'HubManager', 'InventoryManager'].includes(token.role);
-    if (!allowed) {
+    if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'Authentication required.');
+    }
+    const isAdmin = await isAdminRequest(request);
+    const isInventoryManager = token.role === 'InventoryManager' && await isAccountActive(request.auth.uid);
+    const isHubManager = ['HubManager', 'WarehouseManager'].includes(token.role) &&
+        typeof token.hubId === 'string' && token.hubId.trim().length > 0 &&
+        await isAccountActive(request.auth.uid);
+    if (!isAdmin && !isInventoryManager && !isHubManager) {
         throw new HttpsError('permission-denied', 'Only Hub Managers or Admins can resolve quarantined inventory.');
+    }
+    const requestId = request.data?.requestId;
+    if (typeof requestId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(requestId)) {
+        throw new HttpsError('invalid-argument', 'A valid requestId is required for idempotent quarantine resolution.');
     }
 
     try {
         const payload = {
             ...request.data,
-            actorId: request.auth?.uid || "ADMIN"
+            actorId: request.auth.uid,
+            allowedHubId: isHubManager ? token.hubId : null
         };
         return await resolveQuarantinedStockLogic(payload);
     } catch (err) {
+        if (err instanceof HttpsError) throw err;
         if (err.message.startsWith("INVALID_ARGUMENT") || err.message.startsWith("INSUFFICIENT_QUARANTINE_STOCK") || err.message.startsWith("INVALID_STATE")) {
             throw new HttpsError("invalid-argument", err.message);
         }

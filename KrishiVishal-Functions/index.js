@@ -199,12 +199,13 @@ const FUNCTION_MAP = {
     setUserRole: ['./auth/roleProvisioning', 'setUserRole'],
     deactivateUser: ['./auth/roleProvisioning', 'deactivateUser'],
 
-    // --- ADMIN SERVICES (7) ---
+    // --- ADMIN SERVICES (8) ---
     addSecureAuditLog: ['./admin/adminServices', 'addSecureAuditLog'],
     getSecureProductCost: ['./admin/adminServices', 'getSecureProductCost'],
     searchUsers: ['./admin/adminServices', 'searchUsers'],
     createStaffMember: ['./admin/adminServices', 'createStaffMember'],
     generateWorkforceId: ['./admin/adminServices', 'generateWorkforceId'],
+    getAdminDashboardStats: ['./admin/adminServices', 'getAdminDashboardStats'],
     getFinanceSummary: ['./admin/adminServices', 'getFinanceSummary'],
     saveExpense: ['./admin/adminServices', 'saveExpense']
 };
@@ -362,4 +363,3 @@ Object.defineProperty(exports, 'generateWebPThumbnails', {
         return _generateWebPThumbnails;
     }
 });
-

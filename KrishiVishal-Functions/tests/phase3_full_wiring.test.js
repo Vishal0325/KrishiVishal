@@ -107,6 +107,7 @@ async function runTestSuite() {
         // Resolve 5 units as RETURN_TO_VENDOR
         const rtvResult = await resolveQuarantinedStockLogic({
             quarantineId: qId,
+            requestId: `QV_RTV_${testRunId}`,
             action: 'RETURN_TO_VENDOR',
             quantity: 5,
             vendorId: 'SUPPLIER_IFFCO',
@@ -192,6 +193,7 @@ async function runTestSuite() {
         // Resolve 3 units as WRITE_OFF
         const scrapResult = await resolveQuarantinedStockLogic({
             quarantineId: qId,
+            requestId: `QV_SCRAP_${testRunId}`,
             action: 'WRITE_OFF',
             quantity: 3,
             writeOffReason: 'Water seepage during monsoon storm',

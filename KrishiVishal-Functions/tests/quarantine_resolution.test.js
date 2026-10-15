@@ -31,7 +31,8 @@ async function runAllTests() {
             batches: new Map(),
             ledger: new Map(),
             accounts: new Map(),
-            inventory_movements: new Map()
+            inventory_movements: new Map(),
+            quarantine_resolution_requests: new Map()
         };
 
         adminModule.db.collection = function (collName) {
@@ -99,7 +100,8 @@ async function runAllTests() {
             const transaction = {
                 get: async (ref) => ref.get(),
                 set: (ref, data, opts) => { ref.set(data, opts); },
-                update: (ref, data) => { ref.update(data); }
+                update: (ref, data) => { ref.update(data); },
+                create: (ref, data) => { ref.set(data); }
             };
             return await callback(transaction);
         };
@@ -113,6 +115,7 @@ async function runAllTests() {
             mockStore.ledger.clear();
             mockStore.accounts.clear();
             mockStore.inventory_movements.clear();
+            mockStore.quarantine_resolution_requests.clear();
 
             // Seed SKU
             mockStore.skus.set('SKU_QUAR_01', {
@@ -160,6 +163,7 @@ async function runAllTests() {
 
             const result = await resolveQuarantinedStockLogic({
                 quarantineId: 'Q_REC_001',
+                requestId: 'RTV_PART_001',
                 action: 'RETURN_TO_VENDOR',
                 quantity: 5,
                 vendorId: 'VEN_IFFCO_01',
@@ -183,9 +187,65 @@ async function runAllTests() {
             assert.strictEqual(qDoc.status, 'PARTIALLY_RESOLVED');
             pass("1.2 Quarantine doc resolvedQty set to 5 and status to PARTIALLY_RESOLVED");
 
+            const ledgerCountBeforeRetry = mockStore.ledger.size;
+            const retryResult = await resolveQuarantinedStockLogic({
+                quarantineId: 'Q_REC_001',
+                requestId: 'RTV_PART_001',
+                action: 'RETURN_TO_VENDOR',
+                quantity: 5,
+                vendorId: 'VEN_IFFCO_01',
+                vendorName: 'IFFCO Bihar Depot',
+                debitNoteRef: 'DN-2026-001',
+                actorId: 'MGR_SAMASTIPUR'
+            });
+            assert.strictEqual(retryResult.resolvedQty, 5);
+            assert.strictEqual(mockStore.inventory_quarantine.get('Q_REC_001').resolvedQty, 5);
+            assert.strictEqual(mockStore.ledger.size, ledgerCountBeforeRetry);
+            pass("1.2a Replayed requestId returns the prior result without applying stock or ledger changes twice");
+
+            let conflictingReplayRejected = false;
+            try {
+                await resolveQuarantinedStockLogic({
+                    quarantineId: 'Q_REC_001',
+                    requestId: 'RTV_PART_001',
+                    action: 'RETURN_TO_VENDOR',
+                    quantity: 4,
+                    vendorId: 'VEN_IFFCO_01',
+                    vendorName: 'IFFCO Bihar Depot',
+                    debitNoteRef: 'DN-2026-001',
+                    actorId: 'MGR_SAMASTIPUR'
+                });
+            } catch (err) {
+                conflictingReplayRejected = err.message.includes('requestId was already used for a different resolution');
+            }
+            assert.strictEqual(conflictingReplayRejected, true, "A requestId must not be reused for a different operation payload");
+            assert.strictEqual(mockStore.inventory_quarantine.get('Q_REC_001').resolvedQty, 5);
+            assert.strictEqual(mockStore.ledger.size, ledgerCountBeforeRetry);
+            pass("1.2b Reusing a requestId with different operation details is rejected");
+
+            let changedDebitNoteRejected = false;
+            try {
+                await resolveQuarantinedStockLogic({
+                    quarantineId: 'Q_REC_001',
+                    requestId: 'RTV_PART_001',
+                    action: 'RETURN_TO_VENDOR',
+                    quantity: 5,
+                    vendorId: 'VEN_IFFCO_01',
+                    vendorName: 'IFFCO Bihar Depot',
+                    debitNoteRef: 'DN-CHANGED',
+                    actorId: 'MGR_SAMASTIPUR'
+                });
+            } catch (err) {
+                changedDebitNoteRejected = err.message.includes('requestId was already used for a different resolution');
+            }
+            assert.strictEqual(changedDebitNoteRejected, true, "A requestId must not be replayed with a different debit note reference");
+            assert.strictEqual(mockStore.ledger.size, ledgerCountBeforeRetry);
+            pass("1.2c Reusing a requestId with a changed debit note is rejected");
+
             // Complete remaining 5 to test final RETURNED_TO_VENDOR status
             const finishResult = await resolveQuarantinedStockLogic({
                 quarantineId: 'Q_REC_001',
+                requestId: 'RTV_PART_002',
                 action: 'RETURN_TO_VENDOR',
                 quantity: 5,
                 debitNoteRef: 'DN-2026-002'
@@ -227,6 +287,7 @@ async function runAllTests() {
 
             const result = await resolveQuarantinedStockLogic({
                 quarantineId: 'Q_REC_001',
+                requestId: 'SCRAP_001',
                 action: 'WRITE_OFF',
                 quantity: 3,
                 writeOffReason: 'Moisture caking beyond salvage',
@@ -271,11 +332,52 @@ async function runAllTests() {
         try {
             seedBase();
 
+            await resolveQuarantinedStockLogic({
+                quarantineId: 'Q_REC_001',
+                requestId: 'HUB_SCOPE_REPLAY_001',
+                action: 'WRITE_OFF',
+                quantity: 1,
+                actorId: 'MGR_SAMASTIPUR',
+                allowedHubId: 'HUB_SAMASTIPUR'
+            });
+            let replayScopeDenied = false;
+            try {
+                await resolveQuarantinedStockLogic({
+                    quarantineId: 'Q_REC_001',
+                    requestId: 'HUB_SCOPE_REPLAY_001',
+                    action: 'WRITE_OFF',
+                    quantity: 1,
+                    actorId: 'MGR_SAMASTIPUR',
+                    allowedHubId: 'HUB_OTHER'
+                });
+            } catch (err) {
+                replayScopeDenied = err.code === 'permission-denied';
+            }
+            assert.strictEqual(replayScopeDenied, true, "Hub Manager must not replay a resolution outside the assigned hub");
+            assert.strictEqual(mockStore.inventory_quarantine.get('Q_REC_001').resolvedQty, 1);
+            pass("3.0a Replayed requests still enforce the caller's current hub scope");
+
+            seedBase();
+            let missingRequestIdRejected = false;
+            try {
+                await resolveQuarantinedStockLogic({
+                    quarantineId: 'Q_REC_001',
+                    action: 'WRITE_OFF',
+                    quantity: 1
+                });
+            } catch (err) {
+                missingRequestIdRejected = err.message.includes('INVALID_ARGUMENT') && err.message.includes('requestId');
+            }
+            assert.strictEqual(missingRequestIdRejected, true, "Resolution must reject a missing requestId");
+            assert.strictEqual(mockStore.inventory_quarantine.get('Q_REC_001').resolvedQty, 0);
+            pass("3.0 Missing requestId is rejected before inventory or ledger writes");
+
             // Quarantine record only has 10 units. Attempt to resolve 15 units.
             let threw = false;
             try {
                 await resolveQuarantinedStockLogic({
                     quarantineId: 'Q_REC_001',
+                    requestId: 'OVER_CLEAR_001',
                     action: 'WRITE_OFF',
                     quantity: 15
                 });
@@ -287,9 +389,27 @@ async function runAllTests() {
             assert.strictEqual(threw, true, "Must throw INSUFFICIENT_QUARANTINE_STOCK when resolving 15 units from 10");
             pass("3.1 Over-clearance strictly blocked with INSUFFICIENT_QUARANTINE_STOCK");
 
+            let scopeThrew = false;
+            try {
+                await resolveQuarantinedStockLogic({
+                    quarantineId: 'Q_REC_001',
+                    requestId: 'WRONG_HUB_001',
+                    action: 'WRITE_OFF',
+                    quantity: 1,
+                    actorId: 'MGR_OTHER_HUB',
+                    allowedHubId: 'HUB_OTHER'
+                });
+            } catch (err) {
+                scopeThrew = err.code === 'permission-denied';
+            }
+            assert.strictEqual(scopeThrew, true, "Hub Manager must not resolve another hub's quarantined stock");
+            assert.strictEqual(mockStore.inventory_quarantine.get('Q_REC_001').resolvedQty, 0);
+            pass("3.2 Hub-scoped manager is denied resolution outside assigned hub");
+
             // Also test resolving after already fully settled
             await resolveQuarantinedStockLogic({
                 quarantineId: 'Q_REC_001',
+                requestId: 'RTV_UNIQUE_001',
                 action: 'WRITE_OFF',
                 quantity: 10
             });
@@ -298,6 +418,7 @@ async function runAllTests() {
             try {
                 await resolveQuarantinedStockLogic({
                     quarantineId: 'Q_REC_001',
+                    requestId: 'AFTER_SETTLED_001',
                     action: 'RETURN_TO_VENDOR',
                     quantity: 1
                 });
@@ -307,7 +428,7 @@ async function runAllTests() {
             }
 
             assert.strictEqual(settledThrew, true, "Must reject resolution attempt on already WRITTEN_OFF doc");
-            pass("3.2 Re-resolution attempt on settled record strictly rejected with INVALID_STATE");
+            pass("3.3 Re-resolution attempt on settled record strictly rejected with INVALID_STATE");
 
         } catch (err) {
             fail("Case 3 Failed", err);
@@ -323,6 +444,7 @@ async function runAllTests() {
             // Resolution part 1: 4 units under 'DN-SAME-001'
             const rtvPart1 = await resolveQuarantinedStockLogic({
                 quarantineId: 'Q_REC_001',
+                requestId: 'RTV_SAME_NOTE_001',
                 action: 'RETURN_TO_VENDOR',
                 quantity: 4,
                 vendorId: 'VEN_IFFCO_01',
@@ -335,6 +457,7 @@ async function runAllTests() {
             // Resolution part 2: 6 units under the SAME 'DN-SAME-001'
             const rtvPart2 = await resolveQuarantinedStockLogic({
                 quarantineId: 'Q_REC_001',
+                requestId: 'RTV_SAME_NOTE_002',
                 action: 'RETURN_TO_VENDOR',
                 quantity: 6,
                 vendorId: 'VEN_IFFCO_01',
