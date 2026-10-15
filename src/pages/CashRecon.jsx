@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, query, onSnapshot, getDocs, updateDoc, doc, where, orderBy, writeBatch, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '../firebase/config';
 import { useAuth } from '../hooks/useAuth';
+import { useWarehouse } from '../context/WarehouseContext';
 import { 
   Wallet, 
   Search, 
@@ -39,6 +41,7 @@ const DENOMINATIONS = [500, 200, 100, 50, 20, 10];
 
 const CashRecon = () => {
   const { user, role } = useAuth();
+  const { selectedWarehouseId, selectWarehouse, isHubLocked, warehouses: contextWarehouses } = useWarehouse();
   const [activeTab, setActiveTab] = useState('DESK_SETTLEMENT'); // 'DESK_SETTLEMENT' | 'BANK_DEPOSITS' | 'VOUCHER_HISTORY'
   const [riders, setRiders] = useState([]);
   const [deposits, setDeposits] = useState([]);
@@ -46,9 +49,49 @@ const CashRecon = () => {
   const [warehouses, setWarehouses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedHub, setSelectedHub] = useState('ALL');
+  const [selectedHub, setSelectedHub] = useState(() => {
+    return isHubLocked ? selectedWarehouseId : (selectedWarehouseId || 'ALL');
+  });
   const [depositFilter, setDepositFilter] = useState('ALL');
   const [processingId, setProcessingId] = useState(null);
+  const [vaultBalance, setVaultBalance] = useState(0);
+
+  // System 2 Account Binding: 1020_HUB_CASH_VAULT
+  useEffect(() => {
+    const unsubVault = onSnapshot(doc(db, 'accounts', '1020_HUB_CASH_VAULT'), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        setVaultBalance(Number(d.currentBalance ?? d.balance ?? ((d.debit || 0) - (d.credit || 0))) || 0);
+      }
+    }, (err) => {
+      console.warn("accounts/1020_HUB_CASH_VAULT snapshot restricted or fallback:", err?.message);
+    });
+
+    // Authoritative fallback via getLedgerExtract
+    const loadVault = async () => {
+      try {
+        const getExtract = httpsCallable(functions, 'getLedgerExtract');
+        const res = await getExtract({ accountCode: '1020_HUB_CASH_VAULT' });
+        if (res?.data && res.data.closingBalance !== undefined) {
+          setVaultBalance(res.data.closingBalance);
+        }
+      } catch (e) {
+        console.warn("getLedgerExtract 1020_HUB_CASH_VAULT fallback:", e?.message);
+      }
+    };
+    loadVault();
+
+    return () => unsubVault();
+  }, []);
+
+  // Keep selectedHub synchronized with global WarehouseContext / Topbar
+  useEffect(() => {
+    if (isHubLocked) {
+      setSelectedHub(selectedWarehouseId);
+    } else if (selectedWarehouseId) {
+      setSelectedHub(selectedWarehouseId);
+    }
+  }, [selectedWarehouseId, isHubLocked]);
 
   // Settlement & Denomination Modal
   const [settleModalRider, setSettleModalRider] = useState(null);
@@ -85,31 +128,32 @@ const CashRecon = () => {
     return () => unsubWh();
   }, [user]);
 
-  // 2. Fetch Summaries (Riders + Orders calculation)
-  const fetchSummaries = async () => {
-    setLoading(true);
-    try {
-      const ridersSnap = await getDocs(collection(db, 'riders'));
-      const ordersSnap = await getDocs(query(collection(db, 'orders'), where('riderId', '!=', '')));
+  // 2. Real-time Listeners for Riders, Orders, Cash Deposits and Bank Deposits
+  useEffect(() => {
+    let currentRiders = [];
+    let currentOrders = [];
 
-      const allOrders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-      const ridersData = ridersSnap.docs.map(riderDoc => {
+    const computeRidersSummary = () => {
+      const ridersData = currentRiders.map(riderDoc => {
         const riderId = riderDoc.id;
-        const rider = riderDoc.data();
+        const rider = riderDoc;
         
-        const riderOrders = allOrders.filter(o => o.riderId === riderId);
+        const riderOrders = currentOrders.filter(o => o.riderId === riderId);
         const deliveredOrders = riderOrders.filter(o => o.status === 'DELIVERED');
         const activeOrdersCount = riderOrders.filter(o => ['ASSIGNED', 'OUT_FOR_DELIVERY'].includes(o.status)).length;
         
-        const codDeliveredOrders = deliveredOrders.filter(o => o.isCOD === true);
-        const totalCollected = codDeliveredOrders.reduce((sum, o) => sum + (o.codAmount || o.totalAmount || 0), 0);
+        const codDeliveredOrders = deliveredOrders.filter(o => o.isCOD === true || o.paymentMethod === 'COD');
+        const totalCollected = codDeliveredOrders.reduce((sum, o) => sum + (Number(o.codAmount) || Number(o.totalAmount) || 0), 0);
         
         const settledOrders = codDeliveredOrders.filter(o => o.verifiedByAdmin === true || o.isCashDeposited === true || o.isSettledByAdmin === true);
-        const totalSettled = settledOrders.reduce((sum, o) => sum + (o.codAmount || o.totalAmount || 0), 0);
+        const totalSettled = settledOrders.reduce((sum, o) => sum + (Number(o.codAmount) || Number(o.totalAmount) || 0), 0);
         
         const pendingOrders = codDeliveredOrders.filter(o => !o.verifiedByAdmin && !o.isCashDeposited && !o.isSettledByAdmin);
-        const pendingCash = pendingOrders.reduce((sum, o) => sum + (o.codAmount || o.totalAmount || 0), 0);
+        const orderPendingCash = pendingOrders.reduce((sum, o) => sum + (Number(o.codAmount) || Number(o.totalAmount) || 0), 0);
+        // Canonical System 2 cash_in_hand from rider document, fallback to calculated pending orders
+        const pendingCash = (rider.cash_in_hand !== undefined && rider.cash_in_hand !== null)
+          ? Number(rider.cash_in_hand)
+          : (rider.cashInHand !== undefined && rider.cashInHand !== null ? Number(rider.cashInHand) : orderPendingCash);
         const pendingOrderIds = pendingOrders.map(o => o.id);
 
         return {
@@ -127,36 +171,47 @@ const CashRecon = () => {
       });
 
       setRiders(ridersData);
-    } catch (err) {
-      console.error("Error fetching summaries:", err);
-      toast.error("Failed to load cash summaries");
-    } finally {
       setLoading(false);
-    }
-  };
+    };
 
-  useEffect(() => {
+    // Listen to riders collection
+    const unsubRiders = onSnapshot(collection(db, 'riders'), (snapshot) => {
+      currentRiders = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      computeRidersSummary();
+    }, (err) => console.warn("Riders error:", err));
+
+    // Listen to orders collection
+    const unsubOrders = onSnapshot(collection(db, 'orders'), (snapshot) => {
+      currentOrders = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      computeRidersSummary();
+    }, (err) => console.warn("Orders error:", err));
+
     // Listen to cash deposits / handover receipts
     const qDeposits = query(collection(db, 'cash_deposits'), orderBy('timestamp', 'desc'));
     const unsubDeposits = onSnapshot(qDeposits, (snapshot) => {
       setDeposits(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    }, (err) => console.warn("cash_deposits error:", err));
 
     // Listen to hub bank deposits (Step 2)
     const qBank = query(collection(db, 'hub_bank_deposits'), orderBy('timestamp', 'desc'));
     const unsubBank = onSnapshot(qBank, (snapshot) => {
       setBankDeposits(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    }, (err) => console.warn("hub_bank_deposits error:", err));
 
-    fetchSummaries();
     return () => {
+      unsubRiders();
+      unsubOrders();
       unsubDeposits();
       unsubBank();
     };
   }, []);
 
+  const fetchSummaries = () => {
+    // Realtime listeners are active
+  };
+
   const getWarehouseInfo = (warehouseId) => {
-    if (!warehouseId || warehouseId === 'ALL') return { name: 'Unassigned Hub', code: 'UNASSIGNED' };
+    if (!warehouseId) return { name: 'Unassigned Hub', code: 'GENERAL' };
     const wh = warehouses.find(w => w.id === warehouseId || w.code === warehouseId);
     return wh ? { name: wh.name, code: wh.code || wh.id } : { name: warehouseId, code: warehouseId };
   };
@@ -202,11 +257,10 @@ const CashRecon = () => {
     setDenominations(initialDenoms);
   };
 
-  // Submit Handover (Step 1: Rider -> Cashier)
+  // Submit Handover (Step 1: Rider -> Cashier via System 2 Double-Entry)
   const handleConfirmHandover = async () => {
     if (!settleModalRider) return;
     const rider = settleModalRider;
-    const whInfo = getWarehouseInfo(rider.warehouseId);
 
     if (totalCountedCash <= 0) {
       toast.error("Counted cash amount must be greater than 0");
@@ -227,15 +281,29 @@ const CashRecon = () => {
 
     setProcessingId(rider.id);
     try {
-      const batch = writeBatch(db);
-      const voucherNo = `KV-REC-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
-
+      const settlementId = rider.pendingSettlementId || `KV-SETTLE-${rider.id.slice(0, 8)}-${Date.now()}`;
+      const shortageAmount = Math.max(0, rider.pendingCash - totalCountedCash);
       const finalWhInfo = getWarehouseInfo(targetWarehouseId);
 
-      // 1. Create Cash Deposit / Receipt Document
-      const depositRef = doc(collection(db, 'cash_deposits'));
+      // System 2 Double-Entry: Atomically posts Dr 1020_HUB_CASH_VAULT / Cr 1010_CASH_IN_HAND_RIDERS
+      const confirmFn = httpsCallable(functions, 'confirmCashSettlement');
+      const res = await confirmFn({
+        settlementId,
+        riderId: rider.id,
+        totalCollected: rider.pendingCash,
+        depositedAmount: totalCountedCash,
+        shortageAmount,
+        notes: settleNotes,
+        hubId: targetWarehouseId,
+        pendingOrderIds: rider.pendingOrderIds || []
+      });
+
+      const voucherNo = `KV-REC-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
       const receiptPayload = {
+        id: settlementId,
         voucherNo,
+        settlementId,
+        journalEntryId: res.data?.journalEntryId || null,
         riderId: rider.id,
         riderName: rider.name,
         riderPhone: rider.phone,
@@ -244,8 +312,9 @@ const CashRecon = () => {
         hubCode: finalWhInfo.code,
         amount: totalCountedCash,
         expectedAmount: rider.pendingCash,
+        shortage: shortageAmount,
         difference: totalCountedCash - rider.pendingCash,
-        orderCount: rider.pendingOrderIds.length,
+        orderCount: (rider.pendingOrderIds || []).length,
         denominations: { ...denominations },
         status: 'VERIFIED',
         timestamp: Date.now(),
@@ -257,25 +326,11 @@ const CashRecon = () => {
         notes: settleNotes
       };
 
-      batch.set(depositRef, receiptPayload);
-
-      // 2. Mark rider's pending orders as settled
-      rider.pendingOrderIds.forEach(orderId => {
-        batch.update(doc(db, 'orders', orderId), {
-          isSettledByAdmin: true,
-          verifiedByAdmin: true,
-          isCashDeposited: true,
-          verifiedAt: new Date().toISOString(),
-          reconciledWarehouseId: rider.warehouseId || selectedHub,
-          depositRefId: depositRef.id,
-          voucherNo: voucherNo
-        });
-      });
-
-      await batch.commit();
-
-      toast.success(`Handover complete! Voucher ${voucherNo} generated.`);
-      setReceiptData({ id: depositRef.id, ...receiptPayload });
+      toast.success(shortageAmount > 0
+        ? `Handover confirmed! Shortage of ₹${shortageAmount} recorded to 1015 ledger. Voucher ${voucherNo} generated.`
+        : `Handover complete! Posted to 1020_HUB_CASH_VAULT. Voucher ${voucherNo} generated.`
+      );
+      setReceiptData(receiptPayload);
       setSettleModalRider(null);
       fetchSummaries();
     } catch (error) {
@@ -372,13 +427,16 @@ const CashRecon = () => {
   // Filtered riders
   const filteredRiders = useMemo(() => {
     return riders.filter(r => {
-      const matchesHub = selectedHub === 'ALL' || r.warehouseId === selectedHub;
+      const matchesHub = selectedHub === 'ALL' || 
+        r.warehouseId === selectedHub || 
+        r.assignedWarehouse === selectedHub ||
+        (warehouses.some(w => (w.id === selectedHub || w.code === selectedHub) && (r.warehouseId === w.id || r.warehouseId === w.code || r.assignedWarehouse === w.id || r.assignedWarehouse === w.code)));
       const matchesSearch = 
         r.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         (r.phone && r.phone.includes(searchTerm));
       return matchesHub && matchesSearch;
     });
-  }, [riders, selectedHub, searchTerm]);
+  }, [riders, selectedHub, searchTerm, warehouses]);
 
   // Aggregated Hub Financial Metrics
   const metrics = useMemo(() => {
@@ -666,8 +724,14 @@ const CashRecon = () => {
         </div>
       </div>
 
-      {/* 4 Multi-Hub Corporate Metric Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 5 Multi-Hub Corporate Metric Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <MetricCard 
+          label="Hub Cash Vault (1020)" 
+          value={`₹${vaultBalance.toLocaleString('en-IN')}`} 
+          icon={Wallet} 
+          color="emerald" 
+        />
         <MetricCard 
           label="Total COD Collected (Field)" 
           value={`₹${metrics.totalCollected.toLocaleString('en-IN')}`} 
@@ -701,18 +765,34 @@ const CashRecon = () => {
             <Building2 size={16} className="mr-2 text-primary" />
             Active Depot / Hub:
           </div>
-          <select
-            value={selectedHub}
-            onChange={(e) => setSelectedHub(e.target.value)}
-            className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-bold text-gray-800 outline-none cursor-pointer hover:bg-gray-100 transition-colors focus:ring-2 focus:ring-primary/20"
-          >
-            <option value="ALL">🏢 All Regional Hubs (Consolidated)</option>
-            {warehouses.map(wh => (
-              <option key={wh.id} value={wh.id}>
-                📍 {wh.name} ({wh.code || wh.id})
-              </option>
-            ))}
-          </select>
+          {isHubLocked ? (
+            <div 
+              className="px-4 py-2.5 bg-emerald-50 border border-emerald-200/80 rounded-2xl text-xs font-bold text-emerald-950 flex items-center gap-1.5 select-none"
+              title="Cash & vault reconciliation filtered to your assigned operational depot"
+            >
+              <span>{getWarehouseInfo(selectedHub).name}</span>
+              <span className="text-[9px] bg-emerald-200/80 text-emerald-900 px-1.5 py-0.5 rounded font-black uppercase">
+                Assigned
+              </span>
+            </div>
+          ) : (
+            <select
+              value={selectedHub}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedHub(val);
+                selectWarehouse(val);
+              }}
+              className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-bold text-gray-800 outline-none cursor-pointer hover:bg-gray-100 transition-colors focus:ring-2 focus:ring-primary/20"
+            >
+              <option value="ALL">🏢 All Regional Hubs (Consolidated)</option>
+              {warehouses.map(wh => (
+                <option key={wh.id} value={wh.id}>
+                  📍 {wh.name} ({wh.code || wh.id})
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         <div className="relative w-full md:w-72">
@@ -846,9 +926,9 @@ const CashRecon = () => {
 
       {/* MODAL 1: Denomination Handover Counter Modal */}
       {settleModalRider && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] max-w-xl w-full p-6 lg:p-8 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center pb-4 border-b border-gray-100">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-[2rem] max-w-xl w-full p-4 sm:p-5 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200 max-h-[95vh] overflow-y-auto">
+            <div className="flex justify-between items-center pb-3 border-b border-gray-100">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-green-50 flex items-center justify-center text-primary font-bold">
                   <Banknote size={20} />
@@ -863,7 +943,7 @@ const CashRecon = () => {
               </button>
             </div>
 
-            <div className="py-5 space-y-4">
+            <div className="py-4 space-y-3">
               {/* Due vs Counted Bar */}
               <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-2xl border border-gray-200/60">
                 <div>
@@ -922,20 +1002,20 @@ const CashRecon = () => {
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+            <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
               <button
                 onClick={() => setSettleModalRider(null)}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100 transition-colors"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmHandover}
                 disabled={processingId !== null}
-                className="px-6 py-2.5 bg-[#0B4D31] text-white rounded-xl text-xs font-black shadow-md shadow-green-900/10 hover:bg-[#146c43] transition-all flex items-center gap-2"
+                className="px-5 py-2 bg-[#0B4D31] text-white rounded-xl text-xs font-black shadow-md shadow-green-900/10 hover:bg-[#146c43] transition-all flex items-center gap-2"
               >
                 <CheckCircle2 size={16} />
-                {processingId ? 'Recording Handover...' : 'Generate Handover Voucher'}
+                {processingId ? 'Processing...' : 'Generate Voucher'}
               </button>
             </div>
           </div>
@@ -944,9 +1024,9 @@ const CashRecon = () => {
 
       {/* MODAL 2: Record Bank Deposit Challan (Step 2) */}
       {isBankModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] max-w-lg w-full p-6 lg:p-8 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center pb-4 border-b border-gray-100">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-[2rem] max-w-lg w-full p-4 sm:p-5 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200 max-h-[95vh] overflow-y-auto">
+            <div className="flex justify-between items-center pb-3 border-b border-gray-100">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-700 font-bold">
                   <Building size={20} />
@@ -961,7 +1041,7 @@ const CashRecon = () => {
               </button>
             </div>
 
-            <form onSubmit={handleBankDepositSubmit} className="py-5 space-y-4">
+            <form onSubmit={handleBankDepositSubmit} className="py-4 space-y-3">
               <div>
                 <label className="text-xs font-bold text-gray-700 mb-1 block">Origin Hub / Depot *</label>
                 <select
@@ -1040,18 +1120,18 @@ const CashRecon = () => {
                 />
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+              <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={() => setIsBankModalOpen(false)}
-                  className="px-5 py-2.5 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100"
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submittingBank}
-                  className="px-6 py-2.5 bg-[#0B4D31] text-white rounded-xl text-xs font-black shadow-md shadow-green-900/10 hover:bg-[#146c43]"
+                  className="px-5 py-2 bg-[#0B4D31] text-white rounded-xl text-xs font-black shadow-md shadow-green-900/10 hover:bg-[#146c43]"
                 >
                   {submittingBank ? 'Submitting...' : 'Submit Challan to Finance'}
                 </button>
@@ -1063,9 +1143,9 @@ const CashRecon = () => {
 
       {/* MODAL 3: Printable Digital Handover Receipt */}
       {receiptData && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] max-w-lg w-full p-6 lg:p-8 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center pb-4 border-b border-gray-100">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-[2rem] max-w-lg w-full p-4 sm:p-5 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200 max-h-[95vh] overflow-y-auto">
+            <div className="flex justify-between items-center pb-3 border-b border-gray-100">
               <span className="text-xs font-black text-gray-400 uppercase tracking-wider">Official Cash Handover Receipt</span>
               <button onClick={() => setReceiptData(null)} className="p-2 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-100">
                 <X size={18} />
@@ -1136,16 +1216,16 @@ const CashRecon = () => {
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+            <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
               <button
                 onClick={() => setReceiptData(null)}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100"
               >
                 Close
               </button>
               <button
                 onClick={() => window.print()}
-                className="px-6 py-2.5 bg-primary text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-sm hover:bg-primary-dark"
+                className="px-5 py-2 bg-primary text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-sm hover:bg-primary-dark"
               >
                 <Printer size={15} />
                 Print Voucher

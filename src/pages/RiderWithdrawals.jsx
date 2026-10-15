@@ -4,7 +4,8 @@ import { db } from '../firebase/config';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import DataTable from '../components/common/DataTable';
 import toast from 'react-hot-toast';
-import { CheckCircle, XCircle, Clock, Search, Filter } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { CheckCircle, XCircle, Clock, Search, Filter, AlertTriangle, ArrowRight } from 'lucide-react';
 
 export default function RiderWithdrawals() {
   const [requests, setRequests] = useState([]);
@@ -32,45 +33,8 @@ export default function RiderWithdrawals() {
   }, []);
 
   const handleApprove = async () => {
-    if (!approveModal.req || !approveModal.utr.trim()) {
-      toast.error("Please enter UTR / Transaction Reference");
-      return;
-    }
-    setProcessing(true);
-    try {
-      await runTransaction(db, async (transaction) => {
-        const reqRef = doc(db, 'payout_requests', approveModal.req.id);
-        const riderRef = doc(db, 'riders', approveModal.req.riderId);
-        
-        const reqDoc = await transaction.get(reqRef);
-        if (!reqDoc.exists() || reqDoc.data().status !== 'PENDING') {
-          throw new Error("Request is no longer pending.");
-        }
-
-        // Deduct from rider's wallet
-        const riderDoc = await transaction.get(riderRef);
-        if (riderDoc.exists()) {
-          const currentBal = riderDoc.data().pendingSettlement || 0;
-          const newBal = currentBal - approveModal.req.amount;
-          transaction.update(riderRef, { pendingSettlement: newBal });
-        }
-
-        // Update request status
-        transaction.update(reqRef, {
-          status: 'TRANSFERRED',
-          transactionRef: approveModal.utr,
-          processedAt: serverTimestamp(),
-        });
-      });
-
-      toast.success("Request approved and wallet balance deducted");
-      setApproveModal({ open: false, req: null, utr: '' });
-    } catch (error) {
-      console.error(error);
-      toast.error(error.message || "Error approving request");
-    } finally {
-      setProcessing(false);
-    }
+    toast.error("Ad-hoc withdrawal approval is deprecated. All rider earnings are disbursed via Weekly Batch Payouts (/rider-payouts).");
+    setApproveModal({ open: false, req: null, utr: '' });
   };
 
   const handleReject = async () => {
@@ -181,14 +145,15 @@ export default function RiderWithdrawals() {
     {
       header: 'Actions',
       render: (req) => (
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           {req.status === 'PENDING' && (
             <>
               <button
-                onClick={() => setApproveModal({ open: true, req, utr: '' })}
-                className="px-3 py-1.5 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                disabled
+                title="On-demand approvals retired. All disbursements occur via Weekly Batch Push."
+                className="px-3 py-1.5 bg-gray-100 text-gray-400 rounded-lg text-xs font-bold cursor-not-allowed border border-gray-200"
               >
-                Approve
+                Disbursed via Weekly Batch
               </button>
               <button
                 onClick={() => setRejectModal({ open: true, req, reason: '' })}
@@ -205,6 +170,29 @@ export default function RiderWithdrawals() {
 
   return (
     <div className="space-y-6">
+      {/* Deprecation Alert Banner */}
+      <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border-l-4 border-amber-500 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm bg-amber-50/60">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-amber-100 text-amber-800 rounded-xl">
+            <AlertTriangle size={22} className="text-amber-700" />
+          </div>
+          <div>
+            <h4 className="text-sm font-black text-amber-950">
+              On-demand withdrawals are retired under the Unified Financial Architecture.
+            </h4>
+            <p className="text-xs text-amber-800 font-medium mt-0.5">
+              All rider payouts are now disbursed via Weekly Batch Push (<span className="font-mono font-bold">RiderPayouts.jsx</span>) with automatic shortage recovery.
+            </p>
+          </div>
+        </div>
+        <Link
+          to="/rider-payouts"
+          className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#0B4D31] hover:bg-[#146c43] text-white rounded-xl text-xs font-bold transition-all shadow-sm whitespace-nowrap"
+        >
+          Open Weekly Batch Payouts <ArrowRight size={14} />
+        </Link>
+      </div>
+
       {/* Controls */}
       <div className="flex flex-col sm:flex-row justify-between gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
         <div className="relative flex-1 max-w-md">

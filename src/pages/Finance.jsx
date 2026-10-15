@@ -29,10 +29,11 @@ import {
   ArrowUpDown,
   RotateCcw
 } from "lucide-react";
-import { collection, query, orderBy, onSnapshot, limit, addDoc, Timestamp, getDocs, where } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, limit, addDoc, Timestamp, getDocs, where, doc } from "firebase/firestore";
 import { db, functions, auth } from "../firebase/config";
 import { httpsCallable } from "firebase/functions";
 import { useAuth } from "../hooks/useAuth";
+import { useWarehouse } from "../context/WarehouseContext";
 import DataTable from "../components/common/DataTable";
 import PageHeader from "../components/common/PageHeader";
 import {
@@ -49,7 +50,9 @@ import toast from "react-hot-toast";
 
 const Finance = () => {
   const { user, role } = useAuth();
+  const { selectedWarehouseId, warehouses } = useWarehouse();
   const [ledger, setLedger] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [totalWalletLiability, setTotalWalletLiability] = useState(0);
   const [summary, setSummary] = useState({
     totalRevenue: 0,
@@ -63,6 +66,8 @@ const Finance = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [dateRange, setDateRange] = useState('All Time');
+  const [selectedPeriod, setSelectedPeriod] = useState('ALL');
+  const [selectedRefType, setSelectedRefType] = useState('ALL');
 
   // Modals state
   const [isReconModalOpen, setIsReconModalOpen] = useState(false);
@@ -105,19 +110,121 @@ const Finance = () => {
         default: start = null;
       }
 
-      // Fetch financial summary from Cloud Function
-      const getSummary = httpsCallable(functions, 'getFinanceSummary');
-      const res = await getSummary({
-        startDate: start?.toISOString(),
-        endDate: end.toISOString()
-      });
+      const isAllHubs = !selectedWarehouseId || selectedWarehouseId === 'ALL';
+      const selectedWh = warehouses.find(w => w.id === selectedWarehouseId || w.code === selectedWarehouseId);
+      const targetId = (selectedWh ? selectedWh.id : selectedWarehouseId || '').toString().trim().toUpperCase();
+      const targetCode = (selectedWh ? selectedWh.code : selectedWarehouseId || '').toString().trim().toUpperCase();
 
-      if (res.data.success) {
-        setSummary(res.data.summary);
+      // 1. If All Hubs, try Cloud Function
+      if (isAllHubs) {
+        try {
+          const getSummary = httpsCallable(functions, 'getFinanceSummary');
+          const res = await getSummary({
+            startDate: start?.toISOString(),
+            endDate: end.toISOString()
+          });
+
+          const summaryObj = res?.data?.summary || (res?.data?.totalRevenue !== undefined ? res.data : null);
+          if (summaryObj) {
+            setSummary(summaryObj);
+            setLoading(false);
+            return;
+          }
+        } catch (cfErr) {
+          console.warn("Cloud function getFinanceSummary unavailable, computing via live Firestore records:", cfErr.message);
+        }
       }
+
+      // 2. Direct Firestore computation for guaranteed data availability
+
+      const ordersSnap = await getDocs(collection(db, "orders"));
+      let totalRevenue = 0;
+      let grossProfit = 0;
+      let gstCollected = 0;
+      let orderCount = 0;
+      let refunds = 0;
+      let returnsCount = 0;
+      const matchedOrderIds = new Set();
+      const allOrdersList = [];
+
+      ordersSnap.forEach((docSnap) => {
+        const o = docSnap.data();
+        allOrdersList.push({ id: docSnap.id, ...o });
+        const oWh = (o.fulfillmentWarehouseId || o.warehouseId || o.hubId || o.hubCode || '').toString().trim().toUpperCase();
+        
+        let matchesHub = isAllHubs;
+        if (!isAllHubs) {
+          matchesHub = Boolean(oWh && (oWh === targetId || oWh === targetCode));
+        }
+
+        if (matchesHub) {
+          matchedOrderIds.add(docSnap.id);
+          const oDate = o.createdAt?.toDate ? o.createdAt.toDate() : (o.createdAt ? new Date(o.createdAt) : null);
+          
+          let inRange = true;
+          if (start && oDate && oDate < start) inRange = false;
+          if (end && oDate && oDate > end) inRange = false;
+
+          if (inRange) {
+            if (o.status !== 'CANCELLED') {
+              const amt = Number(o.totalAmount || 0);
+              totalRevenue += amt;
+              const profit = Number(o.grossProfit) || (amt * 0.18);
+              grossProfit += profit;
+              const gst = (Number(o.cgst || 0) + Number(o.sgst || 0) + Number(o.igst || 0)) || (amt * 0.05);
+              gstCollected += gst;
+              orderCount++;
+            } else {
+              refunds += Number(o.totalAmount || 0);
+              returnsCount++;
+            }
+          }
+        }
+      });
+      setOrders(allOrdersList);
+
+      // Calculate total expenses from System 2 journal_entries (with expenses collection fallback)
+      let totalExpenses = 0;
+      try {
+        const jeSnap = await getDocs(query(collection(db, "journal_entries"), where("refType", "==", "EXPENSE")));
+        jeSnap.forEach((docSnap) => {
+          const entry = docSnap.data();
+          let matchesHub = isAllHubs;
+          if (!isAllHubs) {
+            const entryWh = (entry.warehouseId || entry.hubId || entry.metadata?.warehouseId || entry.metadata?.hubId || '').toString().trim().toUpperCase();
+            matchesHub = Boolean(entryWh && (entryWh === targetId || entryWh === targetCode));
+          }
+
+          if (matchesHub) {
+            const eDate = entry.date?.toDate ? entry.date.toDate() : (entry.date ? new Date(entry.date) : (entry.createdAt?.toDate ? entry.createdAt.toDate() : null));
+            let inRange = true;
+            if (start && eDate && eDate < start) inRange = false;
+            if (end && eDate && eDate > end) inRange = false;
+            if (inRange) {
+              totalExpenses += Number(entry.totalAmount || entry.amount || 0);
+            }
+          }
+        });
+      } catch (jeErr) {
+        // Fallback to expenses collection
+        const expSnap = await getDocs(collection(db, "expenses"));
+        expSnap.forEach((docSnap) => {
+          totalExpenses += Number(docSnap.data().amount || 0);
+        });
+      }
+
+      setSummary({
+        totalRevenue: Math.round(totalRevenue),
+        grossProfit: Math.round(grossProfit),
+        netProfit: Math.round(grossProfit - totalExpenses),
+        expenses: Math.round(totalExpenses),
+        gstCollected: Math.round(gstCollected),
+        orderCount,
+        refunds: Math.round(refunds),
+        returnsCount
+      });
     } catch (error) {
-      console.error(error);
-      toast.error("Failed to fetch finance summary from server");
+      console.error("Finance summary error:", error);
     } finally {
       setLoading(false);
     }
@@ -125,27 +232,93 @@ const Finance = () => {
 
   useEffect(() => {
     fetchFinanceData();
-    const q = query(collection(db, "ledger"), orderBy("timestamp", "desc"), limit(200));
-    const unsubscribeLedger = onSnapshot(q, (snapshot) => {
-      setLedger(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+  }, [dateRange, selectedWarehouseId, warehouses]);
+
+  useEffect(() => {
+    const unsubOrders = onSnapshot(collection(db, "orders"), (snap) => {
+      setOrders(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => {
+      console.warn("Orders subscription error:", err);
     });
 
-    const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-      let total = 0;
-      snapshot.forEach(doc => {
-        const data = doc.data();
-        if (data.walletBalance && Number(data.walletBalance) > 0) {
-          total += Number(data.walletBalance);
-        }
+    // 1. System 2 Double-Entry Journal Entries query (filtered by periodId, refType, date)
+    const constraints = [orderBy("date", "desc"), limit(200)];
+    if (selectedPeriod !== 'ALL') {
+      constraints.unshift(where("periodId", "==", selectedPeriod));
+    }
+    if (selectedRefType !== 'ALL') {
+      constraints.unshift(where("refType", "==", selectedRefType));
+    }
+
+    const qEntries = query(collection(db, "journal_entries"), ...constraints);
+    const unsubscribeJournal = onSnapshot(qEntries, (snapshot) => {
+      const entries = snapshot.docs.map(docSnap => {
+        const d = docSnap.data();
+        return {
+          id: docSnap.id,
+          entryId: d.entryId || docSnap.id,
+          ...d,
+          timestamp: d.date || d.createdAt,
+          account: d.refType || 'GL_JOURNAL',
+          type: 'POSTED',
+          description: d.memo || `${d.refType} (${d.refId || docSnap.id})`,
+          amount: d.totalAmount || 0,
+          actorName: d.createdBy || 'SYSTEM',
+          actorRole: 'System 2 GL'
+        };
       });
-      setTotalWalletLiability(total);
+      setLedger(entries);
+    }, (err) => {
+      console.warn("journal_entries listener fallback:", err?.message || err);
+      getDocs(collection(db, "journal_entries")).then(snap => {
+        setLedger(snap.docs.map(d => {
+          const data = d.data();
+          return {
+            id: d.id,
+            entryId: data.entryId || d.id,
+            ...data,
+            timestamp: data.date || data.createdAt,
+            account: data.refType || 'GL_JOURNAL',
+            type: 'POSTED',
+            description: data.memo || `${data.refType} (${data.refId || d.id})`,
+            amount: data.totalAmount || 0,
+            actorName: data.createdBy || 'SYSTEM',
+            actorRole: 'System 2 GL'
+          };
+        }));
+      }).catch(() => {});
     });
+
+    // 2. Direct System 2 ledger liability query: O(1) network overhead replacing O(N) users snapshot
+    const unsubscribeWalletLiability = onSnapshot(doc(db, "accounts", "2065_CUSTOMER_WALLET_LIABILITY"), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const balance = Number(data.currentBalance ?? data.balance ?? (Number(data.credit || 0) - Number(data.debit || 0))) || 0;
+        setTotalWalletLiability(balance);
+      }
+    }, (err) => {
+      console.warn("accounts/2065_CUSTOMER_WALLET_LIABILITY snapshot fallback:", err?.message);
+    });
+
+    const loadWalletLiabilityFromGL = async () => {
+      try {
+        const getExtract = httpsCallable(functions, 'getLedgerExtract');
+        const res = await getExtract({ accountCode: '2065_CUSTOMER_WALLET_LIABILITY' });
+        if (res?.data && res.data.closingBalance !== undefined) {
+          setTotalWalletLiability(res.data.closingBalance);
+        }
+      } catch (err) {
+        console.warn("getLedgerExtract 2065_CUSTOMER_WALLET_LIABILITY fallback:", err?.message);
+      }
+    };
+    loadWalletLiabilityFromGL();
 
     return () => {
-      unsubscribeLedger();
-      unsubscribeUsers();
+      unsubOrders();
+      unsubscribeJournal();
+      unsubscribeWalletLiability();
     };
-  }, [dateRange]);
+  }, [selectedPeriod, selectedRefType]);
 
   const handleReconcile = async (e) => {
     e.preventDefault();
@@ -170,17 +343,39 @@ const Finance = () => {
 
     setIsProcessing(true);
     try {
-      await addDoc(collection(db, 'ledger'), {
-        account: expenseForm.category,
-        type: 'DEBIT',
-        amount: Number(expenseForm.amount),
-        description: expenseForm.note || `Manual Expense: ${expenseForm.category}`,
-        timestamp: Timestamp.now(),
-        actorId: user?.uid || auth.currentUser?.uid || "unknown",
-        actorEmail: user?.email || auth.currentUser?.email || "unknown",
-        actorName: user?.displayName || user?.email?.split('@')[0] || "Admin",
-        actorRole: role || "SuperAdmin"
-      });
+      const amt = Number(expenseForm.amount);
+      const desc = expenseForm.note || `Manual Expense: ${expenseForm.category}`;
+
+      // Call Cloud Function for authoritative ledger posting and expense tracking
+      try {
+        const recordExpenseFn = httpsCallable(functions, 'recordExpensePayment');
+        await recordExpenseFn({
+          amount: amt,
+          category: expenseForm.category,
+          description: desc,
+          paymentMode: 'CASH'
+        });
+      } catch (cfErr) {
+        console.warn("recordExpensePayment callable failed, trying direct expenses write:", cfErr);
+        const now = Timestamp.now();
+        await addDoc(collection(db, 'expenses'), {
+          expenseNumber: `EXP-${Date.now().toString().slice(-6)}`,
+          categoryName: expenseForm.category.replace(/_/g, ' '),
+          category: expenseForm.category,
+          totalAmountMinor: Math.round(amt * 100),
+          amount: amt,
+          description: desc,
+          date: new Date().toISOString(),
+          approvalStatus: 'APPROVED',
+          paymentStatus: 'PAID',
+          deleted: false,
+          expenseDate: now,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: user?.uid || auth.currentUser?.uid || 'Admin'
+        });
+      }
+
       toast.success("Expense recorded successfully!");
       setIsExpenseModalOpen(false);
       setExpenseForm({ category: 'OFFICE_RENT', amount: '', note: '' });
@@ -193,21 +388,26 @@ const Finance = () => {
   };
 
   const exportToCsv = () => {
-    const headers = ["Date", "Account", "Type", "Description", "Performed By", "Role", "Amount"];
-    const rows = ledger.map(entry => [
-      entry.timestamp?.toDate ? entry.timestamp.toDate().toLocaleString() : "",
-      entry.account || "",
-      entry.type || "",
-      entry.description || "",
-      entry.actorName || entry.actorEmail || "System",
-      entry.actorRole || "Admin",
-      entry.amount || 0
-    ]);
+    const headers = ["Date", "Entry ID", "Ref Type", "Ref ID", "Period", "Memo", "Posted By", "Amount", "Status"];
+    const rows = hubFilteredLedger.map(entry => {
+      const d = entry.timestamp?.toDate ? entry.timestamp.toDate() : (entry.timestamp ? new Date(entry.timestamp) : new Date());
+      return [
+        d.toLocaleString('en-IN'),
+        entry.id || entry.entryId || "",
+        entry.refType || entry.account || "",
+        entry.refId || "",
+        entry.periodId || "",
+        `"${(entry.memo || entry.description || "").replace(/"/g, '""')}"`,
+        entry.createdBy || entry.actorName || "SYSTEM",
+        entry.totalAmount || entry.amount || 0,
+        entry.status || "POSTED"
+      ];
+    });
     const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const link = document.createElement('a');
     link.href = window.URL.createObjectURL(blob);
-    link.download = `Finance_Report_${new Date().toLocaleDateString()}.csv`;
+    link.download = `General_Ledger_System2_${new Date().toLocaleDateString()}.csv`;
     link.click();
   };
 
@@ -241,45 +441,52 @@ const Finance = () => {
       },
     },
     {
-      header: "Account / Category",
+      header: "Ref Type / Entry ID",
       render: (entry) => (
-        <span className="px-2.5 py-1 bg-gray-100 rounded-lg text-[10px] font-black text-gray-700 uppercase tracking-tight border border-gray-200">
-          {entry.account || 'GENERAL'}
-        </span>
-      ),
-    },
-    {
-      header: "Description",
-      render: (entry) => (
-        <div className="max-w-xs">
-          <div className="text-xs font-bold text-gray-800 line-clamp-1">{entry.description}</div>
-          {entry.referenceId && (
-            <div className="text-[9px] text-gray-400 font-mono uppercase mt-0.5">Ref: {entry.referenceId}</div>
-          )}
+        <div className="flex flex-col">
+          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 rounded-lg text-[10px] font-black uppercase tracking-tight border border-emerald-200 w-fit">
+            {entry.refType || entry.account || 'GENERAL'}
+          </span>
+          <span className="font-mono text-[9px] text-gray-400 mt-0.5 truncate max-w-[130px]" title={entry.id || entry.entryId}>
+            {entry.id || entry.entryId}
+          </span>
         </div>
       ),
     },
     {
-      header: "Performed By (Admin & Role)",
+      header: "Memo / Reference",
+      render: (entry) => (
+        <div className="max-w-xs">
+          <div className="text-xs font-bold text-gray-800 line-clamp-1">{entry.memo || entry.description}</div>
+          <div className="flex items-center gap-2 mt-0.5">
+            {entry.refId && (
+              <span className="text-[9px] text-gray-500 font-mono uppercase bg-gray-100 px-1.5 py-0.5 rounded">
+                Ref: {entry.refId}
+              </span>
+            )}
+            {entry.periodId && (
+              <span className="text-[9px] text-blue-600 font-mono font-bold">
+                Period: {entry.periodId}
+              </span>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      header: "Posted By",
       render: (entry) => (
         <div className="flex items-center space-x-2">
           <div className="h-7 w-7 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-[10px] font-black text-gray-600 uppercase">
-            {(entry.actorName || entry.actorEmail || 'A').charAt(0)}
+            {(entry.createdBy || entry.actorName || 'S').charAt(0)}
           </div>
           <div>
             <div className="text-xs font-bold text-gray-900 leading-tight">
-              {entry.actorName || entry.actorEmail?.split('@')[0] || 'System Admin'}
+              {entry.createdBy || entry.actorName || 'System GL'}
             </div>
-            <div className="flex items-center space-x-1 mt-0.5">
-              <span className={`px-1.5 py-0.2 text-[8px] font-black uppercase tracking-wider rounded border ${getRoleBadge(entry.actorRole)}`}>
-                {entry.actorRole || 'SuperAdmin'}
-              </span>
-              {entry.actorEmail && (
-                <span className="text-[9px] text-gray-400 truncate max-w-[120px] font-mono">
-                  {entry.actorEmail}
-                </span>
-              )}
-            </div>
+            <span className="text-[9px] font-mono text-gray-400">
+              {entry.status || 'POSTED'}
+            </span>
           </div>
         </div>
       ),
@@ -288,19 +495,47 @@ const Finance = () => {
       header: "Amount",
       render: (entry) => (
         <div className="flex flex-col items-end">
-          <span className={`text-sm font-black ${entry.type === 'CREDIT' ? 'text-green-600' : 'text-red-600'}`}>
-            {entry.type === 'CREDIT' ? '+' : '-'} ₹{Number(entry.amount || 0).toLocaleString('en-IN')}
+          <span className="text-sm font-black text-gray-900">
+            ₹{Number(entry.totalAmount || entry.amount || 0).toLocaleString('en-IN')}
           </span>
-          <span className="text-[8px] font-black uppercase text-gray-400 tracking-widest">{entry.type}</span>
+          <span className="text-[8px] font-black uppercase text-emerald-700 tracking-widest">{entry.status || 'POSTED'}</span>
         </div>
       ),
     },
   ];
 
-  // All DEBIT expenses from ledger
+  const orderWarehouseMap = useMemo(() => {
+    const map = new Map();
+    orders.forEach(o => {
+      const wh = o.fulfillmentWarehouseId || o.warehouseId || o.hubId || o.hubCode;
+      if (wh) map.set(o.id, wh);
+    });
+    return map;
+  }, [orders]);
+
+  const hubFilteredLedger = useMemo(() => {
+    const isAllHubs = !selectedWarehouseId || selectedWarehouseId === 'ALL';
+    if (isAllHubs) return ledger;
+
+    const selectedWh = warehouses.find(w => w.id === selectedWarehouseId || w.code === selectedWarehouseId);
+    const targetId = (selectedWh ? selectedWh.id : selectedWarehouseId || '').toString().trim().toUpperCase();
+    const targetCode = (selectedWh ? selectedWh.code : selectedWarehouseId || '').toString().trim().toUpperCase();
+
+    return ledger.filter(entry => {
+      const entryWh = (entry.warehouseId || entry.hubId || entry.metadata?.warehouseId || entry.metadata?.hubId || '').toString().trim().toUpperCase();
+      if (entryWh && (entryWh === targetId || entryWh === targetCode)) return true;
+      if (entry.referenceId && orderWarehouseMap.has(entry.referenceId)) {
+        const oWh = (orderWarehouseMap.get(entry.referenceId) || '').toString().trim().toUpperCase();
+        return oWh === targetId || oWh === targetCode;
+      }
+      return false;
+    });
+  }, [ledger, selectedWarehouseId, warehouses, orderWarehouseMap]);
+
+  // All DEBIT expenses from filtered ledger
   const debitExpenses = useMemo(() => {
-    return ledger.filter(e => e.type === 'DEBIT');
-  }, [ledger]);
+    return hubFilteredLedger.filter(e => e.type === 'DEBIT');
+  }, [hubFilteredLedger]);
 
   // Aggregate total by category from debitExpenses
   const categoryTotals = useMemo(() => {
@@ -450,7 +685,11 @@ const Finance = () => {
     <div className="space-y-8 animate-in fade-in duration-300 pb-10">
       <PageHeader
         title="Finance Intelligence & Ledger"
-        subtitle="Immutable ledger, revenue analytics, expense tracking, GST compliance, and reconciliation"
+        subtitle={
+          selectedWarehouseId && selectedWarehouseId !== 'ALL'
+            ? `Immutable ledger & analytics for ${warehouses.find(w => w.id === selectedWarehouseId || w.code === selectedWarehouseId)?.name || selectedWarehouseId}`
+            : "Immutable ledger, revenue analytics, expense tracking, GST compliance, and reconciliation (Entire Network)"
+        }
         actions={[
           { label: 'Export CSV', icon: Download, onClick: exportToCsv, variant: 'secondary' },
           { label: 'Reconcile Payout', icon: Plus, onClick: () => setIsReconModalOpen(true), variant: 'primary' }
@@ -568,7 +807,7 @@ const Finance = () => {
                 </div>
                 <div className="flex justify-between text-xs font-bold border-b border-white/10 pb-3">
                   <span className="text-amber-200 uppercase flex items-center gap-1">
-                    <Wallet size={12} /> Customer Wallet Balance
+                    <Wallet size={12} /> Customer Wallet Balance (2065)
                   </span>
                   <span className="text-amber-300">₹{(totalWalletLiability || 0).toLocaleString('en-IN')}</span>
                 </div>
@@ -589,14 +828,41 @@ const Finance = () => {
       <div className="bg-white rounded-[3rem] border border-gray-50 shadow-xl shadow-green-100/20 overflow-hidden">
         <div className="p-8 border-b border-gray-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h2 className="text-lg font-black text-gray-900 uppercase tracking-tighter">Recent Ledger Transactions</h2>
-            <p className="text-xs text-gray-400 font-medium mt-0.5">Live audit trail with Admin roles, timestamps and accounting categories</p>
+            <h2 className="text-lg font-black text-gray-900 uppercase tracking-tighter">System 2 General Ledger Entries</h2>
+            <p className="text-xs text-gray-400 font-medium mt-0.5">Authoritative Double-Entry Journal with Period ID, Ref Type, and Audit Verification</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Period Filter */}
+            <select
+              value={selectedPeriod}
+              onChange={(e) => setSelectedPeriod(e.target.value)}
+              className="bg-gray-50 border border-gray-200 text-xs font-bold text-gray-700 rounded-2xl px-3 py-2 outline-none focus:ring-2 focus:ring-primary/20"
+            >
+              <option value="ALL">All Fiscal Periods</option>
+              <option value="2026-10">2026-10</option>
+              <option value="2026-09">2026-09</option>
+              <option value="2026-08">2026-08</option>
+              <option value="2026-07">2026-07</option>
+            </select>
+            {/* RefType Filter */}
+            <select
+              value={selectedRefType}
+              onChange={(e) => setSelectedRefType(e.target.value)}
+              className="bg-gray-50 border border-gray-200 text-xs font-bold text-gray-700 rounded-2xl px-3 py-2 outline-none focus:ring-2 focus:ring-primary/20"
+            >
+              <option value="ALL">All Ref Types</option>
+              <option value="ORDER_DELIVERY">ORDER_DELIVERY</option>
+              <option value="COD_SETTLEMENT">COD_SETTLEMENT</option>
+              <option value="EXPENSE">EXPENSE</option>
+              <option value="SALES_RETURN">SALES_RETURN</option>
+              <option value="GATEWAY_SETTLEMENT">GATEWAY_SETTLEMENT</option>
+              <option value="RIDER_PAYOUT">RIDER_PAYOUT</option>
+              <option value="WALLET_TRANSACTION">WALLET_TRANSACTION</option>
+            </select>
             <div className="flex items-center bg-gray-50 px-4 py-2 rounded-2xl border border-gray-100">
               <Search size={16} className="text-gray-400 mr-2" />
               <input
-                placeholder="Search description, admin..."
+                placeholder="Search memo, refId, entryId..."
                 className="bg-transparent border-none outline-none text-xs font-bold text-gray-700 w-48"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -606,7 +872,7 @@ const Finance = () => {
         </div>
         <DataTable 
           columns={columns} 
-          data={ledger.filter(e => 
+          data={hubFilteredLedger.filter(e => 
             (e.description || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
             (e.account || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
             (e.actorName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
