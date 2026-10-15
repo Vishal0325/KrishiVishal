@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '../firebase/config';
@@ -25,9 +25,13 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { getOrCreateDurableRequestId, clearDurableRequestId } from '../utils/durableIdempotency';
+import {
+  getOrCreateDurableRequestId,
+  getPendingDurableRequest,
+  clearDurableRequestId
+} from '../utils/durableIdempotency';
 
-export { getOrCreateDurableRequestId, clearDurableRequestId };
+export { getOrCreateDurableRequestId, getPendingDurableRequest, clearDurableRequestId };
 
 export default function QuarantineDesk() {
   const { user } = useAuth();
@@ -48,7 +52,7 @@ export default function QuarantineDesk() {
   const [debitNoteRef, setDebitNoteRef] = useState('');
   const [writeOffReason, setWriteOffReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const resolutionRequestIds = useRef(new Map());
+  const [hasPendingResolution, setHasPendingResolution] = useState(false);
 
   useEffect(() => {
     let q;
@@ -86,7 +90,36 @@ export default function QuarantineDesk() {
 
   const openActionModal = (item, type) => {
     const remaining = (Number(item.damagedQty) || 0) - (Number(item.resolvedQty) || 0);
+    let pending;
+    try {
+      pending = getPendingDurableRequest(item.id);
+    } catch (err) {
+      toast.error(err.message || 'Unable to read the pending quarantine request');
+      return;
+    }
+
     setSelectedItem(item);
+    setHasPendingResolution(Boolean(pending));
+    if (pending?.payload) {
+      setActionType(pending.payload.action);
+      setActionQty(String(pending.payload.quantity));
+      setVendorName(pending.payload.vendorName || '');
+      setVendorId(pending.payload.vendorId || '');
+      setDebitNoteRef(pending.payload.debitNoteRef || '');
+      setWriteOffReason(pending.payload.writeOffReason || '');
+      toast('Restored the pending resolution. Retry it unchanged to safely complete or confirm the previous result.');
+      return;
+    }
+    if (pending) {
+      setActionType(type);
+      setActionQty('');
+      setVendorName('');
+      setVendorId('');
+      setDebitNoteRef('');
+      setWriteOffReason('');
+      toast.error('A saved request needs review before another resolution can be submitted.');
+      return;
+    }
     setActionType(type);
     setActionQty(remaining > 0 ? remaining.toString() : '1');
     setVendorName(item.vendorName || item.supplierName || '');
@@ -103,6 +136,7 @@ export default function QuarantineDesk() {
     setVendorId('');
     setDebitNoteRef('');
     setWriteOffReason('');
+    setHasPendingResolution(false);
   };
 
   const handleResolveSubmit = async (e) => {
@@ -115,7 +149,7 @@ export default function QuarantineDesk() {
     if (!qty || qty <= 0) {
       return toast.error('Please enter a valid positive quantity');
     }
-    if (qty > remaining) {
+    if (!hasPendingResolution && qty > remaining) {
       return toast.error(`Quantity cannot exceed remaining damaged stock (${remaining})`);
     }
 
@@ -136,7 +170,7 @@ export default function QuarantineDesk() {
 
       await resolveFn({ ...payload, requestId });
       clearDurableRequestId(selectedItem.id);
-      resolutionRequestIds.current.clear();
+      setHasPendingResolution(false);
       toast.success(
         actionType === 'RETURN_TO_VENDOR'
           ? `Returned ${qty} units to vendor! Debit note posted.`
@@ -395,6 +429,11 @@ export default function QuarantineDesk() {
                   Remaining Damaged Stock: {(Number(selectedItem.damagedQty) || 0) - (Number(selectedItem.resolvedQty) || 0)} units
                 </p>
               </div>
+              {hasPendingResolution && (
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900">
+                  A previous attempt may already have completed. The saved operation is locked and will reuse its original request ID. Retry it unchanged; do not start another resolution until it succeeds.
+                </div>
+              )}
 
               {/* Quantity */}
               <div className="space-y-1">
@@ -408,6 +447,7 @@ export default function QuarantineDesk() {
                   max={(Number(selectedItem.damagedQty) || 0) - (Number(selectedItem.resolvedQty) || 0)}
                   value={actionQty}
                   onChange={(e) => setActionQty(e.target.value)}
+                  disabled={hasPendingResolution}
                   className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-sm text-gray-900 outline-none focus:bg-white focus:border-primary"
                 />
               </div>
@@ -422,6 +462,7 @@ export default function QuarantineDesk() {
                       required
                       value={vendorName}
                       onChange={(e) => setVendorName(e.target.value)}
+                      disabled={hasPendingResolution}
                       placeholder="e.g. IFFCO Bihar Agro Supply"
                       className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-sm text-gray-900 outline-none focus:bg-white focus:border-primary"
                     />
@@ -434,6 +475,7 @@ export default function QuarantineDesk() {
                       required
                       value={debitNoteRef}
                       onChange={(e) => setDebitNoteRef(e.target.value)}
+                      disabled={hasPendingResolution}
                       placeholder="e.g. DN-2026-0042"
                       className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl font-mono text-sm font-bold text-gray-900 outline-none focus:bg-white focus:border-primary"
                     />
@@ -453,6 +495,7 @@ export default function QuarantineDesk() {
                     rows={3}
                     value={writeOffReason}
                     onChange={(e) => setWriteOffReason(e.target.value)}
+                    disabled={hasPendingResolution}
                     placeholder="Enter inspection note explaining why stock cannot be salvaged or returned..."
                     className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl font-medium text-xs text-gray-900 outline-none focus:bg-white focus:border-primary"
                   />

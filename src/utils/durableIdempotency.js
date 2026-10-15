@@ -12,35 +12,32 @@ const PENDING_RESOLUTION_STORAGE_PREFIX = 'kv_pending_quarantine_res_';
 export function getOrCreateDurableRequestId(entityId, payload, prefix = PENDING_RESOLUTION_STORAGE_PREFIX) {
   const storageKey = `${prefix}${entityId}`;
   const payloadSignature = JSON.stringify(payload);
-  try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(storageKey) : null;
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && parsed.signature === payloadSignature && parsed.requestId) {
-        if (!parsed.timestamp || Date.now() - parsed.timestamp < 24 * 60 * 60 * 1000) {
-          return { requestId: parsed.requestId, storageKey };
-        }
-      }
+  const storage = getStorage();
+  const existing = readPendingResolution(storage, storageKey);
+
+  if (existing) {
+    if (existing.signature !== payloadSignature) {
+      throw new Error('A quarantine resolution is already pending. Retry the saved operation before starting another one.');
     }
-  } catch (err) {
-    console.warn('localStorage read error:', err);
+    return { requestId: existing.requestId, storageKey };
   }
 
-  const newRequestId = typeof crypto !== 'undefined' && crypto.randomUUID
-    ? crypto.randomUUID()
-    : `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-  try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(storageKey, JSON.stringify({
-        requestId: newRequestId,
-        signature: payloadSignature,
-        timestamp: Date.now()
-      }));
-    }
-  } catch (err) {
-    console.warn('localStorage write error:', err);
+  if (!globalThis.crypto?.randomUUID) {
+    throw new Error('Secure request IDs are unavailable in this browser. Use a supported browser over HTTPS.');
   }
+  const newRequestId = globalThis.crypto.randomUUID();
+  storage.setItem(storageKey, JSON.stringify({
+    requestId: newRequestId,
+    signature: payloadSignature,
+    payload,
+    timestamp: Date.now()
+  }));
   return { requestId: newRequestId, storageKey };
+}
+
+export function getPendingDurableRequest(entityId, prefix = PENDING_RESOLUTION_STORAGE_PREFIX) {
+  const storageKey = `${prefix}${entityId}`;
+  return readPendingResolution(getStorage(), storageKey);
 }
 
 /**
@@ -50,11 +47,29 @@ export function getOrCreateDurableRequestId(entityId, payload, prefix = PENDING_
  * @param {string} prefix - Optional storage prefix
  */
 export function clearDurableRequestId(entityId, prefix = PENDING_RESOLUTION_STORAGE_PREFIX) {
-  try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(`${prefix}${entityId}`);
-    }
-  } catch (err) {
-    console.warn('localStorage clear error:', err);
+  getStorage().removeItem(`${prefix}${entityId}`);
+}
+
+function getStorage() {
+  if (typeof localStorage === 'undefined') {
+    throw new Error('Persistent browser storage is unavailable. Quarantine resolution was not submitted.');
   }
+  return localStorage;
+}
+
+function readPendingResolution(storage, storageKey) {
+  const raw = storage.getItem(storageKey);
+  if (!raw) return null;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error('The saved quarantine request is unreadable. Do not submit a new resolution until it is reviewed.');
+  }
+
+  if (!parsed || typeof parsed.requestId !== 'string' || typeof parsed.signature !== 'string') {
+    throw new Error('The saved quarantine request is incomplete. Do not submit a new resolution until it is reviewed.');
+  }
+  return parsed;
 }
