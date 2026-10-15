@@ -1,6 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db, admin } = require("../core/admin");
 const { postJournalEntry } = require("./generalLedger");
+const { isSystem1Frozen } = require("./ledger");
 
 const REGION = 'asia-south1';
 const ALLOWED_ROLES = ['hubmanager', 'admin', 'superadmin'];
@@ -263,6 +264,60 @@ exports.confirmCashSettlement = onCall({ region: REGION }, async (request) => {
                         : `Cash settlement deposited ₹${depositedAmount} in full at hub`,
                     createdAt: admin.firestore.FieldValue.serverTimestamp()
                 });
+            }
+
+            // e. Backward-compatible ledger record (only active when System 1 is not frozen)
+            if (!isSystem1Frozen()) {
+                if (shortage > 0) {
+                    if (depositedAmount > 0) {
+                        const l1 = db.collection("ledger").doc(`LEDGER_SETTLE_VAULT_${cleanSettlementId}`);
+                        transaction.set(l1, {
+                            account: 'HUB_CASH_VAULT',
+                            type: 'DEBIT',
+                            amount: depositedAmount,
+                            referenceId: cleanSettlementId,
+                            referenceType: 'COD_SETTLEMENT',
+                            timestamp: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                    const l2 = db.collection("ledger").doc(`LEDGER_SETTLE_SHORT_${cleanSettlementId}`);
+                    transaction.set(l2, {
+                        account: 'RIDER_SHORTAGE_RECEIVABLE',
+                        type: 'DEBIT',
+                        amount: shortage,
+                        referenceId: cleanSettlementId,
+                        referenceType: 'COD_SETTLEMENT',
+                        timestamp: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                    const l3 = db.collection("ledger").doc(`LEDGER_SETTLE_RIDER_${cleanSettlementId}`);
+                    transaction.set(l3, {
+                        account: 'RIDER_CASH_IN_HAND',
+                        type: 'CREDIT',
+                        amount: totalCollected,
+                        referenceId: cleanSettlementId,
+                        referenceType: 'COD_SETTLEMENT',
+                        timestamp: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                } else {
+                    const l1 = db.collection("ledger").doc(`LEDGER_SETTLE_VAULT_${cleanSettlementId}`);
+                    transaction.set(l1, {
+                        account: 'HUB_CASH_VAULT',
+                        type: 'DEBIT',
+                        amount: totalCollected,
+                        referenceId: cleanSettlementId,
+                        referenceType: 'COD_SETTLEMENT',
+                        timestamp: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                    const l2 = db.collection("ledger").doc(`LEDGER_SETTLE_RIDER_${cleanSettlementId}`);
+                    transaction.set(l2, {
+                        account: 'RIDER_CASH_IN_HAND',
+                        type: 'CREDIT',
+                        amount: totalCollected,
+                        referenceId: cleanSettlementId,
+                        referenceType: 'COD_SETTLEMENT',
+                        timestamp: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
             }
 
             executionResult = {

@@ -292,6 +292,9 @@ let system1Frozen = false;
 function freezeSystem1(frozen = true) {
     system1Frozen = frozen;
 }
+function isSystem1Frozen() {
+    return system1Frozen;
+}
 
 async function updateAccountBalance(account, increment) {
     if (system1Frozen) {
@@ -307,6 +310,7 @@ async function updateAccountBalance(account, increment) {
 }
 
 exports.freezeSystem1 = freezeSystem1;
+exports.isSystem1Frozen = isSystem1Frozen;
 exports.updateAccountBalance = updateAccountBalance;
 
 /**
@@ -619,6 +623,66 @@ exports.onReturnCompletedLedger = onDocumentUpdated({ document: "returns/{return
 });
 
 /**
+ * Core business logic for processing GRN financials via System 2 Double-Entry Journal Entry.
+ */
+async function processGoodsReceiptFinancials(grnId, grnData, options = {}) {
+    const totalAmount = Number(grnData.totalGRNAmount || grnData.totalAmount || grnData.receivedValue || 0);
+    if (totalAmount <= 0) return { success: true, skipped: true, reason: 'ZERO_OR_NEGATIVE_AMOUNT' };
+
+    const now = new Date();
+    const periodId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const entryId = `JE_GRN_${grnId}`;
+
+    const lines = [
+        {
+            accountCode: '1040_INVENTORY_MAIN_HUB',
+            debit: totalAmount,
+            credit: 0,
+            description: `Inventory received on GRN #${grnData.grnNumber || grnId}`
+        },
+        {
+            accountCode: '2018_GRN_CLEARING_SUSPENSE',
+            debit: 0,
+            credit: totalAmount,
+            description: `GRNI Suspense on GRN #${grnData.grnNumber || grnId}`
+        }
+    ];
+
+    const jeResult = await postJournalEntry({
+        entryId,
+        refType: 'PURCHASE_GRN',
+        refId: grnId,
+        periodId,
+        date: now,
+        memo: `GRN #${grnData.grnNumber || grnId} Inventory Received: PO #${grnData.poId || 'N/A'} from Supplier ${grnData.supplierName || grnData.supplierId || 'N/A'}`,
+        lines,
+        createdBy: grnData.receivedBy || grnData.createdBy || 'SYSTEM'
+    }, options.tx || options.transaction || null);
+
+    const grnRef = options.grnRef || db.collection('goods_receipts').doc(grnId);
+    const updatePayload = {
+        journalEntryId: entryId,
+        journalPosted: true,
+        journalPostedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    if (options.tx || options.transaction) {
+        (options.tx || options.transaction).set(grnRef, updatePayload, { merge: true });
+    } else {
+        await grnRef.set(updatePayload, { merge: true });
+    }
+
+    return {
+        success: true,
+        grnId,
+        journalEntryId: entryId,
+        totalAmount,
+        alreadyProcessed: jeResult?.alreadyProcessed || false
+    };
+}
+exports.processGoodsReceiptFinancials = processGoodsReceiptFinancials;
+
+/**
  * Triggered when a Goods Receipt Note (GRN) is created.
  */
 exports.onGoodsReceiptCreated = onDocumentCreated({ document: "goods_receipts/{grnId}", region: REGION }, async (event) => {
@@ -627,43 +691,10 @@ exports.onGoodsReceiptCreated = onDocumentCreated({ document: "goods_receipts/{g
     
     const grnId = event.params.grnId;
     const data = snap.data();
-    const totalAmount = data.totalGRNAmount || 0;
-
-    if (totalAmount <= 0) return null;
 
     try {
-        await db.runTransaction(async (transaction) => {
-            const existingEntries = await transaction.get(
-                db.collection("ledger")
-                    .where("referenceId", "==", grnId)
-                    .where("account", "==", "INVENTORY_VALUE")
-                    .limit(1)
-            );
-
-            if (!existingEntries.empty) {
-                console.log(`Ledger entry already exists for GRN: ${grnId}. Skipping.`);
-                return;
-            }
-
-            postLedgerEntry(transaction, {
-                account: 'INVENTORY_VALUE',
-                type: 'DEBIT',
-                amount: totalAmount,
-                description: `GRN #${data.grnNumber} Inventory Received`,
-                referenceId: grnId,
-                metadata: { grnId, poId: data.poId }
-            });
-
-            postLedgerEntry(transaction, {
-                account: 'ACCOUNTS_PAYABLE',
-                type: 'CREDIT',
-                amount: totalAmount,
-                description: `GRN #${data.grnNumber} Supplier Payable (${data.supplierName})`,
-                referenceId: grnId,
-                metadata: { grnId, supplierId: data.supplierId }
-            });
-        });
-        console.log(`Ledger entries posted for GRN: ${grnId}`);
+        await processGoodsReceiptFinancials(grnId, data, { grnRef: snap.ref });
+        console.log(`[onGoodsReceiptCreated] System 2 Journal Entry posted for GRN: ${grnId}`);
     } catch (error) {
         console.error("CRITICAL: Financial transaction failed for GRN:", grnId, error);
         throw error;

@@ -61,9 +61,10 @@ const FUNCTION_MAP = {
     onProcurementQueueUpdated: ['./orders/orderTriggers', 'onProcurementQueueUpdated'],
     onOrderRiderAssigned: ['./orders/orderTriggers', 'onOrderRiderAssigned'],
 
-    // --- LOGISTICS & ROUTE BATCHING (3) ---
+    // --- LOGISTICS & ROUTE BATCHING (4) ---
     optimizeHubDeliveryBatches: ['./logistics/routeBatching', 'optimizeHubDeliveryBatches'],
     generateWeeklyRiderPayouts: ['./logistics/riderPayoutEngine', 'generateWeeklyRiderPayouts'],
+    generateWeeklyRiderPayoutsSchedule: ['./logistics/riderPayoutEngine', 'generateWeeklyRiderPayoutsSchedule'],
     approveRiderPayout: ['./logistics/riderPayoutEngine', 'approveRiderPayout'],
 
     // --- FINANCE & PAYMENTS (17) ---

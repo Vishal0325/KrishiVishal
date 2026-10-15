@@ -17,6 +17,7 @@ const CHART_OF_ACCOUNTS = {
         "1030_BANK_CURRENT_HDFC": { name: "HDFC Current Account (Main Op)", category: "BANK_ACCOUNT", normalBalance: "DEBIT" },
         "1030_BANK_CURRENT_ACCOUNT": { name: "Bank Current Account", category: "BANK_ACCOUNT", normalBalance: "DEBIT" },
         "1040_INVENTORY_MAIN_HUB": { name: "Inventory Stock - Main Hub", category: "INVENTORY", normalBalance: "DEBIT" },
+        "1045_INVENTORY_QUARANTINE_ASSET": { name: "Inventory Stock - Quarantined Asset", category: "CURRENT_ASSET", normalBalance: "DEBIT" },
         "1050_GATEWAY_RECEIVABLE": { name: "Payment Gateway Receivable (Razorpay)", category: "CURRENT_ASSET", normalBalance: "DEBIT" },
         "1060_INPUT_CGST": { name: "Input Tax Credit - CGST", category: "TAX_ASSET", normalBalance: "DEBIT" },
         "1070_INPUT_SGST": { name: "Input Tax Credit - SGST", category: "TAX_ASSET", normalBalance: "DEBIT" },
@@ -26,9 +27,11 @@ const CHART_OF_ACCOUNTS = {
     LIABILITIES: {
         "2010_ACCOUNTS_PAYABLE_SUPPLIERS": { name: "Accounts Payable - Suppliers & Vendors", category: "CURRENT_LIABILITY", normalBalance: "CREDIT" },
         "2015_RIDER_PAYOUTS_PAYABLE": { name: "Accrued Delivery Partner Payouts", category: "CURRENT_LIABILITY", normalBalance: "CREDIT" },
+        "2018_GRN_CLEARING_SUSPENSE": { name: "Goods Received Not Invoiced (GRNI) Suspense", category: "CURRENT_LIABILITY", normalBalance: "CREDIT" },
         "2020_OUTPUT_CGST_PAYABLE": { name: "Output CGST Payable", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
         "2030_OUTPUT_SGST_PAYABLE": { name: "Output SGST Payable", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
         "2040_OUTPUT_IGST_PAYABLE": { name: "Output IGST Payable", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
+        "2045_TDS_PAYABLE_194C_RIDERS": { name: "TDS Payable (Sec 194C / Logistics Contractors)", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
         "2050_TDS_PAYABLE_194C": { name: "TDS Payable (Sec 194C / Contractor)", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
         "2050_TDS_PAYABLE_194Q": { name: "TDS Payable (Sec 194Q / Purchase of Goods)", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
         "2050_TDS_PAYABLE_194H": { name: "TDS Payable (Sec 194H / Commission)", category: "DUTIES_AND_TAXES", normalBalance: "CREDIT" },
@@ -49,7 +52,9 @@ const CHART_OF_ACCOUNTS = {
     // COGS (5000 - 5999)
     COGS: {
         "5010_COGS_AGRI_INPUTS": { name: "Cost of Goods Sold - Agri-Inputs", category: "DIRECT_EXPENSE", normalBalance: "DEBIT" },
-        "5020_INVENTORY_SHRINKAGE_LOSS": { name: "Inventory Shrinkage & Damage Loss", category: "DIRECT_EXPENSE", normalBalance: "DEBIT" }
+        "5020_INVENTORY_SHRINKAGE_LOSS": { name: "Inventory Shrinkage & Damage Loss", category: "DIRECT_EXPENSE", normalBalance: "DEBIT" },
+        "5020_INVENTORY_SHRINKAGE_SCRAP_LOSS": { name: "Inventory Shrinkage & Scrap Write-Off Loss", category: "DIRECT_EXPENSE", normalBalance: "DEBIT" },
+        "5030_PURCHASE_PRICE_VARIANCE": { name: "Purchase Price Variance", category: "DIRECT_EXPENSE", normalBalance: "DEBIT" }
     },
     // EXPENSES (6000 - 6999)
     EXPENSES: {
@@ -108,6 +113,8 @@ function validateJournalEntry(entryData) {
         "EXPENSE",
         "SALES_RETURN",
         "INVENTORY_ADJUSTMENT",
+        "QUARANTINE_RESOLUTION",
+        "PURCHASE_RETURN",
         "GATEWAY_SETTLEMENT",
         "BANK_PAYOUT",
         "BANK_RECONCILIATION",
@@ -359,18 +366,20 @@ async function postJournalEntry(entryData, context = null, externalTx = null) {
         transaction.set(entryRef, journalDocPayload);
 
         // Write atomic lines in journal_lines subcollection
-        entryData.lines.forEach((line, idx) => {
-            const lineRef = entryRef.collection("lines").doc(`L_${String(idx + 1).padStart(3, '0')}`);
-            transaction.set(lineRef, {
-                lineIndex: idx + 1,
-                accountCode: line.accountCode,
-                accountName: findAccountName(line.accountCode),
-                debit: Number(line.debit || 0),
-                credit: Number(line.credit || 0),
-                description: line.description || entryData.memo || "",
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
+        if (typeof entryRef.collection === 'function') {
+            entryData.lines.forEach((line, idx) => {
+                const lineRef = entryRef.collection("lines").doc(`L_${String(idx + 1).padStart(3, '0')}`);
+                transaction.set(lineRef, {
+                    lineIndex: idx + 1,
+                    accountCode: line.accountCode,
+                    accountName: findAccountName(line.accountCode),
+                    debit: Number(line.debit || 0),
+                    credit: Number(line.credit || 0),
+                    description: line.description || entryData.memo || "",
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                });
             });
-        });
+        }
 
         return {
             success: true,

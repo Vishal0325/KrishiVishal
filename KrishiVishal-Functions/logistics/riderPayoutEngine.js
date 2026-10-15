@@ -4,6 +4,7 @@
  */
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { db, admin } = require("../core/admin");
 const { postJournalEntry } = require("../finance/generalLedger");
 
@@ -204,31 +205,20 @@ function calculateRiderPayout({
 }
 
 /**
- * Callable Function: generateWeeklyRiderPayouts
- * Parameters: { hubId: string, startDate: string, endDate: string }
- * Generates payout documents in collection rider_payouts/{payoutId}
+ * Core business logic for generating weekly payouts for a specific hub.
  */
-const generateWeeklyRiderPayouts = onCall({ region: REGION, timeoutSeconds: 60, memory: '256MiB' }, async (request) => {
-    requirePayoutRole(request.auth);
-
-    const { hubId, startDate, endDate } = request.data || {};
-    if (!hubId || !startDate || !endDate) {
-        throw new HttpsError('invalid-argument', 'Missing required fields: hubId, startDate, and endDate.');
-    }
-
+async function generateHubWeeklyRiderPayouts(hubId, startDate, endDate, generatedBy = 'SYSTEM') {
     const start = new Date(startDate);
     const end = new Date(endDate);
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-        throw new HttpsError('invalid-argument', 'Invalid startDate or endDate format.');
+        throw new Error('Invalid startDate or endDate format.');
     }
 
     // 1. Fetch Orders for the Hub in Date Range
-    // Orders may have hubId or destinationHubId or warehouseId
     const ordersSnap = await db.collection("orders")
         .where("destinationHubId", "==", hubId)
         .get();
 
-    // Also support fallback query if destinationHubId has 0 results
     let orderDocs = ordersSnap.docs;
     if (orderDocs.length === 0) {
         const altSnap = await db.collection("orders").where("hubId", "==", hubId).get();
@@ -259,7 +249,6 @@ const generateWeeklyRiderPayouts = onCall({ region: REGION, timeoutSeconds: 60, 
         const rId = data.assignedRiderId || data.riderId;
         if (!rId) return;
 
-        // Check date
         const orderDate = data.deliveredAt?.toDate ? data.deliveredAt.toDate() :
             (data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt || data.date || Date.now()));
 
@@ -274,8 +263,19 @@ const generateWeeklyRiderPayouts = onCall({ region: REGION, timeoutSeconds: 60, 
     const batch = db.batch();
 
     for (const [riderId, riderOrders] of Object.entries(ordersByRider)) {
-        // Look up rider name if not found in orders
         let name = riderNames[riderId];
+        let riderData = {};
+
+        try {
+            const riderDoc = await db.collection("riders").doc(riderId).get();
+            if (riderDoc.exists) {
+                riderData = riderDoc.data() || {};
+                if (!name) name = riderData.name || riderData.displayName;
+            }
+        } catch (rErr) {
+            console.warn(`Could not fetch rider doc for ${riderId}`);
+        }
+
         if (!name) {
             try {
                 const userDoc = await db.collection("users").doc(riderId).get();
@@ -283,7 +283,7 @@ const generateWeeklyRiderPayouts = onCall({ region: REGION, timeoutSeconds: 60, 
                     name = userDoc.data().name || userDoc.data().displayName;
                 }
             } catch (err) {
-                console.warn(`Could not fetch rider name for ${riderId}`);
+                console.warn(`Could not fetch rider name from users for ${riderId}`);
             }
         }
 
@@ -295,7 +295,9 @@ const generateWeeklyRiderPayouts = onCall({ region: REGION, timeoutSeconds: 60, 
             startDate,
             endDate,
             orders: riderOrders,
-            cashSettlements: riderSettlements
+            cashSettlements: riderSettlements,
+            rider: riderData,
+            pendingShortageAmount: Number(riderData.pendingShortageAmount || 0)
         });
 
         const safeStart = startDate.replace(/[^a-zA-Z0-9]/g, '');
@@ -307,14 +309,16 @@ const generateWeeklyRiderPayouts = onCall({ region: REGION, timeoutSeconds: 60, 
             payoutId,
             ...payoutCalc,
             generatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            generatedBy: request.auth.uid
+            generatedBy: generatedBy
         };
 
         batch.set(payoutDocRef, payoutPayload);
         generatedPayouts.push(payoutPayload);
     }
 
-    await batch.commit();
+    if (generatedPayouts.length > 0) {
+        await batch.commit();
+    }
 
     return {
         success: true,
@@ -324,6 +328,66 @@ const generateWeeklyRiderPayouts = onCall({ region: REGION, timeoutSeconds: 60, 
         totalRidersProcessed: generatedPayouts.length,
         payouts: generatedPayouts
     };
+}
+
+/**
+ * Callable Function: generateWeeklyRiderPayouts
+ * Parameters: { hubId: string, startDate: string, endDate: string }
+ * Generates payout documents in collection rider_payouts/{payoutId}
+ */
+const generateWeeklyRiderPayouts = onCall({ region: REGION, timeoutSeconds: 60, memory: '256MiB' }, async (request) => {
+    requirePayoutRole(request.auth);
+
+    const { hubId, startDate, endDate } = request.data || {};
+    if (!hubId || !startDate || !endDate) {
+        throw new HttpsError('invalid-argument', 'Missing required fields: hubId, startDate, and endDate.');
+    }
+
+    try {
+        const result = await generateHubWeeklyRiderPayouts(hubId, startDate, endDate, request.auth.uid);
+        return result;
+    } catch (err) {
+        throw new HttpsError('invalid-argument', err.message);
+    }
+});
+
+/**
+ * Scheduled Function: generateWeeklyRiderPayoutsSchedule
+ * Runs automatically every Monday at 09:00 AM IST.
+ * Scans preceding week (Monday 00:00 to Sunday 23:59:59) and creates draft payout batches.
+ */
+const generateWeeklyRiderPayoutsSchedule = onSchedule({
+    schedule: "0 9 * * 1",
+    timeZone: "Asia/Kolkata",
+    region: REGION,
+    timeoutSeconds: 300,
+    memory: "512MiB"
+}, async (event) => {
+    console.log("[generateWeeklyRiderPayoutsSchedule] Starting automated Monday 09:00 IST rider payout batch generation...");
+    const now = new Date();
+    const end = new Date(now);
+    end.setHours(0, 0, 0, 0); // Today 00:00
+    const start = new Date(end);
+    start.setDate(start.getDate() - 7); // Preceding Monday 00:00
+
+    const startDateStr = start.toISOString().split('T')[0];
+    const endDateStr = end.toISOString().split('T')[0];
+
+    const hubsSnap = await db.collection("warehouses").get();
+    const hubs = hubsSnap.empty ? ['wh_samastipur'] : hubsSnap.docs.map(d => d.id);
+
+    const results = [];
+    for (const hubId of hubs) {
+        try {
+            const res = await generateHubWeeklyRiderPayouts(hubId, startDateStr, endDateStr, 'SYSTEM_SCHEDULER');
+            results.push({ hubId, ...res });
+        } catch (hubErr) {
+            console.error(`[generateWeeklyRiderPayoutsSchedule] Failed for hub ${hubId}:`, hubErr);
+        }
+    }
+
+    console.log(`[generateWeeklyRiderPayoutsSchedule] Completed payout batch run across ${hubs.length} hubs.`);
+    return { success: true, processedHubs: results.length, details: results };
 });
 
 /**
@@ -507,5 +571,7 @@ module.exports = {
     calculateOrderEarnings,
     calculateRiderPayout,
     generateWeeklyRiderPayouts,
+    generateWeeklyRiderPayoutsSchedule,
+    generateHubWeeklyRiderPayouts,
     approveRiderPayout
 };

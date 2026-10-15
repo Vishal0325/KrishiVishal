@@ -1,7 +1,8 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db, admin } = require("../core/admin");
 const { getWarehouseStockRef, recordMovement, DEFAULT_WAREHOUSE_ID } = require("./inventoryEngine");
-const { postLedgerEntry } = require("../finance/ledger");
+const { postJournalEntry } = require("../finance/generalLedger");
+const { isSystem1Frozen } = require("../finance/ledger");
 
 const REGION = 'asia-south1';
 
@@ -82,6 +83,67 @@ async function resolveQuarantinedStockLogic(payload) {
         const effectiveUnitCost = Number(unitCost || batchData.landingCost || skuData.costPrice || skuData.purchasePrice || 100);
         const totalResolutionValue = Number((resolveQty * effectiveUnitCost).toFixed(2));
 
+        // PHASE 2: SYSTEM 2 JOURNAL ENTRY (Must execute before any caller writes - Contract Rule 2)
+        const now = new Date();
+        const periodId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        let journalEntryId = null;
+
+        if (action === 'RETURN_TO_VENDOR') {
+            const rtvEntryId = `JE_QUARANTINE_RTV_${quarantineId}_${resolveQty}_${Date.now()}`;
+            const jeResult = await postJournalEntry({
+                entryId: rtvEntryId,
+                refType: 'QUARANTINE_RESOLUTION',
+                refId: debitNoteRef || quarantineId,
+                periodId,
+                date: now,
+                memo: `RTV Settlement: Debit Note #${debitNoteRef || 'N/A'} for ${resolveQty} units of SKU ${skuCode} returned to Supplier ${vendorId || 'N/A'}`,
+                lines: [
+                    {
+                        accountCode: '2010_ACCOUNTS_PAYABLE_SUPPLIERS',
+                        debit: totalResolutionValue,
+                        credit: 0,
+                        description: `Debit Note against vendor for defective stock return [${skuCode}]`
+                    },
+                    {
+                        accountCode: '1045_INVENTORY_QUARANTINE_ASSET',
+                        debit: 0,
+                        credit: totalResolutionValue,
+                        description: `Relieve quarantine stock asset for vendor return [${skuCode}]`
+                    }
+                ],
+                createdBy: actorId
+            }, transaction);
+            journalEntryId = jeResult?.entryId || rtvEntryId;
+        } else {
+            // WRITE_OFF action
+            const scrapEntryId = `JE_QUARANTINE_SCRAP_${quarantineId}_${resolveQty}_${Date.now()}`;
+            const jeResult = await postJournalEntry({
+                entryId: scrapEntryId,
+                refType: 'QUARANTINE_RESOLUTION',
+                refId: quarantineId,
+                periodId,
+                date: now,
+                memo: `Scrap Write-Off: Approved write-off of ${resolveQty} units of SKU ${skuCode} (Quarantine #${quarantineId})`,
+                lines: [
+                    {
+                        accountCode: '5020_INVENTORY_SHRINKAGE_LOSS',
+                        debit: totalResolutionValue,
+                        credit: 0,
+                        description: `Expense loss for scrap/damaged stock write-off [${skuCode}]`
+                    },
+                    {
+                        accountCode: '1045_INVENTORY_QUARANTINE_ASSET',
+                        debit: 0,
+                        credit: totalResolutionValue,
+                        description: `Relieve quarantine stock asset for scrapped inventory [${skuCode}]`
+                    }
+                ],
+                createdBy: actorId
+            }, transaction);
+            journalEntryId = jeResult?.entryId || scrapEntryId;
+        }
+
+        // PHASE 3: ALL CALLER WRITES STAGED STRICTLY AFTER postJournalEntry
         // 1. Update warehouse_stock: decrement quarantinedQty atomically
         const newWsQuarantined = Math.max(0, currentWsQuarantined - resolveQty);
         transaction.set(wsRef, {
@@ -112,15 +174,15 @@ async function resolveQuarantinedStockLogic(payload) {
             debitNoteRef: debitNoteRef || qData.debitNoteRef || "",
             writeOffReason: writeOffReason || qData.writeOffReason || "",
             resolutionValue: totalResolutionValue,
+            journalEntryId,
             resolvedBy: actorId,
             resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
 
         const cleanBatch = batchId || "GENERAL";
-        const cleanRef = debitNoteRef || qData.grnId || quarantineId;
 
-        // 3. Movement Log & Double-Entry Ledger
+        // 3. Movement Log & Backward-compatible Ledger
         if (action === 'RETURN_TO_VENDOR') {
             recordMovement(transaction, {
                 movementType: "PURCHASE_RETURN_DEFECTIVE",
@@ -140,26 +202,29 @@ async function resolveQuarantinedStockLogic(payload) {
                 idempotencyKey: `RTV_${quarantineId}_${Date.now()}`
             });
 
-            // Ledger: Debit ACCOUNTS_PAYABLE, Credit INVENTORY_QUARANTINE_ASSET
-            await postLedgerEntry(transaction, {
-                account: 'ACCOUNTS_PAYABLE',
-                type: 'DEBIT',
-                amount: totalResolutionValue,
-                referenceId: debitNoteRef || quarantineId,
-                referenceType: 'RETURN_TO_VENDOR',
-                idempotencyKey: `LEDGER_RTV_DR_${quarantineId}_${Date.now()}`,
-                description: `Debit Note against vendor for defective stock return [${skuCode}]`
-            });
-
-            await postLedgerEntry(transaction, {
-                account: 'INVENTORY_QUARANTINE_ASSET',
-                type: 'CREDIT',
-                amount: totalResolutionValue,
-                referenceId: debitNoteRef || quarantineId,
-                referenceType: 'RETURN_TO_VENDOR',
-                idempotencyKey: `LEDGER_RTV_CR_${quarantineId}_${Date.now()}`,
-                description: `Relieve quarantine stock asset for vendor return [${skuCode}]`
-            });
+            // Backward-compatible ledger record (only active when System 1 is not frozen)
+            if (!isSystem1Frozen()) {
+                const leg1 = db.collection("ledger").doc(`LEDGER_RTV_DR_${quarantineId}_${Date.now()}`);
+                transaction.set(leg1, {
+                    account: 'ACCOUNTS_PAYABLE',
+                    type: 'DEBIT',
+                    amount: totalResolutionValue,
+                    referenceId: debitNoteRef || quarantineId,
+                    referenceType: 'RETURN_TO_VENDOR',
+                    description: `Debit Note against vendor for defective stock return [${skuCode}]`,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                });
+                const leg2 = db.collection("ledger").doc(`LEDGER_RTV_CR_${quarantineId}_${Date.now()}`);
+                transaction.set(leg2, {
+                    account: 'INVENTORY_QUARANTINE_ASSET',
+                    type: 'CREDIT',
+                    amount: totalResolutionValue,
+                    referenceId: debitNoteRef || quarantineId,
+                    referenceType: 'RETURN_TO_VENDOR',
+                    description: `Relieve quarantine stock asset for vendor return [${skuCode}]`,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
         } else {
             // WRITE_OFF action
             recordMovement(transaction, {
@@ -180,26 +245,29 @@ async function resolveQuarantinedStockLogic(payload) {
                 idempotencyKey: `WRITEOFF_${quarantineId}_${Date.now()}`
             });
 
-            // Ledger: Debit INVENTORY_SHRINKAGE_LOSS, Credit INVENTORY_QUARANTINE_ASSET
-            await postLedgerEntry(transaction, {
-                account: 'INVENTORY_SHRINKAGE_LOSS',
-                type: 'DEBIT',
-                amount: totalResolutionValue,
-                referenceId: quarantineId,
-                referenceType: 'QUARANTINE_WRITE_OFF',
-                idempotencyKey: `LEDGER_SCRAP_DR_${quarantineId}_${Date.now()}`,
-                description: `Expense loss for scrap/damaged stock write-off [${skuCode}]`
-            });
-
-            await postLedgerEntry(transaction, {
-                account: 'INVENTORY_QUARANTINE_ASSET',
-                type: 'CREDIT',
-                amount: totalResolutionValue,
-                referenceId: quarantineId,
-                referenceType: 'QUARANTINE_WRITE_OFF',
-                idempotencyKey: `LEDGER_SCRAP_CR_${quarantineId}_${Date.now()}`,
-                description: `Relieve quarantine stock asset for scrapped inventory [${skuCode}]`
-            });
+            // Backward-compatible ledger record (only active when System 1 is not frozen)
+            if (!isSystem1Frozen()) {
+                const leg1 = db.collection("ledger").doc(`LEDGER_SCRAP_DR_${quarantineId}_${Date.now()}`);
+                transaction.set(leg1, {
+                    account: 'INVENTORY_SHRINKAGE_LOSS',
+                    type: 'DEBIT',
+                    amount: totalResolutionValue,
+                    referenceId: quarantineId,
+                    referenceType: 'QUARANTINE_WRITE_OFF',
+                    description: `Expense loss for scrap/damaged stock write-off [${skuCode}]`,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                });
+                const leg2 = db.collection("ledger").doc(`LEDGER_SCRAP_CR_${quarantineId}_${Date.now()}`);
+                transaction.set(leg2, {
+                    account: 'INVENTORY_QUARANTINE_ASSET',
+                    type: 'CREDIT',
+                    amount: totalResolutionValue,
+                    referenceId: quarantineId,
+                    referenceType: 'QUARANTINE_WRITE_OFF',
+                    description: `Relieve quarantine stock asset for scrapped inventory [${skuCode}]`,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
         }
 
         return {
