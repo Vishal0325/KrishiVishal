@@ -1010,7 +1010,8 @@ service cloud.firestore {
     // ADMIN LOGS
     // ============================================================
     match /admin_logs/{id} {
-      allow read, write: if isAdmin() || isSuperAdmin();
+      allow read: if isAdmin() || isSuperAdmin();
+      allow write: if false; // Server-authoritative only via Cloud Functions (addSecureAuditLog)
     }
 
 

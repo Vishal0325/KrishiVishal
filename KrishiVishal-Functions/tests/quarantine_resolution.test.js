@@ -313,6 +313,47 @@ async function runAllTests() {
             fail("Case 3 Failed", err);
         }
 
+        // =========================================================================
+        // CASE 4: PARTIAL RTV RESOLUTION UNDER SAME DEBIT NOTE REF (COLLISION-FREE)
+        // =========================================================================
+        console.log("--- CASE 4: Partial RTV Resolution Under Same Debit Note Ref ---");
+        try {
+            seedBase();
+
+            // Resolution part 1: 4 units under 'DN-SAME-001'
+            const rtvPart1 = await resolveQuarantinedStockLogic({
+                quarantineId: 'Q_REC_001',
+                action: 'RETURN_TO_VENDOR',
+                quantity: 4,
+                vendorId: 'VEN_IFFCO_01',
+                debitNoteRef: 'DN-SAME-001',
+                actorId: 'MGR_SAMASTIPUR'
+            });
+            assert.strictEqual(rtvPart1.success, true);
+            assert.strictEqual(rtvPart1.resolvedQty, 4);
+
+            // Resolution part 2: 6 units under the SAME 'DN-SAME-001'
+            const rtvPart2 = await resolveQuarantinedStockLogic({
+                quarantineId: 'Q_REC_001',
+                action: 'RETURN_TO_VENDOR',
+                quantity: 6,
+                vendorId: 'VEN_IFFCO_01',
+                debitNoteRef: 'DN-SAME-001',
+                actorId: 'MGR_SAMASTIPUR'
+            });
+            assert.strictEqual(rtvPart2.success, true);
+            assert.strictEqual(rtvPart2.status, 'RETURNED_TO_VENDOR');
+
+            // Verify both journal entries were created without collision
+            assert.ok(rtvPart1.journalEntryId !== rtvPart2.journalEntryId, "Journal entry IDs must be distinct");
+            assert.ok(mockStore.journal_entries.has(rtvPart1.journalEntryId), "First JE must be persisted");
+            assert.ok(mockStore.journal_entries.has(rtvPart2.journalEntryId), "Second JE must be persisted");
+            pass("4.1 Multiple partial RTV resolutions under the same debitNoteRef succeed without collision");
+
+        } catch (err) {
+            fail("Case 4 Failed", err);
+        }
+
     } finally {
         adminModule.db.collection = originalCollection;
         adminModule.db.runTransaction = originalRunTransaction;

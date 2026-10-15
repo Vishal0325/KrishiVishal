@@ -89,11 +89,13 @@ async function resolveQuarantinedStockLogic(payload) {
         let journalEntryId = null;
 
         if (action === 'RETURN_TO_VENDOR') {
-            const rtvEntryId = debitNoteRef ? `JE_QUARANTINE_RTV_${debitNoteRef}` : `JE_QUARANTINE_RTV_${quarantineId}_${alreadyResolved + resolveQty}`;
+            const rtvEntryId = debitNoteRef
+                ? `JE_QUARANTINE_RTV_${debitNoteRef}_${quarantineId}_${alreadyResolved + resolveQty}`
+                : `JE_QUARANTINE_RTV_${quarantineId}_${alreadyResolved + resolveQty}`;
             const jeResult = await postJournalEntry({
                 entryId: rtvEntryId,
                 refType: 'QUARANTINE_RESOLUTION',
-                refId: debitNoteRef || quarantineId,
+                refId: debitNoteRef ? `${debitNoteRef}_${quarantineId}_${alreadyResolved + resolveQty}` : `${quarantineId}_${alreadyResolved + resolveQty}`,
                 periodId,
                 date: now,
                 memo: `RTV Settlement: Debit Note #${debitNoteRef || 'N/A'} for ${resolveQty} units of SKU ${skuCode} returned to Supplier ${vendorId || 'N/A'}`,
@@ -277,7 +279,8 @@ async function resolveQuarantinedStockLogic(payload) {
             resolvedQty: resolveQty,
             totalResolutionValue,
             status: finalStatus,
-            remainingDamaged: totalDamaged - newResolvedTotal
+            remainingDamaged: totalDamaged - newResolvedTotal,
+            journalEntryId
         };
     });
 }

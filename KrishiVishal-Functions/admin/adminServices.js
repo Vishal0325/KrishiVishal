@@ -6,6 +6,8 @@ const REGION = 'asia-south1';
 
 /**
  * addSecureAuditLog: Server-side audit logging for Admin actions
+ * Authoritative logging: writes to audit_logs (immutable system audit)
+ * and mirrors to admin_logs (mobile/client consumption) with server-verified actor and timestamp.
  */
 exports.addSecureAuditLog = onCall({ region: REGION, cors: true }, async (request) => {
     if (!request.auth || !request.auth.token) {
@@ -25,10 +27,12 @@ exports.addSecureAuditLog = onCall({ region: REGION, cors: true }, async (reques
 
     const actorId = request.auth.uid;
     const ipAddress = request.rawRequest ? (request.rawRequest.ip || request.rawRequest.headers?.['x-forwarded-for'] || "Unknown IP") : "Unknown IP";
-
     const callerRole = token.role || (token.isSuperAdmin ? "SuperAdmin" : (token.isAdmin || token.admin ? "Admin" : "Staff"));
 
     try {
+        const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
+        // 1. Primary immutable system audit log
         await db.collection("audit_logs").add({
             action,
             module,
@@ -36,9 +40,28 @@ exports.addSecureAuditLog = onCall({ region: REGION, cors: true }, async (reques
             details: details || {},
             actorId,
             ipAddress,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp,
             userRole: callerRole,
         });
+
+        // 2. Server-side mirror to admin_logs for app consumption
+        const adminLogDetails = typeof details === 'string'
+            ? details
+            : (details?.details || details?.info || JSON.stringify(details || {}));
+        const adminName = details?.adminName || token.name || token.email || callerRole;
+
+        await db.collection("admin_logs").add({
+            adminId: actorId,
+            adminName,
+            action,
+            targetId: String(entityId),
+            targetType: String(module),
+            details: adminLogDetails,
+            timestamp,
+            ipAddress,
+            userRole: callerRole
+        });
+
         return { success: true };
     } catch (error) {
         console.error("Error creating audit log:", error);
@@ -327,15 +350,25 @@ exports.getFinanceSummary = onCall({ region: REGION, cors: true }, async (reques
                 }
             });
         } catch (e) {
-            // If composite index is pending, fallback to reading expenses collection
-            const expSnap = await db.collection("expenses").limit(100).get();
+            // Fallback to reading expenses collection if ledger query fails
+            let expQ = db.collection("expenses");
+            if (startDate) expQ = expQ.where("createdAt", ">=", new Date(startDate));
+            if (endDate) expQ = expQ.where("createdAt", "<=", new Date(endDate));
+
+            const expSnap = await expQ.get();
             expSnap.forEach(doc => {
                 const d = doc.data();
-                const docWh = (d.warehouseId || d.hubId || '').toString().trim().toUpperCase();
+                const docWh = (d.warehouseId || d.hubId || d.formData?.warehouseId || '').toString().trim().toUpperCase();
                 const targetWh = (warehouseId || '').toString().trim().toUpperCase();
                 const matchesHub = isAllHubs || (docWh && docWh === targetWh);
                 if (matchesHub) {
-                    totalExpenses += Number(d.amount || 0);
+                    // Accurately parse expense amount supporting amount, totalAmount, or totalAmountMinor
+                    const expAmt = (d.amount !== undefined && d.amount !== null && !isNaN(d.amount))
+                        ? Number(d.amount)
+                        : ((d.totalAmountMinor !== undefined && d.totalAmountMinor !== null && !isNaN(d.totalAmountMinor))
+                            ? Number(d.totalAmountMinor) / 100
+                            : (Number(d.totalAmount || d.subtotal || 0)));
+                    totalExpenses += (isNaN(expAmt) ? 0 : expAmt);
                 }
             });
         }
@@ -391,11 +424,14 @@ exports.saveExpense = onCall({ region: REGION, cors: true }, async (request) => 
     if (isNaN(disc) || disc < 0) {
         throw new HttpsError('invalid-argument', 'Discount cannot be negative.');
     }
+    if (disc > sub) {
+        throw new HttpsError('invalid-argument', `Discount (₹${disc}) cannot exceed subtotal (₹${sub}).`);
+    }
     if (isNaN(other) || other < 0) {
         throw new HttpsError('invalid-argument', 'Other charges cannot be negative.');
     }
-    if (isNaN(off)) {
-        throw new HttpsError('invalid-argument', 'Round off must be a valid number.');
+    if (isNaN(off) || Math.abs(off) > 10) {
+        throw new HttpsError('invalid-argument', 'Round off must be between -₹10 and +₹10.');
     }
 
     const taxable = Math.max(0, sub - disc);
@@ -404,18 +440,22 @@ exports.saveExpense = onCall({ region: REGION, cors: true }, async (request) => 
     if (formData.taxType === 'GST') {
         const cgstRate = parseFloat(formData.cgstRate || 0);
         const sgstRate = parseFloat(formData.sgstRate || 0);
-        if (isNaN(cgstRate) || cgstRate < 0 || cgstRate > 28) {
-            throw new HttpsError('invalid-argument', 'Invalid CGST rate. Rate must be between 0 and 28%.');
+        if (isNaN(cgstRate) || cgstRate < 0) {
+            throw new HttpsError('invalid-argument', 'CGST rate must be a non-negative number.');
         }
-        if (isNaN(sgstRate) || sgstRate < 0 || sgstRate > 28) {
-            throw new HttpsError('invalid-argument', 'Invalid SGST rate. Rate must be between 0 and 28%.');
+        if (isNaN(sgstRate) || sgstRate < 0) {
+            throw new HttpsError('invalid-argument', 'SGST rate must be a non-negative number.');
+        }
+        const combinedGst = cgstRate + sgstRate;
+        if (combinedGst > 28) {
+            throw new HttpsError('invalid-argument', `Combined GST rate (${combinedGst}%) cannot exceed statutory maximum of 28%.`);
         }
         cgst = (taxable * cgstRate) / 100;
         sgst = (taxable * sgstRate) / 100;
     } else if (formData.taxType === 'IGST') {
         const igstRate = parseFloat(formData.igstRate || 0);
         if (isNaN(igstRate) || igstRate < 0 || igstRate > 28) {
-            throw new HttpsError('invalid-argument', 'Invalid IGST rate. Rate must be between 0 and 28%.');
+            throw new HttpsError('invalid-argument', 'IGST rate must be between 0% and 28%.');
         }
         igst = (taxable * igstRate) / 100;
     }
@@ -436,6 +476,8 @@ exports.saveExpense = onCall({ region: REGION, cors: true }, async (request) => 
         otherChargesMinor: Math.round(other * 100),
         roundOffMinor: Math.round(off * 100),
         totalAmountMinor: Math.round(total * 100),
+        amount: Math.round(total * 100) / 100,
+        totalAmount: Math.round(total * 100) / 100,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedBy: request.auth.uid
     };
