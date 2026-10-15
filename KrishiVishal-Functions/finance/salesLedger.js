@@ -250,6 +250,7 @@ async function recognizeOrderDeliveryFinancials(orderData, options = {}) {
 
     // 5. Post atomic journal entry (Asserts Debits === Credits)
     const journalResult = await postJournalEntry({
+        entryId: `JE_ORDER_DELIVERY_${orderId}`,
         refType: "ORDER_DELIVERY",
         refId: orderId,
         periodId,

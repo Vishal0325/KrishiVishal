@@ -219,7 +219,21 @@ async function postJournalEntry(entryData, context = null, externalTx = null) {
     const { totalDebit } = validateJournalEntry(entryData);
 
     const periodId = entryData.periodId;
-    const entryId = entryData.entryId || `JE_${periodId.replace('-', '')}_${Date.now()}_${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    let entryId = (entryData.entryId && typeof entryData.entryId === "string") ? entryData.entryId.trim() : null;
+
+    if (!entryId) {
+        // Enforce strict idempotency: Random fallback generator (Math.random) is completely removed.
+        // If deterministic refType and refId are present in caller payload, derive canonical key;
+        // otherwise strictly throw INVALID_ENTRY_ID.
+        if (entryData.refType && entryData.refId) {
+            entryId = `JE_${entryData.refType}_${entryData.refId}`;
+        } else {
+            const err = new Error("INVALID_ENTRY_ID: Strict idempotency requires an explicit deterministic entryId.");
+            err.code = "INVALID_ENTRY_ID";
+            throw err;
+        }
+    }
+
     const proposedLinesHash = computeCanonicalLinesHash(entryData.lines);
 
     // Resolve caller transaction if passed as 2nd or 3rd argument

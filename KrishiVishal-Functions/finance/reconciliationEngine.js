@@ -99,6 +99,7 @@ async function reconcileGatewaySettlement({
 
     // Post atomic journal entry
     const journalResult = await postJournalEntry({
+        entryId: `JE_GATEWAY_SETTLEMENT_${settlementId}`,
         refType: "GATEWAY_SETTLEMENT",
         refId: settlementId,
         periodId,
@@ -184,6 +185,7 @@ async function reconcileRiderCashBankDeposit({
     ];
 
     const journalResult = await postJournalEntry({
+        entryId: `JE_BANK_DEPOSIT_${depositSlipId}`,
         refType: "BANK_RECONCILIATION",
         refId: depositSlipId,
         periodId,
@@ -263,6 +265,7 @@ async function recordVaultBankDepositCore({
     ];
 
     const journalResult = await postJournalEntry({
+        entryId: `JE_VAULT_DEPOSIT_${slipId}`,
         refType: "BANK_RECONCILIATION",
         refId: slipId,
         periodId,

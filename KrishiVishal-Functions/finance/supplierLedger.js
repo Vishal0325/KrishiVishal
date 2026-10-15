@@ -172,6 +172,7 @@ async function recordSupplierPurchaseInvoice(invoiceData) {
 
     // 4. Post Double-Entry Journal Entry Atomically
     const journalResult = await postJournalEntry({
+        entryId: `JE_PURCHASE_GRN_${supplierInvoiceNo}`,
         refType: "PURCHASE_GRN",
         refId: supplierInvoiceNo,
         periodId,
@@ -320,6 +321,7 @@ async function recordSupplierPayment({
     // Double-Entry Payment Settlement:
     // Dr 2010_ACCOUNTS_PAYABLE_SUPPLIERS | Cr 1030_BANK_CURRENT_HDFC
     const journalResult = await postJournalEntry({
+        entryId: `JE_SUPPLIER_PAYOUT_${utrRef}`,
         refType: "EXPENSE",
         refId: utrRef,
         periodId,

@@ -425,6 +425,7 @@ exports.settleRiderCash = onCall({ region: REGION, invoker: 'public' }, async (r
             const periodId = m >= 4 ? `${y}-${String(y+1).slice(2)}` : `${y-1}-${String(y).slice(2)}`;
 
             await postJournalEntry({
+                entryId: `JE_CASH_SETTLEMENT_${settlementId}`,
                 refType: 'CASH_SETTLEMENT', // Standardizing
                 refId: settlementId,
                 periodId: periodId,

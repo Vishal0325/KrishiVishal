@@ -530,14 +530,15 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 // We'll let calculateTaxForOrder handle the exact CGST/SGST/IGST breakdown later,
                 // but we need to pass the correct base taxable price per unit.
                 let unitTaxable = itemPrice;
+                const rawGstRate = (skuData?.tax?.gstRate !== undefined && skuData?.tax?.gstRate !== null)
+                    ? skuData.tax.gstRate
+                    : ((product.gstRate !== undefined && product.gstRate !== null) ? product.gstRate : 18);
+                const gstRate = Number(rawGstRate);
+
                 if (isTaxInclusive) {
-                    const rawGstRate = (skuData?.tax?.gstRate !== undefined && skuData?.tax?.gstRate !== null)
-                        ? skuData.tax.gstRate
-                        : ((product.gstRate !== undefined && product.gstRate !== null) ? product.gstRate : 18);
-                    const gstRate = Number(rawGstRate);
-                    unitTaxable = itemPrice / (1 + (gstRate / 100));
+                    unitTaxable = gstRate > 0 ? (itemPrice / (1 + (gstRate / 100))) : itemPrice;
                 } else {
-                    totalExtraTax += (itemPrice * 0.18) * item.quantity; // approximate for totalAmount calculation, exact in taxResult
+                    totalExtraTax += (itemPrice * (gstRate / 100)) * item.quantity;
                 }
                 
                 subtotal += itemMrp * item.quantity;
@@ -1018,6 +1019,7 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 const periodId = m >= 4 ? `${y}-${String(y+1).slice(2)}` : `${y-1}-${String(y).slice(2)}`;
                 
                 await postJournalEntry({
+                    entryId: `JE_ORDER_ONLINE_${orderId}`,
                     refType: 'ORDER_DELIVERY', // Standardizing since ORDER_PLACED isn't in ALLOWED_REF_TYPES
                     refId: orderId,
                     periodId,

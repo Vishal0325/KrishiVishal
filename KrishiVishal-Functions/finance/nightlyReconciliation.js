@@ -34,23 +34,33 @@ async function reconcileDailyLedgerCore(options = {}) {
 
     // -------------------------------------------------------------
     // CHECK 1: Customer Wallet Invariant
-    // Sum of all non-test users.walletBalance === Account 2065_CUSTOMER_WALLET_LIABILITY
+    // Server-side Firestore Aggregation Query on active wallets (walletBalance > 0),
+    // preventing full-collection memory exhaustion.
     // -------------------------------------------------------------
-    const usersSnapshot = await db.collection("users").get();
     let userWalletSum = 0;
     let nonTestUserCount = 0;
 
-    for (const doc of usersSnapshot.docs) {
-        const u = doc.data() || {};
-        // Exclude test records based on isTestRecord flag and common test heuristics
-        if (u.isTestRecord === true) continue;
-        if (doc.id.startsWith("TEST_") || doc.id.startsWith("test_")) continue;
-        if (u.phone && (u.phone.includes("0000000000") || u.phone.includes("9999999999"))) continue;
+    const activeWalletQuery = db.collection("users").where("walletBalance", ">", 0);
+    const aggSnap = await activeWalletQuery.aggregate({
+        totalBalance: admin.firestore.AggregateField.sum("walletBalance"),
+        count: admin.firestore.AggregateField.count()
+    }).get();
 
-        const bal = Number(u.walletBalance || 0);
-        userWalletSum += bal;
-        nonTestUserCount++;
+    userWalletSum = Number(aggSnap.data().totalBalance || 0);
+    nonTestUserCount = Number(aggSnap.data().count || 0);
+
+    // Filter out test records with positive balance if any exist in the dataset
+    const testUsersSnap = await db.collection("users")
+        .where("isTestRecord", "==", true)
+        .where("walletBalance", ">", 0)
+        .get();
+
+    for (const doc of testUsersSnap.docs) {
+        const testBal = Number(doc.data().walletBalance || 0);
+        userWalletSum -= testBal;
+        nonTestUserCount--;
     }
+
     userWalletSum = Math.round((userWalletSum + Number.EPSILON) * 100) / 100;
 
     // Get 2065_CUSTOMER_WALLET_LIABILITY net balance from General Ledger
@@ -61,23 +71,32 @@ async function reconcileDailyLedgerCore(options = {}) {
 
     // -------------------------------------------------------------
     // CHECK 2: Rider Cash Invariant
-    // Sum of all non-test riders.cash_in_hand === Account 1010_CASH_IN_HAND_RIDERS
+    // Server-side Firestore Aggregation Query on riders with cash in hand > 0
     // -------------------------------------------------------------
-    const ridersSnapshot = await db.collection("riders").get();
     let riderCashSum = 0;
     let nonTestRiderCount = 0;
 
-    for (const doc of ridersSnapshot.docs) {
-        const r = doc.data() || {};
-        // Exclude test records
-        if (r.isTestRecord === true) continue;
-        if (doc.id.startsWith("TEST_") || doc.id.startsWith("test_")) continue;
-        if (r.phone && (r.phone.includes("0000000000") || r.phone.includes("9999999999"))) continue;
+    const activeRiderQuery = db.collection("riders").where("cash_in_hand", ">", 0);
+    const riderAggSnap = await activeRiderQuery.aggregate({
+        totalCash: admin.firestore.AggregateField.sum("cash_in_hand"),
+        count: admin.firestore.AggregateField.count()
+    }).get();
 
-        const cash = Number(r.cash_in_hand !== undefined ? r.cash_in_hand : (r.cashInHand || 0));
-        riderCashSum += cash;
-        nonTestRiderCount++;
+    riderCashSum = Number(riderAggSnap.data().totalCash || 0);
+    nonTestRiderCount = Number(riderAggSnap.data().count || 0);
+
+    // Filter out test records with positive cash if any exist
+    const testRidersSnap = await db.collection("riders")
+        .where("isTestRecord", "==", true)
+        .where("cash_in_hand", ">", 0)
+        .get();
+
+    for (const doc of testRidersSnap.docs) {
+        const testCash = Number(doc.data().cash_in_hand || 0);
+        riderCashSum -= testCash;
+        nonTestRiderCount--;
     }
+
     riderCashSum = Math.round((riderCashSum + Number.EPSILON) * 100) / 100;
 
     // Get 1010_CASH_IN_HAND_RIDERS net balance from General Ledger
@@ -88,31 +107,55 @@ async function reconcileDailyLedgerCore(options = {}) {
 
     // -------------------------------------------------------------
     // CHECK 3: General Ledger Double-Entry Invariant
-    // Total Debits === Total Credits across all journal lines in journal_entries
+    // Cursor-based paginated batch streaming to prevent memory exhaustion
     // -------------------------------------------------------------
-    const entriesSnapshot = await db.collection("journal_entries").get();
     let totalDebits = 0;
     let totalCredits = 0;
     let entryCount = 0;
+    const BATCH_SIZE = 500;
+    let lastEntryDoc = null;
+    let hasMoreEntries = true;
 
-    for (const entryDoc of entriesSnapshot.docs) {
-        const entryData = entryDoc.data() || {};
-        // Exclude non-posted or draft entries if any
-        if (entryData.status && entryData.status !== "POSTED") continue;
+    while (hasMoreEntries) {
+        let entriesQuery = db.collection("journal_entries")
+            .orderBy(admin.firestore.FieldPath.documentId())
+            .limit(BATCH_SIZE);
 
-        let lines = [];
-        if (Array.isArray(entryData.lines) && entryData.lines.length > 0) {
-            lines = entryData.lines;
+        if (lastEntryDoc) {
+            entriesQuery = entriesQuery.startAfter(lastEntryDoc);
+        }
+
+        const entriesSnapshot = await entriesQuery.get();
+        if (entriesSnapshot.empty) {
+            hasMoreEntries = false;
+            break;
+        }
+
+        for (const entryDoc of entriesSnapshot.docs) {
+            const entryData = entryDoc.data() || {};
+            // Exclude non-posted or draft entries if any
+            if (entryData.status && entryData.status !== "POSTED") continue;
+
+            let lines = [];
+            if (Array.isArray(entryData.lines) && entryData.lines.length > 0) {
+                lines = entryData.lines;
+            } else {
+                const linesSnap = await entryDoc.ref.collection("lines").get();
+                lines = linesSnap.docs.map(d => d.data());
+            }
+
+            for (const line of lines) {
+                totalDebits += Number(line.debit || 0);
+                totalCredits += Number(line.credit || 0);
+            }
+            entryCount++;
+        }
+
+        if (entriesSnapshot.docs.length < BATCH_SIZE) {
+            hasMoreEntries = false;
         } else {
-            const linesSnap = await entryDoc.ref.collection("lines").get();
-            lines = linesSnap.docs.map(d => d.data());
+            lastEntryDoc = entriesSnapshot.docs[entriesSnapshot.docs.length - 1];
         }
-
-        for (const line of lines) {
-            totalDebits += Number(line.debit || 0);
-            totalCredits += Number(line.credit || 0);
-        }
-        entryCount++;
     }
 
     totalDebits = Math.round((totalDebits + Number.EPSILON) * 100) / 100;

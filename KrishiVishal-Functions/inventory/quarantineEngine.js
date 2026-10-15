@@ -89,7 +89,7 @@ async function resolveQuarantinedStockLogic(payload) {
         let journalEntryId = null;
 
         if (action === 'RETURN_TO_VENDOR') {
-            const rtvEntryId = `JE_QUARANTINE_RTV_${quarantineId}_${resolveQty}_${Date.now()}`;
+            const rtvEntryId = debitNoteRef ? `JE_QUARANTINE_RTV_${debitNoteRef}` : `JE_QUARANTINE_RTV_${quarantineId}_${alreadyResolved + resolveQty}`;
             const jeResult = await postJournalEntry({
                 entryId: rtvEntryId,
                 refType: 'QUARANTINE_RESOLUTION',
@@ -116,7 +116,7 @@ async function resolveQuarantinedStockLogic(payload) {
             journalEntryId = jeResult?.entryId || rtvEntryId;
         } else {
             // WRITE_OFF action
-            const scrapEntryId = `JE_QUARANTINE_SCRAP_${quarantineId}_${resolveQty}_${Date.now()}`;
+            const scrapEntryId = `JE_QUARANTINE_SCRAP_${quarantineId}_${alreadyResolved + resolveQty}`;
             const jeResult = await postJournalEntry({
                 entryId: scrapEntryId,
                 refType: 'QUARANTINE_RESOLUTION',
