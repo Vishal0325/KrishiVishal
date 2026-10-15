@@ -77,6 +77,71 @@ exports.onOrderStatusUpdate = onDocumentUpdated({ document: "orders/{orderId}", 
         }
     }
 
+    // --- PREPAID WALLET REFUND ON ORDER CANCELLATION ---
+    if (oldData.status !== 'CANCELLED' && newData.status === 'CANCELLED') {
+        const isWalletOrder = (newData.paymentMethod === 'WALLET' || oldData.paymentMethod === 'WALLET');
+        const isPaid = (newData.paymentStatus === 'PAID' || oldData.paymentStatus === 'PAID');
+        if (isWalletOrder && isPaid && !newData.walletRefundProcessed) {
+            try {
+                const walletService = require('../finance/walletService');
+                const { postJournalEntry } = require('../finance/generalLedger');
+                const totalRefundAmount = Math.round(Number(newData.totalAmount || oldData.totalAmount || 0) * 100) / 100;
+
+                if (totalRefundAmount > 0) {
+                    const periodId = walletService.getFiscalPeriodId();
+                    const cancelJeId = `JE_CREDIT_NOTE_CANCEL_${context.params.orderId}`;
+
+                    // Step 1: Clear deferred revenue to customer refunds payable
+                    await postJournalEntry({
+                        entryId: cancelJeId,
+                        refType: "SALES_RETURN",
+                        refId: context.params.orderId,
+                        periodId,
+                        date: new Date(),
+                        memo: `Prepaid Wallet Order Cancelled: ${context.params.orderId}`,
+                        lines: [
+                            {
+                                accountCode: "2070_DEFERRED_REVENUE",
+                                debit: totalRefundAmount,
+                                credit: 0,
+                                description: `Clear Deferred Revenue for Cancelled Order ${context.params.orderId}`
+                            },
+                            {
+                                accountCode: "2060_CUSTOMER_REFUNDS_PAYABLE",
+                                debit: 0,
+                                credit: totalRefundAmount,
+                                description: `Customer Refund Payable for Cancelled Order ${context.params.orderId}`
+                            }
+                        ]
+                    });
+
+                    // Step 2: Settle refund into customer wallet
+                    await walletService.creditWallet({
+                        uid: userId,
+                        amount: totalRefundAmount,
+                        eventType: "ORDER_REFUND",
+                        entityId: context.params.orderId,
+                        description: `Refund for Cancelled Order #${context.params.orderId.slice(-6).toUpperCase()}`,
+                        metadata: {
+                            orderId: context.params.orderId,
+                            returnId: `CANCEL_${context.params.orderId}`
+                        },
+                        idempotencyKey: `JE_SETTLEMENT_WALLET_${context.params.orderId}`
+                    });
+
+                    await change.after.ref.update({
+                        walletRefundProcessed: true,
+                        refundStatus: "COMPLETED",
+                        walletRefundAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                    console.log(`[Cancellation Refund] Processed ₹${totalRefundAmount} wallet refund for order ${context.params.orderId}`);
+                }
+            } catch (refErr) {
+                console.error(`[Cancellation Refund] Failed for order ${context.params.orderId}:`, refErr);
+            }
+        }
+    }
+
     // --- REFERRAL LOGIC START ---
     try {
         if (newData.status === 'DELIVERED') {
@@ -95,31 +160,28 @@ exports.onOrderStatusUpdate = onDocumentUpdated({ document: "orders/{orderId}", 
                     const referralData = referralDoc.data();
                     const referrerUid = referralData.referrerUid;
                     const rewardAmount = referralData.referrerRewardAmount || 50;
-                    
-                    await db.runTransaction(async (transaction) => {
-                        const referrerRef = db.collection("users").doc(referrerUid);
-                        
-                        transaction.update(userDocRef, { hasCompletedFirstOrder: true });
-                        
-                        transaction.update(referralDoc.ref, {
-                            status: "REWARDED",
-                            rewardedAt: admin.firestore.FieldValue.serverTimestamp(),
-                            referenceOrderId: context.params.orderId
-                        });
-                        
-                        transaction.update(referrerRef, {
-                            walletBalance: admin.firestore.FieldValue.increment(rewardAmount)
-                        });
-                        
-                        const txnRef = db.collection("wallet_transactions").doc();
-                        transaction.set(txnRef, {
-                            uid: referrerUid,
-                            type: "REFERRAL_CREDIT",
-                            amount: rewardAmount,
-                            referenceOrderId: context.params.orderId,
-                            referenceReferralId: referralDoc.id,
-                            createdAt: admin.firestore.FieldValue.serverTimestamp()
-                        });
+
+                    const walletService = require('../finance/walletService');
+                    await walletService.creditWallet({
+                        uid: referrerUid,
+                        amount: rewardAmount,
+                        eventType: "REFERRAL_REWARD",
+                        entityId: referralDoc.id,
+                        description: `Referral reward for referee ${userId} (Order #${context.params.orderId})`,
+                        metadata: {
+                            referrerUid,
+                            refereeUid: userId,
+                            orderId: context.params.orderId,
+                            referralId: referralDoc.id
+                        },
+                        idempotencyKey: `JE_WALLET_REFERRAL_REWARD_${referralDoc.id}`
+                    });
+
+                    await userDocRef.update({ hasCompletedFirstOrder: true });
+                    await referralDoc.ref.update({
+                        status: "REWARDED",
+                        rewardedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        referenceOrderId: context.params.orderId
                     });
                     
                     // Trigger push notification to referrer
@@ -149,29 +211,27 @@ exports.onOrderStatusUpdate = onDocumentUpdated({ document: "orders/{orderId}", 
                 const referralData = referralDoc.data();
                 const referrerUid = referralData.referrerUid;
                 const rewardAmount = referralData.referrerRewardAmount || 50;
-                
-                await db.runTransaction(async (transaction) => {
-                    const referrerRef = db.collection("users").doc(referrerUid);
-                    // Firestore increment handles floor at 0 if we assume it doesn't go negative or we clamp it later, 
-                    // but standard increment could go negative. For simplicity, we just decrement.
-                    transaction.update(referrerRef, {
-                        walletBalance: admin.firestore.FieldValue.increment(-rewardAmount)
-                    });
-                    
-                    transaction.update(referralDoc.ref, {
-                        status: "VOIDED",
-                        voidReason: "order_cancelled_after_reward"
-                    });
-                    
-                    const txnRef = db.collection("wallet_transactions").doc();
-                    transaction.set(txnRef, {
-                        uid: referrerUid,
-                        type: "REFERRAL_REVERSAL",
-                        amount: rewardAmount,
-                        referenceOrderId: context.params.orderId,
-                        referenceReferralId: referralDoc.id,
-                        createdAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
+
+                const walletService = require('../finance/walletService');
+                await walletService.debitWallet({
+                    uid: referrerUid,
+                    amount: rewardAmount,
+                    eventType: "REFERRAL_REVERSAL",
+                    entityId: referralDoc.id,
+                    description: `Referral clawback for cancelled order #${context.params.orderId}`,
+                    metadata: {
+                        referrerUid,
+                        refereeUid: userId,
+                        orderId: context.params.orderId,
+                        referralId: referralDoc.id
+                    },
+                    idempotencyKey: `JE_WALLET_REFERRAL_REVERSAL_${referralDoc.id}`
+                });
+
+                await referralDoc.ref.update({
+                    status: "VOIDED",
+                    voidReason: "order_cancelled_after_reward",
+                    voidedAt: admin.firestore.FieldValue.serverTimestamp()
                 });
             }
         }

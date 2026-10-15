@@ -105,6 +105,8 @@ const FUNCTION_MAP = {
     exportTallyXml: ['./finance/financeCallables', 'exportTallyXml'],
     getLedgerExtract: ['./finance/generalLedger', 'getLedgerExtract'],
     recordVaultBankDeposit: ['./finance/reconciliationEngine', 'recordVaultBankDeposit'],
+    reconcileDailyLedger: ['./finance/generalLedger', 'reconcileDailyLedger'],
+    reconcileDailyLedgerSchedule: ['./finance/generalLedger', 'reconcileDailyLedgerSchedule'],
 
     // --- INVOICES & NOTIFICATIONS (5) ---
     orderDeliveryNotification: ['./invoices/orderDeliveryNotification', 'orderDeliveryNotification'],

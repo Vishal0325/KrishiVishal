@@ -14,6 +14,7 @@ const {
 const { validateAndReserveSlot } = require("./deliverySlots");
 const Razorpay = require("razorpay");
 const { razorpayKeySecret, qrHmacSecret, razorpayKeyId, getSecretVal } = require("../core/secrets");
+const walletService = require("../finance/walletService");
 
 const REGION = 'asia-south1';
 
@@ -530,7 +531,10 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 // but we need to pass the correct base taxable price per unit.
                 let unitTaxable = itemPrice;
                 if (isTaxInclusive) {
-                    const gstRate = Number(skuData?.tax?.gstRate || product.gstRate || 18);
+                    const rawGstRate = (skuData?.tax?.gstRate !== undefined && skuData?.tax?.gstRate !== null)
+                        ? skuData.tax.gstRate
+                        : ((product.gstRate !== undefined && product.gstRate !== null) ? product.gstRate : 18);
+                    const gstRate = Number(rawGstRate);
                     unitTaxable = itemPrice / (1 + (gstRate / 100));
                 } else {
                     totalExtraTax += (itemPrice * 0.18) * item.quantity; // approximate for totalAmount calculation, exact in taxResult
@@ -746,6 +750,30 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
 
             // ── PHASE 3: ALL WRITES (Executed at the very end) ──
 
+            // 0. System 2 Canonical Wallet Debit (Strict Rule 1 & Rule 2: reads-before-writes)
+            // debitWallet + postJournalEntry execute their reads (periodId, entryRef, userRef, txRef)
+            // strictly before any caller mutations are staged.
+            let walletDebitResult = null;
+            if (paymentMethod === 'WALLET') {
+                walletDebitResult = await walletService.debitWallet({
+                    uid: userId,
+                    amount: totalAmount,
+                    eventType: "ORDER_PAYMENT",
+                    entityId: orderId,
+                    description: `Paid for Order #${orderId.slice(-6).toUpperCase()}`,
+                    metadata: { orderId: orderId },
+                    idempotencyKey: `JE_WALLET_ORDER_PAYMENT_${orderId}`
+                }, {
+                    tx: transaction,
+                    auth: context.auth
+                });
+
+                if (walletDebitResult) {
+                    order.walletTransactionId = walletDebitResult.txId || null;
+                    order.journalEntryId = walletDebitResult.journalEntryId || null;
+                }
+            }
+
             // 1. Update delivery slot booking count
             if (slotRef && slotDoc) {
                 transaction.update(slotRef, {
@@ -827,35 +855,8 @@ exports.createOrder = onCall({ region: REGION, secrets: [razorpayKeySecret] }, a
                 transaction.set(od.ref, od.data);
             }
 
-            // 3b. If WALLET payment, deduct balance & log to wallet history
-            if (paymentMethod === 'WALLET') {
-                transaction.update(userRef, {
-                    walletBalance: admin.firestore.FieldValue.increment(-totalAmount),
-                    lastWalletTransactionAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-
-                const walletLogRef = db.collection("users").doc(userId).collection("wallet_history").doc();
-                transaction.set(walletLogRef, {
-                    id: walletLogRef.id,
-                    type: "ORDER_PAYMENT",
-                    orderId: orderId,
-                    amount: totalAmount,
-                    description: `Paid for Order #${orderId.slice(-6).toUpperCase()}`,
-                    timestamp: admin.firestore.FieldValue.serverTimestamp()
-                });
-
-                const wtRef = db.collection("wallet_transactions").doc();
-                transaction.set(wtRef, {
-                    id: wtRef.id,
-                    uid: userId,
-                    userId: userId,
-                    type: "ORDER_PAYMENT",
-                    amount: totalAmount,
-                    orderId: orderId,
-                    description: `Order Payment #${orderId.slice(-6).toUpperCase()}`,
-                    createdAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-            }
+            // 3b. WALLET payment mutations (user balance decrement & root wallet_transactions)
+            // were already staged by canonical walletService.debitWallet at step 0 of Phase 3.
 
             // 4. Save order document
             transaction.set(db.collection("orders").doc(orderId), order);

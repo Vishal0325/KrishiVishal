@@ -51,7 +51,8 @@ const results = [];
 function requiresEmulator(fileName) {
     return fileName.startsWith('emulator_') ||
            fileName.startsWith('workflow_') ||
-           fileName.startsWith('package');
+           fileName.startsWith('package') ||
+           fileName.startsWith('final_wiring');
 }
 
 // Helper to determine if a test interacts with external unmocked services

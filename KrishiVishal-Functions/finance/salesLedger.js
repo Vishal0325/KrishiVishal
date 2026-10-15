@@ -37,8 +37,8 @@ function getFiscalPeriodId(date = new Date()) {
  * @returns {Promise<object>}
  */
 async function recognizeOrderDeliveryFinancials(orderData, options = {}) {
+    const orderId = orderData.orderId || orderData.id;
     const {
-        orderId,
         periodId = getFiscalPeriodId(),
         paymentMethod = "COD",
         shippingState = "Bihar",
@@ -241,7 +241,7 @@ async function recognizeOrderDeliveryFinancials(orderData, options = {}) {
             description: `Rider delivery expense accrued for Order ${orderId}`
         });
         journalLines.push({
-            accountCode: "2010_ACCOUNTS_PAYABLE_SUPPLIERS",
+            accountCode: "2015_RIDER_PAYOUTS_PAYABLE",
             debit: 0,
             credit: riderDeliveryEarning,
             description: `Rider payable accrued for Order ${orderId}`
@@ -279,6 +279,21 @@ async function recognizeOrderDeliveryFinancials(orderData, options = {}) {
         options.tx.set(orderRef, updatePayload, { merge: true });
     } else {
         await orderRef.set(updatePayload, { merge: true });
+    }
+
+    // 7. Update Rider Cash-in-Hand on COD delivery
+    const riderId = orderData.riderId || orderData.assignedRiderId;
+    if (isCod && riderId) {
+        const riderRef = db.collection("riders").doc(riderId);
+        const riderUpdate = {
+            cash_in_hand: admin.firestore.FieldValue.increment(grandTotal),
+            last_cod_delivery_at: admin.firestore.FieldValue.serverTimestamp()
+        };
+        if (options.tx) {
+            options.tx.set(riderRef, riderUpdate, { merge: true });
+        } else {
+            await riderRef.set(riderUpdate, { merge: true });
+        }
     }
 
     return {
