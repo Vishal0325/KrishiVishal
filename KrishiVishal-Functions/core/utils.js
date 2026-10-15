@@ -48,17 +48,34 @@ async function isAdminRequest(obj) {
     const auth = obj.auth || obj;
     if (!auth || !auth.uid || !auth.token) return false;
 
-    // Strict Custom Claims check (Server-Authoritative - No DB fallback)
-    return auth.token.admin === true ||
-           auth.token.isAdmin === true ||
-           ["ADMIN", "SuperAdmin", "SUPER_ADMIN", "CatalogManager", "OrderManager", "FinanceAdmin", "FinanceManager", "Accountant", "OperationsAdmin", "Admin"].includes(auth.token.role);
+    const hasAdminRole = auth.token.admin === true ||
+        auth.token.isAdmin === true ||
+        ["ADMIN", "SuperAdmin", "SUPER_ADMIN", "CatalogManager", "OrderManager", "FinanceAdmin", "FinanceManager", "Accountant", "OperationsAdmin", "Admin"].includes(auth.token.role);
+    return hasAdminRole && await isAccountActive(auth.uid);
 }
 
 async function isSuperAdminRequest(obj) {
     const auth = obj.auth || obj;
     if (!auth || !auth.uid || !auth.token) return false;
-    return auth.token.isSuperAdmin === true ||
-           ["SuperAdmin", "SUPER_ADMIN"].includes(auth.token.role);
+    const hasSuperAdminRole = auth.token.isSuperAdmin === true ||
+        ["SuperAdmin", "SUPER_ADMIN"].includes(auth.token.role);
+    return hasSuperAdminRole && await isAccountActive(auth.uid);
+}
+
+async function isFinanceRequest(obj) {
+    const auth = obj.auth || obj;
+    if (!auth || !auth.uid || !auth.token) return false;
+    const hasFinanceRole = auth.token.isSuperAdmin === true ||
+        ["SuperAdmin", "SUPER_ADMIN", "Admin", "ADMIN", "FinanceAdmin", "FINANCE_ADMIN", "FinanceManager", "finance_manager", "Accountant", "CFO"].includes(auth.token.role);
+    return hasFinanceRole && await isAccountActive(auth.uid);
+}
+
+async function isAccountActive(uid) {
+    if (!uid) return false;
+    const snapshot = await db.collection("users").doc(uid).get();
+    if (!snapshot.exists) return false;
+    const user = snapshot.data() || {};
+    return user.deactivated !== true && user.status !== "DEACTIVATED";
 }
 
 function addToOutbox(transaction, type, payload) {
@@ -74,4 +91,4 @@ function addToOutbox(transaction, type, payload) {
     }
 }
 
-module.exports = { CircuitBreaker, checkFeatureFlag, isAdminRequest, isSuperAdminRequest, addToOutbox };
+module.exports = { CircuitBreaker, checkFeatureFlag, isAdminRequest, isSuperAdminRequest, isFinanceRequest, isAccountActive, addToOutbox };

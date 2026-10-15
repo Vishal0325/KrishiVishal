@@ -1,5 +1,6 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db, admin, auth } = require("../core/admin");
+const { isAccountActive } = require("../core/utils");
 
 const REGION = 'asia-south1';
 
@@ -142,6 +143,9 @@ exports.deactivateUser = onCall({ region: REGION }, async (request) => {
     }
 
     const token = context.auth.token || {};
+    if (!(await isAccountActive(context.auth.uid))) {
+        throw new HttpsError('permission-denied', 'Deactivated accounts cannot deactivate users.');
+    }
     const isSuperAdminCaller = token.role === 'SuperAdmin' || token.role === 'SUPER_ADMIN' || token.isSuperAdmin === true;
     if (!isSuperAdminCaller) {
         throw new HttpsError('permission-denied', 'SuperAdmin privileges required to deactivate users.');
@@ -168,7 +172,16 @@ exports.deactivateUser = onCall({ region: REGION }, async (request) => {
         }
     }
 
-    // 1. Reset role in custom claims, explicitly clear all privileged claims
+    // Disable the account record first so previously issued tokens fail server-side authorization checks.
+    await db.collection("users").doc(targetUid).set({
+        role: 'Deactivated',
+        status: 'DEACTIVATED',
+        deactivated: true,
+        deactivatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    // 2. Reset role in custom claims, explicitly clear all privileged claims
     const updatedClaims = {
         ...existingClaims,
         role: 'Deactivated',
@@ -182,17 +195,8 @@ exports.deactivateUser = onCall({ region: REGION }, async (request) => {
     delete updatedClaims.hubId;
     await auth.setCustomUserClaims(targetUid, updatedClaims);
 
-    // 2. Revoke refresh tokens to force re-authentication / claim invalidation
+    // 3. Revoke refresh tokens to force re-authentication / claim invalidation
     await auth.revokeRefreshTokens(targetUid);
-
-    // 3. Update Firestore users doc
-    await db.collection("users").doc(targetUid).set({
-        role: 'Deactivated',
-        status: 'DEACTIVATED',
-        deactivated: true,
-        deactivatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
 
     // 4. If rider document exists, mark inactive
     const riderRef = db.collection("riders").doc(targetUid);

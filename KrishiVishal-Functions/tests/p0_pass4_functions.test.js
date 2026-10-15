@@ -304,6 +304,16 @@ async function runTests() {
                 })
             };
         }
+        if (collName === 'users') {
+            return {
+                doc: (id) => ({
+                    get: async () => ({
+                        exists: true,
+                        data: () => ({ status: 'ACTIVE', deactivated: false })
+                    })
+                })
+            };
+        }
         if (collName === 'outbox') {
             return {
                 doc: () => ({ set: async () => {} })
@@ -517,7 +527,11 @@ async function runTests() {
         '+919876543216': { phone: '+919876543216', name: 'Blocked Rider', role: 'rider', status: 'BLOCKED' }
     };
     let ridersStore = {};
-    let usersStore = {};
+    let usersStore = {
+        'admin_1': { role: 'SuperAdmin', status: 'ACTIVE', deactivated: false },
+        'superadmin_1': { role: 'SuperAdmin', status: 'ACTIVE', deactivated: false },
+        'superadmin_other': { role: 'SuperAdmin', status: 'ACTIVE', deactivated: false }
+    };
 
     db.collection = function (collName) {
         if (collName === 'whitelisted_riders') {
@@ -879,8 +893,11 @@ async function runTests() {
 
     // Test 6.9: SuperAdmin CANNOT deactivate the last SuperAdmin
     try {
+        delete usersStore['admin_1'];
+        delete usersStore['superadmin_1'];
+        usersStore['superadmin_other'] = { status: 'ACTIVE', deactivated: false };
         userClaimsStore['only_super_admin'] = { role: 'SuperAdmin' };
-        usersStore['only_super_admin'] = { role: 'SuperAdmin' };
+        usersStore['only_super_admin'] = { role: 'SuperAdmin', status: 'ACTIVE', deactivated: false };
         await deactivateUser.run({
             data: { uid: 'only_super_admin' },
             auth: { uid: 'superadmin_other', token: { role: 'SuperAdmin' } }
@@ -947,6 +964,16 @@ async function runTests() {
                                 mockInternalStore[`${orderId}/${subColl}/${docId}`] = data;
                             }
                         })
+                    })
+                })
+            };
+        }
+        if (collName === 'users') {
+            return {
+                doc: (id) => ({
+                    get: async () => ({
+                        exists: true,
+                        data: () => ({ status: 'ACTIVE', deactivated: false })
                     })
                 })
             };

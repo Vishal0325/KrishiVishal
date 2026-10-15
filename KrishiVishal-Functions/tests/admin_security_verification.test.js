@@ -35,7 +35,11 @@ async function runTests() {
     // Mock Setup
     // -------------------------------------------------------------
     let userClaimsStore = {};
-    let usersStore = {};
+    let usersStore = {
+        'superadmin_uid': { role: 'SuperAdmin', status: 'ACTIVE', deactivated: false },
+        'staff_uid': { role: 'CatalogManager', isStaff: true, status: 'ACTIVE', deactivated: false },
+        'other_superadmin': { role: 'SuperAdmin', status: 'ACTIVE', deactivated: false }
+    };
     let auditLogsStore = [];
     let adminLogsStore = [];
     let expensesStore = [];
@@ -46,6 +50,18 @@ async function runTests() {
     const origAuthCreateUser = admin.auth().createUser;
     const origAuthRevoke = auth.revokeRefreshTokens;
     const origCollection = db.collection;
+    const origRunTransaction = db.runTransaction;
+
+    const queryFrom = (docs, failure) => ({
+        where() { return this; },
+        orderBy() { return this; },
+        limit() { return this; },
+        startAfter() { return this; },
+        get: async () => {
+            if (failure) throw failure;
+            return { docs, empty: docs.length === 0, size: docs.length };
+        }
+    });
 
     auth.getUser = async (uid) => ({
         uid,
@@ -90,6 +106,15 @@ async function runTests() {
         }
         if (colName === 'audit_logs') {
             return {
+                doc: (id) => ({
+                    get: async () => {
+                        const data = auditLogsStore.find((entry) => entry.__id === id);
+                        return { exists: !!data, data: () => data || {} };
+                    },
+                    set: async (doc) => {
+                        auditLogsStore.push({ ...doc, __id: id });
+                    }
+                }),
                 add: async (doc) => {
                     auditLogsStore.push(doc);
                     return { id: `audit_${auditLogsStore.length}` };
@@ -98,6 +123,15 @@ async function runTests() {
         }
         if (colName === 'admin_logs') {
             return {
+                doc: (id) => ({
+                    get: async () => {
+                        const data = adminLogsStore.find((entry) => entry.__id === id);
+                        return { exists: !!data, data: () => data || {} };
+                    },
+                    set: async (doc) => {
+                        adminLogsStore.push({ ...doc, __id: id });
+                    }
+                }),
                 add: async (doc) => {
                     adminLogsStore.push(doc);
                     return { id: `admin_log_${adminLogsStore.length}` };
@@ -113,71 +147,29 @@ async function runTests() {
                 doc: (id) => ({
                     update: async (doc) => {}
                 }),
-                where: (field, op, val) => ({
-                    where: (f2, op2, v2) => ({
-                        get: async () => expensesStore.map((d, i) => ({ id: `exp_${i}`, data: () => d }))
-                    }),
-                    get: async () => expensesStore.map((d, i) => ({ id: `exp_${i}`, data: () => d }))
-                }),
-                get: async () => expensesStore.map((d, i) => ({ id: `exp_${i}`, data: () => d }))
+                where: () => queryFrom(expensesStore.map((d, i) => ({ id: `exp_${i}`, data: () => d }))),
+                orderBy() { return this; },
+                limit() { return this; },
+                get: async () => ({ docs: expensesStore.map((d, i) => ({ id: `exp_${i}`, data: () => d })), size: expensesStore.length, empty: expensesStore.length === 0 })
             };
         }
         if (colName === 'orders') {
-            return {
-                where: () => ({
-                    where: () => ({
-                        get: async () => [
-                            {
-                                id: 'ord_zero_tax',
-                                data: () => ({
-                                    status: 'DELIVERED',
-                                    totalAmount: 1000,
-                                    cgst: 0,
-                                    sgst: 0,
-                                    igst: 0,
-                                    grossProfit: 0
-                                })
-                            }
-                        ]
-                    }),
-                    get: async () => [
-                        {
-                            id: 'ord_zero_tax',
-                            data: () => ({
-                                status: 'DELIVERED',
-                                totalAmount: 1000,
-                                cgst: 0,
-                                sgst: 0,
-                                igst: 0,
-                                grossProfit: 0
-                            })
-                        }
-                    ]
-                }),
-                get: async () => [
-                    {
-                        id: 'ord_zero_tax',
-                        data: () => ({
-                            status: 'DELIVERED',
-                            totalAmount: 1000,
-                            cgst: 0,
-                            sgst: 0,
-                            igst: 0,
-                            grossProfit: 0
-                        })
-                    }
-                ]
-            };
+            const docs = [{
+                id: 'ord_zero_tax',
+                data: () => ({
+                    status: 'DELIVERED',
+                    totalAmount: 1000,
+                    cgst: 0,
+                    sgst: 0,
+                    igst: 0,
+                    grossProfit: 0
+                })
+            }];
+            return queryFrom(docs);
         }
         if (colName === 'ledger') {
-            return {
-                where: () => ({
-                    where: () => ({
-                        get: async () => { throw new Error("INDEX_NOT_READY_FALLBACK_TRIGGER"); }
-                    }),
-                    get: async () => { throw new Error("INDEX_NOT_READY_FALLBACK_TRIGGER"); }
-                })
-            };
+            const error = Object.assign(new Error("INDEX_NOT_READY_FALLBACK_TRIGGER"), { code: "failed-precondition" });
+            return { where: () => queryFrom([], error) };
         }
         if (colName === 'whitelisted_riders' || colName === 'riders') {
             return {
@@ -192,6 +184,10 @@ async function runTests() {
         }
         return origCollection.call(db, colName);
     };
+    db.runTransaction = async (callback) => callback({
+        getAll: async (...refs) => Promise.all(refs.map((ref) => ref.get())),
+        create: (ref, data) => ref.set(data)
+    });
 
     // =============================================================
     // TEST (a): Privilege Escalation Prevention in createStaffMember
@@ -350,6 +346,7 @@ async function runTests() {
                 action: 'UPDATE_STOCK',
                 module: 'INVENTORY',
                 entityId: 'prod_fertilizer_1',
+                eventId: 'stock_update_001',
                 details: { adminName: 'Officer Ramesh', details: 'Added 50 bags' }
             },
             auth: { uid: 'staff_uid', token: { role: 'CatalogManager', isStaff: true } }
@@ -366,6 +363,19 @@ async function runTests() {
         assert.strictEqual(adminLogsStore[0].action, 'UPDATE_STOCK');
         assert.strictEqual(adminLogsStore[0].targetId, 'prod_fertilizer_1');
         assert.strictEqual(adminLogsStore[0].targetType, 'INVENTORY');
+        const replayRes = await addSecureAuditLog.run({
+            data: {
+                action: 'UPDATE_STOCK',
+                module: 'INVENTORY',
+                entityId: 'prod_fertilizer_1',
+                eventId: 'stock_update_001',
+                details: { adminName: 'Officer Ramesh', details: 'Added 50 bags' }
+            },
+            auth: { uid: 'staff_uid', token: { role: 'CatalogManager', isStaff: true } }
+        });
+        assert.strictEqual(replayRes.success, true);
+        assert.strictEqual(auditLogsStore.length, 1);
+        assert.strictEqual(adminLogsStore.length, 1);
         pass("C.3 Authorized staff successfully writes audit log, dual-writing to audit_logs and admin_logs");
     } catch (e) {
         fail("C.3 Staff writing audit log", e);
@@ -492,12 +502,48 @@ async function runTests() {
         fail("E.5 Valid expense", e);
     }
 
+    // =============================================================
+    // TEST (f): Missing User Document in Firestore is Strictly Denied
+    // =============================================================
+    console.log("\n--- TEST F: Missing User Document in Firestore Strictly Denied ---");
+
+    // Case 1: Caller with SuperAdmin custom claim but NO Firestore doc is rejected
+    try {
+        await addSecureAuditLog.run({
+            data: { action: 'DELETE_DATABASE', module: 'ADMIN', entityId: 'db_1', eventId: 'orphan_event_1' },
+            auth: { uid: 'orphan_superadmin_uid', token: { role: 'SuperAdmin', isSuperAdmin: true } }
+        });
+        fail("F.1 Orphan SuperAdmin writing audit log", new Error("Allowed orphan SuperAdmin without user doc!"));
+    } catch (e) {
+        if (e.code === 'permission-denied') {
+            pass("F.1 Orphan SuperAdmin without Firestore user doc is strictly denied (permission-denied)");
+        } else {
+            fail("F.1 Orphan SuperAdmin writing audit log", e);
+        }
+    }
+
+    // Case 2: Caller with SuperAdmin custom claim but NO Firestore doc cannot assign role
+    try {
+        await setUserRole.run({
+            data: { targetUid: 'target_u1', role: 'Viewer' },
+            auth: { uid: 'orphan_superadmin_uid', token: { role: 'SuperAdmin', isSuperAdmin: true } }
+        });
+        fail("F.2 Orphan SuperAdmin assigning role", new Error("Allowed orphan SuperAdmin to assign role!"));
+    } catch (e) {
+        if (e.code === 'permission-denied') {
+            pass("F.2 Orphan SuperAdmin cannot assign role without Firestore user doc (permission-denied)");
+        } else {
+            fail("F.2 Orphan SuperAdmin assigning role", e);
+        }
+    }
+
     // Cleanup mocks
     auth.getUser = origAuthGetUser;
     auth.setCustomUserClaims = origAuthSetClaims;
     admin.auth().createUser = origAuthCreateUser;
     auth.revokeRefreshTokens = origAuthRevoke;
     db.collection = origCollection;
+    db.runTransaction = origRunTransaction;
 
     console.log(`\n==========================================`);
     console.log(`ADMIN SECURITY VERIFICATION: ${passed} PASSED, ${failed} FAILED`);
