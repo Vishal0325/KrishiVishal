@@ -288,13 +288,24 @@ exports.recordBankPayout = onCall({ region: REGION }, async (request) => {
     };
 });
 
+let system1Frozen = true;
+
+function freezeSystem1(frozen = true) {
+    system1Frozen = frozen;
+}
+
 /**
- * Helper to post a double-entry ledger record within a transaction or standalone.
- * Follows standard accounting principles:
- * - Assets/Expenses: DEBIT increases, CREDIT decreases.
- * - Liabilities/Equity/Revenue: CREDIT increases, DEBIT decreases.
+ * Permanently frozen legacy writer (System 1 Freeze).
+ * In production and real emulator environments, zero new writes may be made to legacy collections (`ledger`, `accounts/*`).
+ * Throws SYSTEM_1_FROZEN error.
  */
 async function postLedgerEntry(transactionOrEntry, maybeEntry) {
+    if (system1Frozen && (process.env.NODE_ENV === 'production' || process.env.FIRESTORE_EMULATOR_HOST || process.env.SYSTEM_1_FROZEN === 'true')) {
+        const err = new Error("SYSTEM_1_FROZEN: Legacy System 1 ledger writes are permanently deprecated. Use System 2 postJournalEntry.");
+        err.code = "SYSTEM_1_FROZEN";
+        throw err;
+    }
+
     let transaction = null;
     let entry = null;
 
@@ -315,9 +326,6 @@ async function postLedgerEntry(transactionOrEntry, maybeEntry) {
 
     const isAssetOrExpense = ASSET_ACCOUNTS.includes(entry.account) || EXPENSE_ACCOUNTS.includes(entry.account);
 
-    // Calculate increment amount based on account type
-    // Asset / Expense: Debit (+), Credit (-)
-    // Liabilities / Revenue / Equity: Credit (+), Debit (-)
     let increment = 0;
     if (isAssetOrExpense) {
         increment = (entry.type === 'DEBIT' ? entry.amount : -entry.amount);
@@ -347,7 +355,6 @@ async function postLedgerEntry(transactionOrEntry, maybeEntry) {
         return;
     }
 
-    // Standalone transactional execution with idempotency guard
     await db.runTransaction(async (t) => {
         const ledgerRef = entry.idempotencyKey
             ? db.collection("ledger").doc(entry.idempotencyKey)
@@ -371,277 +378,43 @@ async function postLedgerEntry(transactionOrEntry, maybeEntry) {
     });
 }
 
+/**
+ * Permanently frozen legacy writer (System 1 Freeze).
+ */
+async function updateAccountBalance() {
+    const err = new Error("SYSTEM_1_FROZEN: Legacy System 1 account balance updates are permanently deprecated. Use System 2 generalLedger.");
+    err.code = "SYSTEM_1_FROZEN";
+    throw err;
+}
+
 exports.postLedgerEntry = postLedgerEntry;
+exports.updateAccountBalance = updateAccountBalance;
+exports.freezeSystem1 = freezeSystem1;
 
 /**
  * Triggered when an order's PAYMENT status changes to 'PAID'.
+ * PERMANENTLY FROZEN: System 1 ledger write disabled. Revenue recognized via System 2 postJournalEntry.
  */
 exports.onOrderPaidLedger = onDocumentUpdated({ document: "orders/{orderId}", region: REGION }, async (event) => {
-    const change = event.data;
-    const context = { params: event.params };
-    const newData = change.after.data();
-    const oldData = change.before.data();
-    const orderId = context.params.orderId;
-
-    if (!newData || !oldData) return null;
-
-    if (newData.paymentStatus === 'PAID' && oldData.paymentStatus !== 'PAID') {
-        try {
-            let alreadyProcessed = false;
-            await db.runTransaction(async (transaction) => {
-                // 1. Check for duplicate ledger entries (READ)
-                const existingEntries = await transaction.get(
-                    db.collection("ledger")
-                        .where("referenceId", "==", orderId)
-                        .where("account", "==", "SALES")
-                        .limit(1)
-                );
-
-                if (!existingEntries.empty) {
-                    console.log(`Ledger entry already exists for Order: ${orderId}. Skipping.`);
-                    alreadyProcessed = true;
-                    return;
-                }
-
-                const totalAmount = newData.totalAmount || 0;
-                const totalTax = newData.totalTax || 0;
-                const netSales = totalAmount - totalTax;
-
-                // 2. Post Ledger Entries (WRITES)
-                postLedgerEntry(transaction, {
-                    account: 'SALES',
-                    type: 'CREDIT',
-                    amount: netSales,
-                    description: `Order #${orderId} Sales Revenue`,
-                    referenceId: orderId,
-                    metadata: { orderId }
-                });
-
-                if (totalTax > 0) {
-                    postLedgerEntry(transaction, {
-                        account: 'GST_PAYABLE',
-                        type: 'CREDIT',
-                        amount: totalTax,
-                        description: `Order #${orderId} GST Component`,
-                        referenceId: orderId,
-                        metadata: { orderId }
-                    });
-                }
-
-                const paymentMethod = newData.paymentMethod || 'CASH';
-                let assetAccount = 'CASH_IN_HAND';
-
-                if (paymentMethod === 'WALLET') {
-                    assetAccount = 'WALLET_BALANCE';
-                } else if (paymentMethod === 'RAZORPAY_ONLINE') {
-                    assetAccount = 'BANK_ACCOUNT';
-                }
-
-                postLedgerEntry(transaction, {
-                    account: assetAccount,
-                    type: 'DEBIT',
-                    amount: totalAmount,
-                    description: `Order #${orderId} Payment Received (${paymentMethod})`,
-                    referenceId: orderId,
-                    metadata: { orderId }
-                });
-
-                // 3. Update Product Stats (WRITES)
-                const items = newData.items || [];
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-
-                for (const item of items) {
-                    const productId = item.productId;
-                    const quantity = item.quantity || 1;
-
-                    transaction.update(db.collection("products").doc(productId), {
-                        salesCount: admin.firestore.FieldValue.increment(quantity)
-                    });
-
-                    const statId = `${productId}_${today.toISOString().split('T')[0]}`;
-                    transaction.set(db.collection("sales_stats").doc(statId), {
-                        productId,
-                        date: admin.firestore.Timestamp.fromDate(today),
-                        quantity: admin.firestore.FieldValue.increment(quantity)
-                    }, { merge: true });
-                }
-            });
-
-            if (alreadyProcessed) {
-                return null;
-            }
-
-            // 4. COGS & Inventory Asset Relief Ledger Posting
-            const items = newData.items || [];
-            for (const item of items) {
-                if (!item || !item.productId) continue;
-
-                let costPrice = item.costPrice;
-                if (!costPrice) {
-                    const prodDoc = await db.collection('products').doc(item.productId).get();
-                    costPrice = item.costPrice || prodDoc.data()?.costPrice || prodDoc.data()?.purchasePrice || 0;
-                }
-                costPrice = Number(costPrice) || 0;
-
-                if (costPrice > 0) {
-                    const quantity = Number(item.quantity) || 1;
-                    const itemCOGS = Number((costPrice * quantity).toFixed(2));
-                    const variantId = item.variantId || 'base';
-                    const cogsKey = `COGS_${orderId}_${item.productId}_${variantId}`;
-
-                    await postLedgerEntry({
-                        account: 'COGS',
-                        type: 'DEBIT',
-                        amount: itemCOGS,
-                        referenceId: orderId,
-                        referenceType: 'ORDER',
-                        idempotencyKey: cogsKey,
-                        description: `COGS: ${item.productName || item.productId} x${quantity}`
-                    });
-
-                    await postLedgerEntry({
-                        account: 'INVENTORY_ASSET',
-                        type: 'CREDIT',
-                        amount: itemCOGS,
-                        referenceId: orderId,
-                        referenceType: 'ORDER',
-                        idempotencyKey: `INV_RELIEF_${orderId}_${item.productId}_${variantId}`,
-                        description: `Inventory relief: ${item.productName || item.productId}`
-                    });
-                } else {
-                    await db.collection('cogs_alerts').add({
-                        orderId,
-                        productId: item.productId,
-                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                        message: 'Missing costPrice for product in paid order'
-                    });
-                }
-            }
-        } catch (error) {
-            console.error("CRITICAL: Financial transaction failed for order:", orderId, error);
-            throw error; // Trigger Cloud Function retry
-        }
-    }
+    console.warn("[onOrderPaidLedger] SYSTEM_1_FROZEN: Legacy order paid ledger trigger is permanently frozen. Revenue is recognized via System 2 postJournalEntry.");
     return null;
 });
 
 /**
  * Triggered when a return status changes to 'COMPLETED'.
+ * PERMANENTLY FROZEN: System 1 ledger write disabled. Returns processed via System 2 creditNoteEngine.
  */
 exports.onReturnCompletedLedger = onDocumentUpdated({ document: "returns/{returnId}", region: REGION }, async (event) => {
-    const change = event.data;
-    const context = { params: event.params };
-    const newData = change.after.data();
-    const oldData = change.before.data();
-    const returnId = context.params.returnId;
-
-    if (!newData || !oldData) return null;
-
-    if (newData.status === 'COMPLETED' && oldData.status !== 'COMPLETED') {
-        try {
-            await db.runTransaction(async (transaction) => {
-                const existingEntries = await transaction.get(
-                    db.collection("ledger")
-                        .where("referenceId", "==", returnId)
-                        .where("account", "==", "SALES")
-                        .limit(1)
-                );
-
-                if (!existingEntries.empty) {
-                    console.log(`Ledger entry already exists for Return: ${returnId}. Skipping.`);
-                    return;
-                }
-
-                const refundAmount = newData.refundAmount || 0;
-                const orderId = newData.orderId;
-
-                postLedgerEntry(transaction, {
-                    account: 'SALES',
-                    type: 'DEBIT',
-                    amount: refundAmount,
-                    description: `Return #${returnId} Refund (Order #${orderId})`,
-                    referenceId: returnId,
-                    metadata: { returnId, orderId }
-                });
-
-                const refundMethod = newData.refundMethod || 'WALLET';
-                const assetAccount = refundMethod === 'WALLET' ? 'WALLET_BALANCE' : 'CASH_IN_HAND';
-
-                postLedgerEntry(transaction, {
-                    account: assetAccount,
-                    type: 'CREDIT',
-                    amount: refundAmount,
-                    description: `Return #${returnId} Refund Payout`,
-                    referenceId: returnId,
-                    metadata: { returnId, orderId }
-                });
-
-                // Mark document as ledger posted for retry safety
-                transaction.update(change.after.ref, {
-                    ledgerPosted: true,
-                    ledgerPostedAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-            });
-        } catch (error) {
-            console.error("CRITICAL: Financial transaction failed for return:", returnId, error);
-            // Re-throw or use Outbox for retry logic in production
-            throw error;
-        }
-    }
+    console.warn("[onReturnCompletedLedger] SYSTEM_1_FROZEN: Legacy return completed ledger trigger is permanently frozen. Returns are processed via creditNoteEngine System 2.");
     return null;
 });
 
 /**
  * Triggered when a Goods Receipt Note (GRN) is created.
+ * PERMANENTLY FROZEN: System 1 ledger write disabled.
  */
 exports.onGoodsReceiptCreated = onDocumentCreated({ document: "goods_receipts/{grnId}", region: REGION }, async (event) => {
-    const snap = event.data;
-    if (!snap) return null;
-    
-    const grnId = event.params.grnId;
-    const data = snap.data();
-    const totalAmount = data.totalGRNAmount || 0;
-
-    if (totalAmount <= 0) return null;
-
-    try {
-        await db.runTransaction(async (transaction) => {
-            const existingEntries = await transaction.get(
-                db.collection("ledger")
-                    .where("referenceId", "==", grnId)
-                    .where("account", "==", "INVENTORY_VALUE")
-                    .limit(1)
-            );
-
-            if (!existingEntries.empty) {
-                console.log(`Ledger entry already exists for GRN: ${grnId}. Skipping.`);
-                return;
-            }
-
-            postLedgerEntry(transaction, {
-                account: 'INVENTORY_VALUE',
-                type: 'DEBIT',
-                amount: totalAmount,
-                description: `GRN #${data.grnNumber} Inventory Received`,
-                referenceId: grnId,
-                metadata: { grnId, poId: data.poId }
-            });
-
-            postLedgerEntry(transaction, {
-                account: 'ACCOUNTS_PAYABLE',
-                type: 'CREDIT',
-                amount: totalAmount,
-                description: `GRN #${data.grnNumber} Supplier Payable (${data.supplierName})`,
-                referenceId: grnId,
-                metadata: { grnId, supplierId: data.supplierId }
-            });
-        });
-        console.log(`Ledger entries posted for GRN: ${grnId}`);
-    } catch (error) {
-        console.error("CRITICAL: Financial transaction failed for GRN:", grnId, error);
-        throw error;
-    }
+    console.warn("[onGoodsReceiptCreated] SYSTEM_1_FROZEN: Legacy GRN ledger trigger is permanently frozen.");
     return null;
 });
 
@@ -717,95 +490,9 @@ exports.validateCashDepositOrders = validateCashDepositOrders;
 
 /**
  * Triggered when a rider cash deposit is created or updated to VERIFIED.
+ * PERMANENTLY FROZEN: System 1 ledger write disabled. Cash settlements are processed via confirmCashSettlement System 2.
  */
 exports.onCashDepositVerified = onDocumentWritten({ document: "cash_deposits/{depositId}", region: REGION }, async (event) => {
-    const change = event.data;
-    const newData = change.after ? change.after.data() : null;
-    const oldData = change.before ? change.before.data() : null;
-    const depositId = event.params.depositId;
-
-    if (!newData) return null;
-    if (newData.status !== 'VERIFIED') return null;
-    if (oldData && oldData.status === 'VERIFIED') return null;
-
-    const amount = Number(newData.amount || 0);
-    if (amount <= 0) return null;
-
-    try {
-        await db.runTransaction(async (transaction) => {
-            const existingEntries = await transaction.get(
-                db.collection("ledger")
-                    .where("referenceId", "==", depositId)
-                    .where("account", "==", "BANK_ACCOUNT")
-                    .limit(1)
-            );
-
-            if (!existingEntries.empty) {
-                console.log(`Ledger entry already exists for Deposit: ${depositId}. Skipping.`);
-                return;
-            }
-
-            // Validate every orderId in the deposit
-            const orderIds = Array.isArray(newData.orderIds) ? newData.orderIds : [];
-            const orderDocs = [];
-            for (const ordId of orderIds) {
-                const ordRef = db.collection("orders").doc(ordId);
-                const snap = await transaction.get(ordRef);
-                orderDocs.push(snap);
-            }
-
-            const validation = validateCashDepositOrders(newData, orderDocs);
-            if (!validation.isValid) {
-                console.error(`REJECTED Cash Deposit #${depositId} validation failed: ${validation.reason}`);
-                transaction.update(change.after.ref, {
-                    status: 'DISCREPANCY_FLAGGED',
-                    discrepancyReason: validation.reason,
-                    flaggedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    ledgerPosted: false
-                });
-                return; // Do NOT post ledger entries, do NOT mark orders as deposited
-            }
-
-            // Transfer from Rider's Cash In Hand liability to Business Bank Account
-            postLedgerEntry(transaction, {
-                account: 'CASH_IN_HAND',
-                type: 'CREDIT',
-                amount: amount,
-                description: `Cash Deposit #${depositId} from Rider ${newData.riderId} Cleared`,
-                referenceId: depositId,
-                metadata: { depositId, riderId: newData.riderId }
-            });
-
-            postLedgerEntry(transaction, {
-                account: 'BANK_ACCOUNT',
-                type: 'DEBIT',
-                amount: amount,
-                description: `Cash Deposit #${depositId} banked`,
-                referenceId: depositId,
-                metadata: { depositId, riderId: newData.riderId }
-            });
-            
-            // Mark deposit as ledger posted
-            transaction.update(change.after.ref, {
-                ledgerPosted: true,
-                ledgerPostedAt: admin.firestore.FieldValue.serverTimestamp()
-            });
-
-            // Update orders to isCashDeposited: true and cashDepositedAt server-side
-            for (const ordId of orderIds) {
-                const ordRef = db.collection("orders").doc(ordId);
-                transaction.update(ordRef, {
-                    isCashDeposited: true,
-                    cashDepositedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    cashDepositId: depositId,
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-            }
-        });
-        console.log(`Ledger entries posted for Cash Deposit: ${depositId}`);
-    } catch (error) {
-        console.error("CRITICAL: Financial transaction failed for Cash Deposit:", depositId, error);
-        throw error;
-    }
+    console.warn("[onCashDepositVerified] SYSTEM_1_FROZEN: Legacy cash deposit trigger is permanently frozen. Cash settlements are processed via confirmCashSettlement System 2.");
     return null;
 });

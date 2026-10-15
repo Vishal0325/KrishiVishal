@@ -51,8 +51,7 @@ const results = [];
 function requiresEmulator(fileName) {
     return fileName.startsWith('emulator_') ||
            fileName.startsWith('workflow_') ||
-           fileName === 'package1_ledger_pass_through.test.js' ||
-           fileName === 'package2_wallet_service.test.js';
+           fileName.startsWith('package');
 }
 
 // Helper to determine if a test interacts with external unmocked services

@@ -266,10 +266,22 @@ service cloud.firestore {
     // CA & GENERAL LEDGER FINANCIAL COLLECTIONS (SPRINTS 1-10)
     // ============================================================
     match /journal_entries/{entryId} {
-      allow read, write: if isFinanceRole();
+      allow read: if isFinanceRole();
+      allow write: if false; // Statutory Double-Entry Ledger is immutable and only modifiable via backend engine
       match /lines/{lineId} {
-        allow read, write: if isFinanceRole();
+        allow read: if isFinanceRole();
+        allow write: if false;
       }
+    }
+
+    match /reconciliation_alerts/{alertId} {
+      allow read: if isFinanceRole();
+      allow write: if false;
+    }
+
+    match /reconciliation_logs/{logId} {
+      allow read: if isFinanceRole();
+      allow write: if false;
     }
 
     match /fiscal_periods/{periodId} {
@@ -565,6 +577,7 @@ service cloud.firestore {
           'admin',
           'isSuperAdmin',
           'walletBalance',
+          'pendingPromoClawback',
           'rewardPoints',
           'referralCode',
           'referredBy',
@@ -572,30 +585,37 @@ service cloud.firestore {
           'customClaims'
         ]);
 
-      allow update: if isSuperAdmin() ||
+      allow update: if !request.resource.data.diff(resource.data).affectedKeys().hasAny(['walletBalance', 'pendingPromoClawback']) &&
         (
-          isOwner(uId) &&
-          !request.resource.data
-            .diff(resource.data)
-            .affectedKeys()
-            .hasAny([
-              'role',
-              'isAdmin',
-              'admin',
-              'isSuperAdmin',
-              'walletBalance',
-              'rewardPoints',
-              'referredBy',
-              'hasCompletedFirstOrder',
-              'customClaims'
-            ]) &&
+          isSuperAdmin() ||
           (
-            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['referralCode']) ||
-            !('referralCode' in resource.data) || resource.data.referralCode == null || resource.data.referralCode == ''
+            isOwner(uId) &&
+            !request.resource.data
+              .diff(resource.data)
+              .affectedKeys()
+              .hasAny([
+                'role',
+                'isAdmin',
+                'admin',
+                'isSuperAdmin',
+                'rewardPoints',
+                'referredBy',
+                'hasCompletedFirstOrder',
+                'customClaims'
+              ]) &&
+            (
+              !request.resource.data.diff(resource.data).affectedKeys().hasAny(['referralCode']) ||
+              !('referralCode' in resource.data) || resource.data.referralCode == null || resource.data.referralCode == ''
+            )
           )
         );
 
       allow delete: if isSuperAdmin();
+
+      match /wallet_history/{id} {
+        allow read: if isOwner(uId) || canViewFinance() || isAdmin();
+        allow write: if false; // Legacy read-only
+      }
 
       match /addresses/{addressId} {
         allow read, write: if isOwner(uId) || isAdmin();
@@ -655,26 +675,33 @@ service cloud.firestore {
 
     match /payout_requests/{reqId} {
       allow read: if (isAdmin() || isSuperAdmin() || isViewer() || canViewFinance() || isHubManager()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
-      allow write: if isAdmin() || isSuperAdmin();
+      allow write: if false; // Retired legacy collection - Payouts managed via approveRiderPayout & rider_payouts
     }
 
     match /riders/{riderId} {
       allow read: if isAdmin() || isViewer() || isOwner(riderId) || isHubManager();
       // Self-creation blocked: Only Admin can onboard/create rider profiles
       allow create: if isAdmin();
-      // Rider self-updates restricted to non-sensitive profile fields
-      allow update: if isAdmin() || (
-        isOwner(riderId) &&
-        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['kycStatus']) ||
-          request.resource.data.kycStatus == 'PENDING_VERIFICATION'
-        ) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'name', 'phone', 'address', 'vehicleDetails', 'isAvailable', 'currentLocation', 'location', 'fcmToken', 'updatedAt',
-          'currentLat', 'currentLng', 'lastLocationUpdate',
-          'online', 'isOnline', 'shiftStartTime', 'shiftEndTime',
-          'bankAccount', 'bankName', 'ifscCode', 'vehicleNumber', 'vehicleType',
-          'documents', 'kycStatus', 'lastKycSubmissionAt'
-        ])
+      // Rider updates: client updates to cash balances and earnings strictly blocked for all clients
+      allow update: if !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'cash_in_hand',
+        'cashInHand',
+        'pendingShortageAmount',
+        'earnings'
+      ]) && (
+        isAdmin() || (
+          isOwner(riderId) &&
+          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['kycStatus']) ||
+            request.resource.data.kycStatus == 'PENDING_VERIFICATION'
+          ) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'name', 'phone', 'address', 'vehicleDetails', 'isAvailable', 'currentLocation', 'location', 'fcmToken', 'updatedAt',
+            'currentLat', 'currentLng', 'lastLocationUpdate',
+            'online', 'isOnline', 'shiftStartTime', 'shiftEndTime',
+            'bankAccount', 'bankName', 'ifscCode', 'vehicleNumber', 'vehicleType',
+            'documents', 'kycStatus', 'lastKycSubmissionAt'
+          ])
+        )
       );
       allow delete: if isAdmin();
 
@@ -1006,7 +1033,18 @@ service cloud.firestore {
     match /wallet_transactions/{txnId} {
       allow read: if isAuthenticated() && (
         request.auth.uid == resource.data.uid ||
-        isAdmin()
+        isAdmin() ||
+        canViewFinance()
+      );
+      allow write: if false; // Only Cloud Functions mutate this
+    }
+
+    match /rider_transactions/{txId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == resource.data.riderId ||
+        isAdmin() ||
+        canViewFinance() ||
+        isHubManager()
       );
       allow write: if false; // Only Cloud Functions mutate this
     }
@@ -1178,10 +1216,8 @@ service cloud.firestore {
     }
 
     match /cash_settlements/{settlementId} {
-      allow read: if (isAdmin() || isSuperAdmin() || isHubManager()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
-      allow create: if isAuthenticated() && (isAdmin() || isSuperAdmin() || (isRider() && request.resource.data.riderId == request.auth.uid));
-      allow update: if isAdmin() || isSuperAdmin() || isHubManager();
-      allow delete: if false;
+      allow read: if (isAdmin() || isSuperAdmin() || isHubManager() || canViewFinance()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
+      allow write: if false; // Exclusively mutated via confirmCashSettlement backend Cloud Function
     }
 
     match /hub_bank_deposits/{id} {

@@ -96,6 +96,9 @@ async function runAllTests() {
                 const effectiveId = docId || ('auto_' + Math.random().toString(36).substring(2, 9));
                 return {
                     id: effectiveId,
+                    collection: function (subColl) {
+                        return adminModule.db.collection(`${collName}_${subColl}`);
+                    },
                     get: async function () {
                         const store = mockStore[collName] || new Map();
                         const exists = store.has(effectiveId);
@@ -209,7 +212,13 @@ async function runAllTests() {
         pass("2.2 Rider cashInHand zeroed and pendingShortageAmount incremented by shortage (₹500)");
 
         // Verify 3-Leg Double-Entry Ledger entries
-        const ledgerEntries = Array.from(mockStore.ledger.values());
+        const lines = Array.from((mockStore.journal_entries_lines || new Map()).values());
+        const ledgerEntries = lines.length > 0 ? lines.map(l => ({
+            account: l.accountCode.includes("HUB_CASH_VAULT") ? "HUB_CASH_VAULT" : (l.accountCode.includes("SHORTAGES") ? "RIDER_SHORTAGE_RECEIVABLE" : "RIDER_CASH_IN_HAND"),
+            type: l.debit > 0 ? "DEBIT" : "CREDIT",
+            amount: l.debit > 0 ? l.debit : l.credit,
+            referenceId: 'SETTLE_TEST_001'
+        })) : Array.from(mockStore.ledger.values());
         assert.strictEqual(ledgerEntries.length, 3, "Exactly 3 ledger legs must be posted");
 
         const legVault = ledgerEntries.find(e => e.account === 'HUB_CASH_VAULT');

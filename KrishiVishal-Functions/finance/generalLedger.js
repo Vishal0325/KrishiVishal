@@ -531,6 +531,13 @@ const getLedgerExtract = onCall({ region: "asia-south1" }, async (request) => {
 });
 getLedgerExtract.core = getLedgerExtractCore;
 
+// Nightly Financial Reconciliation Exports
+const {
+    reconcileDailyLedgerCore,
+    reconcileDailyLedgerSchedule,
+    reconcileDailyLedger
+} = require("./nightlyReconciliation");
+
 module.exports = {
     CHART_OF_ACCOUNTS,
     VALID_ACCOUNT_CODES,
@@ -540,5 +547,8 @@ module.exports = {
     findAccountName,
     computeCanonicalLinesHash,
     getLedgerExtract,
-    getLedgerExtractCore
+    getLedgerExtractCore,
+    reconcileDailyLedgerCore,
+    reconcileDailyLedgerSchedule,
+    reconcileDailyLedger
 };
