@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '../firebase/config';
@@ -45,6 +45,7 @@ export default function QuarantineDesk() {
   const [debitNoteRef, setDebitNoteRef] = useState('');
   const [writeOffReason, setWriteOffReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const resolutionRequestIds = useRef(new Map());
 
   useEffect(() => {
     let q;
@@ -128,7 +129,15 @@ export default function QuarantineDesk() {
         writeOffReason: actionType === 'WRITE_OFF' ? writeOffReason : ''
       };
 
-      const result = await resolveFn(payload);
+      const payloadSignature = JSON.stringify(payload);
+      let requestId = resolutionRequestIds.current.get(payloadSignature);
+      if (!requestId) {
+        requestId = crypto.randomUUID();
+        resolutionRequestIds.current.set(payloadSignature, requestId);
+      }
+
+      await resolveFn({ ...payload, requestId });
+      resolutionRequestIds.current.clear();
       toast.success(
         actionType === 'RETURN_TO_VENDOR'
           ? `Returned ${qty} units to vendor! Debit note posted.`
