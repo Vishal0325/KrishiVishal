@@ -64,7 +64,33 @@ async function getJournalLines(entryId) {
     return snap.docs.map(d => d.data());
 }
 
+async function clearEmulatorData() {
+    if (process.env.FIRESTORE_EMULATOR_HOST) {
+        const axios = require("axios");
+        const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
+        const projectId = process.env.GCLOUD_PROJECT || "krishivishal-a9ed7";
+        try {
+            await axios.delete(`http://${emulatorHost}/emulator/v1/projects/${projectId}/databases/(default)/documents`);
+            console.log(`[Emulator Reset] Successfully cleared Firestore emulator data via REST API (${emulatorHost})`);
+        } catch (e) {
+            console.warn(`[Emulator Reset] REST delete failed (${e.message}), running collection fallback purge`);
+            const collections = ["users", "riders", "journal_entries", "reconciliation_alerts", "reconciliation_logs", "orders", "wallet_transactions", "rider_transactions", "cash_settlements", "rider_payouts"];
+            for (const col of collections) {
+                const snap = await db.collection(col).get();
+                if (!snap.empty) {
+                    const batch = db.batch();
+                    snap.docs.forEach(d => batch.delete(d.ref));
+                    await batch.commit();
+                }
+            }
+        }
+    }
+}
+
 async function runTests() {
+    // Reset emulator data before test suite runs to ensure deterministic isolation
+    await clearEmulatorData();
+
     const now = new Date();
     const periodId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 

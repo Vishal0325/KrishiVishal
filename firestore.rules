@@ -672,7 +672,7 @@ service cloud.firestore {
 
     match /payout_requests/{reqId} {
       allow read: if (isAdmin() || isSuperAdmin() || isViewer() || canViewFinance() || isHubManager()) || (isAuthenticated() && resource.data.riderId == request.auth.uid);
-      allow write: if isAdmin() || isSuperAdmin();
+      allow write: if false; // Retired legacy collection - Payouts managed via approveRiderPayout & rider_payouts
     }
 
     match /riders/{riderId} {

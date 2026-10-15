@@ -407,6 +407,10 @@ exports.postLedgerEntry = postLedgerEntry;
  * Triggered when an order's PAYMENT status changes to 'PAID'.
  */
 exports.onOrderPaidLedger = onDocumentUpdated({ document: "orders/{orderId}", region: REGION }, async (event) => {
+    if (system1Frozen) {
+        console.warn("[onOrderPaidLedger] SYSTEM_1_FROZEN: Legacy order paid ledger trigger is frozen.");
+        return null;
+    }
     const change = event.data;
     const context = { params: event.params };
     const newData = change.after.data();
@@ -560,6 +564,10 @@ exports.onOrderPaidLedger = onDocumentUpdated({ document: "orders/{orderId}", re
  * Triggered when a return status changes to 'COMPLETED'.
  */
 exports.onReturnCompletedLedger = onDocumentUpdated({ document: "returns/{returnId}", region: REGION }, async (event) => {
+    if (system1Frozen) {
+        console.warn("[onReturnCompletedLedger] SYSTEM_1_FROZEN: Legacy return completed ledger trigger is frozen.");
+        return null;
+    }
     const change = event.data;
     const context = { params: event.params };
     const newData = change.after.data();
@@ -776,6 +784,10 @@ exports.validateCashDepositOrders = validateCashDepositOrders;
  * Triggered when a rider cash deposit is created or updated to VERIFIED.
  */
 exports.onCashDepositVerified = onDocumentWritten({ document: "cash_deposits/{depositId}", region: REGION }, async (event) => {
+    if (system1Frozen) {
+        console.warn("[onCashDepositVerified] SYSTEM_1_FROZEN: Legacy cash deposit verified ledger trigger is frozen.");
+        return null;
+    }
     const change = event.data;
     const newData = change.after ? change.after.data() : null;
     const oldData = change.before ? change.before.data() : null;

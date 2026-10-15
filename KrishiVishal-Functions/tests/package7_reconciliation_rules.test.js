@@ -26,7 +26,7 @@ if (!process.env.FIRESTORE_EMULATOR_HOST) {
 const { db, admin } = require("../core/admin");
 const { postJournalEntry } = require("../finance/generalLedger");
 const { reconcileDailyLedgerCore } = require("../finance/nightlyReconciliation");
-const { postLedgerEntry, updateAccountBalance, onOrderPaidLedger, onCashDepositVerified } = require("../finance/ledger");
+const { postLedgerEntry, updateAccountBalance, onOrderPaidLedger, onCashDepositVerified, freezeSystem1 } = require("../finance/ledger");
 const { initializeTestEnvironment, assertFails, assertSucceeds } = require("@firebase/rules-unit-testing");
 
 console.log("=========================================================================================");
@@ -50,7 +50,33 @@ function fail(name, err) {
     failed++;
 }
 
+async function clearEmulatorData() {
+    if (process.env.FIRESTORE_EMULATOR_HOST) {
+        const axios = require("axios");
+        const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
+        const projectId = process.env.GCLOUD_PROJECT || "krishivishal-a9ed7";
+        try {
+            await axios.delete(`http://${emulatorHost}/emulator/v1/projects/${projectId}/databases/(default)/documents`);
+            console.log(`[Emulator Reset] Successfully cleared Firestore emulator data via REST API (${emulatorHost})`);
+        } catch (e) {
+            console.warn(`[Emulator Reset] REST delete failed (${e.message}), running collection fallback purge`);
+            const collections = ["users", "riders", "journal_entries", "reconciliation_alerts", "reconciliation_logs", "orders", "wallet_transactions", "rider_transactions", "cash_settlements", "payout_requests", "rider_payouts"];
+            for (const col of collections) {
+                const snap = await db.collection(col).get();
+                if (!snap.empty) {
+                    const batch = db.batch();
+                    snap.docs.forEach(d => batch.delete(d.ref));
+                    await batch.commit();
+                }
+            }
+        }
+    }
+}
+
 async function runTests() {
+    // Reset emulator data before test suite runs to ensure deterministic isolation
+    await clearEmulatorData();
+
     const now = new Date();
     const periodId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
@@ -344,6 +370,8 @@ async function runTests() {
     // =========================================================================
     console.log("\n--- TEST (e): System 1 Freeze Guard Verification ---");
     try {
+        freezeSystem1(true);
+
         // 1. postLedgerEntry throws SYSTEM_1_FROZEN
         let postLedgerThrew = false;
         try {
@@ -399,6 +427,8 @@ async function runTests() {
 
     } catch (err) {
         fail("Test (e): System 1 freeze guard verification failed", err);
+    } finally {
+        freezeSystem1(false);
     }
 
     // =========================================================================
