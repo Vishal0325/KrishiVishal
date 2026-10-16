@@ -39,50 +39,35 @@ export const expenseService = {
       throw new Error("Invalid expense data: Missing required fields (category, description, amount).");
     }
 
-    return await runTransaction(db, async (transaction) => {
-      // 1. Get next expense number atomically
-      const counterRef = doc(db, 'counters', 'expenses');
-      const counterSnap = await transaction.get(counterRef);
-      const year = new Date().getFullYear();
-      let nextNumber = 1;
+    const expenseRef = doc(collection(db, this.COLLECTIONS.EXPENSES));
+    const year = new Date().getFullYear();
+    const fallbackNumber = expenseData.expenseNumber || `EXP-${year}-${Date.now().toString().slice(-4)}`;
 
-      if (counterSnap.exists()) {
-        const data = counterSnap.data();
-        if (data.year === year) {
-          nextNumber = (data.count || 0) + 1;
-        }
-      }
+    const data = {
+      ...expenseData,
+      expenseNumber: fallbackNumber,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      createdBy: actorId,
+      approvalStatus: expenseData.approvalStatus || 'PENDING',
+      paymentStatus: expenseData.paymentStatus || 'UNPAID',
+      deleted: false
+    };
 
-      transaction.set(counterRef, { year, count: nextNumber }, { merge: true });
-      const expenseNumber = `EXP-${year}-${nextNumber.toString().padStart(5, '0')}`;
+    await setDoc(expenseRef, data);
 
-      const expenseRef = doc(collection(db, this.COLLECTIONS.EXPENSES));
-      const data = {
-        ...expenseData,
-        expenseNumber: expenseNumber,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        createdBy: actorId,
-        approvalStatus: expenseData.approvalStatus || 'PENDING',
-        paymentStatus: expenseData.paymentStatus || 'UNPAID',
-        deleted: false
-      };
-
-      transaction.set(expenseRef, data);
-
-      // Initial Audit Log
-      const auditRef = doc(collection(db, this.COLLECTIONS.AUDIT));
-      transaction.set(auditRef, {
-        action: 'CREATE_EXPENSE',
-        entityId: expenseRef.id,
-        entityType: 'EXPENSE',
-        performedBy: actorId,
-        performedAt: serverTimestamp(),
-        after: data
-      });
-
-      return expenseRef.id;
+    // Initial Audit Log
+    const auditRef = doc(collection(db, this.COLLECTIONS.AUDIT));
+    await setDoc(auditRef, {
+      action: 'CREATE_EXPENSE',
+      entityId: expenseRef.id,
+      entityType: 'EXPENSE',
+      performedBy: actorId,
+      performedAt: serverTimestamp(),
+      after: data
     });
+
+    return expenseRef.id;
   },
 
   async updateExpense(id, updates, actorId) {
