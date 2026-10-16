@@ -1233,6 +1233,28 @@ async function runEmulatorRulesTests() {
         await assertFails(pureHubManager.firestore().doc('skus/sku_fefo/batches/batch_other').get());
     });
 
+    // 14.2a: HubManager CAN LIST batches scoped to their assigned hub
+    await testRule("14.2a HubManager CAN LIST batches scoped to their assigned hub (warehouseId query)", async (env) => {
+        const queryOwn = pureHubManager.firestore()
+            .collection('skus').doc('sku_fefo').collection('batches')
+            .where('warehouseId', '==', 'REG-KHA-003');
+        await assertSucceeds(queryOwn.get());
+    });
+
+    // 14.2b: HubManager CANNOT LIST batches across hubs or for another hub
+    await testRule("14.2b HubManager CANNOT LIST batches across hubs or for another hub", async (env) => {
+        // Query without warehouseId scoping
+        const queryAll = pureHubManager.firestore()
+            .collection('skus').doc('sku_fefo').collection('batches');
+        await assertFails(queryAll.get());
+
+        // Query for another hub
+        const queryOther = pureHubManager.firestore()
+            .collection('skus').doc('sku_fefo').collection('batches')
+            .where('warehouseId', '==', 'OTHER-HUB-999');
+        await assertFails(queryOther.get());
+    });
+
     // 14.3: Non-admin (HubManager) CANNOT write to system_configs
     await testRule("14.3 Non-admin (HubManager) CANNOT write to system_configs (Server-only callable mutation)", async (env) => {
         await assertFails(pureHubManager.firestore().doc('system_configs/global').set({ maintenanceMode: true }));
@@ -1304,6 +1326,34 @@ async function runEmulatorRulesTests() {
     await testRule("15.5 Unauthenticated user CANNOT read notification_campaigns", async (env) => {
         const unauthed = env.unauthenticatedContext();
         await assertFails(unauthed.firestore().doc('notification_campaigns/camp_global_01').get());
+    });
+
+    // 15.6: Marketing, Telecaller, SupportAgent, OperationsAdmin CAN read notification_campaigns
+    await testRule("15.6 Marketing, Telecaller, SupportAgent, OperationsAdmin CAN read notification_campaigns", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            const db = context.firestore();
+            await db.doc('users/usr_telecaller').set({ status: 'ACTIVE', deactivated: false });
+            await db.doc('users/usr_support').set({ status: 'ACTIVE', deactivated: false });
+            await db.doc('users/usr_ops').set({ status: 'ACTIVE', deactivated: false });
+            await db.doc('users/usr_marketing').set({ status: 'ACTIVE', deactivated: false });
+            await db.doc('users/usr_customer').set({ status: 'ACTIVE', deactivated: false });
+        });
+
+        const telecallerCtx = env.authenticatedContext('usr_telecaller', { role: 'Telecaller' });
+        const supportCtx = env.authenticatedContext('usr_support', { role: 'SupportAgent' });
+        const opsCtx = env.authenticatedContext('usr_ops', { role: 'OperationsAdmin' });
+        const marketingCtx = env.authenticatedContext('usr_marketing', { role: 'Marketing' });
+
+        await assertSucceeds(telecallerCtx.firestore().doc('notification_campaigns/camp_global_01').get());
+        await assertSucceeds(supportCtx.firestore().doc('notification_campaigns/camp_global_01').get());
+        await assertSucceeds(opsCtx.firestore().doc('notification_campaigns/camp_global_01').get());
+        await assertSucceeds(marketingCtx.firestore().doc('notification_campaigns/camp_global_01').get());
+    });
+
+    // 15.7: Customer CANNOT read notification_campaigns
+    await testRule("15.7 Customer CANNOT read notification_campaigns", async (env) => {
+        const customerCtx = env.authenticatedContext('usr_customer', { role: 'Customer' });
+        await assertFails(customerCtx.firestore().doc('notification_campaigns/camp_global_01').get());
     });
 
 
