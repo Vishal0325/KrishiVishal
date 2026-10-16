@@ -2,6 +2,7 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db, admin } = require("../core/admin");
 const { getWarehouseStockRef, recordMovement, DEFAULT_WAREHOUSE_ID } = require("./inventoryEngine");
 const { postJournalEntry } = require("../finance/generalLedger");
+const { getFiscalPeriodId } = require("../finance/walletService");
 const { isSystem1Frozen } = require("../finance/ledger");
 const { isAccountActive, isAdminRequest } = require("../core/utils");
 
@@ -124,7 +125,7 @@ async function resolveQuarantinedStockLogic(payload) {
 
         // PHASE 2: SYSTEM 2 JOURNAL ENTRY (Must execute before any caller writes - Contract Rule 2)
         const now = new Date();
-        const periodId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const periodId = getFiscalPeriodId(now);
         let journalEntryId = null;
 
         if (action === 'RETURN_TO_VENDOR') {

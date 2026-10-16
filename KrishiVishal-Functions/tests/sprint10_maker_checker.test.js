@@ -6,6 +6,7 @@ const {
     getApprovalRequests,
     ALLOWED_CHECKER_ROLES
 } = require('../finance/makerCheckerEngine');
+const { getFiscalPeriodId } = require('../finance/supplierLedger');
 
 console.log("==========================================================================");
 console.log("=== RUNNING SPRINT 10: MAKER-CHECKER & DUAL-AUTHORIZATION TEST SUITE ===");
@@ -141,6 +142,15 @@ async function runSprint10TestSuite() {
             supplierId: "SUP_IFFCO_01",
             supplierInvoiceNo: "IFFCO/2026/999",
             outstandingBalance: 100000,
+            paidAmount: 0,
+            status: "PENDING"
+        });
+
+        store.supplier_invoices.set("INV_BIG_002", {
+            id: "INV_BIG_002",
+            supplierId: "SUP_IFFCO_01",
+            supplierInvoiceNo: "IFFCO/2026/1000",
+            outstandingBalance: 75000,
             paidAmount: 0,
             status: "PENDING"
         });
@@ -290,6 +300,53 @@ async function runSprint10TestSuite() {
             fail("Case 4: High-Value Payment Atomic Execution", e);
         }
 
+        // --- TEST CASE 4B: High-Value Payment without periodId uses getFiscalPeriodId() fallback ---
+        try {
+            const payReqNoPeriod = await submitApprovalRequest({
+                requestType: "HIGH_VALUE_PAYMENT",
+                entityType: "SUPPLIER_INVOICES",
+                entityId: "SUP_IFFCO_01",
+                payload: {
+                    invoiceId: "INV_BIG_002",
+                    amount: 75000,
+                    utrRef: "HDFCN202610079999",
+                    bankAccountCode: "1030_BANK_CURRENT_HDFC"
+                    // Notice: periodId is intentionally omitted
+                },
+                maker: {
+                    uid: "MAKER_UID_003",
+                    email: "accountant3@krishivishal.com",
+                    role: "Accountant"
+                }
+            });
+
+            const payApprovalRes2 = await reviewApprovalRequest({
+                requestId: payReqNoPeriod.requestId,
+                checker: {
+                    uid: "DIR_UID_888",
+                    email: "director@krishivishal.com",
+                    role: "Director"
+                },
+                action: "APPROVE",
+                remarks: "Payment authorization confirmed without explicit periodId."
+            });
+
+            assert.strictEqual(payApprovalRes2.status, "APPROVED");
+            const invPost2 = store.supplier_invoices.get("INV_BIG_002");
+            assert.strictEqual(invPost2.status, "PAID");
+            assert.strictEqual(invPost2.paidAmount, 75000);
+
+            // Verify the journal entry posted in store has the dynamic IST getFiscalPeriodId() instead of hardcoded 2026-10
+            const expectedPeriodId = getFiscalPeriodId();
+            const jeDoc = store.journal_entries.get(payApprovalRes2.executionResult.journalEntryId);
+            assert.ok(jeDoc, "Journal entry must be posted for supplier payment");
+            assert.strictEqual(jeDoc.periodId, expectedPeriodId, `Must use dynamic fiscal period ${expectedPeriodId}`);
+
+            pass("Case 4B: High-value payment without periodId successfully defaults to dynamic IST getFiscalPeriodId()");
+        } catch (e) {
+            fail("Case 4B: High-Value Payment Dynamic Period Fallback", e);
+        }
+
         // --- TEST CASE 5: Rejection Workflow ---
         try {
             const rejectReq = await submitApprovalRequest({
@@ -339,6 +396,22 @@ async function runSprint10TestSuite() {
             pass("Case 5.2: Rejection workflow properly marks request as REJECTED without modifying live records");
         } catch (e) {
             fail("Case 5: Rejection Workflow", e);
+        }
+
+        // --- TEST CASE 7: IST Timezone Guard in getFiscalPeriodId ---
+        try {
+            // 2026-10-31 20:00:00 UTC is 2026-11-01 01:30:00 IST (Indian Standard Time)
+            const utcLateOct = new Date("2026-10-31T20:00:00Z");
+            assert.strictEqual(utcLateOct.getUTCMonth() + 1, 10, "UTC month is October");
+            assert.strictEqual(getFiscalPeriodId(utcLateOct), "2026-11", "IST period must evaluate to 2026-11");
+
+            // Invalid date fallback
+            const invalidPeriod = getFiscalPeriodId("invalid-date");
+            assert.strictEqual(invalidPeriod, getFiscalPeriodId(new Date()), "Invalid date must fallback to current IST period");
+
+            pass("Case 7: getFiscalPeriodId correctly respects Asia/Kolkata timezone and handles invalid date fallback");
+        } catch (e) {
+            fail("Case 7: getFiscalPeriodId IST timezone verification", e);
         }
 
     } finally {

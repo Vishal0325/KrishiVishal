@@ -229,9 +229,14 @@ async function reserveNextCreditNoteNumberForLock(lockRef, hubCodeOrFy = "SAM", 
  */
 function getFiscalPeriodId(date = new Date()) {
     const d = date instanceof Date ? date : new Date(date);
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    return `${yyyy}-${mm}`;
+    if (isNaN(d.getTime())) {
+        return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit' }).format(new Date());
+    }
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit'
+    }).format(d);
 }
 
 /**

@@ -10,7 +10,7 @@
  */
 
 const { db, admin } = require("../core/admin");
-const { recordSupplierPayment } = require("./supplierLedger");
+const { recordSupplierPayment, getFiscalPeriodId } = require("./supplierLedger");
 
 const ALLOWED_CHECKER_ROLES = ["SuperAdmin", "CFO", "Director"];
 const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
@@ -259,7 +259,7 @@ async function reviewApprovalRequest({ requestId, checker, action, remarks }) {
             paymentAmount: paymentPayload.amount,
             bankAccountCode: paymentPayload.bankAccountCode || "1030_BANK_CURRENT_HDFC",
             utrRef: paymentPayload.utrRef,
-            periodId: paymentPayload.periodId || "2026-10",
+            periodId: paymentPayload.periodId || getFiscalPeriodId(),
             paidBy: checker.email || checker.uid
         });
 
