@@ -13,7 +13,7 @@ export async function cancelOrderTransaction(orderId, userId, cancellationReason
     // This ensures Role-based access control (RBAC) and atomic server-side processing.
     const { getFunctions, httpsCallable } = await import('firebase/functions');
     const functions = getFunctions(undefined, 'asia-south1');
-    const cancelOrder = httpsCallable(functions, 'adminCancelOrder');
+    const cancelOrder = httpsCallable(functions, 'cancelOrder');
 
     const result = await cancelOrder({ orderId, reason: cancellationReason });
     return result.data;
