@@ -144,13 +144,27 @@ async function runTests() {
                     expensesStore.push(doc);
                     return { id: `exp_${expensesStore.length}` };
                 },
-                doc: (id) => ({
+                doc: (id = `exp_${expensesStore.length + 1}`) => ({
+                    id,
+                    get: async () => ({ exists: false, data: () => null }),
+                    set: async (doc) => {
+                        expensesStore.push(doc);
+                    },
                     update: async (doc) => {}
                 }),
                 where: () => queryFrom(expensesStore.map((d, i) => ({ id: `exp_${i}`, data: () => d }))),
                 orderBy() { return this; },
                 limit() { return this; },
                 get: async () => ({ docs: expensesStore.map((d, i) => ({ id: `exp_${i}`, data: () => d })), size: expensesStore.length, empty: expensesStore.length === 0 })
+            };
+        }
+        if (colName === 'counters') {
+            return {
+                doc: (id) => ({
+                    id,
+                    get: async () => ({ exists: true, data: () => ({ year: new Date().getFullYear(), count: 0 }) }),
+                    set: async () => {}
+                })
             };
         }
         if (colName === 'orders') {
@@ -185,8 +199,11 @@ async function runTests() {
         return origCollection.call(db, colName);
     };
     db.runTransaction = async (callback) => callback({
+        get: async (ref) => ref.get(),
         getAll: async (...refs) => Promise.all(refs.map((ref) => ref.get())),
-        create: (ref, data) => ref.set(data)
+        create: (ref, data) => ref.set(data),
+        set: (ref, data, opt) => ref.set(data, opt),
+        update: (ref, data) => (ref.update ? ref.update(data) : ref.set(data, { merge: true }))
     });
 
     // =============================================================

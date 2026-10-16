@@ -85,10 +85,6 @@ const FUNCTION_MAP = {
     onGoodsReceiptCreated: ['./finance/ledger', 'onGoodsReceiptCreated'],
     onCashDepositVerified: ['./finance/ledger', 'onCashDepositVerified'],
     confirmCashSettlement: ['./finance/cashSettlement', 'confirmCashSettlement'],
-    postJournalEntry: ['./finance/generalLedger', 'postJournalEntry'],
-    recordSupplierPurchaseInvoice: ['./finance/supplierLedger', 'recordSupplierPurchaseInvoice'],
-    recordSupplierPayment: ['./finance/supplierLedger', 'recordSupplierPayment'],
-    recognizeOrderDeliveryFinancials: ['./finance/salesLedger', 'recognizeOrderDeliveryFinancials'],
     reconcileOrderCogs: ['./finance/salesLedger', 'reconcileOrderCogs'],
     generateTrialBalance: ['./finance/financeCallables', 'generateTrialBalance'],
     generateProfitAndLoss: ['./finance/financeCallables', 'generateProfitAndLoss'],
@@ -109,17 +105,9 @@ const FUNCTION_MAP = {
     reconcileDailyLedger: ['./finance/generalLedger', 'reconcileDailyLedger'],
     reconcileDailyLedgerSchedule: ['./finance/generalLedger', 'reconcileDailyLedgerSchedule'],
 
-    // --- INVOICES & NOTIFICATIONS (5) ---
+    // --- INVOICES & NOTIFICATIONS (2) ---
     orderDeliveryNotification: ['./invoices/orderDeliveryNotification', 'orderDeliveryNotification'],
-    getNextInvoiceNumber: ['./invoices/sequentialInvoiceEngine', 'getNextInvoiceNumber'],
-    generateCreditNoteForReturn: ['./invoices/creditNoteEngine', 'generateCreditNoteForReturn'],
-    generateAndUploadCreditNotePdf: ['./invoices/invoiceService', 'generateAndUploadCreditNotePdf'],
-    buildCreditNotePdfBuffer: ['./invoices/invoiceService', 'buildCreditNotePdfBuffer'],
     onReturnApproved: ['./returns/returnTriggers', 'onReturnApproved'],
-
-    // --- TAX, GST & TDS (2) ---
-    calculateTaxForOrder: ['./tax/gstEngine', 'calculateTaxForOrder'],
-    calculateTdsDeduction: ['./tax/tdsEngine', 'calculateTdsDeduction'],
 
     // --- SENSITIVE AUDIT LOGGERS (4) ---
     onFinancialSettingsWritten: ['./security/auditLogger', 'onFinancialSettingsWritten'],
@@ -229,6 +217,10 @@ const FUNCTION_MAP = {
 for (const [fnName, [modPath, exportName]] of Object.entries(FUNCTION_MAP)) {
     Object.defineProperty(exports, fnName, lazy(modPath, exportName));
 }
+
+// Helpers exported for internal services and test suites (decoupled from Cloud Function triggers)
+const helpers = require('./helpers');
+Object.defineProperties(exports, Object.getOwnPropertyDescriptors(helpers));
 
 // --- DIRECT IN-INDEX CALLABLE FUNCTIONS (3) ---
 

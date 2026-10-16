@@ -130,9 +130,7 @@ async function resolveQuarantinedStockLogic(payload) {
 
         if (action === 'RETURN_TO_VENDOR') {
             const rtvEntryId = `JE_QUARANTINE_RTV_${requestId}`;
-            const rtvReferenceId = debitNoteRef
-                ? `${debitNoteRef}_${quarantineId}_${alreadyResolved + resolveQty}`
-                : `${quarantineId}_${alreadyResolved + resolveQty}`;
+            const rtvReferenceId = debitNoteRef || quarantineId;
             const jeResult = await postJournalEntry({
                 entryId: rtvEntryId,
                 refType: 'QUARANTINE_RESOLUTION',
