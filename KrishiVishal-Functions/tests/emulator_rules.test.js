@@ -1305,14 +1305,24 @@ async function runEmulatorRulesTests() {
         await assertSucceeds(pureViewer.firestore().doc('notification_campaigns/camp_global_01').get());
     });
 
-    // 15.2: HubManager CAN read notification_campaigns belonging to their assigned hub
-    await testRule("15.2 HubManager CAN read notification_campaigns belonging to their assigned hub", async (env) => {
-        await assertSucceeds(pureHubManager.firestore().doc('notification_campaigns/camp_hub_kha').get());
+    // 15.2: Pure HubManager (without marketing/admin role) CANNOT read notification_campaigns
+    await testRule("15.2 Pure HubManager (without marketing/admin role) CANNOT read notification_campaigns", async (env) => {
+        await assertFails(pureHubManager.firestore().doc('notification_campaigns/camp_global_01').get());
     });
 
-    // 15.3: HubManager CANNOT read notification_campaigns belonging to another hub
-    await testRule("15.3 HubManager CANNOT read notification_campaigns belonging to another hub", async (env) => {
-        await assertFails(pureHubManager.firestore().doc('notification_campaigns/camp_hub_sam').get());
+    // 15.3: Operations staff (KisanCallCenter, CRMExecutive) CAN read notification_campaigns
+    await testRule("15.3 Operations staff (KisanCallCenter, CRMExecutive) CAN read notification_campaigns", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            const db = context.firestore();
+            await db.doc('users/usr_kcc').set({ status: 'ACTIVE', deactivated: false });
+            await db.doc('users/usr_crm').set({ status: 'ACTIVE', deactivated: false });
+        });
+
+        const kccCtx = env.authenticatedContext('usr_kcc', { role: 'KisanCallCenter' });
+        const crmCtx = env.authenticatedContext('usr_crm', { role: 'CRMExecutive' });
+
+        await assertSucceeds(kccCtx.firestore().doc('notification_campaigns/camp_global_01').get());
+        await assertSucceeds(crmCtx.firestore().doc('notification_campaigns/camp_global_01').get());
     });
 
     // 15.4: Clients CANNOT write to notification_campaigns (Server-only callable mutation)

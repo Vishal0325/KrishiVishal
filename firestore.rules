@@ -440,7 +440,7 @@ service cloud.firestore {
       // Client writes strictly blocked - all mutations managed via v2 Cloud Functions callables
       allow write: if false;
       // Read allowed for Admins, Viewers, Marketing, and Operations/Support staff
-      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data) || (
+      allow read: if isAdmin() || isViewer() || (
         isActiveAccount() && ('role' in request.auth.token) &&
         request.auth.token.role in [
           "SuperAdmin", "SUPER_ADMIN", "Admin", "ADMIN",
