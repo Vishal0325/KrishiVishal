@@ -1,94 +1,100 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, query, onSnapshot, getDocs, updateDoc, doc, Timestamp, addDoc } from 'firebase/firestore';
-import { db } from '../firebase/config';
-import { useAuth } from '../hooks/useAuth';
-import { useWarehouse } from '../context/WarehouseContext';
-import DataTable from '../components/common/DataTable';
-import PageHeader from '../components/common/PageHeader';
-import MetricCard from '../components/common/MetricCard';
-import { callWriteOffStock } from '../services/inventory';
 import { 
-  AlertTriangle, 
+  collection, 
+  onSnapshot, 
+  doc, 
+  updateDoc, 
+  addDoc, 
+  Timestamp 
+} from 'firebase/firestore';
+import { db } from '../firebase/config';
+import { useAuthContext } from '../hooks/useAuthContext';
+import { useReadOnly } from '../hooks/useReadOnly';
+import ReadOnlyBanner from '../components/common/ReadOnlyBanner';
+import { 
   ShieldAlert, 
-  Calendar, 
-  Package, 
-  CheckCircle2, 
-  Building2, 
-  Search, 
-  Download, 
-  Printer, 
   RotateCcw, 
   Trash2, 
-  X,
-  FileText,
-  Clock,
-  Filter,
-  Layers,
-  ArrowRight
+  Clock, 
+  CheckCircle2, 
+  AlertTriangle, 
+  Filter, 
+  Search, 
+  Download, 
+  Building2, 
+  Layers, 
+  Calendar,
+  X
 } from 'lucide-react';
-import toast from 'react-hot-toast';
+import MetricCard from '../components/common/MetricCard';
+import DataTable from '../components/common/DataTable';
+import { toast } from 'react-hot-toast';
+import { callWriteOffStock } from '../services/inventory';
 
 const ExpiryMonitor = () => {
-  const { user, role } = useAuth();
-  const { selectedWarehouseId, selectWarehouse, isHubLocked, warehouses: contextWarehouses } = useWarehouse();
+  const { user, isHubScoped, hubId } = useAuthContext();
+  const { isReadOnly } = useReadOnly();
+
   const [products, setProducts] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedHub, setSelectedHub] = useState(isHubScoped && hubId ? hubId : 'ALL');
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedHub, setSelectedHub] = useState(() => {
-    return isHubLocked ? selectedWarehouseId : (selectedWarehouseId || 'ALL');
-  });
-  const [urgencyFilter, setUrgencyFilter] = useState('ALL'); // 'ALL' | 'EXPIRED' | 'CRITICAL' | 'WARNING' | 'HEALTHY' | 'QUARANTINED'
+  const [urgencyFilter, setUrgencyFilter] = useState('ALL'); // ALL, CRITICAL, WARNING, EXPIRED
 
-  // Keep selectedHub synchronized with global WarehouseContext / Topbar
-  useEffect(() => {
-    if (isHubLocked) {
-      setSelectedHub(selectedWarehouseId);
-    } else if (selectedWarehouseId) {
-      setSelectedHub(selectedWarehouseId);
-    }
-  }, [selectedWarehouseId, isHubLocked]);
-
-  // Action Modal State (Quarantine / RTV Debit Note)
+  // Action Modal State (Quarantine, Return to Vendor, Write-off)
   const [selectedBatchItem, setSelectedBatchItem] = useState(null);
-  const [actionType, setActionType] = useState('QUARANTINE'); // 'QUARANTINE' | 'RETURN_TO_VENDOR' | 'SCRAP_WRITE_OFF'
+  const [actionType, setActionType] = useState(null); // 'QUARANTINE', 'RETURN_TO_VENDOR', 'SCRAP_WRITE_OFF'
   const [actionNotes, setActionNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Fetch Warehouses & Products
   useEffect(() => {
-    const unsubWh = onSnapshot(collection(db, 'warehouses'), (snap) => {
-      setWarehouses(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    if (isHubScoped && hubId) {
+      setSelectedHub(hubId);
+    }
+  }, [isHubScoped, hubId]);
 
-    const unsubProd = onSnapshot(collection(db, 'products'), (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setProducts(list);
+  // Subscribe to Products & Warehouses
+  useEffect(() => {
+    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoading(false);
+    }, (err) => {
+      console.error("Products subscription error:", err);
+      toast.error("Failed to load inventory data");
       setLoading(false);
     });
 
+    const unsubWarehouses = onSnapshot(collection(db, 'warehouses'), (snapshot) => {
+      setWarehouses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => {
+      console.error("Warehouses subscription error:", err);
+    });
+
     return () => {
-      unsubWh();
-      unsubProd();
+      unsubProducts();
+      unsubWarehouses();
     };
   }, []);
 
-  // Process FEFO Batches
+  // Compute Batch FEFO Tracking List
   const batchList = useMemo(() => {
     const batches = [];
-    const today = new Date();
+    const now = new Date();
+    const defaultWarehouse = isHubScoped && hubId ? hubId : 'MAIN_HUB';
 
     products.forEach(p => {
-      // Main product batch
       const pExp = p.expiryDate ? (p.expiryDate.toDate ? p.expiryDate.toDate() : new Date(p.expiryDate)) : null;
       const pMfg = p.mfgDate ? (p.mfgDate.toDate ? p.mfgDate.toDate() : new Date(p.mfgDate)) : null;
-      
+
       const calculateHealth = (expDate, isQuarantined) => {
-        if (isQuarantined) return { status: 'QUARANTINED', daysLeft: -999, color: 'purple' };
-        if (!expDate || isNaN(expDate.getTime())) return { status: 'UNKNOWN', daysLeft: 9999, color: 'gray' };
-        const diffTime = expDate.getTime() - today.getTime();
+        if (isQuarantined) return { status: 'QUARANTINED', daysLeft: 0, color: 'purple' };
+        if (!expDate) return { status: 'UNKNOWN', daysLeft: 9999, color: 'gray' };
+
+        const diffTime = expDate - now;
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        if (diffDays <= 0) return { status: 'EXPIRED', daysLeft: diffDays, color: 'red' };
+
+        if (diffDays < 0) return { status: 'EXPIRED', daysLeft: diffDays, color: 'red' };
         if (diffDays <= 30) return { status: 'CRITICAL', daysLeft: diffDays, color: 'orange' };
         if (diffDays <= 90) return { status: 'WARNING', daysLeft: diffDays, color: 'amber' };
         return { status: 'HEALTHY', daysLeft: diffDays, color: 'green' };
@@ -98,6 +104,7 @@ const ExpiryMonitor = () => {
         const health = calculateHealth(pExp, p.isQuarantined);
         batches.push({
           productId: p.id,
+          skuCode: p.skuCode || p.id,
           productName: p.name,
           category: p.category || 'General',
           brand: p.brand || 'KrishiVishal',
@@ -107,7 +114,7 @@ const ExpiryMonitor = () => {
           stock: Number(p.stock) || 0,
           price: Number(p.price) || 0,
           costPrice: Number(p.costPrice) || Number(p.price) * 0.8,
-          warehouseId: p.warehouseId || 'MAIN_HUB',
+          warehouseId: p.warehouseId || defaultWarehouse,
           isQuarantined: !!p.isQuarantined,
           quarantineReason: p.quarantineReason || null,
           ...health
@@ -123,6 +130,7 @@ const ExpiryMonitor = () => {
             const vHealth = calculateHealth(vExp, v.isQuarantined);
             batches.push({
               productId: p.id,
+              skuCode: v.skuCode || v.id || p.skuCode || p.id,
               variantIndex: vIdx,
               productName: `${p.name} (${v.label || 'Variant'})`,
               category: p.category || 'General',
@@ -133,7 +141,7 @@ const ExpiryMonitor = () => {
               stock: Number(v.stock) || 0,
               price: Number(v.price) || Number(p.price) || 0,
               costPrice: Number(v.costPrice) || (Number(v.price) || 0) * 0.8,
-              warehouseId: v.warehouseId || p.warehouseId || 'MAIN_HUB',
+              warehouseId: v.warehouseId || p.warehouseId || defaultWarehouse,
               isQuarantined: !!v.isQuarantined,
               quarantineReason: v.quarantineReason || null,
               ...vHealth
@@ -145,47 +153,34 @@ const ExpiryMonitor = () => {
 
     // Sort FEFO: Expired first, then closest to expiry
     return batches.sort((a, b) => a.daysLeft - b.daysLeft);
-  }, [products]);
-
-  const activeWarehouses = warehouses.length > 0 ? warehouses : (contextWarehouses || []);
-
-  // Filter batches by hub
-  const hubScopedBatches = useMemo(() => {
-    return batchList.filter((b) => {
-      const bWh = b.warehouseId;
-      return (
-        selectedHub === 'ALL' ||
-        selectedHub === 'all' ||
-        bWh === selectedHub ||
-        activeWarehouses.some(
-          (w) =>
-            (w.id === selectedHub || w.code === selectedHub) &&
-            (bWh === w.id || bWh === w.code)
-        )
-      );
-    });
-  }, [batchList, selectedHub, activeWarehouses]);
+  }, [products, isHubScoped, hubId]);
 
   // Filter batches
   const filteredBatches = useMemo(() => {
-    return hubScopedBatches.filter((b) => {
-      const matchesSearch =
+    return batchList.filter(b => {
+      const matchesSearch = 
         b.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         b.batchNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        b.brand.toLowerCase().includes(searchTerm.toLowerCase());
+        b.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (b.skuCode && b.skuCode.toLowerCase().includes(searchTerm.toLowerCase()));
 
+      const effectiveHub = isHubScoped && hubId ? hubId : selectedHub;
+      const matchesHub = effectiveHub === 'ALL' || b.warehouseId === effectiveHub;
       const matchesUrgency = urgencyFilter === 'ALL' || b.status === urgencyFilter;
 
-      return matchesSearch && matchesUrgency;
+      return matchesSearch && matchesHub && matchesUrgency;
     });
-  }, [hubScopedBatches, searchTerm, urgencyFilter]);
+  }, [batchList, searchTerm, selectedHub, urgencyFilter, isHubScoped, hubId]);
 
   // Metrics
   const metrics = useMemo(() => {
-    const expired = hubScopedBatches.filter((b) => b.status === 'EXPIRED');
-    const critical = hubScopedBatches.filter((b) => b.status === 'CRITICAL');
-    const warning = hubScopedBatches.filter((b) => b.status === 'WARNING');
-    const quarantined = hubScopedBatches.filter((b) => b.isQuarantined);
+    const effectiveHub = isHubScoped && hubId ? hubId : selectedHub;
+    const relevantBatches = effectiveHub === 'ALL' ? batchList : batchList.filter(b => b.warehouseId === effectiveHub);
+
+    const expired = relevantBatches.filter(b => b.status === 'EXPIRED');
+    const critical = relevantBatches.filter(b => b.status === 'CRITICAL');
+    const warning = relevantBatches.filter(b => b.status === 'WARNING');
+    const quarantined = relevantBatches.filter(b => b.isQuarantined);
 
     const expiredValue = expired.reduce((sum, b) => sum + (b.stock * b.costPrice), 0);
     const criticalValue = critical.reduce((sum, b) => sum + (b.stock * b.costPrice), 0);
@@ -198,16 +193,25 @@ const ExpiryMonitor = () => {
       warningCount: warning.length,
       quarantinedCount: quarantined.length
     };
-  }, [hubScopedBatches]);
+  }, [batchList, selectedHub, isHubScoped, hubId]);
 
   // Handle Quarantine / Return to Vendor / Scrap Write-off
   const handleProcessAction = async (e) => {
     e.preventDefault();
     if (!selectedBatchItem) return;
+    if (isReadOnly) {
+      toast.error("Read-only access: changes not permitted.");
+      return;
+    }
     setIsSubmitting(true);
 
     try {
       const prodRef = doc(db, 'products', selectedBatchItem.productId);
+      const effectiveWarehouse = selectedBatchItem.warehouseId || (isHubScoped && hubId ? hubId : 'MAIN_HUB');
+      const resolvedSkuCode = selectedBatchItem.skuCode || selectedBatchItem.productId;
+      const idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID 
+        ? crypto.randomUUID() 
+        : `WRITEOFF-${resolvedSkuCode}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
       if (actionType === 'QUARANTINE') {
         // Mark product/variant as quarantined so it cannot be purchased in customer app
@@ -225,12 +229,14 @@ const ExpiryMonitor = () => {
         await addDoc(collection(db, 'supplier_debit_notes'), {
           debitNoteNumber: debitNoteNo,
           productId: selectedBatchItem.productId,
+          skuCode: resolvedSkuCode,
           productName: selectedBatchItem.productName,
           batchNumber: selectedBatchItem.batchNumber,
           quantity: selectedBatchItem.stock,
           unitCost: selectedBatchItem.costPrice,
           totalClaimAmount: selectedBatchItem.stock * selectedBatchItem.costPrice,
           reason: actionNotes || 'Expired Stock Return to Manufacturer',
+          warehouseId: effectiveWarehouse,
           status: 'PENDING_SETTLEMENT',
           createdAt: Timestamp.now(),
           createdBy: user?.displayName || user?.email || 'Admin'
@@ -238,12 +244,13 @@ const ExpiryMonitor = () => {
 
         // Write off inventory via backend Cloud Function (SSoT)
         await callWriteOffStock({
-          skuCode: selectedBatchItem.productId,
+          skuCode: resolvedSkuCode,
           batchId: selectedBatchItem.batchNumber,
           quantity: selectedBatchItem.stock,
           type: 'EXPIRED',
           reason: actionNotes || `RTV Debit Note ${debitNoteNo}`,
-          warehouseId: selectedBatchItem.warehouseId || 'MAIN_HUB'
+          warehouseId: effectiveWarehouse,
+          idempotencyKey
         });
 
         // Update product non-stock metadata only
@@ -256,12 +263,13 @@ const ExpiryMonitor = () => {
       } else if (actionType === 'SCRAP_WRITE_OFF') {
         // Write off stock via backend Cloud Function (SSoT)
         await callWriteOffStock({
-          skuCode: selectedBatchItem.productId,
+          skuCode: resolvedSkuCode,
           batchId: selectedBatchItem.batchNumber,
           quantity: selectedBatchItem.stock,
           type: 'EXPIRED',
           reason: actionNotes || 'Scrapped due to expiration',
-          warehouseId: selectedBatchItem.warehouseId || 'MAIN_HUB'
+          warehouseId: effectiveWarehouse,
+          idempotencyKey
         });
 
         // Update non-stock metadata
@@ -292,372 +300,373 @@ const ExpiryMonitor = () => {
       return;
     }
 
-    const headers = ["Product Name", "Category", "Brand", "Batch Number", "Mfg Date", "Expiry Date", "Days Remaining", "Stock Qty", "Cost Value (INR)", "Health Status", "Quarantined"];
+    const headers = ["Product Name", "SKU Code", "Category", "Brand", "Batch Number", "Mfg Date", "Expiry Date", "Days Remaining", "Stock Qty", "Cost Value (INR)", "Health Status", "Quarantined", "Warehouse"];
     const rows = filteredBatches.map(b => [
       `"${b.productName}"`,
+      `"${b.skuCode}"`,
       `"${b.category}"`,
       `"${b.brand}"`,
       `"${b.batchNumber}"`,
-      b.mfgDate ? b.mfgDate.toLocaleDateString() : 'N/A',
-      b.expiryDate ? b.expiryDate.toLocaleDateString() : 'N/A',
-      b.daysLeft === -999 ? 'QUARANTINED' : b.daysLeft,
+      b.mfgDate ? b.mfgDate.toISOString().split('T')[0] : 'N/A',
+      b.expiryDate ? b.expiryDate.toISOString().split('T')[0] : 'N/A',
+      b.daysLeft,
       b.stock,
-      b.stock * b.costPrice,
+      (b.stock * b.costPrice).toFixed(2),
       b.status,
-      b.isQuarantined ? 'YES' : 'NO'
+      b.isQuarantined ? 'YES' : 'NO',
+      b.warehouseId
     ]);
 
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `KrishiVishal_FEFO_Expiry_Report_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("download", `FEFO_Expiry_Report_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast.success("FEFO Expiry Report Exported!");
   };
 
   const columns = [
     {
-      header: 'Product & Brand',
+      header: 'Product & SKU Code',
       render: (b) => (
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gray-100 flex items-center justify-center text-[#0B4D31] font-bold text-xs">
-            <Package size={16} />
-          </div>
-          <div>
-            <div className="font-black text-gray-900 text-xs">{b.productName}</div>
-            <div className="text-[10px] text-gray-400 font-semibold">{b.brand} • {b.category}</div>
+        <div>
+          <span className="font-bold text-gray-900 block">{b.productName}</span>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-[10px] bg-gray-100 text-gray-700 font-mono px-1.5 py-0.5 rounded">
+              SKU: {b.skuCode}
+            </span>
+            <span className="text-xs text-gray-400">({b.brand})</span>
           </div>
         </div>
       )
     },
     {
-      header: 'Batch Number',
+      header: 'Batch Details',
       render: (b) => (
-        <span className="font-mono font-bold text-xs bg-gray-100 px-2 py-1 rounded text-gray-800 border border-gray-200">
-          {b.batchNumber}
-        </span>
-      )
-    },
-    {
-      header: 'Expiry Date',
-      render: (b) => (
-        <div className="flex flex-col text-xs">
-          <span className="font-bold text-gray-800">
-            {b.expiryDate ? b.expiryDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) : 'No Date'}
+        <div>
+          <span className="font-mono font-bold text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-800 block w-max">
+            {b.batchNumber}
           </span>
-          <span className="text-[10px] text-gray-400">
+          <span className="text-[10px] text-gray-400 mt-1 block">
             Mfg: {b.mfgDate ? b.mfgDate.toLocaleDateString() : 'N/A'}
           </span>
         </div>
       )
     },
     {
-      header: 'FEFO Shelf Health',
-      render: (b) => {
-        if (b.isQuarantined) {
-          return (
-            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 border border-purple-200">
-              <ShieldAlert size={11} className="mr-1 text-purple-600" />
-              Quarantined Vault
-            </span>
-          );
-        }
-        if (b.status === 'EXPIRED') {
-          return (
-            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-100 text-red-800 border border-red-200 animate-pulse">
-              <AlertTriangle size={11} className="mr-1 text-red-600" />
-              EXPIRED ({Math.abs(b.daysLeft)}d ago)
-            </span>
-          );
-        }
-        if (b.status === 'CRITICAL') {
-          return (
-            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-100 text-orange-800 border border-orange-200">
-              <Clock size={11} className="mr-1 text-orange-600" />
-              {b.daysLeft} Days Left (Critical)
-            </span>
-          );
-        }
-        if (b.status === 'WARNING') {
-          return (
-            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200">
-              {b.daysLeft} Days Left (Warning)
-            </span>
-          );
-        }
-        return (
-          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-green-50 text-green-700 border border-green-200">
-            <CheckCircle2 size={11} className="mr-1 text-green-600" />
-            Healthy ({b.daysLeft}d)
-          </span>
-        );
-      }
-    },
-    {
-      header: 'Available Stock & At-Risk Value',
+      header: 'Expiry & FEFO Urgency',
       render: (b) => (
-        <div className="flex flex-col text-xs">
-          <span className="font-bold text-gray-900">{b.stock} units</span>
-          <span className="text-[10px] font-mono text-gray-500 font-bold">
-            At-Risk: ₹{(b.stock * b.costPrice).toLocaleString('en-IN')}
+        <div>
+          <span className="font-bold text-gray-800 text-xs block">
+            {b.expiryDate ? b.expiryDate.toLocaleDateString() : 'No Date'}
+          </span>
+          <span className={`text-[10px] font-black uppercase mt-0.5 block ${
+            b.daysLeft < 0 ? 'text-red-600' :
+            b.daysLeft <= 30 ? 'text-orange-600' :
+            b.daysLeft <= 90 ? 'text-amber-600' : 'text-green-600'
+          }`}>
+            {b.daysLeft < 0 ? `Expired ${Math.abs(b.daysLeft)}d ago` : `${b.daysLeft} days left`}
           </span>
         </div>
+      )
+    },
+    {
+      header: 'Current Stock Value',
+      render: (b) => (
+        <div>
+          <span className="font-bold text-gray-900 text-xs block">{b.stock} units</span>
+          <span className="text-[10px] font-semibold text-gray-400">
+            Val: ₹{(b.stock * b.costPrice).toLocaleString('en-IN')}
+          </span>
+        </div>
+      )
+    },
+    {
+      header: 'Status Tag',
+      render: (b) => (
+        <div>
+          {b.isQuarantined ? (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-100 text-purple-800 rounded-full text-[10px] font-black">
+              <ShieldAlert size={12} /> QUARANTINED
+            </span>
+          ) : (
+            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black ${
+              b.status === 'EXPIRED' ? 'bg-red-100 text-red-800' :
+              b.status === 'CRITICAL' ? 'bg-orange-100 text-orange-800' :
+              b.status === 'WARNING' ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'
+            }`}>
+              {b.status}
+            </span>
+          )}
+        </div>
+      )
+    },
+    {
+      header: 'Warehouse',
+      render: (b) => (
+        <span className="text-xs font-semibold text-gray-600">
+          {warehouses.find(w => w.id === b.warehouseId)?.name || b.warehouseId}
+        </span>
       )
     },
     {
       header: 'Actions / Protect Revenue',
-      render: (b) => (
-        <div className="flex items-center gap-1.5">
-          {!b.isQuarantined && b.status === 'EXPIRED' && (
-            <button
-              onClick={() => {
-                setSelectedBatchItem(b);
-                setActionType('QUARANTINE');
-              }}
-              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1"
-            >
-              <ShieldAlert size={12} />
-              Quarantine Stock
-            </button>
-          )}
+      render: (b) => {
+        if (isReadOnly) {
+          return <span className="text-[11px] text-gray-400 font-semibold italic">View Only</span>;
+        }
+        return (
+          <div className="flex items-center gap-1.5">
+            {!b.isQuarantined && b.status === 'EXPIRED' && (
+              <button
+                onClick={() => {
+                  setSelectedBatchItem(b);
+                  setActionType('QUARANTINE');
+                }}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1"
+              >
+                <ShieldAlert size={12} />
+                Quarantine Stock
+              </button>
+            )}
 
-          {b.isQuarantined && (
-            <button
-              onClick={() => {
-                setSelectedBatchItem(b);
-                setActionType('RETURN_TO_VENDOR');
-              }}
-              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1"
-            >
-              <RotateCcw size={12} />
-              Return to Vendor (RTV)
-            </button>
-          )}
+            {b.isQuarantined && (
+              <button
+                onClick={() => {
+                  setSelectedBatchItem(b);
+                  setActionType('RETURN_TO_VENDOR');
+                }}
+                className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1"
+              >
+                <RotateCcw size={12} />
+                Return to Vendor (RTV)
+              </button>
+            )}
 
-          {!b.isQuarantined && (b.status === 'CRITICAL' || b.status === 'WARNING') && (
-            <button
-              onClick={() => {
-                setSelectedBatchItem(b);
-                setActionType('QUARANTINE');
-              }}
-              className="px-3 py-1.5 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-xl text-xs font-bold transition-all border border-amber-200"
-            >
-              Quarantine / Inspect
-            </button>
-          )}
-        </div>
-      )
+            {!b.isQuarantined && (b.status === 'CRITICAL' || b.status === 'WARNING') && (
+              <button
+                onClick={() => {
+                  setSelectedBatchItem(b);
+                  setActionType('QUARANTINE');
+                }}
+                className="px-3 py-1.5 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-xl text-xs font-bold transition-all border border-amber-200"
+              >
+                Quarantine / Inspect
+              </button>
+            )}
+          </div>
+        );
+      }
     }
   ];
 
   return (
-    <div className="space-y-6 pb-12 animate-in fade-in duration-300">
+    <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <PageHeader
-          title="FEFO Batch Expiry & Quarantine Safety Vault"
-          subtitle="Real-time shelf life monitoring for agro-chemicals, bio-fertilizers, and seeds. Automated First-Expiry-First-Out dispatch ranking."
-        />
+        <div>
+          <h1 className="text-xl font-black text-gray-900 tracking-tight flex items-center gap-2">
+            <Clock className="text-red-600" />
+            FEFO Expiry Monitor & Quarantine Control
+          </h1>
+          <p className="text-xs text-gray-500 font-semibold mt-1">
+            First-Expiry-First-Out automated auditing, risk mitigation & debit note generation
+          </p>
+        </div>
+
         <button
           onClick={handleExportCSV}
-          className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-2xl text-xs font-bold hover:bg-gray-50 shadow-sm transition-all"
+          className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-xl text-xs font-black transition-all shadow-sm"
         >
-          <Download size={14} className="text-gray-500" />
-          Export FEFO Audit CSV
+          <Download size={14} />
+          Export FEFO Report (CSV)
         </button>
       </div>
+
+      {isReadOnly && <ReadOnlyBanner />}
 
       {/* 4 Health KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
-          label="Expired Stock Value (At Risk)"
-          value={`₹${metrics.expiredValue.toLocaleString('en-IN')}`}
+          label="Expired Stock"
+          value={metrics.expiredCount}
+          subtext={`Loss at risk: ₹${metrics.expiredValue.toLocaleString('en-IN')}`}
           icon={AlertTriangle}
           color="red"
         />
         <MetricCard
-          label="Critical Batches (<30 Days)"
-          value={`${metrics.criticalCount} Batches (₹${metrics.criticalValue.toLocaleString('en-IN')})`}
+          label="Critical (≤30 Days)"
+          value={metrics.criticalCount}
+          subtext={`Value: ₹${metrics.criticalValue.toLocaleString('en-IN')}`}
           icon={Clock}
+          color="orange"
+        />
+        <MetricCard
+          label="Near Expiry (≤90 Days)"
+          value={metrics.warningCount}
+          subtext="Eligible for Flash Sale"
+          icon={Calendar}
           color="amber"
         />
         <MetricCard
-          label="Warning Batches (31-90 Days)"
-          value={`${metrics.warningCount} Batches`}
-          icon={Calendar}
-          color="blue"
-        />
-        <MetricCard
-          label="Quarantined in Safe Vault"
-          value={`${metrics.quarantinedCount} Batches`}
+          label="In Quarantine Vault"
+          value={metrics.quarantinedCount}
+          subtext="Blocked from Dispatch"
           icon={ShieldAlert}
           color="purple"
         />
       </div>
 
-      {/* Filters Toolbar */}
-      <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="relative md:col-span-2">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+      {/* Filter Toolbar */}
+      <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <div className="relative flex-1 md:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
             <input
               type="text"
-              placeholder="Search by Product Name, Batch Number, Brand..."
-              className="pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-bold text-gray-800 w-full outline-none focus:ring-2 focus:ring-primary/20"
+              placeholder="Search product, SKU or batch..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-100 rounded-xl text-xs font-semibold text-gray-800 outline-none focus:ring-2 focus:ring-primary/20"
             />
           </div>
 
           <div>
-            {isHubLocked ? (
-              <span className="w-full px-3 py-2.5 bg-emerald-50 text-emerald-800 border border-emerald-200/80 rounded-2xl text-xs font-bold flex items-center gap-1.5 select-none shadow-sm">
-                <Building2 size={14} className="text-emerald-700" />
-                <span>{activeWarehouses.find(w => w.id === selectedHub || w.code === selectedHub)?.name || selectedHub} (Assigned)</span>
-              </span>
-            ) : (
-              <select
-                value={selectedHub}
-                onChange={(e) => {
-                  setSelectedHub(e.target.value);
-                  selectWarehouse(e.target.value);
-                }}
-                className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-bold text-gray-800 outline-none"
-              >
-                <option value="ALL">🏢 All Regional Depots (Consolidated)</option>
-                {activeWarehouses.map(wh => (
-                  <option key={wh.id} value={wh.id}>📍 {wh.name}</option>
-                ))}
-              </select>
-            )}
+            <select
+              value={isHubScoped && hubId ? hubId : selectedHub}
+              disabled={isHubScoped}
+              onChange={(e) => setSelectedHub(e.target.value)}
+              className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-bold text-gray-800 outline-none disabled:opacity-75 disabled:cursor-not-allowed"
+            >
+              {isHubScoped ? (
+                <option value={hubId}>🏪 {warehouses.find(w => w.id === hubId)?.name || hubId} (Assigned Hub)</option>
+              ) : (
+                <>
+                  <option value="ALL">🏢 All Regional Depots (Consolidated)</option>
+                  {warehouses.map(wh => (
+                    <option key={wh.id} value={wh.id}>📍 {wh.name}</option>
+                  ))}
+                </>
+              )}
+            </select>
           </div>
         </div>
 
-        {/* Urgency Status Tabs */}
-        <div className="flex items-center space-x-2 pt-2 border-t border-gray-100 overflow-x-auto">
-          {[
-            { id: 'ALL', label: 'All Batches' },
-            { id: 'EXPIRED', label: '🔴 Expired (<0d)' },
-            { id: 'CRITICAL', label: '🟠 Critical (<30d)' },
-            { id: 'WARNING', label: '🟡 Warning (31-90d)' },
-            { id: 'HEALTHY', label: '🟢 Healthy (>90d)' },
-            { id: 'QUARANTINED', label: '🔒 Quarantined' }
-          ].map(tab => (
+        {/* Urgency Pill Filters */}
+        <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto">
+          {['ALL', 'EXPIRED', 'CRITICAL', 'WARNING', 'HEALTHY'].map((status) => (
             <button
-              key={tab.id}
-              onClick={() => setUrgencyFilter(tab.id)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-                urgencyFilter === tab.id
-                  ? 'bg-[#0B4D31] text-white shadow-sm'
-                  : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+              key={status}
+              onClick={() => setUrgencyFilter(status)}
+              className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                urgencyFilter === status
+                  ? 'bg-primary text-white shadow-sm'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
-              {tab.label}
+              {status}
             </button>
           ))}
-          <div className="ml-auto text-xs font-bold text-gray-400 whitespace-nowrap">
-            Showing {filteredBatches.length} tracked batches
-          </div>
         </div>
       </div>
 
-      {/* Main Table */}
-      <div className="bg-white rounded-[2.5rem] p-6 border border-gray-100 shadow-sm space-y-4">
-        <DataTable columns={columns} data={filteredBatches} loading={loading} />
-      </div>
+      {/* Main FEFO Table */}
+      <DataTable
+        columns={columns}
+        data={filteredBatches}
+        loading={loading}
+      />
 
-      {/* Quarantine / Action Modal */}
+      {/* Quarantine & Resolution Modal */}
       {selectedBatchItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 border border-gray-100 animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center pb-3 border-b border-gray-100">
-              <h3 className="font-black text-gray-900 text-base flex items-center gap-2">
-                <ShieldAlert size={18} className="text-red-600" />
-                Batch Inventory Protection Action
-              </h3>
-              <button onClick={() => setSelectedBatchItem(null)} className="text-gray-400 hover:text-gray-600 p-1">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-gray-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-black text-gray-900 uppercase tracking-tight flex items-center gap-2">
+                  {actionType === 'QUARANTINE' && <ShieldAlert className="text-red-600" size={16} />}
+                  {actionType === 'RETURN_TO_VENDOR' && <RotateCcw className="text-purple-600" size={16} />}
+                  {actionType === 'SCRAP_WRITE_OFF' && <Trash2 className="text-gray-600" size={16} />}
+                  {actionType === 'QUARANTINE' ? 'Move Batch to Quarantine Vault' : 
+                   actionType === 'RETURN_TO_VENDOR' ? 'Initiate Return to Vendor (RTV)' : 'Scrap & Write-off Stock'}
+                </h3>
+                <p className="text-[10px] text-gray-400 font-semibold mt-0.5">
+                  Action on batch: <span className="font-mono font-bold text-gray-800">{selectedBatchItem.batchNumber}</span> (SKU: {selectedBatchItem.skuCode})
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedBatchItem(null)}
+                className="p-2 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-100 transition-all"
+              >
                 <X size={16} />
               </button>
             </div>
 
-            <form onSubmit={handleProcessAction} className="py-4 space-y-3">
-              <div className="bg-gray-50 p-3.5 rounded-2xl border border-gray-200 text-xs space-y-1">
+            <form onSubmit={handleProcessAction} className="p-6 space-y-4">
+              <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100 space-y-1.5 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Product:</span>
+                  <span className="text-gray-500 font-bold">Product:</span>
                   <span className="font-bold text-gray-900">{selectedBatchItem.productName}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Batch Number:</span>
-                  <span className="font-mono font-bold text-gray-900">{selectedBatchItem.batchNumber}</span>
+                  <span className="text-gray-500 font-bold">SKU Code:</span>
+                  <span className="font-mono font-bold text-gray-900">{selectedBatchItem.skuCode}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Quantity in Stock:</span>
-                  <span className="font-black text-gray-900">{selectedBatchItem.stock} units</span>
+                  <span className="text-gray-500 font-bold">Batch Stock:</span>
+                  <span className="font-bold text-gray-900">{selectedBatchItem.stock} units</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Cost Value Claim:</span>
-                  <span className="font-black text-red-700 font-mono">₹{(selectedBatchItem.stock * selectedBatchItem.costPrice).toLocaleString('en-IN')}</span>
+                  <span className="text-gray-500 font-bold">Claim Value:</span>
+                  <span className="font-black text-gray-900">₹{(selectedBatchItem.stock * selectedBatchItem.costPrice).toLocaleString('en-IN')}</span>
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-gray-700 mb-1 block">Choose Action *</label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActionType('QUARANTINE')}
-                    className={`py-2 rounded-xl text-xs font-bold transition-all ${
-                      actionType === 'QUARANTINE' ? 'bg-purple-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600'
-                    }`}
-                  >
-                    🔒 Quarantine
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActionType('RETURN_TO_VENDOR')}
-                    className={`py-2 rounded-xl text-xs font-bold transition-all ${
-                      actionType === 'RETURN_TO_VENDOR' ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600'
-                    }`}
-                  >
-                    ↩️ Return (RTV)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActionType('SCRAP_WRITE_OFF')}
-                    className={`py-2 rounded-xl text-xs font-bold transition-all ${
-                      actionType === 'SCRAP_WRITE_OFF' ? 'bg-red-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600'
-                    }`}
-                  >
-                    🗑️ Write-Off
-                  </button>
+              {actionType === 'RETURN_TO_VENDOR' && (
+                <div className="p-3 bg-purple-50 rounded-2xl border border-purple-100 text-[11px] font-semibold text-purple-900 leading-relaxed">
+                  ✓ Automatically creates a <strong>Debit Note</strong> for the manufacturer.<br />
+                  ✓ Executes <code>writeOffStock</code> via Cloud Function (SSoT ledger).<br />
+                  ✓ Generates a distinct UUID idempotency key to prevent double write-offs.
                 </div>
-              </div>
+              )}
 
-              <div>
-                <label className="text-xs font-bold text-gray-700 mb-1 block">Audit Remarks / Justification</label>
+              {actionType === 'QUARANTINE' && (
+                <div className="p-3 bg-red-50 rounded-2xl border border-red-100 text-[11px] font-semibold text-red-900 leading-relaxed">
+                  ⚠️ This batch will be locked from customer orders, rider packing lists, and dispatch scans immediately.
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider">
+                  Operational Reason / Audit Notes
+                </label>
                 <textarea
-                  rows={3}
+                  rows="3"
                   value={actionNotes}
                   onChange={(e) => setActionNotes(e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs font-medium outline-none"
-                  placeholder="e.g. Expired batch segregated from sellable inventory. Debit Note raised to Bayer CropScience."
+                  placeholder="e.g. Expired batch verified by warehouse inspector, returning for credit..."
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-800 outline-none focus:ring-2 focus:ring-primary/20"
+                  required
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-gray-100">
+              <div className="flex gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setSelectedBatchItem(null)}
-                  className="px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-xl"
+                  className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-black rounded-xl text-xs uppercase tracking-wider transition-all"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-[#0B4D31] text-white rounded-xl text-xs font-black shadow-md hover:bg-[#146c43]"
+                  className={`flex-1 py-3 text-white font-black rounded-xl text-xs uppercase tracking-wider transition-all shadow-md disabled:opacity-50 ${
+                    actionType === 'QUARANTINE' ? 'bg-red-600 hover:bg-red-700' :
+                    actionType === 'RETURN_TO_VENDOR' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-gray-800 hover:bg-black'
+                  }`}
                 >
                   {isSubmitting ? 'Processing...' : 'Confirm Action'}
                 </button>
