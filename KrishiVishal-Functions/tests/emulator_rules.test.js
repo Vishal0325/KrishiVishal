@@ -1192,6 +1192,65 @@ async function runEmulatorRulesTests() {
         await assertFails(pureHubManager.firestore().collection('settings').doc('sys_cfg').set({ bad: true }));
     });
 
+    // ============================================================
+    // SECTION 14: SYSTEM CONFIGS (KILL SWITCHES) & HUB-SCOPED BATCHES
+    // ============================================================
+
+    // 14.1: HubManager CAN read batches belonging to their assigned hub
+    await testRule("14.1 HubManager CAN read batches belonging to their assigned hub", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            const db = context.firestore();
+            await db.doc('skus/sku_fefo').set({
+                skuCode: 'SKU-FEFO-001',
+                name: 'Test SKU'
+            });
+            await db.doc('skus/sku_fefo/batches/batch_own').set({
+                batchNumber: 'BATCH-OWN-01',
+                warehouseId: 'REG-KHA-003',
+                quantity: 10
+            });
+            await db.doc('skus/sku_fefo/batches/batch_other').set({
+                batchNumber: 'BATCH-OTHER-02',
+                warehouseId: 'OTHER-HUB-999',
+                quantity: 20
+            });
+            await db.doc('system_configs/global').set({
+                maintenanceMode: false,
+                version: 1
+            });
+            await db.doc('system_configs/hubs_REG-KHA-003').set({
+                lockdown: false,
+                version: 1
+            });
+        });
+
+        // HubManager reads their own hub's batch
+        await assertSucceeds(pureHubManager.firestore().doc('skus/sku_fefo/batches/batch_own').get());
+    });
+
+    // 14.2: HubManager CANNOT read batches belonging to another hub
+    await testRule("14.2 HubManager CANNOT read batches belonging to another hub (Cross-hub isolation)", async (env) => {
+        await assertFails(pureHubManager.firestore().doc('skus/sku_fefo/batches/batch_other').get());
+    });
+
+    // 14.3: Non-admin (HubManager) CANNOT write to system_configs
+    await testRule("14.3 Non-admin (HubManager) CANNOT write to system_configs (Server-only callable mutation)", async (env) => {
+        await assertFails(pureHubManager.firestore().doc('system_configs/global').set({ maintenanceMode: true }));
+        await assertFails(pureHubManager.firestore().doc('system_configs/hubs_REG-KHA-003').set({ lockdown: true }));
+    });
+
+    // 14.4: Unauthenticated user CANNOT read non-global system_configs
+    await testRule("14.4 Unauthenticated user CANNOT read non-global system_configs", async (env) => {
+        const unauthed = env.unauthenticatedContext();
+        await assertFails(unauthed.firestore().doc('system_configs/hubs_REG-KHA-003').get());
+    });
+
+    // 14.5: Unauthenticated user CAN read global system_configs (pre-login feature flags)
+    await testRule("14.5 Unauthenticated user CAN read global system_configs (pre-login feature flags)", async (env) => {
+        const unauthed = env.unauthenticatedContext();
+        await assertSucceeds(unauthed.firestore().doc('system_configs/global').get());
+    });
+
 
     await env.cleanup();
 
