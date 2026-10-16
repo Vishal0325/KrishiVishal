@@ -22,7 +22,9 @@ import { db, functions } from "../firebase/config";
 
 // --- 1. FINANCIAL REPORTING APIS ---
 
-export async function fetchTrialBalance(periodId = "2026-10") {
+export const getCurrentPeriodId = () => new Date().toISOString().slice(0, 7);
+
+export async function fetchTrialBalance(periodId = getCurrentPeriodId()) {
   try {
     const fn = httpsCallable(functions, "generateTrialBalance");
     const res = await fn({ periodId });
@@ -82,7 +84,7 @@ export async function fetchTrialBalance(periodId = "2026-10") {
   }
 }
 
-export async function fetchProfitAndLoss(periodId = "2026-10") {
+export async function fetchProfitAndLoss(periodId = getCurrentPeriodId()) {
   try {
     const fn = httpsCallable(functions, "generateProfitAndLoss");
     const res = await fn({ periodId });
@@ -120,7 +122,7 @@ export async function fetchProfitAndLoss(periodId = "2026-10") {
   }
 }
 
-export async function fetchBalanceSheet(periodId = "2026-10") {
+export async function fetchBalanceSheet(periodId = getCurrentPeriodId()) {
   try {
     const fn = httpsCallable(functions, "generateBalanceSheet");
     const res = await fn({ periodId });
@@ -175,7 +177,7 @@ export async function fetchBalanceSheet(periodId = "2026-10") {
   }
 }
 
-export async function fetchGstr1Summary(periodId = "2026-10") {
+export async function fetchGstr1Summary(periodId = getCurrentPeriodId()) {
   try {
     const fn = httpsCallable(functions, "generateGstr1Summary");
     const res = await fn({ periodId });
@@ -230,7 +232,7 @@ export async function fetchRiderCodList() {
   }
 }
 
-export async function recordBankDeposit({ amount, bankUtr, slipId, periodId = "2026-10", depositedBy = "HubManager" }) {
+export async function recordBankDeposit({ amount, bankUtr, slipId, periodId = getCurrentPeriodId(), depositedBy = "HubManager" }) {
   const fn = httpsCallable(functions, "reconcileRiderCashBankDeposit");
   const res = await fn({
     depositSlipId: slipId || `DEP_${Date.now()}`,
@@ -255,7 +257,7 @@ export async function fetchSupplierInvoices() {
   }
 }
 
-export async function recordSupplierSettlement({ supplierId, invoiceId, amount, bankUtr, periodId = "2026-10", paidBy = "FinanceAdmin" }) {
+export async function recordSupplierSettlement({ supplierId, invoiceId, amount, bankUtr, periodId = getCurrentPeriodId(), paidBy = "FinanceAdmin" }) {
   const fn = httpsCallable(functions, "submitApprovalRequest");
   const res = await fn({
     requestType: "HIGH_VALUE_PAYMENT",

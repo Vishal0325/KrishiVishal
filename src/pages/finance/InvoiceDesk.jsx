@@ -340,7 +340,7 @@ export default function InvoiceDesk() {
         invoiceId: selectedGrn?.invoiceNo || selectedGrn?.id,
         amount: Number(payAmount),
         bankUtr: payUtr.trim(),
-        periodId: "2026-10"
+        periodId: selectedGrn?.periodId || new Date().toISOString().slice(0, 7)
       });
 
       toast.success(`Payment of ₹${payAmount} recorded for ${selectedGrn?.supplierName}`);

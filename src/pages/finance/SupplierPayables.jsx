@@ -134,7 +134,7 @@ export default function SupplierPayables() {
         invoiceId: selectedInvoice.id,
         amount: amt,
         bankUtr: bankUtr.trim(),
-        periodId: "2026-10",
+        periodId: selectedInvoice.periodId || new Date().toISOString().slice(0, 7),
         paidBy: "FinanceAdmin"
       });
 

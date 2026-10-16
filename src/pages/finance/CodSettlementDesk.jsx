@@ -273,7 +273,7 @@ export default function CodSettlementDesk() {
         amount: amt,
         bankUtr: bankUtr.trim(),
         slipId: depositSlipId || `CHALLAN_${Date.now()}`,
-        periodId: "2026-10",
+        periodId: new Date().toISOString().slice(0, 7),
         depositedBy: "HubManager"
       });
       setVaultBalance(prev => Math.max(0, prev - amt));
