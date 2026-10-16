@@ -437,8 +437,18 @@ service cloud.firestore {
     // NOTIFICATION CAMPAIGNS (ENTERPRISE BROADCAST)
     // ============================================================
     match /notification_campaigns/{id} {
-      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data);
+      // Client writes strictly blocked - all mutations managed via v2 Cloud Functions callables
       allow write: if false;
+      // Read allowed for Admins, Viewers, Marketing, and Operations/Support staff
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data) || (
+        isActiveAccount() && ('role' in request.auth.token) &&
+        request.auth.token.role in [
+          "SuperAdmin", "SUPER_ADMIN", "Admin", "ADMIN",
+          "Marketing", "MarketingManager", "MARKETING_ADMIN",
+          "Telecaller", "KisanCallCenter", "SupportAgent",
+          "CRMExecutive", "OperationsAdmin"
+        ]
+      );
     }
 
 

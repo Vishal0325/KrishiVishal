@@ -248,15 +248,26 @@ export async function fetchSkuByCode(skuCode) {
 /**
  * Fetch batches for a given SKU.
  * @param {string} skuCode
+ * @param {string|null} hubId
  * @returns {Promise<Array>}
  */
-export async function fetchSkuBatches(skuCode) {
+export async function fetchSkuBatches(skuCode, hubId = null) {
   try {
-    const q = query(
-      collection(db, "skus", skuCode, "batches"),
-      where("isActive", "==", true),
-      orderBy("expiryDate", "asc")
-    );
+    let q;
+    if (hubId) {
+      q = query(
+        collection(db, "skus", skuCode, "batches"),
+        where("warehouseId", "==", hubId),
+        where("isActive", "==", true),
+        orderBy("expiryDate", "asc")
+      );
+    } else {
+      q = query(
+        collection(db, "skus", skuCode, "batches"),
+        where("isActive", "==", true),
+        orderBy("expiryDate", "asc")
+      );
+    }
     const snap = await getDocs(q);
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch (e) {

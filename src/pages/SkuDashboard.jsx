@@ -128,7 +128,7 @@ const SkuDashboard = () => {
     if (!batchData[skuCode]) {
       setLoadingBatches(skuCode);
       try {
-        const batches = await fetchSkuBatches(skuCode);
+        const batches = await fetchSkuBatches(skuCode, isHubScoped && hubId ? hubId : null);
         setBatchData(prev => ({ ...prev, [skuCode]: batches }));
       } catch (err) {
         toast.error(`Failed to load batches: ${err.message}`);
