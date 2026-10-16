@@ -14,7 +14,7 @@ import {
   Filter
 } from "lucide-react";
 import PageHeader from "../../components/common/PageHeader";
-import { fetchSupplierInvoices, recordSupplierSettlement } from "../../services/financeService";
+import { fetchSupplierInvoices, recordSupplierSettlement, getCurrentPeriodId } from "../../services/financeService";
 import toast from "react-hot-toast";
 
 export default function SupplierPayables() {
@@ -134,7 +134,7 @@ export default function SupplierPayables() {
         invoiceId: selectedInvoice.id,
         amount: amt,
         bankUtr: bankUtr.trim(),
-        periodId: selectedInvoice.periodId || new Date().toISOString().slice(0, 7),
+        periodId: selectedInvoice.periodId || getCurrentPeriodId(),
         paidBy: "FinanceAdmin"
       });
 

@@ -22,7 +22,7 @@ import { collection, query, where, orderBy, limit, onSnapshot } from "firebase/f
 import { db } from "../../firebase/config";
 import { useAuthContext } from "../../hooks/useAuthContext";
 import PageHeader from "../../components/common/PageHeader";
-import { fetchRiderCodList, recordBankDeposit, recordVaultBankDepositService } from "../../services/financeService";
+import { fetchRiderCodList, recordBankDeposit, recordVaultBankDepositService, getCurrentPeriodId } from "../../services/financeService";
 import toast from "react-hot-toast";
 
 export default function CodSettlementDesk() {
@@ -285,7 +285,7 @@ export default function CodSettlementDesk() {
         amount: amt,
         bankUtr: bankUtr.trim(),
         slipId: depositSlipId || `CHALLAN_${Date.now()}`,
-        periodId: new Date().toISOString().slice(0, 7),
+        periodId: getCurrentPeriodId(),
         depositedBy: "HubManager"
       });
       setVaultBalance(prev => Math.max(0, prev - amt));

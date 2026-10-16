@@ -36,13 +36,14 @@ import {
   exportToCsv,
   exportTallyXmlService,
   downloadXmlFile,
-  fetchLedgerExtract
+  fetchLedgerExtract,
+  getCurrentPeriodId
 } from "../../services/financeService";
 import toast from "react-hot-toast";
 
 export default function FinanceReports() {
   const [activeTab, setActiveTab] = useState("trial-balance");
-  const [periodId, setPeriodId] = useState("2026-10");
+  const [periodId, setPeriodId] = useState(getCurrentPeriodId());
   const [loading, setLoading] = useState(false);
   const [trialBalanceData, setTrialBalanceData] = useState(null);
   const [pnlData, setPnlData] = useState(null);

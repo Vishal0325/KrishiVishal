@@ -22,7 +22,13 @@ import { db, functions } from "../firebase/config";
 
 // --- 1. FINANCIAL REPORTING APIS ---
 
-export const getCurrentPeriodId = () => new Date().toISOString().slice(0, 7);
+export const getCurrentPeriodId = (date = new Date()) => {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit' }).format(new Date());
+  }
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit' }).format(d);
+};
 
 export async function fetchTrialBalance(periodId = getCurrentPeriodId()) {
   try {

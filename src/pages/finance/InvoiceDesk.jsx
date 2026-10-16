@@ -14,7 +14,7 @@ import { db } from "../../firebase/config";
 import PageHeader from "../../components/common/PageHeader";
 import { formatCurrency, formatDateTime } from "../../utils/formatters";
 import { printInvoice } from "../../utils/PrintService";
-import { recordSupplierSettlement } from "../../services/financeService";
+import { recordSupplierSettlement, getCurrentPeriodId } from "../../services/financeService";
 import toast from "react-hot-toast";
 import { 
   FileText, 
@@ -340,7 +340,7 @@ export default function InvoiceDesk() {
         invoiceId: selectedGrn?.invoiceNo || selectedGrn?.id,
         amount: Number(payAmount),
         bankUtr: payUtr.trim(),
-        periodId: selectedGrn?.periodId || new Date().toISOString().slice(0, 7)
+        periodId: selectedGrn?.periodId || getCurrentPeriodId()
       });
 
       toast.success(`Payment of ₹${payAmount} recorded for ${selectedGrn?.supplierName}`);
