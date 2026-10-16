@@ -669,7 +669,11 @@ service cloud.firestore {
         allow create: if isAdmin() || (
           isRider() &&
           request.resource.data.keys().hasOnly(['orderId', 'type', 'message', 'createdAt']) &&
-          request.resource.data.type in ['DELIVERY_STARTED', 'DELIVERY_NEAR', 'DELIVERY_COMPLETED', 'RIDER_ASSIGNED']
+          request.resource.data.type in ['DELIVERY_STARTED', 'DELIVERY_NEAR', 'DELIVERY_COMPLETED', 'RIDER_ASSIGNED'] &&
+          request.resource.data.orderId is string &&
+          request.resource.data.orderId.size() > 0 &&
+          exists(/databases/$(database)/documents/orders/$(request.resource.data.orderId)) &&
+          get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.riderId == request.auth.uid
         );
         allow read, update, delete: if isOwner(uId) || isAdmin();
       }

@@ -164,6 +164,9 @@ const FUNCTION_MAP = {
     verifyVleKyc: ['./marketing/vleCommissionEngine', 'verifyVleKyc'],
     getVleDashboardSummary: ['./marketing/vleCommissionEngine', 'getVleDashboardSummary'],
     cronMaturityVleCommissions: ['./marketing/vleCommissionEngine', 'cronMaturityVleCommissions'],
+    getSegmentCounts: ['./marketing/customerSegments', 'getSegmentCounts'],
+    syncCustomerSegmentsNow: ['./marketing/customerSegments', 'syncCustomerSegmentsNow'],
+    syncCustomerSegmentsScheduled: ['./marketing/customerSegments', 'syncCustomerSegmentsScheduled'],
 
     // --- ADMIN & AI (5) ---
     aiSupervisor: ['./admin/aiSupervisor', 'aiSupervisor'],
@@ -175,13 +178,22 @@ const FUNCTION_MAP = {
     // --- COMPLIANCE CRON (1) ---
     licenseExpiryCron: ['./compliance/licenseExpiryCron', 'licenseExpiryCron'],
 
-    // --- MESSAGING & ADVISORY (6) ---
+    // --- MESSAGING & ADVISORY (15) ---
     processOutbox: ['./messaging/notifications', 'processOutbox'],
     registerFcmToken: ['./messaging/notifications', 'registerFcmToken'],
     deleteFcmToken: ['./messaging/notifications', 'deleteFcmToken'],
     sendBroadcastNotification: ['./messaging/notifications', 'sendBroadcastNotification'],
     cronCropAdvisory: ['./messaging/cropAdvisory', 'cronCropAdvisory'],
     runCropAdvisoryEngine: ['./messaging/cropAdvisory', 'runCropAdvisoryEngine'],
+    createCampaign: ['./messaging/campaigns', 'createCampaign'],
+    sendTestNotification: ['./messaging/campaigns', 'sendTestNotification'],
+    sendCampaign: ['./messaging/campaigns', 'sendCampaign'],
+    cancelCampaign: ['./messaging/campaigns', 'cancelCampaign'],
+    resetStuckCampaign: ['./messaging/campaigns', 'resetStuckCampaign'],
+    dispatchScheduledCampaigns: ['./messaging/campaigns', 'dispatchScheduledCampaigns'],
+    recordCampaignClick: ['./messaging/campaigns', 'recordCampaignClick'],
+    getCampaignAnalytics: ['./messaging/campaigns', 'getCampaignAnalytics'],
+    trackCampaignClick: ['./messaging/campaigns', 'trackCampaignClick'],
 
     // --- SERVICE MARKETPLACE (9) ---
     createServiceBooking: ['./src/services/serviceMarketplace', 'createServiceBooking'],
@@ -207,7 +219,10 @@ const FUNCTION_MAP = {
     generateWorkforceId: ['./admin/adminServices', 'generateWorkforceId'],
     getAdminDashboardStats: ['./admin/adminServices', 'getAdminDashboardStats'],
     getFinanceSummary: ['./admin/adminServices', 'getFinanceSummary'],
-    saveExpense: ['./admin/adminServices', 'saveExpense']
+    saveExpense: ['./admin/adminServices', 'saveExpense'],
+
+    // --- FEATURE FLAGS / KILL SWITCHES (1) ---
+    updateFeatureFlag: ['./featureFlags/dist/updateFeatureFlag', 'updateFeatureFlag']
 };
 
 // Register all modular exports on exports object
