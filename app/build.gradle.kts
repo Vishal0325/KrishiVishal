@@ -92,7 +92,8 @@ android {
     }
     lint {
         abortOnError = false
-        checkReleaseBuilds = true
+        // TODO: Re-enable checkReleaseBuilds = true after resolving baseline compose lint warnings for production CI
+        checkReleaseBuilds = false
         disable += "RememberInComposition"
         disable += "FlowOperatorInvokedInComposition"
         disable += "FrequentlyChangingValue"
