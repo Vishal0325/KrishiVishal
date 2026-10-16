@@ -169,6 +169,33 @@ export const navConfig = [
     allowedRoles: ['SuperAdmin', 'HubManager'],
     requiresFinance: false,
     readOnlyFor: ['HubManager']
+  },
+  {
+    id: 'leads',
+    path: '/marketing/leads',
+    label: 'Leads CRM',
+    icon: 'Target',
+    allowedRoles: ['SuperAdmin', 'HubManager', 'Viewer'],
+    requiresFinance: false,
+    readOnlyFor: ['Viewer']
+  },
+  {
+    id: 'kisan-mitra',
+    path: '/marketing/kisan-mitra',
+    label: 'Kisan Mitra / VLE',
+    icon: 'Handshake',
+    allowedRoles: ['SuperAdmin', 'HubManager', 'Viewer'],
+    requiresFinance: false,
+    readOnlyFor: ['Viewer']
+  },
+  {
+    id: 'system-controls',
+    path: '/system-controls',
+    label: 'System Controls',
+    icon: 'Sliders',
+    allowedRoles: ['SuperAdmin', 'HubManager'],
+    requiresFinance: false,
+    readOnlyFor: []
   }
 ];
 

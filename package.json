@@ -17,6 +17,7 @@
     "jsbarcode": "^3.12.3",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
+    "leaflet": "^1.9.4",
     "lucide-react": "^0.330.0",
     "papaparse": "^5.4.1",
     "qrcode": "^1.5.4",

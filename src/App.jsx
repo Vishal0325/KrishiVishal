@@ -1,11 +1,44 @@
 import React from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import { auth } from "./firebase/config";
 import { signOut } from "firebase/auth";
 import LoadingSpinner from "./components/common/LoadingSpinner";
 import { Toaster } from "react-hot-toast";
 import { AlertTriangle } from "lucide-react";
+
+// Deep-link preservation across login: remember where the user wanted to go
+// (e.g. /system-controls) and send them back there after they sign in.
+const POST_LOGIN_KEY = "kv_post_login_redirect";
+
+function isSafeInternalPath(path) {
+  return typeof path === "string" && path.startsWith("/") && !path.startsWith("//") &&
+    !path.startsWith("/login") && !path.startsWith("/unauthorized");
+}
+
+/** Logged-out catch-all: store the requested path, then go to /login. */
+function RedirectToLogin() {
+  const location = useLocation();
+  const target = `${location.pathname}${location.search}${location.hash}`;
+  if (isSafeInternalPath(target) && target !== "/") {
+    try { sessionStorage.setItem(POST_LOGIN_KEY, target); } catch (e) { /* storage unavailable */ }
+  }
+  return <Navigate to="/login" replace />;
+}
+
+/** Logged-in /login route: return to the stored path (or the dashboard). */
+function PostLoginRedirect() {
+  let target = "/";
+  try {
+    const saved = sessionStorage.getItem(POST_LOGIN_KEY);
+    if (isSafeInternalPath(saved)) target = saved;
+  } catch (e) { /* storage unavailable */ }
+  // Clear after commit (not during render) so StrictMode's double render reads the same value.
+  React.useEffect(() => {
+    try { sessionStorage.removeItem(POST_LOGIN_KEY); } catch (e) { /* storage unavailable */ }
+  }, []);
+  return <Navigate to={target} replace />;
+}
 
 // Layout & Core Pages
 const Layout = React.lazy(() => import("./components/Layout/Layout"));
@@ -36,6 +69,7 @@ const AuditLogs = React.lazy(() => import("./pages/AuditLogs"));
 const Settings = React.lazy(() => import("./pages/Settings"));
 const DeliverySlots = React.lazy(() => import("./pages/DeliverySlots"));
 const Notifications = React.lazy(() => import("./pages/Notifications"));
+const SystemControls = React.lazy(() => import("./pages/SystemControls"));
 
 // Service Marketplace
 const ServicesConfig = React.lazy(() => import("./pages/ServicesConfig"));
@@ -97,7 +131,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/unauthorized" element={<Unauthorized />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
+          <Route path="*" element={<RedirectToLogin />} />
         </Routes>
       </React.Suspense>
     );
@@ -161,6 +195,7 @@ function App() {
       <Toaster position="top-right" />
       <React.Suspense fallback={<LoadingSpinner />}>
         <Routes>
+          <Route path="/login" element={<PostLoginRedirect />} />
           <Route path="/" element={<Layout />}>
             <Route path="/" element={<RootRedirect />} />
             <Route path="/ai-control" element={<RequireRole allowedRoles={["SuperAdmin"]}><AIControlRoom /></RequireRole>} />
@@ -184,6 +219,7 @@ function App() {
             <Route path="/staff" element={<RequireRole allowedRoles={["SuperAdmin"]}><Staff /></RequireRole>} />
             <Route path="/audit-logs" element={<RequireRole allowedRoles={["SuperAdmin"]}><AuditLogs /></RequireRole>} />
             <Route path="/settings" element={<RequireRole allowedRoles={["SuperAdmin"]}><Settings /></RequireRole>} />
+            <Route path="/system-controls" element={<RequireRole allowedRoles={["SuperAdmin", "HubManager"]}><SystemControls /></RequireRole>} />
             <Route path="/delivery-slots" element={<RequireRole allowedRoles={opsRoles}><DeliverySlots /></RequireRole>} />
             <Route path="/notifications" element={<RequireRole allowedRoles={catalogRoles}><Notifications /></RequireRole>} />
             <Route path="/profile" element={<Profile />} />
@@ -273,6 +309,9 @@ function App() {
             <Route path="/vle" element={<Navigate to="/marketing/kisan-mitra" replace />} />
             <Route path="/kisan-mitra" element={<Navigate to="/marketing/kisan-mitra" replace />} />
             <Route path="/telecalling" element={<Navigate to="/marketing/leads" replace />} />
+            <Route path="/product-review-queue" element={<Navigate to="/catalog?tab=products" replace />} />
+            <Route path="/customer-support-chat" element={<Navigate to="/support-desk?tab=kisan-call-center" replace />} />
+            <Route path="/service-booking-manager" element={<Navigate to="/service-bookings" replace />} />
             <Route path="/customers" element={<Navigate to="/support-desk?tab=customers" replace />} />
             <Route path="/kisan-call-center" element={<Navigate to="/support-desk?tab=kisan-call-center" replace />} />
             <Route path="/tele-agronomy" element={<Navigate to="/support-desk?tab=kisan-call-center" replace />} />
