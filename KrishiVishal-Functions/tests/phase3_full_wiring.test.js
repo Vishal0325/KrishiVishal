@@ -104,10 +104,10 @@ async function runTestSuite() {
             grnId: `GRN_${testRunId}`
         });
 
-        // Resolve 5 units as RETURN_TO_VENDOR
-        const rtvResult = await resolveQuarantinedStockLogic({
+        // Partial RTV 1: Resolve 5 units as RETURN_TO_VENDOR
+        const rtvResult1 = await resolveQuarantinedStockLogic({
             quarantineId: qId,
-            requestId: `QV_RTV_${testRunId}`,
+            requestId: `QV_RTV_${testRunId}_P1`,
             action: 'RETURN_TO_VENDOR',
             quantity: 5,
             vendorId: 'SUPPLIER_IFFCO',
@@ -116,37 +116,72 @@ async function runTestSuite() {
             actorId: 'MGR_TEST'
         });
 
-        assert.strictEqual(rtvResult.success, true);
-        assert.strictEqual(rtvResult.resolvedQty, 5);
-        assert.strictEqual(rtvResult.totalResolutionValue, 2000); // 5 * 400 = 2000
+        assert.strictEqual(rtvResult1.success, true);
+        assert.strictEqual(rtvResult1.resolvedQty, 5);
+        assert.strictEqual(rtvResult1.totalResolutionValue, 2000); // 5 * 400 = 2000
 
-        // Verify System 2 Journal Entry created
-        const jeSnap = await db.collection("journal_entries")
-            .where("refId", "==", `DN_${testRunId}`)
+        // Partial RTV 2: Resolve 3 more units with the SAME debitNoteRef
+        const rtvResult2 = await resolveQuarantinedStockLogic({
+            quarantineId: qId,
+            requestId: `QV_RTV_${testRunId}_P2`,
+            action: 'RETURN_TO_VENDOR',
+            quantity: 3,
+            vendorId: 'SUPPLIER_IFFCO',
+            vendorName: 'IFFCO Fertilizer Hub',
+            debitNoteRef: `DN_${testRunId}`,
+            actorId: 'MGR_TEST'
+        });
+
+        assert.strictEqual(rtvResult2.success, true);
+        assert.strictEqual(rtvResult2.resolvedQty, 3);
+        assert.strictEqual(rtvResult2.totalResolutionValue, 1200); // 3 * 400 = 1200
+
+        // Verify Journal Entry 1 (cumulative refId: DN_xxx_qId_5)
+        const expectedRefId1 = `DN_${testRunId}_${qId}_5`;
+        const jeSnap1 = await db.collection("journal_entries")
+            .where("refId", "==", expectedRefId1)
             .where("refType", "==", "QUARANTINE_RESOLUTION")
             .get();
 
-        assert.strictEqual(jeSnap.empty, false, "System 2 Journal Entry must exist for RTV");
-        const jeDoc = jeSnap.docs[0].data();
-        assert.strictEqual(jeDoc.totalAmount, 2000);
-        assert.strictEqual(jeDoc.status, 'POSTED');
+        assert.strictEqual(jeSnap1.empty, false, `System 2 Journal Entry 1 must exist for cumulative refId ${expectedRefId1}`);
+        const jeDoc1 = jeSnap1.docs[0].data();
+        assert.strictEqual(jeDoc1.totalAmount, 2000);
+        assert.strictEqual(jeDoc1.status, 'POSTED');
 
-        // Verify lines
-        const linesSnap = await jeSnap.docs[0].ref.collection("lines").get();
-        assert.strictEqual(linesSnap.size, 2, "Must contain exactly 2 lines (Dr and Cr)");
-        const lines = linesSnap.docs.map(d => d.data());
-        const drLine = lines.find(l => l.accountCode === '2010_ACCOUNTS_PAYABLE_SUPPLIERS');
-        const crLine = lines.find(l => l.accountCode === '1045_INVENTORY_QUARANTINE_ASSET');
+        const linesSnap1 = await jeSnap1.docs[0].ref.collection("lines").get();
+        assert.strictEqual(linesSnap1.size, 2, "Must contain exactly 2 lines (Dr and Cr)");
+        const lines1 = linesSnap1.docs.map(d => d.data());
+        const drLine1 = lines1.find(l => l.accountCode === '2010_ACCOUNTS_PAYABLE_SUPPLIERS');
+        const crLine1 = lines1.find(l => l.accountCode === '1045_INVENTORY_QUARANTINE_ASSET');
+        assert.ok(drLine1 && drLine1.debit === 2000);
+        assert.ok(crLine1 && crLine1.credit === 2000);
 
-        assert.ok(drLine, "Must debit 2010_ACCOUNTS_PAYABLE_SUPPLIERS");
-        assert.strictEqual(drLine.debit, 2000);
-        assert.strictEqual(drLine.credit, 0);
+        // Verify Journal Entry 2 (cumulative refId: DN_xxx_qId_8 with SAME debitNoteRef)
+        const expectedRefId2 = `DN_${testRunId}_${qId}_8`;
+        const jeSnap2 = await db.collection("journal_entries")
+            .where("refId", "==", expectedRefId2)
+            .where("refType", "==", "QUARANTINE_RESOLUTION")
+            .get();
 
-        assert.ok(crLine, "Must credit 1045_INVENTORY_QUARANTINE_ASSET");
-        assert.strictEqual(crLine.debit, 0);
-        assert.strictEqual(crLine.credit, 2000);
+        assert.strictEqual(jeSnap2.empty, false, `System 2 Journal Entry 2 must exist for cumulative refId ${expectedRefId2}`);
+        const jeDoc2 = jeSnap2.docs[0].data();
+        assert.strictEqual(jeDoc2.totalAmount, 1200);
+        assert.strictEqual(jeDoc2.status, 'POSTED');
 
-        pass("1. Stage 2A (RTV) PASS: Posted System 2 JE (Dr 2010 ₹2000 / Cr 1045 ₹2000) with freezeSystem1 active!");
+        const linesSnap2 = await jeSnap2.docs[0].ref.collection("lines").get();
+        assert.strictEqual(linesSnap2.size, 2, "Must contain exactly 2 lines (Dr and Cr)");
+        const lines2 = linesSnap2.docs.map(d => d.data());
+        const drLine2 = lines2.find(l => l.accountCode === '2010_ACCOUNTS_PAYABLE_SUPPLIERS');
+        const crLine2 = lines2.find(l => l.accountCode === '1045_INVENTORY_QUARANTINE_ASSET');
+        assert.ok(drLine2 && drLine2.debit === 1200);
+        assert.ok(crLine2 && crLine2.credit === 1200);
+
+        // Verify total quarantine document cumulative state
+        const qSnap = await db.collection("inventory_quarantine").doc(qId).get();
+        assert.strictEqual(qSnap.data().resolvedQty, 8, "Cumulative resolvedQty must be 8 (5 + 3)");
+        assert.strictEqual(qSnap.data().status, 'PARTIALLY_RESOLVED', "10 damaged - 8 resolved leaves status PARTIALLY_RESOLVED");
+
+        pass("1. Stage 2A (RTV Dual Partial Resolution) PASS: Posted 2 separate System 2 JEs with cumulative refIds under same debitNoteRef!");
     } catch (err) {
         fail("1. Stage 2A (RTV)", err);
     }
