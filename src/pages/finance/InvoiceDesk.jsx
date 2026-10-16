@@ -160,37 +160,37 @@ export default function InvoiceDesk() {
     }
   }, []);
 
-  // 2. Fetch AP Purchase Invoices (GRNs)
+  // 2. Fetch AP Purchase Invoices (Goods Receipts)
   const fetchApInvoices = useCallback(async (startAfterDoc = null, isNext = false) => {
     setApLoading(true);
     try {
       let q = query(
-        collection(db, "grn_records"),
+        collection(db, "goods_receipts"),
         orderBy("createdAt", "desc"),
         limit(PAGE_SIZE)
       );
 
       if (startAfterDoc) {
         q = query(
-          collection(db, "grn_records"),
+          collection(db, "goods_receipts"),
           orderBy("createdAt", "desc"),
           startAfter(startAfterDoc),
           limit(PAGE_SIZE)
         );
       }
 
-      let snap = await getDocs(q);
-      if (snap.empty) {
-        // Fallback to goods_receipts
-        q = query(
-          collection(db, "goods_receipts"),
-          orderBy("createdAt", "desc"),
-          limit(PAGE_SIZE)
-        );
-        snap = await getDocs(q);
-      }
-
-      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const snap = await getDocs(q);
+      const docs = snap.docs.map(d => {
+        const data = d.data();
+        return {
+          id: d.id,
+          ...data,
+          totalAmount: data.totalGRNAmount ?? data.totalAmount ?? 0,
+          invoiceNo: data.invoiceNumber || data.invoiceNo || "N/A",
+          tdsDeducted: data.tdsDeducted ?? null,
+          netPayable: data.netPayable ?? null,
+        };
+      });
 
       if (docs.length > 0) {
         setApGrns(docs);
@@ -725,9 +725,9 @@ export default function InvoiceDesk() {
                     </tr>
                   ) : filteredApGrns.length > 0 ? (
                     filteredApGrns.map((grn) => {
-                      const amount = Number(grn.totalAmount || grn.totalBillAmount || 0);
-                      const tds = Number(grn.tdsDeducted || (amount > 5000000 ? (amount - 5000000) * 0.001 : 0));
-                      const net = Number(grn.netPayable || (amount - tds));
+                      const amount = Number(grn.totalAmount || grn.totalGRNAmount || grn.totalBillAmount || 0);
+                      const tds = grn.tdsDeducted !== undefined && grn.tdsDeducted !== null ? Number(grn.tdsDeducted) : null;
+                      const net = grn.netPayable !== undefined && grn.netPayable !== null ? Number(grn.netPayable) : null;
                       const status = grn.status || "PENDING_PAYMENT";
 
                       return (
@@ -748,10 +748,10 @@ export default function InvoiceDesk() {
                             ₹{amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                           </td>
                           <td className="py-3 px-4 text-right font-mono text-purple-700 font-semibold">
-                            ₹{tds.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                            {tds !== null ? `₹${tds.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "N/A"}
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-black text-gray-900 whitespace-nowrap">
-                            ₹{net.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                            {net !== null ? `₹${net.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "N/A"}
                           </td>
                           <td className="py-3 px-4 text-center">
                             <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
@@ -768,7 +768,7 @@ export default function InvoiceDesk() {
                                 <button
                                   onClick={() => {
                                     setSelectedGrn(grn);
-                                    setPayAmount(String(net));
+                                    setPayAmount(String(net !== null ? net : amount));
                                     setPayModalOpen(true);
                                   }}
                                   className="flex items-center gap-1 px-2.5 py-1 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-lg text-[11px] font-bold border border-amber-200 transition-colors cursor-pointer"
@@ -832,12 +832,12 @@ export default function InvoiceDesk() {
               </div>
               <div className="flex justify-between text-gray-600">
                 <span>Bill Invoice:</span>
-                <span className="font-mono">{selectedGrn.invoiceNo || selectedGrn.grnNumber}</span>
+                <span className="font-mono">{selectedGrn.invoiceNo || selectedGrn.invoiceNumber || selectedGrn.grnNumber}</span>
               </div>
               <div className="flex justify-between text-gray-600">
                 <span>Net Obligation:</span>
                 <span className="font-mono font-bold text-emerald-800">
-                  ₹{Number(selectedGrn.netPayable || selectedGrn.totalAmount || 0).toLocaleString("en-IN")}
+                  ₹{Number(selectedGrn.netPayable !== null && selectedGrn.netPayable !== undefined ? selectedGrn.netPayable : (selectedGrn.totalAmount || 0)).toLocaleString("en-IN")}
                 </span>
               </div>
             </div>
