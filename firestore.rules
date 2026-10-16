@@ -433,6 +433,14 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ============================================================
+    // NOTIFICATION CAMPAIGNS (ENTERPRISE BROADCAST)
+    // ============================================================
+    match /notification_campaigns/{id} {
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data);
+      allow write: if false;
+    }
+
 
     // ============================================================
     // DELIVERY SLOTS

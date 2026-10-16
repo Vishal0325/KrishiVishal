@@ -1251,6 +1251,61 @@ async function runEmulatorRulesTests() {
         await assertSucceeds(unauthed.firestore().doc('system_configs/global').get());
     });
 
+    // ============================================================
+    // SECTION 15: NOTIFICATION CAMPAIGNS (ENTERPRISE BROADCAST)
+    // ============================================================
+
+    // 15.1: Admin and Viewer CAN read notification_campaigns
+    await testRule("15.1 Admin and Viewer CAN read notification_campaigns", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            const db = context.firestore();
+            await db.doc('notification_campaigns/camp_global_01').set({
+                title: 'Kharif Advisory',
+                targetType: 'ALL',
+                createdAt: new Date()
+            });
+            await db.doc('notification_campaigns/camp_hub_kha').set({
+                title: 'Khagaria Urea Arrival',
+                targetType: 'HUB',
+                hubId: 'REG-KHA-003',
+                createdAt: new Date()
+            });
+            await db.doc('notification_campaigns/camp_hub_sam').set({
+                title: 'Samastipur DAP Arrival',
+                targetType: 'HUB',
+                hubId: 'REG-SAM-001',
+                createdAt: new Date()
+            });
+        });
+
+        const adminCtx = env.authenticatedContext('admin_super', { role: 'SuperAdmin', isSuperAdmin: true, isAdmin: true, admin: true });
+        await assertSucceeds(adminCtx.firestore().doc('notification_campaigns/camp_global_01').get());
+        await assertSucceeds(pureViewer.firestore().doc('notification_campaigns/camp_global_01').get());
+    });
+
+    // 15.2: HubManager CAN read notification_campaigns belonging to their assigned hub
+    await testRule("15.2 HubManager CAN read notification_campaigns belonging to their assigned hub", async (env) => {
+        await assertSucceeds(pureHubManager.firestore().doc('notification_campaigns/camp_hub_kha').get());
+    });
+
+    // 15.3: HubManager CANNOT read notification_campaigns belonging to another hub
+    await testRule("15.3 HubManager CANNOT read notification_campaigns belonging to another hub", async (env) => {
+        await assertFails(pureHubManager.firestore().doc('notification_campaigns/camp_hub_sam').get());
+    });
+
+    // 15.4: Clients CANNOT write to notification_campaigns (Server-only callable mutation)
+    await testRule("15.4 Clients CANNOT write to notification_campaigns directly (Server-only mutations)", async (env) => {
+        await assertFails(pureHubManager.firestore().doc('notification_campaigns/camp_hack').set({ title: 'Hack' }));
+        const adminCtx = env.authenticatedContext('admin_super', { role: 'SuperAdmin', isSuperAdmin: true, isAdmin: true, admin: true });
+        await assertFails(adminCtx.firestore().doc('notification_campaigns/camp_hack').set({ title: 'Direct Write Hack' }));
+    });
+
+    // 15.5: Unauthenticated user CANNOT read notification_campaigns
+    await testRule("15.5 Unauthenticated user CANNOT read notification_campaigns", async (env) => {
+        const unauthed = env.unauthenticatedContext();
+        await assertFails(unauthed.firestore().doc('notification_campaigns/camp_global_01').get());
+    });
+
 
     await env.cleanup();
 
