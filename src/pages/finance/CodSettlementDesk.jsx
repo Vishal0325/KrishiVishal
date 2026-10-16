@@ -93,12 +93,11 @@ export default function CodSettlementDesk() {
   const [historyPage, setHistoryPage] = useState(1);
   const HISTORY_PER_PAGE = 5;
 
-  // Realtime subscription to vault_deposits
+  // Realtime subscription to hub_bank_deposits
   useEffect(() => {
     try {
       const q = query(
-        collection(db, "vault_deposits"),
-        orderBy("createdAt", "desc"),
+        collection(db, "hub_bank_deposits"),
         limit(30)
       );
       const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -110,21 +109,31 @@ export default function CodSettlementDesk() {
               dateStr = data.depositDate.toDate().toISOString().split("T")[0];
             } else if (data.depositDate) {
               dateStr = String(data.depositDate).split("T")[0];
+            } else if (data.submittedAt) {
+              dateStr = String(data.submittedAt).split("T")[0];
             }
             return {
               id: doc.id,
               ...data,
-              depositDate: dateStr
+              depositDate: dateStr,
+              depositSlipNumber: data.depositSlipNumber || data.challanNo || data.utrNumber || "N/A",
+              depositedBy: data.depositedBy || data.submittedBy || "Staff",
+              warehouseId: data.warehouseId || data.hubCode || currentHubCode
             };
+          });
+          docs.sort((a, b) => {
+            const timeA = a.timestamp || (a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.depositDate || 0).getTime());
+            const timeB = b.timestamp || (b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.depositDate || 0).getTime());
+            return timeB - timeA;
           });
           setVaultHistory(docs);
         }
       }, (err) => {
-        console.warn("Vault deposits onSnapshot warning:", err.message);
+        console.warn("Hub bank deposits onSnapshot warning:", err.message);
       });
       return () => unsubscribe();
     } catch (e) {
-      console.warn("Could not attach vault_deposits listener:", e);
+      console.warn("Could not attach hub_bank_deposits listener:", e);
     }
   }, [currentHubCode]);
 
@@ -479,7 +488,7 @@ export default function CodSettlementDesk() {
             </div>
             <div className="flex justify-between gap-4">
               <span className="text-emerald-100">Primary Bank:</span>
-              <span className="font-bold">HDFC Bank (A/c ...192)</span>
+              <span className="font-bold">HDFC Bank (A/c ••••8812)</span>
             </div>
             <div className="flex justify-between gap-4">
               <span className="text-emerald-100">Maker-Checker:</span>
@@ -635,7 +644,10 @@ export default function CodSettlementDesk() {
                           <td className="py-3 px-3 font-mono text-gray-600 whitespace-nowrap">{dep.depositDate}</td>
                           <td className="py-3 px-3">
                             <span className="font-bold text-gray-900 block">{dep.bankName}</span>
-                            <span className="text-[10px] text-gray-400 font-normal">{dep.cmsAgency || "Manual"}</span>
+                            <span className="text-[10px] text-gray-400 font-normal">
+                              {dep.accountNumber ? `A/c ••••${String(dep.accountNumber).slice(-4)} • ` : ""}
+                              {dep.cmsAgency || "Manual"}
+                            </span>
                           </td>
                           <td className="py-3 px-3 font-mono font-bold text-emerald-900 whitespace-nowrap">
                             {dep.depositSlipNumber}
