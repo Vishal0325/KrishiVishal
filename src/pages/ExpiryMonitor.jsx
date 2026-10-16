@@ -47,6 +47,41 @@ const ExpiryMonitor = () => {
   const [actionType, setActionType] = useState(null); // 'QUARANTINE', 'RETURN_TO_VENDOR', 'SCRAP_WRITE_OFF'
   const [actionNotes, setActionNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [modalIdempotencyKey, setModalIdempotencyKey] = useState(null);
+
+  const handleOpenActionModal = (batchItem, type) => {
+    if (isReadOnly) {
+      toast.error("Read-only access: changes not permitted.");
+      return;
+    }
+    const resolvedSkuCode = batchItem.skuCode;
+    if (!resolvedSkuCode || typeof resolvedSkuCode !== 'string' || resolvedSkuCode.trim() === '') {
+      toast.error("Cannot proceed: Batch is missing a valid SKU Code.");
+      return;
+    }
+    const effectiveWh = batchItem.warehouseId || (isHubScoped && hubId ? hubId : null);
+    if (!effectiveWh || typeof effectiveWh !== 'string' || effectiveWh.trim() === '') {
+      toast.error("Cannot proceed: Batch is missing a Warehouse ID.");
+      return;
+    }
+
+    const key = typeof crypto !== 'undefined' && crypto.randomUUID 
+      ? crypto.randomUUID() 
+      : `WRITEOFF-${resolvedSkuCode}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+    setSelectedBatchItem(batchItem);
+    setActionType(type);
+    setActionNotes('');
+    setModalIdempotencyKey(key);
+  };
+
+  const handleCloseModal = () => {
+    if (isSubmitting) return;
+    setSelectedBatchItem(null);
+    setActionType(null);
+    setActionNotes('');
+    setModalIdempotencyKey(null);
+  };
 
   useEffect(() => {
     if (isHubScoped && hubId) {
@@ -81,7 +116,7 @@ const ExpiryMonitor = () => {
   const batchList = useMemo(() => {
     const batches = [];
     const now = new Date();
-    const defaultWarehouse = isHubScoped && hubId ? hubId : 'MAIN_HUB';
+    const defaultWarehouse = isHubScoped && hubId ? hubId : null;
 
     products.forEach(p => {
       const pExp = p.expiryDate ? (p.expiryDate.toDate ? p.expiryDate.toDate() : new Date(p.expiryDate)) : null;
@@ -104,7 +139,7 @@ const ExpiryMonitor = () => {
         const health = calculateHealth(pExp, p.isQuarantined);
         batches.push({
           productId: p.id,
-          skuCode: p.skuCode || p.id,
+          skuCode: p.skuCode || null,
           productName: p.name,
           category: p.category || 'General',
           brand: p.brand || 'KrishiVishal',
@@ -130,7 +165,7 @@ const ExpiryMonitor = () => {
             const vHealth = calculateHealth(vExp, v.isQuarantined);
             batches.push({
               productId: p.id,
-              skuCode: v.skuCode || v.id || p.skuCode || p.id,
+              skuCode: v.skuCode || p.skuCode || null,
               variantIndex: vIdx,
               productName: `${p.name} (${v.label || 'Variant'})`,
               category: p.category || 'General',
@@ -207,11 +242,27 @@ const ExpiryMonitor = () => {
 
     try {
       const prodRef = doc(db, 'products', selectedBatchItem.productId);
-      const effectiveWarehouse = selectedBatchItem.warehouseId || (isHubScoped && hubId ? hubId : 'MAIN_HUB');
-      const resolvedSkuCode = selectedBatchItem.skuCode || selectedBatchItem.productId;
-      const idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID 
-        ? crypto.randomUUID() 
-        : `WRITEOFF-${resolvedSkuCode}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      
+      const resolvedSkuCode = selectedBatchItem.skuCode;
+      if (!resolvedSkuCode || typeof resolvedSkuCode !== 'string' || resolvedSkuCode.trim() === '') {
+        toast.error("Valid SKU code is required for write-off / return. Batch is missing a SKU Code.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      const effectiveWarehouse = selectedBatchItem.warehouseId || (isHubScoped && hubId ? hubId : null);
+      if (!effectiveWarehouse || typeof effectiveWarehouse !== 'string' || effectiveWarehouse.trim() === '') {
+        toast.error("Warehouse ID is missing. Cannot write off stock without a warehouse assignment.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (!modalIdempotencyKey) {
+        toast.error("Missing idempotency key. Please close modal and reopen.");
+        setIsSubmitting(false);
+        return;
+      }
+      const idempotencyKey = modalIdempotencyKey;
 
       if (actionType === 'QUARANTINE') {
         // Mark product/variant as quarantined so it cannot be purchased in customer app
@@ -283,8 +334,7 @@ const ExpiryMonitor = () => {
         toast.success(`Stock written off via Cloud Function to Scrap Expense. Inventory cleared.`);
       }
 
-      setSelectedBatchItem(null);
-      setActionNotes('');
+      handleCloseModal();
     } catch (err) {
       console.error("Quarantine action error:", err);
       toast.error("Failed to execute action: " + err.message);
@@ -421,10 +471,7 @@ const ExpiryMonitor = () => {
           <div className="flex items-center gap-1.5">
             {!b.isQuarantined && b.status === 'EXPIRED' && (
               <button
-                onClick={() => {
-                  setSelectedBatchItem(b);
-                  setActionType('QUARANTINE');
-                }}
+                onClick={() => handleOpenActionModal(b, 'QUARANTINE')}
                 className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1"
               >
                 <ShieldAlert size={12} />
@@ -434,10 +481,7 @@ const ExpiryMonitor = () => {
 
             {b.isQuarantined && (
               <button
-                onClick={() => {
-                  setSelectedBatchItem(b);
-                  setActionType('RETURN_TO_VENDOR');
-                }}
+                onClick={() => handleOpenActionModal(b, 'RETURN_TO_VENDOR')}
                 className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1"
               >
                 <RotateCcw size={12} />
@@ -447,10 +491,7 @@ const ExpiryMonitor = () => {
 
             {!b.isQuarantined && (b.status === 'CRITICAL' || b.status === 'WARNING') && (
               <button
-                onClick={() => {
-                  setSelectedBatchItem(b);
-                  setActionType('QUARANTINE');
-                }}
+                onClick={() => handleOpenActionModal(b, 'QUARANTINE')}
                 className="px-3 py-1.5 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-xl text-xs font-bold transition-all border border-amber-200"
               >
                 Quarantine / Inspect
@@ -597,7 +638,7 @@ const ExpiryMonitor = () => {
                 </p>
               </div>
               <button
-                onClick={() => setSelectedBatchItem(null)}
+                onClick={handleCloseModal}
                 className="p-2 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-100 transition-all"
               >
                 <X size={16} />
@@ -655,20 +696,27 @@ const ExpiryMonitor = () => {
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setSelectedBatchItem(null)}
+                  onClick={handleCloseModal}
                   className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-black rounded-xl text-xs uppercase tracking-wider transition-all"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmitting}
-                  className={`flex-1 py-3 text-white font-black rounded-xl text-xs uppercase tracking-wider transition-all shadow-md disabled:opacity-50 ${
+                  disabled={isSubmitting || !modalIdempotencyKey}
+                  className={`flex-1 py-3 text-white font-black rounded-xl text-xs uppercase tracking-wider transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
                     actionType === 'QUARANTINE' ? 'bg-red-600 hover:bg-red-700' :
                     actionType === 'RETURN_TO_VENDOR' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-gray-800 hover:bg-black'
                   }`}
                 >
-                  {isSubmitting ? 'Processing...' : 'Confirm Action'}
+                  {isSubmitting ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      Processing...
+                    </>
+                  ) : (
+                    'Confirm Action'
+                  )}
                 </button>
               </div>
             </form>
