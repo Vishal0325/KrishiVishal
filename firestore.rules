@@ -153,7 +153,7 @@ service cloud.firestore {
       allow write: if false;
 
       match /batches/{batchId} {
-        allow read: if isAdmin() || isViewer();
+        allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data);
         allow write: if false;
       }
     }
@@ -1359,6 +1359,30 @@ service cloud.firestore {
       allow create: if isAdmin() || isSuperAdmin() || isTelecaller() || isHubManagerFor(request.resource.data);
       allow update: if isAdmin() || isSuperAdmin() || isTelecaller() || hubManagerUpdateWithinScope();
       allow delete: if isAdmin() || isSuperAdmin() || isTelecaller() || isHubManagerFor(resource.data);
+    }
+
+
+    // ============================================================
+    // FEATURE FLAGS / KILL SWITCHES (system_configs + audit trail)
+    // Writes are server-only (updateFeatureFlag Cloud Function, Admin SDK).
+    // 'global' is public pre-login: it must NEVER contain secrets.
+    // ============================================================
+    match /system_configs/{configId} {
+      allow get: if configId == 'global';
+      allow get: if isAuthenticated();
+      allow list: if isSuperAdmin();
+      allow write: if false;
+    }
+
+    match /system_config_audit/{auditId} {
+      allow read: if isSuperAdmin() ||
+        (isHubManager() &&
+         ('hubId' in request.auth.token) &&
+         ('hubId' in resource.data) &&
+         resource.data.hubId == request.auth.token.hubId);
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
     }
 
 
