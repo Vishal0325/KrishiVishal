@@ -633,8 +633,28 @@ exports.saveExpense = onCall({ region: REGION, cors: true }, async (request) => 
         } else {
             payload.createdAt = admin.firestore.FieldValue.serverTimestamp();
             payload.createdBy = request.auth.uid;
-            const docRef = await db.collection("expenses").add(payload);
-            return { success: true, id: docRef.id };
+
+            const expenseRef = db.collection("expenses").doc();
+            const counterRef = db.collection("counters").doc("expenses");
+            const year = new Date().getFullYear();
+
+            const expenseNumber = await db.runTransaction(async (transaction) => {
+                const counterSnap = await transaction.get(counterRef);
+                let nextNumber = 1;
+                if (counterSnap.exists) {
+                    const cData = counterSnap.data();
+                    if (cData.year === year) {
+                        nextNumber = (cData.count || 0) + 1;
+                    }
+                }
+                transaction.set(counterRef, { year, count: nextNumber }, { merge: true });
+                const voucher = `EXP-${year}-${String(nextNumber).padStart(4, '0')}`;
+                payload.expenseNumber = voucher;
+                transaction.set(expenseRef, payload);
+                return voucher;
+            });
+
+            return { success: true, id: expenseRef.id, expenseNumber };
         }
     } catch (error) {
         console.error("Error saving expense:", error);
