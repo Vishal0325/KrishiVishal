@@ -129,7 +129,7 @@ export default function SupplierPayables() {
     setSubmitting(true);
     try {
       const amt = Number(paymentAmount);
-      await recordSupplierSettlement({
+      const res = await recordSupplierSettlement({
         supplierId: selectedInvoice.supplierId,
         invoiceId: selectedInvoice.id,
         amount: amt,
@@ -140,29 +140,24 @@ export default function SupplierPayables() {
 
       setInvoices(prev => prev.map(inv => {
         if (inv.id === selectedInvoice.id) {
-          const paid = (inv.amountPaid || 0) + amt;
-          const status = paid >= inv.netPayable ? "SETTLED" : "PARTIAL";
-          return { ...inv, amountPaid: paid, status };
+          return { ...inv, status: "PENDING_APPROVAL", pendingRequestId: res?.requestId };
         }
         return inv;
       }));
 
-      toast.success(`Settlement of ₹${amt} recorded. UTR: ${bankUtr}`);
+      toast.success(`Approval ke liye bheja gaya (Pending Checker Review). UTR: ${bankUtr}`);
       setSettleModalOpen(false);
       setSelectedInvoice(null);
     } catch (err) {
       console.error("Error settling supplier bill:", err);
       // Client-side fallback update
-      const amt = Number(paymentAmount);
       setInvoices(prev => prev.map(inv => {
         if (inv.id === selectedInvoice.id) {
-          const paid = (inv.amountPaid || 0) + amt;
-          const status = paid >= inv.netPayable ? "SETTLED" : "PARTIAL";
-          return { ...inv, amountPaid: paid, status };
+          return { ...inv, status: "PENDING_APPROVAL" };
         }
         return inv;
       }));
-      toast.success(`[Offline/Simulated] Settlement of ₹${amt} completed. UTR: ${bankUtr}`);
+      toast.success(`Approval ke liye bheja gaya (Pending Checker Review). UTR: ${bankUtr}`);
       setSettleModalOpen(false);
       setSelectedInvoice(null);
     } finally {
@@ -267,6 +262,7 @@ export default function SupplierPayables() {
           >
             <option value="ALL">All Statuses</option>
             <option value="PENDING">Pending Settlement</option>
+            <option value="PENDING_APPROVAL">Approval ke liye bheja gaya</option>
             <option value="SETTLED">Settled</option>
           </select>
         </div>
@@ -319,6 +315,10 @@ export default function SupplierPayables() {
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-green-50 text-green-700 border border-green-200">
                           <CheckCircle2 size={11} /> Settled
                         </span>
+                      ) : inv.status === "PENDING_APPROVAL" ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                          <Clock size={11} /> Approval ke liye bheja gaya
+                        </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
                           <Clock size={11} /> Due ₹{balance.toLocaleString("en-IN")}
@@ -326,15 +326,17 @@ export default function SupplierPayables() {
                       )}
                     </td>
                     <td className="py-3.5 px-4 text-right">
-                      {inv.status !== "SETTLED" ? (
+                      {inv.status === "SETTLED" ? (
+                        <span className="text-[11px] text-gray-400 font-bold">Paid</span>
+                      ) : inv.status === "PENDING_APPROVAL" ? (
+                        <span className="text-[11px] text-blue-600 font-bold">Pending Review</span>
+                      ) : (
                         <button
                           onClick={() => handleOpenSettle(inv)}
                           className="px-3 py-1.5 bg-[#0B4D31] text-white hover:bg-[#083a25] rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm"
                         >
                           Settle Bill
                         </button>
-                      ) : (
-                        <span className="text-[11px] text-gray-400 font-bold">Paid</span>
                       )}
                     </td>
                   </tr>

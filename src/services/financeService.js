@@ -256,14 +256,19 @@ export async function fetchSupplierInvoices() {
 }
 
 export async function recordSupplierSettlement({ supplierId, invoiceId, amount, bankUtr, periodId = "2026-10", paidBy = "FinanceAdmin" }) {
-  const fn = httpsCallable(functions, "recordSupplierPayment");
+  const fn = httpsCallable(functions, "submitApprovalRequest");
   const res = await fn({
-    supplierId,
-    invoiceId,
-    paymentAmount: Number(amount),
-    utrRef: bankUtr,
-    periodId,
-    paidBy
+    requestType: "HIGH_VALUE_PAYMENT",
+    entityType: "SUPPLIER_INVOICES",
+    entityId: supplierId,
+    payload: {
+      invoiceId,
+      amount: Number(amount),
+      bankAccountCode: "1030_BANK_CURRENT_HDFC",
+      utrRef: bankUtr,
+      periodId,
+      paidBy
+    }
   });
   return res.data;
 }
