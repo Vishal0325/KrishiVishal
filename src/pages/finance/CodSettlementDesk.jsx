@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { 
   Bike, 
   Landmark, 
@@ -92,6 +92,18 @@ export default function CodSettlementDesk() {
   ]);
   const [historyPage, setHistoryPage] = useState(1);
   const HISTORY_PER_PAGE = 5;
+
+  const primaryBankDisplay = useMemo(() => {
+    const recent = vaultHistory.find(d => d.bankName || d.accountNumber);
+    if (!recent) return "Primary Bank";
+    if (recent.bankName) {
+      if (recent.accountNumber && !recent.bankName.includes("(") && !recent.bankName.includes("A/c")) {
+        return `${recent.bankName} (A/c ••••${String(recent.accountNumber).slice(-4)})`;
+      }
+      return recent.bankName;
+    }
+    return recent.accountNumber ? `Bank (A/c ••••${String(recent.accountNumber).slice(-4)})` : "Primary Bank";
+  }, [vaultHistory]);
 
   // Realtime subscription to hub_bank_deposits
   useEffect(() => {
@@ -488,7 +500,7 @@ export default function CodSettlementDesk() {
             </div>
             <div className="flex justify-between gap-4">
               <span className="text-emerald-100">Primary Bank:</span>
-              <span className="font-bold">HDFC Bank (A/c ••••8812)</span>
+              <span className="font-bold">{primaryBankDisplay}</span>
             </div>
             <div className="flex justify-between gap-4">
               <span className="text-emerald-100">Maker-Checker:</span>
