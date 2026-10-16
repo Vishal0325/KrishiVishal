@@ -1366,6 +1366,60 @@ async function runEmulatorRulesTests() {
         await assertFails(customerCtx.firestore().doc('notification_campaigns/camp_global_01').get());
     });
 
+    // ============================================================
+    // SECTION 16: COMPANY HOLIDAYS, COUNTERS & FINANCE ROLES (STEP 5, 7, 8)
+    // ============================================================
+
+    // 16.1: Authenticated user CAN read company_holidays
+    await testRule("16.1 Authenticated user CAN read company_holidays", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            const db = context.firestore();
+            await db.doc('company_holidays/2026').set({ year: 2026, list: ['2026-01-26', '2026-08-15', '2026-10-02'] });
+            await db.doc('counters/expenses').set({ year: 2026, count: 5 });
+            await db.doc('goods_receipts/grn_finance_test').set({ totalGRNAmount: 50000, supplierName: 'Test Agri' });
+        });
+
+        const authCtx = env.authenticatedContext('usr_regular', { role: 'Viewer' });
+        await assertSucceeds(authCtx.firestore().doc('company_holidays/2026').get());
+    });
+
+    // 16.2: Unauthenticated user CANNOT read company_holidays
+    await testRule("16.2 Unauthenticated user CANNOT read company_holidays", async (env) => {
+        const unauthed = env.unauthenticatedContext();
+        await assertFails(unauthed.firestore().doc('company_holidays/2026').get());
+    });
+
+    // 16.3: Client CANNOT write to company_holidays
+    await testRule("16.3 Client CANNOT write to company_holidays", async (env) => {
+        const adminCtx = env.authenticatedContext('usr_admin_vikash', { role: 'SuperAdmin' });
+        await assertFails(adminCtx.firestore().doc('company_holidays/2027').set({ year: 2027 }));
+    });
+
+    // 16.4: Client CANNOT read or write counters collection directly
+    await testRule("16.4 Client CANNOT read or write counters collection directly", async (env) => {
+        const adminCtx = env.authenticatedContext('usr_admin_vikash', { role: 'SuperAdmin' });
+        const userCtx = env.authenticatedContext('usr_regular', { role: 'Viewer' });
+        await assertFails(userCtx.firestore().doc('counters/expenses').get());
+        await assertFails(adminCtx.firestore().doc('counters/expenses').get());
+        await assertFails(userCtx.firestore().doc('counters/expenses').set({ count: 10 }));
+        await assertFails(adminCtx.firestore().doc('counters/expenses').set({ count: 10 }));
+    });
+
+    // 16.5: Finance roles (Accountant, CFO) CAN read goods_receipts
+    await testRule("16.5 Finance roles (Accountant, CFO) CAN read goods_receipts", async (env) => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            const db = context.firestore();
+            await db.doc('users/usr_accountant').set({ status: 'ACTIVE', deactivated: false });
+            await db.doc('users/usr_cfo').set({ status: 'ACTIVE', deactivated: false });
+        });
+
+        const accountantCtx = env.authenticatedContext('usr_accountant', { role: 'Accountant' });
+        const cfoCtx = env.authenticatedContext('usr_cfo', { role: 'CFO' });
+
+        await assertSucceeds(accountantCtx.firestore().doc('goods_receipts/grn_finance_test').get());
+        await assertSucceeds(cfoCtx.firestore().doc('goods_receipts/grn_finance_test').get());
+    });
+
 
     await env.cleanup();
 
