@@ -669,7 +669,11 @@ service cloud.firestore {
         allow create: if isAdmin() || (
           isRider() &&
           request.resource.data.keys().hasOnly(['orderId', 'type', 'message', 'createdAt']) &&
-          request.resource.data.type in ['DELIVERY_STARTED', 'DELIVERY_NEAR', 'DELIVERY_COMPLETED', 'RIDER_ASSIGNED']
+          request.resource.data.type in ['DELIVERY_STARTED', 'DELIVERY_NEAR', 'DELIVERY_COMPLETED', 'RIDER_ASSIGNED'] &&
+          request.resource.data.orderId is string &&
+          request.resource.data.orderId.size() > 0 &&
+          exists(/databases/$(database)/documents/orders/$(request.resource.data.orderId)) &&
+          get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.riderId == request.auth.uid
         );
         allow read, update, delete: if isOwner(uId) || isAdmin();
       }
@@ -1133,12 +1137,12 @@ service cloud.firestore {
     }
 
     match /goods_receipts/{grnId} {
-      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data) || isDepartmentManager();
+      allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data) || isDepartmentManager() || canViewFinance();
       allow create: if isAdmin() || isHubManagerFor(request.resource.data);
       allow update: if isAdmin() || (isHubManagerFor(resource.data) && hubManagerUpdateWithinScope());
       allow delete: if isAdmin();
       match /{document=**} {
-        allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data) || isDepartmentManager();
+        allow read: if isAdmin() || isViewer() || isHubManagerFor(resource.data) || isDepartmentManager() || canViewFinance();
         allow create: if isAdmin() || isHubManagerFor(request.resource.data);
         allow update: if isAdmin() || (isHubManagerFor(resource.data) && hubManagerUpdateWithinScope());
         allow delete: if isAdmin();
@@ -1401,6 +1405,18 @@ service cloud.firestore {
       allow create: if false;
       allow update: if false;
       allow delete: if false;
+    }
+
+    // ============================================================
+    // COMPANY HOLIDAYS & ATOMIC SYSTEM COUNTERS
+    // ============================================================
+    match /company_holidays/{year} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /counters/{counterId} {
+      allow read, write: if false; // Server-only atomic counters managed via Admin SDK
     }
 
 
