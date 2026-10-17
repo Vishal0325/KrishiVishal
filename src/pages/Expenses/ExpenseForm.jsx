@@ -160,6 +160,10 @@ const ExpenseForm = () => {
       otherChargesMinor: Math.round(other * 100),
       roundOffMinor: Math.round(off * 100),
       totalAmountMinor: Math.round(total * 100),
+      amount: Math.round(total * 100) / 100,
+      totalAmount: Math.round(total * 100) / 100,
+      approvalStatus: 'PENDING',
+      deleted: false,
       createdByName: user?.displayName || user?.email?.split('@')[0] || 'Admin',
       createdByEmail: user?.email || '',
       createdByRole: role || 'Admin'
