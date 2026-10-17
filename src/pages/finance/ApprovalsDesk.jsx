@@ -59,17 +59,17 @@ export default function ApprovalsDesk() {
   const rejectedCount = requests.filter(r => r.status === "REJECTED").length;
 
   const handleOpenReview = (req) => {
-    // Check Segregation of Duties (SoD) locally as well
-    if (user?.uid && user.uid === req.maker?.uid) {
-      toast.error("SoD Restriction: You are the Maker of this request and cannot review it.");
-      return;
-    }
     setSelectedReq(req);
     setRemarks("");
     setReviewModalOpen(true);
   };
 
   const handleAction = async (action) => {
+    if (action === "APPROVE" && user?.uid && user.uid === selectedReq?.maker?.uid) {
+      toast.error("SoD Restriction: Makers cannot approve their own requests under Companies Act 2013.");
+      return;
+    }
+
     if (action === "REJECT" && (!remarks || remarks.trim().length < 3)) {
       toast.error("A documented reason (remarks) is mandatory when rejecting a request.");
       return;
@@ -323,6 +323,19 @@ export default function ApprovalsDesk() {
               </div>
             </div>
 
+            {/* SOD SELF-CHECK NOTICE */}
+            {user?.uid && user.uid === selectedReq.maker?.uid && (
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2.5">
+                <AlertTriangle size={16} className="shrink-0 text-amber-600 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-bold block">Segregation of Duties (SoD) Active</span>
+                  <span className="text-[11px] text-amber-800 leading-relaxed block">
+                    Aap is request ke <strong>Maker</strong> hain. Section 134(5)(e) ke mutabiq aap ise <strong>Approve nahi kar sakte</strong>. Lekin agar yeh test request thi ya galti se bani thi, toh aap reason enter karke ise <strong>Reject / Withdraw</strong> kar sakte hain.
+                  </span>
+                </div>
+              </div>
+            )}
+
             {/* DIFF VIEW: CASE 1 (BANK UPDATE) */}
             {selectedReq.requestType === "SUPPLIER_BANK_UPDATE" && (
               <div className="space-y-3">
@@ -428,8 +441,13 @@ export default function ApprovalsDesk() {
                 <button
                   type="button"
                   onClick={() => handleAction("APPROVE")}
-                  disabled={submitting}
-                  className="px-4 py-2 bg-[#0B4D31] text-white rounded-xl text-xs font-bold hover:bg-[#083a25] shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  disabled={submitting || (user?.uid && user.uid === selectedReq.maker?.uid)}
+                  title={user?.uid && user.uid === selectedReq.maker?.uid ? "Makers cannot self-approve (SoD Restriction)" : "Approve & Execute"}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all ${
+                    user?.uid && user.uid === selectedReq.maker?.uid
+                      ? "bg-gray-200 text-gray-400 cursor-not-allowed border border-gray-300"
+                      : "bg-[#0B4D31] text-white hover:bg-[#083a25] cursor-pointer"
+                  } disabled:opacity-50`}
                 >
                   <Check size={14} />
                   <span>{submitting ? "Executing..." : "Approve & Execute"}</span>
