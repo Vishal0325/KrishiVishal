@@ -40,7 +40,7 @@ export default function ApprovalsDesk() {
   const loadRequests = async () => {
     setLoading(true);
     try {
-      const data = await fetchApprovalRequests(statusFilter);
+      const data = await fetchApprovalRequests("ALL");
       setRequests(data || []);
     } catch (err) {
       console.error("Error loading approval requests:", err);
@@ -52,7 +52,7 @@ export default function ApprovalsDesk() {
 
   useEffect(() => {
     loadRequests();
-  }, [statusFilter]);
+  }, []);
 
   const pendingCount = requests.filter(r => r.status === "PENDING").length;
   const approvedCount = requests.filter(r => r.status === "APPROVED").length;
@@ -60,7 +60,7 @@ export default function ApprovalsDesk() {
 
   const handleOpenReview = (req) => {
     setSelectedReq(req);
-    setRemarks("");
+    setRemarks(req.rejectionReason || req.checker?.remarks || "");
     setReviewModalOpen(true);
   };
 
@@ -137,7 +137,13 @@ export default function ApprovalsDesk() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
+        <div 
+          onClick={() => setStatusFilter("PENDING")}
+          className={`bg-white p-5 rounded-2xl border transition-all cursor-pointer shadow-sm flex items-center justify-between hover:shadow-md ${
+            statusFilter === "PENDING" ? "border-amber-400 ring-2 ring-amber-400/20" : "border-gray-100 hover:border-gray-200"
+          }`}
+          title="Filter by Pending Review"
+        >
           <div>
             <span className="text-[11px] font-bold uppercase text-gray-400 block">Pending Review</span>
             <p className="text-2xl font-black text-amber-600 mt-1">{pendingCount}</p>
@@ -148,7 +154,13 @@ export default function ApprovalsDesk() {
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
+        <div 
+          onClick={() => setStatusFilter("APPROVED")}
+          className={`bg-white p-5 rounded-2xl border transition-all cursor-pointer shadow-sm flex items-center justify-between hover:shadow-md ${
+            statusFilter === "APPROVED" ? "border-emerald-500 ring-2 ring-emerald-500/20" : "border-gray-100 hover:border-gray-200"
+          }`}
+          title="Filter by Approved & Executed"
+        >
           <div>
             <span className="text-[11px] font-bold uppercase text-gray-400 block">Approved & Executed</span>
             <p className="text-2xl font-black text-emerald-800 mt-1">{approvedCount}</p>
@@ -159,7 +171,13 @@ export default function ApprovalsDesk() {
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
+        <div 
+          onClick={() => setStatusFilter("REJECTED")}
+          className={`bg-white p-5 rounded-2xl border transition-all cursor-pointer shadow-sm flex items-center justify-between hover:shadow-md ${
+            statusFilter === "REJECTED" ? "border-red-400 ring-2 ring-red-400/20" : "border-gray-100 hover:border-gray-200"
+          }`}
+          title="Filter by Rejected / Withheld"
+        >
           <div>
             <span className="text-[11px] font-bold uppercase text-gray-400 block">Rejected / Withheld</span>
             <p className="text-2xl font-black text-red-600 mt-1">{rejectedCount}</p>
@@ -177,7 +195,7 @@ export default function ApprovalsDesk() {
           <button
             onClick={() => setStatusFilter("PENDING")}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              statusFilter === "PENDING" ? "bg-[#0B4D31] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              statusFilter === "PENDING" ? "bg-[#0B4D31] text-white shadow-sm" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             }`}
           >
             Pending ({pendingCount})
@@ -185,18 +203,26 @@ export default function ApprovalsDesk() {
           <button
             onClick={() => setStatusFilter("APPROVED")}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              statusFilter === "APPROVED" ? "bg-[#0B4D31] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              statusFilter === "APPROVED" ? "bg-[#0B4D31] text-white shadow-sm" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             }`}
           >
-            Approved
+            Approved ({approvedCount})
+          </button>
+          <button
+            onClick={() => setStatusFilter("REJECTED")}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              statusFilter === "REJECTED" ? "bg-red-700 text-white shadow-sm" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            Rejected ({rejectedCount})
           </button>
           <button
             onClick={() => setStatusFilter("ALL")}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              statusFilter === "ALL" ? "bg-[#0B4D31] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              statusFilter === "ALL" ? "bg-[#0B4D31] text-white shadow-sm" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             }`}
           >
-            All Requests
+            All Requests ({requests.length})
           </button>
         </div>
 
@@ -263,6 +289,14 @@ export default function ApprovalsDesk() {
                           <span className="text-gray-400 font-mono text-[10px] block">Ref: {r.payload?.invoiceId} (UTR: {r.payload?.utrRef || "Pending"})</span>
                         </div>
                       )}
+                      {r.status === "REJECTED" && (r.rejectionReason || r.checker?.remarks) && (
+                        <div className="mt-1.5 p-1.5 bg-red-50/90 border border-red-200/80 rounded-lg text-[11px] text-red-900 leading-tight">
+                          <span className="font-bold text-red-700 text-[10px] uppercase tracking-wider block">
+                            Rejection Reason:
+                          </span>
+                          <span className="italic block mt-0.5">{r.rejectionReason || r.checker?.remarks}</span>
+                        </div>
+                      )}
                     </td>
                     <td className="py-3.5 px-4 text-center">
                       {r.status === "APPROVED" ? (
@@ -278,6 +312,11 @@ export default function ApprovalsDesk() {
                           <Clock size={11} /> Pending Review
                         </span>
                       )}
+                      {r.status !== "PENDING" && r.checker && (
+                        <div className="text-[10px] text-gray-400 mt-1 font-mono">
+                          by {r.checker.email ? r.checker.email.split("@")[0] : (r.checker.role || "Checker")}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3.5 px-4 text-right">
                       {isPending ? (
@@ -289,7 +328,13 @@ export default function ApprovalsDesk() {
                           <span>Review Request</span>
                         </button>
                       ) : (
-                        <span className="text-[11px] text-gray-400 font-mono">Resolved</span>
+                        <button
+                          onClick={() => handleOpenReview(r)}
+                          className="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm flex items-center gap-1.5 ml-auto"
+                        >
+                          <Eye size={12} />
+                          <span>View Details</span>
+                        </button>
                       )}
                     </td>
                   </tr>
@@ -297,8 +342,16 @@ export default function ApprovalsDesk() {
               })}
               {filteredRequests.length === 0 && (
                 <tr>
-                  <td colSpan="6" className="py-10 text-center text-gray-400">
-                    No approval requests found for this filter.
+                  <td colSpan="6" className="py-12 text-center text-gray-400">
+                    <div className="max-w-xs mx-auto space-y-1">
+                      <p className="font-semibold text-gray-600">No {statusFilter === "ALL" ? "" : statusFilter.toLowerCase()} requests found</p>
+                      <p className="text-[11px] text-gray-400">
+                        {statusFilter === "PENDING" && "All high-risk disbursements and bank updates have been reviewed."}
+                        {statusFilter === "REJECTED" && "No rejected requests currently on record."}
+                        {statusFilter === "APPROVED" && "No executed approval requests recorded yet."}
+                        {statusFilter === "ALL" && "No dual-authorization requests exist in the system."}
+                      </p>
+                    </div>
                   </td>
                 </tr>
               )}
@@ -324,7 +377,7 @@ export default function ApprovalsDesk() {
             </div>
 
             {/* SOD SELF-CHECK NOTICE */}
-            {user?.uid && user.uid === selectedReq.maker?.uid && (
+            {selectedReq.status === "PENDING" && user?.uid && user.uid === selectedReq.maker?.uid && (
               <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2.5">
                 <AlertTriangle size={16} className="shrink-0 text-amber-600 mt-0.5" />
                 <div className="space-y-0.5">
@@ -333,6 +386,41 @@ export default function ApprovalsDesk() {
                     Aap is request ke <strong>Maker</strong> hain. Section 134(5)(e) ke mutabiq aap ise <strong>Approve nahi kar sakte</strong>. Lekin agar yeh test request thi ya galti se bani thi, toh aap reason enter karke ise <strong>Reject / Withdraw</strong> kar sakte hain.
                   </span>
                 </div>
+              </div>
+            )}
+
+            {/* RESOLUTION AUDIT BANNER IF NOT PENDING */}
+            {selectedReq.status === "REJECTED" && (
+              <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-900 space-y-1.5">
+                <div className="flex items-center gap-1.5 font-black text-red-800">
+                  <XCircle size={16} /> Request Rejected & Withheld
+                </div>
+                <div>
+                  <span className="text-red-700 font-bold">Documented Reason: </span>
+                  <span className="font-medium text-gray-900">{selectedReq.rejectionReason || selectedReq.checker?.remarks || "No remarks provided"}</span>
+                </div>
+                {selectedReq.checker && (
+                  <div className="text-[11px] text-gray-500 font-mono">
+                    Actioned by: {selectedReq.checker.email} ({selectedReq.checker.role})
+                  </div>
+                )}
+              </div>
+            )}
+
+            {selectedReq.status === "APPROVED" && (
+              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 space-y-1.5">
+                <div className="flex items-center gap-1.5 font-black text-emerald-800">
+                  <CheckCircle2 size={16} /> Request Approved & Executed
+                </div>
+                <div>
+                  <span className="text-emerald-700 font-bold">Approval Remarks: </span>
+                  <span className="font-medium text-gray-900">{selectedReq.checker?.remarks || "Approved by Checker"}</span>
+                </div>
+                {selectedReq.checker && (
+                  <div className="text-[11px] text-gray-500 font-mono">
+                    Actioned by: {selectedReq.checker.email} ({selectedReq.checker.role})
+                  </div>
+                )}
               </div>
             )}
 
@@ -404,18 +492,20 @@ export default function ApprovalsDesk() {
             )}
 
             {/* Remarks Input */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-gray-700 block">
-                Checker Review Notes / Statutory Justification
-              </label>
-              <textarea
-                value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
-                placeholder="Enter audit remarks (mandatory if rejecting)..."
-                rows={3}
-                className="w-full border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-[#0B4D31]"
-              />
-            </div>
+            {selectedReq.status === "PENDING" && (
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-700 block">
+                  Checker Review Notes / Statutory Justification
+                </label>
+                <textarea
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  placeholder="Enter audit remarks (mandatory if rejecting)..."
+                  rows={3}
+                  className="w-full border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-[#0B4D31]"
+                />
+              </div>
+            )}
 
             {/* Action Buttons */}
             <div className="flex items-center justify-between pt-3 border-t border-gray-100">
@@ -424,35 +514,37 @@ export default function ApprovalsDesk() {
                 onClick={() => setReviewModalOpen(false)}
                 className="px-4 py-2 border border-gray-200 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-50 cursor-pointer"
               >
-                Cancel
+                {selectedReq.status === "PENDING" ? "Cancel" : "Close"}
               </button>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleAction("REJECT")}
-                  disabled={submitting}
-                  className="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-                >
-                  <X size={14} />
-                  <span>Reject Request</span>
-                </button>
+              {selectedReq.status === "PENDING" && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleAction("REJECT")}
+                    disabled={submitting}
+                    className="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    <X size={14} />
+                    <span>Reject Request</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => handleAction("APPROVE")}
-                  disabled={submitting || (user?.uid && user.uid === selectedReq.maker?.uid)}
-                  title={user?.uid && user.uid === selectedReq.maker?.uid ? "Makers cannot self-approve (SoD Restriction)" : "Approve & Execute"}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all ${
-                    user?.uid && user.uid === selectedReq.maker?.uid
-                      ? "bg-gray-200 text-gray-400 cursor-not-allowed border border-gray-300"
-                      : "bg-[#0B4D31] text-white hover:bg-[#083a25] cursor-pointer"
-                  } disabled:opacity-50`}
-                >
-                  <Check size={14} />
-                  <span>{submitting ? "Executing..." : "Approve & Execute"}</span>
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => handleAction("APPROVE")}
+                    disabled={submitting || (user?.uid && user.uid === selectedReq.maker?.uid)}
+                    title={user?.uid && user.uid === selectedReq.maker?.uid ? "Makers cannot self-approve (SoD Restriction)" : "Approve & Execute"}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all ${
+                      user?.uid && user.uid === selectedReq.maker?.uid
+                        ? "bg-gray-200 text-gray-400 cursor-not-allowed border border-gray-300"
+                        : "bg-[#0B4D31] text-white hover:bg-[#083a25] cursor-pointer"
+                    } disabled:opacity-50`}
+                  >
+                    <Check size={14} />
+                    <span>{submitting ? "Executing..." : "Approve & Execute"}</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
