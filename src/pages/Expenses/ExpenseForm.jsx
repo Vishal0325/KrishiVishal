@@ -19,7 +19,8 @@ import {
   CheckCircle,
   PlusCircle
 } from 'lucide-react';
-import { db, storage } from '../../firebase/config';
+import { db, storage, functions } from '../../firebase/config';
+import { httpsCallable } from 'firebase/functions';
 import { doc, getDoc } from 'firebase/firestore';
 import { expenseService } from '../../services/expenseService';
 import { useExpenseData } from '../../hooks/useExpenseData';
@@ -165,32 +166,17 @@ const ExpenseForm = () => {
     };
 
     try {
-      // 1. Try Cloud Function first
-      try {
-        const { getFunctions, httpsCallable } = await import('firebase/functions');
-        const saveExpense = httpsCallable(getFunctions(), 'saveExpense');
-        const result = await saveExpense({ id, formData: payload });
-        if (result?.data?.success) {
-          toast.success(id ? "Expense updated successfully" : "Expense created and pending approval");
-          navigate('/finance-desk?tab=expenses');
-          return;
-        }
-      } catch (cfErr) {
-        console.warn("Cloud function saveExpense unavailable, falling back to direct Firestore:", cfErr);
+      // 1. Authoritative Cloud Function in asia-south1
+      const saveExpense = httpsCallable(functions, 'saveExpense');
+      const result = await saveExpense({ id, formData: payload });
+      if (result?.data?.success) {
+        toast.success(id ? "Expense updated successfully" : `Expense created (${result.data?.expenseNumber || 'Pending'})`);
+        navigate('/finance-desk?tab=expenses');
+        return;
       }
-
-      // 2. Direct Firestore fallback via expenseService
-      if (id) {
-        await expenseService.updateExpense(id, payload, user?.uid || 'admin');
-        toast.success("Expense updated successfully");
-      } else {
-        await expenseService.createExpense(payload, user?.uid || 'admin');
-        toast.success("Expense created and pending approval");
-      }
-      navigate('/finance-desk?tab=expenses');
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to save expense: " + err.message);
+    } catch (cfErr) {
+      console.error("Cloud function saveExpense failed:", cfErr);
+      toast.error(cfErr.message || "Failed to save expense");
     } finally {
       setSaving(false);
     }

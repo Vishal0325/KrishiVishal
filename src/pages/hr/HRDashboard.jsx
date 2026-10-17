@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { doc, getDoc } from "firebase/firestore";
-import { db } from "../../firebase/config";
+import { db, functions } from "../../firebase/config";
+import { httpsCallable } from "firebase/functions";
 import toast from "react-hot-toast";
 import PageHeader from "../../components/common/PageHeader";
 import { getHRDashboardMetrics } from "../../services/hrExtendedService";
@@ -32,8 +33,7 @@ const HRDashboard = () => {
       setRefreshing(true);
       // [FIXED] Point #131: Fetch summarized metrics from a single document or Cloud Function
       // instead of performing O(N) reads across 9 collections on the client.
-      const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const syncFn = httpsCallable(getFunctions(), 'syncHRMetrics');
+      const syncFn = httpsCallable(functions, 'syncHRMetrics');
       const res = await syncFn();
       setMetrics(res.data.metrics);
     } catch (error) {
