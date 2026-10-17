@@ -149,7 +149,9 @@ async function reviewApprovalRequest({ requestId, checker, action, remarks }) {
     }
 
     // 2. SELF-APPROVAL GUARD (Segregation of Duties)
-    if (checker.uid === reqData.maker.uid) {
+    // Under Section 134(5)(e) Companies Act 2013, Makers cannot APPROVE their own transactions.
+    // However, Makers CAN REJECT / WITHDRAW their own pending transactions if submitted mistakenly.
+    if (action === "APPROVE" && checker.uid === reqData.maker.uid) {
         const err = new Error("MAKER_CANNOT_BE_CHECKER: Segregation of Duties violation. The creator (Maker) cannot approve their own request.");
         err.code = "MAKER_CANNOT_BE_CHECKER";
         throw err;

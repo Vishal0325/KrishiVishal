@@ -191,7 +191,42 @@ async function runSprint10TestSuite() {
                 fail("Case 1: Self-Approval Guard", new Error("Allowed maker to approve own request"));
             } catch (err) {
                 assert.strictEqual(err.code, "MAKER_CANNOT_BE_CHECKER");
-                pass("Case 1: Maker cannot be Checker - Strictly threw MAKER_CANNOT_BE_CHECKER");
+                pass("Case 1: Maker cannot be Checker - Strictly threw MAKER_CANNOT_BE_CHECKER on APPROVE");
+            }
+
+            // Case 1B: Maker CAN reject/withdraw their own mistaken request
+            try {
+                const reqWithdraw = await submitApprovalRequest({
+                    requestType: "HIGH_VALUE_PAYMENT",
+                    entityType: "SUPPLIER_INVOICES",
+                    entityId: "INV_WITHDRAW_TEST",
+                    maker: {
+                        uid: "MAKER_UID_WITHDRAW",
+                        email: "rahul.accountant@krishivishal.com",
+                        role: "FinanceAdmin"
+                    },
+                    payload: {
+                        amount: 60000,
+                        invoiceId: "INV_WITHDRAW_TEST",
+                        vendorId: "SUPP_001"
+                    }
+                });
+
+                const rejectRes = await reviewApprovalRequest({
+                    requestId: reqWithdraw.requestId,
+                    checker: {
+                        uid: "MAKER_UID_WITHDRAW", // Maker rejecting own request
+                        email: "rahul.accountant@krishivishal.com",
+                        role: "SuperAdmin"
+                    },
+                    action: "REJECT",
+                    remarks: "Created by mistake, withdrawing my own request"
+                });
+
+                assert.strictEqual(rejectRes.status, "REJECTED");
+                pass("Case 1B: Maker can reject/withdraw own request - Successfully marked REJECTED");
+            } catch (err) {
+                fail("Case 1B: Maker self-rejection error", err);
             }
         } catch (e) {
             fail("Case 1: Self-Approval Guard setup", e);
