@@ -168,7 +168,11 @@ const ExpenseForm = () => {
     try {
       // 1. Authoritative Cloud Function in asia-south1
       const saveExpense = httpsCallable(functions, 'saveExpense');
-      const result = await saveExpense({ id, formData: payload });
+      const requestData = { formData: payload };
+      if (id && typeof id === 'string' && id.trim()) {
+        requestData.id = id.trim();
+      }
+      const result = await saveExpense(requestData);
       if (result?.data?.success) {
         toast.success(id ? "Expense updated successfully" : `Expense created (${result.data?.expenseNumber || 'Pending'})`);
         navigate('/finance-desk?tab=expenses');
